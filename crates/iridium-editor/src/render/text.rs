@@ -329,6 +329,126 @@ impl TextRenderer {
         self.atlas.trim();
     }
 
+    /// Loads a font from file data (T148).
+    ///
+    /// The font data should be the raw bytes of a TrueType (.ttf) or
+    /// OpenType (.otf) font file.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Font file data as bytes
+    ///
+    /// # Note
+    ///
+    /// The font is added to the system's font database and becomes available
+    /// for use via `set_font_family()`.
+    pub fn load_font(&mut self, data: Vec<u8>) {
+        self.font_system.db_mut().load_font_data(data);
+    }
+
+    /// Loads a font from a file path (T148).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the font file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
+    pub fn load_font_file(&mut self, path: &std::path::Path) -> Result<(), IridiumError> {
+        let data = std::fs::read(path).map_err(|e| IridiumError::FontLoadFailed {
+            message: format!("Failed to read font file {}: {e}", path.display()),
+        })?;
+
+        self.load_font(data);
+        Ok(())
+    }
+
+    /// Returns the current configuration.
+    #[must_use]
+    pub const fn config(&self) -> &TextRenderConfig {
+        &self.config
+    }
+
+    /// Updates the font size at runtime (T149).
+    ///
+    /// This invalidates all existing text buffers, which should be
+    /// recreated with the new size.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - New font size in pixels
+    pub fn set_font_size(&mut self, size: f32) {
+        self.config.font_size = size;
+        // Clear the glyph cache since glyphs will be at a different size
+        self.atlas.trim();
+    }
+
+    /// Updates the line height at runtime (T149).
+    ///
+    /// # Arguments
+    ///
+    /// * `height` - New line height multiplier
+    pub fn set_line_height(&mut self, height: f32) {
+        self.config.line_height = height;
+    }
+
+    /// Updates the font family at runtime (T149).
+    ///
+    /// The family name should match a font already loaded in the system.
+    /// Use `load_font` or `load_font_file` to add custom fonts first.
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name (e.g., "`JetBrains` Mono")
+    pub fn set_font_family(&mut self, family: impl Into<String>) {
+        self.config.font_family = family.into();
+        // Clear the glyph cache since we'll be using different glyphs
+        self.atlas.trim();
+    }
+
+    /// Updates the configuration from a theme's typography settings (T149).
+    ///
+    /// This is a convenience method for updating all text rendering settings
+    /// at once when the theme changes.
+    ///
+    /// # Arguments
+    ///
+    /// * `typography` - Typography settings from a theme
+    pub fn apply_typography(&mut self, typography: &crate::theme::Typography) {
+        self.config.font_size = typography.font_size;
+        self.config.line_height = typography.line_height;
+        self.config.font_family.clone_from(&typography.font_family);
+        // Clear the glyph cache since settings changed
+        self.atlas.trim();
+    }
+
+    /// Queries available font families in the system.
+    ///
+    /// Returns a list of font family names that can be used with `set_font_family`.
+    pub fn available_font_families(&self) -> Vec<String> {
+        self.font_system
+            .db()
+            .faces()
+            .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    /// Checks if a font family is available.
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name to check
+    #[must_use]
+    pub fn has_font_family(&self, family: &str) -> bool {
+        self.font_system
+            .db()
+            .faces()
+            .any(|face| face.families.iter().any(|(name, _)| name == family))
+    }
+
     /// Creates a text area from a buffer for rendering.
     ///
     /// # Arguments

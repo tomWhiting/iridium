@@ -42,6 +42,16 @@ pub enum EditorEvent {
         current_index: Option<usize>,
     },
 
+    /// Theme changed (T147).
+    ///
+    /// Emitted when the theme is updated at runtime.
+    ThemeChanged {
+        /// Name of the new theme
+        theme_name: String,
+        /// Whether the new theme is dark
+        is_dark: bool,
+    },
+
     /// An error occurred.
     Error {
         /// Error message
@@ -481,6 +491,73 @@ impl Editor {
         let selections: Vec<Selection> = self.state.cursor.all_selections().copied().collect();
         self.emit(&EditorEvent::SelectionChanged { selections });
     }
+
+    /// Returns the current theme (T152).
+    #[must_use]
+    pub const fn get_theme(&self) -> &Theme {
+        &self.state.theme
+    }
+
+    /// Sets the theme at runtime (T147, T152).
+    ///
+    /// This updates the editor's theme and emits a `ThemeChanged` event.
+    /// The change takes effect immediately without requiring a restart.
+    ///
+    /// # Arguments
+    ///
+    /// * `theme` - The new theme to apply
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use iridium_editor::{Editor, EditorConfig};
+    /// use iridium_editor::theme::Theme;
+    ///
+    /// let mut editor = Editor::with_defaults();
+    ///
+    /// // Switch to light theme
+    /// editor.set_theme(Theme::light());
+    ///
+    /// // Or load a custom theme from JSON
+    /// // let custom = Theme::from_json(json_str).unwrap();
+    /// // editor.set_theme(custom);
+    /// ```
+    pub fn set_theme(&mut self, theme: Theme) {
+        let theme_name = theme.name.clone();
+        let is_dark = theme.is_dark;
+
+        self.state.theme = theme;
+
+        self.emit(&EditorEvent::ThemeChanged {
+            theme_name,
+            is_dark,
+        });
+    }
+
+    /// Returns true if the current theme is dark.
+    #[must_use]
+    pub const fn is_dark_theme(&self) -> bool {
+        self.state.theme.is_dark
+    }
+
+    /// Switches to the default dark theme.
+    pub fn use_dark_theme(&mut self) {
+        self.set_theme(Theme::dark());
+    }
+
+    /// Switches to the default light theme.
+    pub fn use_light_theme(&mut self) {
+        self.set_theme(Theme::light());
+    }
+
+    /// Emits a theme changed event (T147).
+    #[allow(dead_code)]
+    fn emit_theme_changed(&self) {
+        self.emit(&EditorEvent::ThemeChanged {
+            theme_name: self.state.theme.name.clone(),
+            is_dark: self.state.theme.is_dark,
+        });
+    }
 }
 
 /// Computes cursor position after inserting text.
@@ -526,5 +603,52 @@ mod tests {
         editor.set_content("Hello\nWorld");
         editor.set_cursor(Position::new(1, 3));
         assert_eq!(editor.cursor(), Position::new(1, 3));
+    }
+
+    #[test]
+    fn editor_get_theme() {
+        let editor = Editor::with_defaults();
+        let theme = editor.get_theme();
+        assert_eq!(theme.name, "Iridium Dark");
+    }
+
+    #[test]
+    fn editor_set_theme() {
+        let mut editor = Editor::with_defaults();
+        assert!(editor.is_dark_theme());
+
+        editor.set_theme(Theme::light());
+        assert!(!editor.is_dark_theme());
+        assert_eq!(editor.get_theme().name, "Iridium Light");
+    }
+
+    #[test]
+    fn editor_use_dark_light_theme() {
+        let mut editor = Editor::with_defaults();
+
+        editor.use_light_theme();
+        assert!(!editor.is_dark_theme());
+
+        editor.use_dark_theme();
+        assert!(editor.is_dark_theme());
+    }
+
+    #[test]
+    fn editor_theme_changed_event() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let mut editor = Editor::with_defaults();
+        let event_received = Arc::new(AtomicBool::new(false));
+        let event_received_clone = Arc::clone(&event_received);
+
+        editor.add_listener(move |event| {
+            if matches!(event, EditorEvent::ThemeChanged { .. }) {
+                event_received_clone.store(true, Ordering::SeqCst);
+            }
+        });
+
+        editor.set_theme(Theme::light());
+        assert!(event_received.load(Ordering::SeqCst));
     }
 }

@@ -68,6 +68,9 @@ js-sys = "0.3"
 # Regex for search
 regex = "1.12.2"
 
+# Cross-platform time (works on WASM)
+web-time = "1.1"
+
 # Logging
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }

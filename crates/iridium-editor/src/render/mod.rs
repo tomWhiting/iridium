@@ -7,6 +7,8 @@ mod gutter;
 mod highlight;
 mod minimap;
 mod pipeline;
+mod quad;
+mod simple_highlight;
 mod text;
 mod viewport;
 
@@ -32,6 +34,8 @@ pub use pipeline::{
     DEFAULT_TEXTURE_FORMAT, GpuInfo, MinimapRenderData, RenderConfig, RenderPipeline,
     SyntaxUniforms, ThemeUniforms,
 };
+pub use quad::{Quad, QuadRenderer};
+pub use simple_highlight::{HighlightSpan, SimpleHighlighter, SyntaxColors, TokenType};
 pub use text::{TextRenderConfig, TextRenderer};
 pub use viewport::Viewport;
 

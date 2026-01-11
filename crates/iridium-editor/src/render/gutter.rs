@@ -3,6 +3,7 @@
 //! This module provides rendering primitives for the gutter area, which displays
 //! line numbers, fold indicators, and other margin annotations.
 
+use crate::editor::FoldState;
 use crate::theme::Color;
 
 /// Default character width for calculating gutter width.
@@ -436,6 +437,144 @@ impl GutterRenderer {
         let width = Self::digit_columns(total_lines);
         format!("{line_number:>width$}")
     }
+
+    /// Computes fold indicators from a FoldState (T134).
+    ///
+    /// This is a convenience method that extracts fold markers from the FoldState
+    /// and computes their visual positions for rendering.
+    ///
+    /// # Arguments
+    ///
+    /// * `fold_state` - The fold state containing fold regions
+    /// * `first_visible_line` - First visible line number (0-indexed)
+    /// * `visible_lines` - Number of visible lines
+    /// * `total_lines` - Total number of lines in the document
+    /// * `line_height` - Height of a line in pixels
+    /// * `char_width` - Width of a character in pixels
+    /// * `color` - Fold indicator color
+    #[allow(clippy::too_many_arguments, clippy::cast_precision_loss)]
+    pub fn compute_fold_indicators_from_state(
+        &self,
+        fold_state: &FoldState,
+        first_visible_line: usize,
+        visible_lines: usize,
+        total_lines: usize,
+        line_height: f32,
+        char_width: f32,
+        color: Color,
+    ) -> Vec<FoldIndicatorEntry> {
+        if !self.config.show_fold_indicators {
+            return Vec::new();
+        }
+
+        // Build fold markers from the fold state
+        let fold_markers = fold_state.regions().iter().map(|region| {
+            let indicator = if fold_state.is_folded(region.start_line) {
+                FoldIndicator::Folded
+            } else {
+                FoldIndicator::Foldable
+            };
+            (region.start_line, indicator)
+        });
+
+        self.compute_fold_indicators(
+            fold_markers,
+            first_visible_line,
+            visible_lines,
+            total_lines,
+            line_height,
+            char_width,
+            color,
+        )
+    }
+
+    /// Computes the bounding box for a fold indicator click detection.
+    ///
+    /// Returns (x, y, width, height) for the clickable area around a fold indicator.
+    ///
+    /// # Arguments
+    ///
+    /// * `line` - Document line number (0-indexed)
+    /// * `first_visible_line` - First visible line number (0-indexed)
+    /// * `total_lines` - Total number of lines in the document
+    /// * `line_height` - Height of a line in pixels
+    /// * `char_width` - Width of a character in pixels
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn fold_indicator_bounds(
+        &self,
+        line: usize,
+        first_visible_line: usize,
+        total_lines: usize,
+        line_height: f32,
+        char_width: f32,
+    ) -> (f32, f32, f32, f32) {
+        let line_number_width = self.calculate_line_number_width(total_lines, char_width);
+        let x = line_number_width;
+        let screen_line = line.saturating_sub(first_visible_line);
+        let y = screen_line as f32 * line_height;
+        (x, y, FOLD_INDICATOR_WIDTH, line_height)
+    }
+
+    /// Tests if a point is within a fold indicator area.
+    ///
+    /// # Arguments
+    ///
+    /// * `point_x` - X coordinate of the point
+    /// * `point_y` - Y coordinate of the point
+    /// * `first_visible_line` - First visible line number (0-indexed)
+    /// * `visible_lines` - Number of visible lines
+    /// * `total_lines` - Total number of lines in the document
+    /// * `line_height` - Height of a line in pixels
+    /// * `char_width` - Width of a character in pixels
+    ///
+    /// Returns Some(line) if the point is within a fold indicator area, None otherwise.
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation
+    )]
+    pub fn hit_test_fold_indicator(
+        &self,
+        point_x: f32,
+        point_y: f32,
+        first_visible_line: usize,
+        visible_lines: usize,
+        total_lines: usize,
+        line_height: f32,
+        char_width: f32,
+    ) -> Option<usize> {
+        if !self.config.show_fold_indicators {
+            return None;
+        }
+
+        let line_number_width = self.calculate_line_number_width(total_lines, char_width);
+        let fold_x_start = line_number_width;
+        let fold_x_end = fold_x_start + FOLD_INDICATOR_WIDTH;
+
+        // Check if x is within fold indicator area
+        if point_x < fold_x_start || point_x >= fold_x_end {
+            return None;
+        }
+
+        // Check if y is within visible lines
+        if point_y < 0.0 {
+            return None;
+        }
+
+        let screen_line = (point_y / line_height) as usize;
+        if screen_line >= visible_lines {
+            return None;
+        }
+
+        let doc_line = first_visible_line + screen_line;
+        if doc_line >= total_lines {
+            return None;
+        }
+
+        Some(doc_line)
+    }
 }
 
 #[cfg(test)]
@@ -691,5 +830,75 @@ mod tests {
         for entry in entries {
             assert!((entry.x - 32.0).abs() < 0.001);
         }
+    }
+
+    #[test]
+    fn hit_test_fold_indicator_basic() {
+        let renderer = GutterRenderer::new();
+        let char_width = 8.0;
+        let line_height = 20.0;
+        let total_lines = 100;
+
+        // Line number width: 8 + 24 + 8 = 40
+        // Fold indicator from x=40 to x=56
+
+        // Hit on line 2
+        let line = renderer.hit_test_fold_indicator(
+            45.0,  // x in fold indicator area
+            45.0,  // y (line 2: 40-60)
+            0,     // first_visible_line
+            10,    // visible_lines
+            total_lines,
+            line_height,
+            char_width,
+        );
+        assert_eq!(line, Some(2));
+
+        // Miss - x before fold indicator
+        let line = renderer.hit_test_fold_indicator(
+            30.0, 45.0, 0, 10, total_lines, line_height, char_width,
+        );
+        assert_eq!(line, None);
+
+        // Miss - x after fold indicator
+        let line = renderer.hit_test_fold_indicator(
+            60.0, 45.0, 0, 10, total_lines, line_height, char_width,
+        );
+        assert_eq!(line, None);
+
+        // Miss - y below visible area
+        let line = renderer.hit_test_fold_indicator(
+            45.0, 250.0, 0, 10, total_lines, line_height, char_width,
+        );
+        assert_eq!(line, None);
+    }
+
+    #[test]
+    fn hit_test_fold_indicator_scrolled() {
+        let renderer = GutterRenderer::new();
+
+        // When scrolled to line 50, clicking on y=10 should hit line 50
+        let line = renderer.hit_test_fold_indicator(
+            45.0,  // x in fold indicator area
+            10.0,  // y (first line in viewport)
+            50,    // first_visible_line
+            10,    // visible_lines
+            100,
+            20.0,
+            8.0,
+        );
+        assert_eq!(line, Some(50));
+    }
+
+    #[test]
+    fn fold_indicator_bounds_basic() {
+        let renderer = GutterRenderer::new();
+        let (x, y, width, height) = renderer.fold_indicator_bounds(5, 0, 100, 20.0, 8.0);
+
+        // Line number width: 8 + 24 + 8 = 40
+        assert!((x - 40.0).abs() < 0.001);
+        assert!((y - 100.0).abs() < 0.001); // line 5 * 20
+        assert!((width - 16.0).abs() < 0.001); // FOLD_INDICATOR_WIDTH
+        assert!((height - 20.0).abs() < 0.001); // line_height
     }
 }

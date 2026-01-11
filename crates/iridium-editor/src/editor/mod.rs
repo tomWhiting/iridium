@@ -6,12 +6,15 @@
 //! - [`EditorConfig`] - Configuration options
 //! - [`EditorEvent`] - Events emitted to the host
 //! - [`IridiumError`] - Error types
+//! - [`FoldState`] - Code folding state management
 
 mod config;
 mod core;
+mod fold_state;
 
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorState};
+pub use fold_state::{FoldInfo, FoldState};
 
 use thiserror::Error;
 

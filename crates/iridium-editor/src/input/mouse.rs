@@ -163,6 +163,15 @@ pub enum MouseResult {
         delta_y: f32,
     },
 
+    /// Toggle fold at the given line (T136).
+    ///
+    /// This result indicates that the user clicked on a fold indicator
+    /// in the gutter and the fold state should be toggled.
+    ToggleFold {
+        /// The document line number to toggle
+        line: usize,
+    },
+
     /// The event was not handled (pass to next handler)
     Ignored,
 }
@@ -204,6 +213,7 @@ impl Default for ClickState {
 /// - Drag to select range
 /// - Ctrl+click to add cursor (T106)
 /// - Shift+click to extend selection
+/// - Click on fold indicator to toggle fold (T136)
 #[derive(Debug, Default)]
 pub struct MouseHandler {
     /// Multi-click detection state
@@ -214,6 +224,29 @@ pub struct MouseHandler {
     drag_anchor: Option<Position>,
     /// Selection mode during drag (character, word, or line)
     selection_mode: SelectionMode,
+    /// Gutter configuration for fold indicator click detection
+    gutter_config: GutterClickConfig,
+}
+
+/// Configuration for gutter click detection (T136).
+#[derive(Debug, Clone)]
+pub struct GutterClickConfig {
+    /// Total gutter width in pixels
+    pub gutter_width: f32,
+    /// Width of the fold indicator area within the gutter
+    pub fold_indicator_width: f32,
+    /// Whether fold indicators are enabled
+    pub fold_indicators_enabled: bool,
+}
+
+impl Default for GutterClickConfig {
+    fn default() -> Self {
+        Self {
+            gutter_width: 48.0,  // Default: padding(8) + 2 digits(16) + padding(8) + fold(16)
+            fold_indicator_width: 16.0,
+            fold_indicators_enabled: true,
+        }
+    }
 }
 
 /// Selection mode during drag operations.
@@ -233,6 +266,28 @@ impl MouseHandler {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a new mouse handler with custom gutter configuration.
+    #[must_use]
+    pub fn with_gutter_config(config: GutterClickConfig) -> Self {
+        Self {
+            gutter_config: config,
+            ..Self::default()
+        }
+    }
+
+    /// Updates the gutter configuration.
+    ///
+    /// Call this when the gutter width changes (e.g., document grows).
+    pub fn set_gutter_config(&mut self, config: GutterClickConfig) {
+        self.gutter_config = config;
+    }
+
+    /// Returns a reference to the gutter configuration.
+    #[must_use]
+    pub const fn gutter_config(&self) -> &GutterClickConfig {
+        &self.gutter_config
     }
 
     /// Handles a mouse event.
@@ -271,6 +326,11 @@ impl MouseHandler {
         cursor: &CursorState,
         viewport: &Viewport,
     ) -> MouseResult {
+        // T136: Check for fold indicator click first
+        if let Some(line) = self.hit_test_fold_indicator(event.x, event.y, viewport) {
+            return MouseResult::ToggleFold { line };
+        }
+
         // Detect multi-click
         let click_count = self.detect_multi_click(event.x, event.y);
 
@@ -288,6 +348,39 @@ impl MouseHandler {
             2 => self.handle_double_click(position, document, cursor),
             _ => self.handle_triple_click(position, document, cursor),
         }
+    }
+
+    /// Tests if a click is in the fold indicator area (T136).
+    ///
+    /// Returns the document line number if the click is on a fold indicator.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    fn hit_test_fold_indicator(&self, x: f32, y: f32, viewport: &Viewport) -> Option<usize> {
+        if !self.gutter_config.fold_indicators_enabled {
+            return None;
+        }
+
+        // Fold indicator is at the right edge of the gutter
+        let fold_x_start = self.gutter_config.gutter_width - self.gutter_config.fold_indicator_width;
+        let fold_x_end = self.gutter_config.gutter_width;
+
+        // Check if x is within fold indicator area
+        if x < fold_x_start || x >= fold_x_end {
+            return None;
+        }
+
+        // Check if y is valid
+        if y < 0.0 {
+            return None;
+        }
+
+        // Calculate which line was clicked
+        let line_f = (y + viewport.scroll_offset_y) / viewport.line_height;
+        let screen_line = line_f.floor() as usize;
+
+        // Convert to document line (account for scroll)
+        let doc_line = screen_line + viewport.first_line;
+
+        Some(doc_line)
     }
 
     /// Handles left mouse button release.
@@ -732,5 +825,72 @@ mod tests {
 
         // Should have 3 cursors now
         assert_eq!(cursor.cursor_count(), 3);
+    }
+
+    #[test]
+    fn fold_indicator_click_returns_toggle_fold() {
+        let doc = create_test_document();
+        let viewport = create_test_viewport();
+        let cursor = CursorState::at(Position::new(0, 0));
+
+        // Create handler with specific gutter config
+        let gutter_config = GutterClickConfig {
+            gutter_width: 48.0,
+            fold_indicator_width: 16.0,
+            fold_indicators_enabled: true,
+        };
+        let mut handler = MouseHandler::with_gutter_config(gutter_config);
+
+        // Click in fold indicator area (x between 32-48, line 1)
+        let event = MouseEvent::press(MouseButton::Left, 40.0, 25.0);
+        let result = handler.handle_mouse(&event, &doc, &cursor, &viewport);
+
+        if let MouseResult::ToggleFold { line } = result {
+            assert_eq!(line, 1); // y=25 at line_height=20 is line 1
+        } else {
+            panic!("Expected ToggleFold result, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn click_outside_fold_indicator_positions_cursor() {
+        let doc = create_test_document();
+        let viewport = create_test_viewport();
+        let cursor = CursorState::at(Position::new(0, 0));
+
+        let gutter_config = GutterClickConfig {
+            gutter_width: 48.0,
+            fold_indicator_width: 16.0,
+            fold_indicators_enabled: true,
+        };
+        let mut handler = MouseHandler::with_gutter_config(gutter_config);
+
+        // Click in text area (x=100, past the gutter)
+        let event = MouseEvent::press(MouseButton::Left, 100.0, 25.0);
+        let result = handler.handle_mouse(&event, &doc, &cursor, &viewport);
+
+        // Should be a SetSelection command, not ToggleFold
+        assert!(matches!(result, MouseResult::Command(Command::SetSelection { .. })));
+    }
+
+    #[test]
+    fn fold_indicator_disabled_passes_through() {
+        let doc = create_test_document();
+        let viewport = create_test_viewport();
+        let cursor = CursorState::at(Position::new(0, 0));
+
+        let gutter_config = GutterClickConfig {
+            gutter_width: 48.0,
+            fold_indicator_width: 16.0,
+            fold_indicators_enabled: false, // Disabled
+        };
+        let mut handler = MouseHandler::with_gutter_config(gutter_config);
+
+        // Click in what would be fold indicator area
+        let event = MouseEvent::press(MouseButton::Left, 40.0, 25.0);
+        let result = handler.handle_mouse(&event, &doc, &cursor, &viewport);
+
+        // Should NOT be ToggleFold since indicators are disabled
+        assert!(!matches!(result, MouseResult::ToggleFold { .. }));
     }
 }

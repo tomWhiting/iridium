@@ -300,15 +300,15 @@ Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, 
 
 - [x] T127 [US7] Implement FoldKind enum in crates/iridium-syntax/src/folding.rs
 - [x] T128 [US7] Implement FoldRegion struct in crates/iridium-syntax/src/folding.rs
-- [ ] T129 [US7] Implement fold region detection from tree-sitter nodes in crates/iridium-syntax/src/folding.rs
-- [ ] T130 [US7] Implement fold/unfold state tracking in crates/iridium-editor/src/editor/core.rs
-- [ ] T131 [US7] Implement fold_at() operation in crates/iridium-editor/src/editor/core.rs
-- [ ] T132 [US7] Implement unfold_at() operation in crates/iridium-editor/src/editor/core.rs
-- [ ] T133 [US7] Implement fold_all() and unfold_all() operations in crates/iridium-editor/src/editor/core.rs
-- [ ] T134 [US7] Implement fold indicator rendering in gutter in crates/iridium-editor/src/render/gutter.rs
-- [ ] T135 [US7] Implement folded region placeholder rendering in crates/iridium-editor/src/render/text.rs
-- [ ] T136 [US7] Implement fold indicator click handling in crates/iridium-editor/src/input/mouse.rs
-- [ ] T137 [US7] Update viewport to skip folded lines in crates/iridium-editor/src/render/viewport.rs
+- [x] T129 [US7] Implement fold region detection from tree-sitter nodes in crates/iridium-syntax/src/folding.rs
+- [x] T130 [US7] Implement fold/unfold state tracking in crates/iridium-editor/src/editor/core.rs
+- [x] T131 [US7] Implement fold_at() operation in crates/iridium-editor/src/editor/core.rs
+- [x] T132 [US7] Implement unfold_at() operation in crates/iridium-editor/src/editor/core.rs
+- [x] T133 [US7] Implement fold_all() and unfold_all() operations in crates/iridium-editor/src/editor/core.rs
+- [x] T134 [US7] Implement fold indicator rendering in gutter in crates/iridium-editor/src/render/gutter.rs
+- [x] T135 [US7] Implement folded region placeholder rendering in crates/iridium-editor/src/render/highlight.rs
+- [x] T136 [US7] Implement fold indicator click handling in crates/iridium-editor/src/input/mouse.rs
+- [x] T137 [US7] Update viewport to skip folded lines in crates/iridium-editor/src/render/viewport.rs
 
 **Checkpoint**: User Story 7 complete - code folding works with syntax awareness
 

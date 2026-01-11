@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::config::EditorConfig;
+use super::fold_state::{FoldInfo, FoldState};
 use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::{Command, UndoTree};
 use crate::input::{
@@ -11,6 +12,7 @@ use crate::input::{
 };
 use crate::render::Viewport;
 use crate::theme::Theme;
+use iridium_syntax::{FoldKind, Language};
 
 /// Events emitted by the editor to the host application.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +52,16 @@ pub enum EditorEvent {
         theme_name: String,
         /// Whether the new theme is dark
         is_dark: bool,
+    },
+
+    /// Fold state changed (T130).
+    ///
+    /// Emitted when a fold is toggled, or regions are updated.
+    FoldChanged {
+        /// Number of currently folded regions
+        folded_count: usize,
+        /// Total number of foldable regions
+        total_regions: usize,
     },
 
     /// An error occurred.
@@ -96,6 +108,9 @@ pub struct EditorState {
 
     /// Whether the editor is read-only
     pub read_only: bool,
+
+    /// Code folding state (T130)
+    pub fold_state: FoldState,
 }
 
 impl Default for EditorState {
@@ -111,6 +126,7 @@ impl Default for EditorState {
             scroll_x: 0.0,
             has_focus: false,
             read_only: false,
+            fold_state: FoldState::new(),
         }
     }
 }
@@ -144,6 +160,20 @@ impl EditorState {
         self.history = UndoTree::new();
         self.scroll_line = 0;
         self.scroll_x = 0.0;
+        // Update fold regions for the new content
+        self.fold_state.update_regions(content);
+    }
+
+    /// Sets the language for syntax-aware folding.
+    pub fn set_language(&mut self, language: Language) {
+        self.fold_state.set_language(language);
+        self.fold_state.update_regions(&self.document.text());
+    }
+
+    /// Returns the current language, if any.
+    #[must_use]
+    pub const fn language(&self) -> Option<Language> {
+        self.fold_state.language()
     }
 }
 
@@ -301,6 +331,10 @@ impl Editor {
             MouseResult::Scroll { delta_x, delta_y } => {
                 // Handle scrolling
                 self.scroll_by(delta_x, delta_y);
+            }
+            MouseResult::ToggleFold { line } => {
+                // T136: Handle fold indicator click
+                self.toggle_fold_at(line);
             }
             MouseResult::Handled | MouseResult::Ignored => {}
         }
@@ -558,6 +592,169 @@ impl Editor {
             is_dark: self.state.theme.is_dark,
         });
     }
+
+    // =========================================================================
+    // Code Folding (T130-T133)
+    // =========================================================================
+
+    /// Sets the language for syntax-aware folding.
+    ///
+    /// This initializes the fold detector for the given language and
+    /// detects fold regions in the current content.
+    pub fn set_language(&mut self, language: Language) {
+        self.state.set_language(language);
+        self.emit_fold_changed();
+    }
+
+    /// Returns the current language, if any.
+    #[must_use]
+    pub const fn language(&self) -> Option<Language> {
+        self.state.language()
+    }
+
+    /// Returns a reference to the fold state.
+    #[must_use]
+    pub const fn fold_state(&self) -> &FoldState {
+        &self.state.fold_state
+    }
+
+    /// Returns a mutable reference to the fold state.
+    pub fn fold_state_mut(&mut self) -> &mut FoldState {
+        &mut self.state.fold_state
+    }
+
+    /// Folds the region at the given line (T131).
+    ///
+    /// Returns true if the fold was successful, false if the line
+    /// is not foldable or already folded.
+    pub fn fold_at(&mut self, line: usize) -> bool {
+        let result = self.state.fold_state.fold_at(line);
+        if result {
+            self.emit_fold_changed();
+        }
+        result
+    }
+
+    /// Unfolds the region at the given line (T132).
+    ///
+    /// Returns true if the unfold was successful, false if the line
+    /// is not currently folded.
+    pub fn unfold_at(&mut self, line: usize) -> bool {
+        let result = self.state.fold_state.unfold_at(line);
+        if result {
+            self.emit_fold_changed();
+        }
+        result
+    }
+
+    /// Toggles the fold state of the region at the given line.
+    ///
+    /// Returns true if the toggle was successful, false if the line
+    /// is not foldable.
+    pub fn toggle_fold_at(&mut self, line: usize) -> bool {
+        let result = self.state.fold_state.toggle_fold_at(line);
+        if result {
+            self.emit_fold_changed();
+        }
+        result
+    }
+
+    /// Folds all foldable regions (T133).
+    pub fn fold_all(&mut self) {
+        self.state.fold_state.fold_all();
+        self.emit_fold_changed();
+    }
+
+    /// Unfolds all folded regions (T133).
+    pub fn unfold_all(&mut self) {
+        self.state.fold_state.unfold_all();
+        self.emit_fold_changed();
+    }
+
+    /// Folds all regions of a specific kind.
+    pub fn fold_all_of_kind(&mut self, kind: FoldKind) {
+        self.state.fold_state.fold_all_of_kind(kind);
+        self.emit_fold_changed();
+    }
+
+    /// Unfolds all regions of a specific kind.
+    pub fn unfold_all_of_kind(&mut self, kind: FoldKind) {
+        self.state.fold_state.unfold_all_of_kind(kind);
+        self.emit_fold_changed();
+    }
+
+    /// Returns true if the given line is foldable.
+    #[must_use]
+    pub fn is_foldable(&self, line: usize) -> bool {
+        self.state.fold_state.is_foldable(line)
+    }
+
+    /// Returns true if the given line is currently folded.
+    #[must_use]
+    pub fn is_folded(&self, line: usize) -> bool {
+        self.state.fold_state.is_folded(line)
+    }
+
+    /// Returns true if the given line is hidden by a fold.
+    #[must_use]
+    pub fn is_line_hidden(&self, line: usize) -> bool {
+        self.state.fold_state.is_line_hidden(line)
+    }
+
+    /// Returns the number of currently folded regions.
+    #[must_use]
+    pub fn folded_count(&self) -> usize {
+        self.state.fold_state.folded_count()
+    }
+
+    /// Returns the total number of foldable regions.
+    #[must_use]
+    pub fn fold_region_count(&self) -> usize {
+        self.state.fold_state.regions().len()
+    }
+
+    /// Maps a visual line number to a document line number.
+    ///
+    /// Visual lines skip over hidden (folded) lines.
+    #[must_use]
+    pub fn visual_to_document_line(&self, visual_line: usize) -> usize {
+        self.state.fold_state.visual_to_document_line(visual_line)
+    }
+
+    /// Maps a document line number to a visual line number.
+    ///
+    /// Returns None if the document line is hidden by a fold.
+    #[must_use]
+    pub fn document_to_visual_line(&self, doc_line: usize) -> Option<usize> {
+        self.state.fold_state.document_to_visual_line(doc_line)
+    }
+
+    /// Returns the visible line count (total lines minus hidden lines).
+    #[must_use]
+    pub fn visible_line_count(&self) -> usize {
+        let total = self.state.document.line_count();
+        self.state.fold_state.visible_line_count(total)
+    }
+
+    /// Exports fold information for persistence.
+    #[must_use]
+    pub fn export_fold_info(&self) -> FoldInfo {
+        self.state.fold_state.export_fold_info()
+    }
+
+    /// Imports fold information (e.g., from a saved session).
+    pub fn import_fold_info(&mut self, info: &FoldInfo) {
+        self.state.fold_state.import_fold_info(info);
+        self.emit_fold_changed();
+    }
+
+    /// Emits a fold changed event.
+    fn emit_fold_changed(&self) {
+        self.emit(&EditorEvent::FoldChanged {
+            folded_count: self.state.fold_state.folded_count(),
+            total_regions: self.state.fold_state.regions().len(),
+        });
+    }
 }
 
 /// Computes cursor position after inserting text.
@@ -649,6 +846,146 @@ mod tests {
         });
 
         editor.set_theme(Theme::light());
+        assert!(event_received.load(Ordering::SeqCst));
+    }
+
+    // =========================================================================
+    // Fold Tests (T130-T133)
+    // =========================================================================
+
+    #[test]
+    fn editor_fold_at() {
+        let mut editor = Editor::with_defaults();
+        let code = "fn main() {\n    println!(\"hello\");\n}";
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        // Should have detected the function
+        assert!(editor.fold_region_count() > 0);
+        assert!(editor.is_foldable(0));
+        assert!(!editor.is_folded(0));
+
+        // Fold it
+        assert!(editor.fold_at(0));
+        assert!(editor.is_folded(0));
+        assert!(editor.is_line_hidden(1));
+    }
+
+    #[test]
+    fn editor_unfold_at() {
+        let mut editor = Editor::with_defaults();
+        let code = "fn main() {\n    println!(\"hello\");\n}";
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        editor.fold_at(0);
+        assert!(editor.is_folded(0));
+
+        // Unfold it
+        assert!(editor.unfold_at(0));
+        assert!(!editor.is_folded(0));
+        assert!(!editor.is_line_hidden(1));
+    }
+
+    #[test]
+    fn editor_toggle_fold_at() {
+        let mut editor = Editor::with_defaults();
+        let code = "fn main() {\n    println!(\"hello\");\n}";
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        assert!(!editor.is_folded(0));
+        assert!(editor.toggle_fold_at(0));
+        assert!(editor.is_folded(0));
+        assert!(editor.toggle_fold_at(0));
+        assert!(!editor.is_folded(0));
+    }
+
+    #[test]
+    fn editor_fold_all_unfold_all() {
+        let mut editor = Editor::with_defaults();
+        let code = r#"fn foo() {
+    println!("foo");
+}
+
+fn bar() {
+    println!("bar");
+}"#;
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        editor.fold_all();
+        assert!(editor.is_folded(0));
+        assert!(editor.is_folded(4));
+
+        editor.unfold_all();
+        assert!(!editor.is_folded(0));
+        assert!(!editor.is_folded(4));
+    }
+
+    #[test]
+    fn editor_visible_line_count() {
+        let mut editor = Editor::with_defaults();
+        let code = r#"fn main() {
+    line 1
+    line 2
+    line 3
+}"#;
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        let total_lines = 5;
+        assert_eq!(editor.visible_line_count(), total_lines);
+
+        editor.fold_at(0);
+        // After folding, 4 lines are hidden (lines 1-4)
+        assert_eq!(editor.visible_line_count(), 1);
+    }
+
+    #[test]
+    fn editor_visual_line_mapping() {
+        let mut editor = Editor::with_defaults();
+        let code = r#"line 0
+fn foo() {
+    hidden 1
+    hidden 2
+}
+line 5"#;
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        // Fold the function
+        editor.fold_at(1);
+
+        // Visual line mapping
+        assert_eq!(editor.document_to_visual_line(0), Some(0));
+        assert_eq!(editor.document_to_visual_line(1), Some(1));
+        assert_eq!(editor.document_to_visual_line(2), None); // Hidden
+        assert_eq!(editor.document_to_visual_line(3), None); // Hidden
+        assert_eq!(editor.document_to_visual_line(4), None); // Hidden (closing brace)
+        assert_eq!(editor.document_to_visual_line(5), Some(2));
+    }
+
+    #[test]
+    fn editor_fold_changed_event() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let mut editor = Editor::with_defaults();
+        let event_received = Arc::new(AtomicBool::new(false));
+        let event_received_clone = Arc::clone(&event_received);
+
+        editor.add_listener(move |event| {
+            if matches!(event, EditorEvent::FoldChanged { .. }) {
+                event_received_clone.store(true, Ordering::SeqCst);
+            }
+        });
+
+        let code = "fn main() {\n    println!(\"hello\");\n}";
+        editor.set_content(code);
+        editor.set_language(Language::Rust);
+
+        // Language setting should emit fold changed
         assert!(event_received.load(Ordering::SeqCst));
     }
 }

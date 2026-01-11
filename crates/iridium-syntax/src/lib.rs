@@ -36,7 +36,7 @@ mod folding;
 mod highlight;
 pub mod languages;
 
-pub use folding::{FoldKind, FoldRegion};
+pub use folding::{FoldDetector, FoldKind, FoldRegion};
 pub use highlight::{HighlightSpan, HighlightType, Highlighter};
 
 use serde::{Deserialize, Serialize};

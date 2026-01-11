@@ -6,4 +6,6 @@ mod mouse;
 
 pub use ime::{ImeEvent, ImeHandler, ImeResult, ImeState};
 pub use keyboard::{ClipboardOperation, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers};
-pub use mouse::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
+pub use mouse::{
+    GutterClickConfig, MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult,
+};

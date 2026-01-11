@@ -1,10 +1,11 @@
-//! Selection and line highlighting.
+//! Selection, line, and fold placeholder highlighting.
 //!
-//! This module provides rendering primitives for selection highlights and
-//! current line highlighting. These are rendered as colored rectangles
-//! behind the text.
+//! This module provides rendering primitives for selection highlights,
+//! current line highlighting, and fold placeholders. These are rendered
+//! as colored rectangles and text indicators.
 
 use crate::document::{Range, Selection};
+use crate::editor::FoldState;
 use crate::theme::Color;
 
 /// A highlight rectangle to be rendered.
@@ -303,6 +304,212 @@ impl CurrentLineRenderer {
     }
 }
 
+/// A fold placeholder entry to be rendered (T135).
+///
+/// This represents the visual indicator shown at the end of a folded line,
+/// typically "..." or similar text indicating hidden content.
+#[derive(Debug, Clone)]
+pub struct FoldPlaceholder {
+    /// Document line number (0-indexed)
+    pub line: usize,
+    /// X position in pixels where the placeholder starts (after line text)
+    pub x: f32,
+    /// Y position in pixels (screen coordinates)
+    pub y: f32,
+    /// The placeholder text to display (e.g., "..." or "⋯ 5 lines")
+    pub text: String,
+    /// Width of the placeholder in pixels
+    pub width: f32,
+    /// Height of the placeholder in pixels
+    pub height: f32,
+    /// Background color for the placeholder
+    pub background_color: Color,
+    /// Text color for the placeholder
+    pub text_color: Color,
+    /// Number of hidden lines
+    pub hidden_lines: usize,
+}
+
+impl FoldPlaceholder {
+    /// Creates a new fold placeholder.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        line: usize,
+        x: f32,
+        y: f32,
+        text: String,
+        width: f32,
+        height: f32,
+        background_color: Color,
+        text_color: Color,
+        hidden_lines: usize,
+    ) -> Self {
+        Self {
+            line,
+            x,
+            y,
+            text,
+            width,
+            height,
+            background_color,
+            text_color,
+            hidden_lines,
+        }
+    }
+}
+
+/// Renders fold placeholders (T135).
+///
+/// This renderer computes the visual indicators for folded regions.
+#[derive(Debug, Default)]
+pub struct FoldPlaceholderRenderer;
+
+impl FoldPlaceholderRenderer {
+    /// Creates a new fold placeholder renderer.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+
+    /// Computes fold placeholders from a FoldState.
+    ///
+    /// # Arguments
+    ///
+    /// * `fold_state` - The fold state containing folded regions
+    /// * `line_lengths` - Function to get the length of a line in columns
+    /// * `line_height` - Height of a line in pixels
+    /// * `char_width` - Width of a character in pixels
+    /// * `scroll_x` - Horizontal scroll offset in pixels
+    /// * `first_visible_line` - First visible line number (0-indexed)
+    /// * `visible_lines` - Number of visible lines
+    /// * `background_color` - Background color for placeholders
+    /// * `text_color` - Text color for placeholders
+    #[allow(clippy::too_many_arguments, clippy::cast_precision_loss)]
+    pub fn compute_placeholders<F>(
+        &self,
+        fold_state: &FoldState,
+        line_lengths: F,
+        line_height: f32,
+        char_width: f32,
+        scroll_x: f32,
+        first_visible_line: usize,
+        visible_lines: usize,
+        background_color: Color,
+        text_color: Color,
+    ) -> Vec<FoldPlaceholder>
+    where
+        F: Fn(usize) -> usize,
+    {
+        let last_visible_line = first_visible_line + visible_lines;
+
+        fold_state
+            .folded_lines()
+            .filter(|&line| line >= first_visible_line && line < last_visible_line)
+            .filter_map(|line| {
+                fold_state.region_at(line).map(|region| {
+                    let hidden = region.hidden_line_count();
+                    let text = format_fold_placeholder(hidden);
+                    let text_width = text.len() as f32 * char_width;
+
+                    // Position after the line text
+                    let line_len = line_lengths(line);
+                    let x = ((line_len as f32) * char_width - scroll_x).max(0.0);
+
+                    // Small padding around the text
+                    let padding = 4.0;
+                    let width = text_width + padding * 2.0;
+
+                    let screen_line = line - first_visible_line;
+                    let y = screen_line as f32 * line_height;
+
+                    FoldPlaceholder::new(
+                        line,
+                        x + padding,
+                        y,
+                        text,
+                        width,
+                        line_height,
+                        background_color,
+                        text_color,
+                        hidden,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// Computes fold placeholders with visual line mapping.
+    ///
+    /// This version accounts for fold state affecting which visual lines are visible.
+    /// Use this when the first_visible_line is a visual line index, not a document line.
+    #[allow(clippy::too_many_arguments, clippy::cast_precision_loss)]
+    pub fn compute_placeholders_visual<F>(
+        &self,
+        fold_state: &FoldState,
+        line_lengths: F,
+        line_height: f32,
+        char_width: f32,
+        scroll_x: f32,
+        first_visible_visual_line: usize,
+        visible_lines: usize,
+        background_color: Color,
+        text_color: Color,
+    ) -> Vec<FoldPlaceholder>
+    where
+        F: Fn(usize) -> usize,
+    {
+        let mut result = Vec::new();
+
+        for visual_offset in 0..visible_lines {
+            let visual_line = first_visible_visual_line + visual_offset;
+            let doc_line = fold_state.visual_to_document_line(visual_line);
+
+            // Check if this document line is the start of a fold
+            if fold_state.is_folded(doc_line) {
+                if let Some(region) = fold_state.region_at(doc_line) {
+                    let hidden = region.hidden_line_count();
+                    let text = format_fold_placeholder(hidden);
+                    let text_width = text.len() as f32 * char_width;
+
+                    let line_len = line_lengths(doc_line);
+                    let x = ((line_len as f32) * char_width - scroll_x).max(0.0);
+
+                    let padding = 4.0;
+                    let width = text_width + padding * 2.0;
+
+                    let y = visual_offset as f32 * line_height;
+
+                    result.push(FoldPlaceholder::new(
+                        doc_line,
+                        x + padding,
+                        y,
+                        text,
+                        width,
+                        line_height,
+                        background_color,
+                        text_color,
+                        hidden,
+                    ));
+                }
+            }
+        }
+
+        result
+    }
+}
+
+/// Formats the fold placeholder text.
+///
+/// Shows "..." for small folds and "... N lines" for larger folds.
+fn format_fold_placeholder(hidden_lines: usize) -> String {
+    if hidden_lines <= 3 {
+        "...".to_string()
+    } else {
+        format!("... {} lines", hidden_lines)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +711,49 @@ mod tests {
         assert_eq!(rects.len(), 1);
         // X should be offset by scroll
         assert!((rects[0].x - 24.0).abs() < 0.001); // (5 * 8) - 16 scroll
+    }
+
+    #[test]
+    fn fold_placeholder_text_small() {
+        let text = super::format_fold_placeholder(2);
+        assert_eq!(text, "...");
+    }
+
+    #[test]
+    fn fold_placeholder_text_large() {
+        let text = super::format_fold_placeholder(10);
+        assert_eq!(text, "... 10 lines");
+    }
+
+    #[test]
+    fn fold_placeholder_basic() {
+        use iridium_syntax::Language;
+
+        let renderer = FoldPlaceholderRenderer::new();
+        let bg_color = Color::rgb(0.2, 0.2, 0.2);
+        let text_color = Color::rgb(0.7, 0.7, 0.7);
+
+        // Create a fold state with a folded region
+        let mut fold_state = FoldState::for_language(Language::Rust);
+        let code = "fn foo() {\n    line1\n    line2\n}";
+        fold_state.update_regions(code);
+        fold_state.fold_at(0);
+
+        let placeholders = renderer.compute_placeholders(
+            &fold_state,
+            |_| 10, // All lines are 10 chars
+            20.0,   // line_height
+            8.0,    // char_width
+            0.0,    // scroll_x
+            0,      // first_visible_line
+            10,     // visible_lines
+            bg_color,
+            text_color,
+        );
+
+        assert_eq!(placeholders.len(), 1);
+        assert_eq!(placeholders[0].line, 0);
+        assert_eq!(placeholders[0].text, "...");
+        assert!((placeholders[0].y - 0.0).abs() < 0.001);
     }
 }

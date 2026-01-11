@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/iridium-editor",
     "crates/iridium-syntax",
-    # "crates/iridium-bindings",  # Temporarily excluded - API mismatch
+    "crates/iridium-bindings",
 ]
 
 [workspace.package]

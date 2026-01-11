@@ -19,6 +19,9 @@ crate-type = ["cdylib", "rlib"]
 iridium-editor.workspace = true
 iridium-syntax.workspace = true
 
+# GPU (for WebGPU support check)
+wgpu.workspace = true
+
 # Bindings
 napi.workspace = true
 napi-derive.workspace = true

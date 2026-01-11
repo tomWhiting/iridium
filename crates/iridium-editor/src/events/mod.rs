@@ -7,5 +7,5 @@ mod types;
 
 pub use types::{
     ContentChangedEvent, CursorMovedEvent, EditorEvent, EventCallback, EventEmitter,
-    SelectionChangeReason, SelectionChangedEvent,
+    ScrollChangedEvent, ScrollSource, SelectionChangeReason, SelectionChangedEvent,
 };

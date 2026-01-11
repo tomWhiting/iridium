@@ -195,6 +195,78 @@ impl CursorMovedEvent {
     }
 }
 
+/// Scroll position changed event.
+#[derive(Debug, Clone)]
+pub struct ScrollChangedEvent {
+    /// Previous scroll X position.
+    pub prev_scroll_x: f32,
+    /// Previous scroll Y position.
+    pub prev_scroll_y: f32,
+    /// Current scroll X position.
+    pub scroll_x: f32,
+    /// Current scroll Y position.
+    pub scroll_y: f32,
+    /// The source of the scroll change.
+    pub source: ScrollSource,
+}
+
+/// The source of a scroll change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollSource {
+    /// User scrolled with mouse wheel.
+    MouseWheel,
+    /// User scrolled with trackpad.
+    Trackpad,
+    /// Momentum/inertial scrolling.
+    Momentum,
+    /// Scroll due to cursor movement (ensure visible).
+    CursorFollow,
+    /// Scroll due to Page Up/Down.
+    PageNavigation,
+    /// Scroll due to Go to Line command.
+    GoToLine,
+    /// Programmatic scroll.
+    Programmatic,
+}
+
+impl ScrollChangedEvent {
+    /// Creates a new scroll changed event.
+    #[must_use]
+    pub fn new(
+        prev_scroll_x: f32,
+        prev_scroll_y: f32,
+        scroll_x: f32,
+        scroll_y: f32,
+        source: ScrollSource,
+    ) -> Self {
+        Self {
+            prev_scroll_x,
+            prev_scroll_y,
+            scroll_x,
+            scroll_y,
+            source,
+        }
+    }
+
+    /// Returns the horizontal scroll delta.
+    #[must_use]
+    pub fn delta_x(&self) -> f32 {
+        self.scroll_x - self.prev_scroll_x
+    }
+
+    /// Returns the vertical scroll delta.
+    #[must_use]
+    pub fn delta_y(&self) -> f32 {
+        self.scroll_y - self.prev_scroll_y
+    }
+
+    /// Returns true if the scroll position actually changed.
+    #[must_use]
+    pub fn did_scroll(&self) -> bool {
+        self.scroll_x != self.prev_scroll_x || self.scroll_y != self.prev_scroll_y
+    }
+}
+
 /// Union of all editor events.
 #[derive(Debug, Clone)]
 pub enum EditorEvent {
@@ -204,6 +276,8 @@ pub enum EditorEvent {
     SelectionChanged(SelectionChangedEvent),
     /// The cursor has moved.
     CursorMoved(CursorMovedEvent),
+    /// The scroll position has changed.
+    ScrollChanged(ScrollChangedEvent),
 }
 
 impl From<ContentChangedEvent> for EditorEvent {
@@ -221,6 +295,12 @@ impl From<SelectionChangedEvent> for EditorEvent {
 impl From<CursorMovedEvent> for EditorEvent {
     fn from(event: CursorMovedEvent) -> Self {
         EditorEvent::CursorMoved(event)
+    }
+}
+
+impl From<ScrollChangedEvent> for EditorEvent {
+    fn from(event: ScrollChangedEvent) -> Self {
+        EditorEvent::ScrollChanged(event)
     }
 }
 
@@ -296,6 +376,11 @@ impl EventEmitter {
     /// Emits a cursor moved event.
     pub fn emit_cursor_moved(&mut self, event: CursorMovedEvent) {
         self.emit(EditorEvent::CursorMoved(event));
+    }
+
+    /// Emits a scroll changed event.
+    pub fn emit_scroll_changed(&mut self, event: ScrollChangedEvent) {
+        self.emit(EditorEvent::ScrollChanged(event));
     }
 
     /// Begins batching events.

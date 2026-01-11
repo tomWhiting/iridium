@@ -399,6 +399,24 @@ impl EditorController {
                 self.key_handler.set_ime_active(false);
             }
 
+            // Scrolling actions (handled by the view layer, passed through)
+            InputAction::Scroll { .. } => {
+                // Scroll actions are processed by EditorView, not the controller
+                // This variant is handled here to satisfy exhaustive matching
+            }
+            InputAction::ScrollMomentum { .. } => {
+                // Momentum scroll actions are processed by EditorView
+            }
+            InputAction::GoToLine(line) => {
+                // Move cursor to the target line (1-indexed input, 0-indexed internally)
+                let target_line = line.saturating_sub(1);
+                let last_line = self.editor.buffer().len_lines().saturating_sub(1);
+                let clamped_line = target_line.min(last_line);
+                let new_position = Position::new(clamped_line, 0);
+                self.editor.move_cursor_to(new_position);
+                self.emit_selection_changed(previous_selection, SelectionChangeReason::CursorMove);
+            }
+
             InputAction::None => {}
         }
 

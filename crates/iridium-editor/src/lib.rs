@@ -31,15 +31,17 @@ pub use editor::{
     Selection,
 };
 pub use events::{
-    ContentChangedEvent, CursorMovedEvent, EditorEvent, EventEmitter, SelectionChangeReason,
-    SelectionChangedEvent,
+    ContentChangedEvent, CursorMovedEvent, EditorEvent, EventEmitter, ScrollChangedEvent,
+    ScrollSource, SelectionChangeReason, SelectionChangedEvent,
 };
 pub use history::{Command, History, NodeId, NodeInfo, UndoTree};
 pub use input::{
-    InputAction, InputResult, Key, KeyEvent, KeyHandler, Modifiers, MouseEvent, MouseHandler,
+    InputAction, InputResult, Key, KeyEvent, KeyHandler, Modifiers, MouseButton, MouseEvent,
+    MouseEventKind, MouseHandler,
 };
 pub use render::{RenderError, RenderPipeline, TextRenderer};
 pub use view::{
-    CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, HighlightConfig,
-    HighlightRenderer, TargetFrameRate, ViewConfig, Viewport,
+    CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, GutterConfig, GutterRenderer,
+    GutterWidth, HighlightConfig, HighlightRenderer, ScrollConfig, ScrollDirection, TargetFrameRate,
+    ViewConfig, Viewport,
 };

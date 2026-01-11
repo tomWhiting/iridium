@@ -9,5 +9,5 @@ mod mouse;
 mod types;
 
 pub use keyboard::{Key, KeyEvent, KeyHandler, Modifiers};
-pub use mouse::{ClickState, MouseButton, MouseEvent, MouseHandler};
+pub use mouse::{ClickState, MouseButton, MouseEvent, MouseEventKind, MouseHandler};
 pub use types::{InputAction, InputResult};

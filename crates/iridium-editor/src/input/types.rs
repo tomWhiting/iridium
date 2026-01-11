@@ -121,6 +121,14 @@ pub enum InputAction {
     /// Cancel IME composition.
     ImeCompositionCancel,
 
+    // Scrolling
+    /// Scroll by pixel delta (for mouse wheel/trackpad).
+    Scroll { delta_x: f32, delta_y: f32 },
+    /// Scroll with momentum (for trackpad inertia).
+    ScrollMomentum { delta_x: f32, delta_y: f32 },
+    /// Go to a specific line number.
+    GoToLine(usize),
+
     // Other
     /// No action (input was not handled).
     None,

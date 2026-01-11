@@ -325,9 +325,9 @@ impl MouseHandler {
             MouseEventKind::Down => self.handle_mouse_down(event),
             MouseEventKind::Up => self.handle_mouse_up(event),
             MouseEventKind::Move => self.handle_mouse_move(event),
-            MouseEventKind::Scroll { .. } => {
-                // Scrolling is handled by the viewport, not as an input action
-                InputResult::not_handled()
+            MouseEventKind::Scroll { delta_x, delta_y } => {
+                // Emit scroll action for the viewport to handle
+                InputResult::action(InputAction::Scroll { delta_x, delta_y })
             }
         }
     }

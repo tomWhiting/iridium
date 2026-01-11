@@ -1,10 +1,10 @@
 {
-  "session_id": "6c5a504f-77a2-4fb0-a5c9-6567f53ef005",
-  "session_name": "The Unnamed One\u2014Some Assembly Required",
-  "nickname": "The Unnamed One",
-  "transcript_path": "/Users/tom/.claude/projects/-private-var-folders-87-tdf6vfls1fj-4ydz-y6sk3580000gn-T-vibe-kanban-worktrees-757b-phase-4-us2-undo/6c5a504f-77a2-4fb0-a5c9-6567f53ef005.jsonl",
-  "cwd": "/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/757b-phase-4-us2-undo",
-  "source": "startup",
-  "timestamp": "2026-01-11T13:16:27.583798",
-  "project_dir": "/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/757b-phase-4-us2-undo"
+  "session_id": "5880de22-8701-486b-b1a5-c0cc0a152fbe",
+  "session_name": "Gizmo (resumed)",
+  "nickname": "Gizmo",
+  "transcript_path": "/Users/tom/.claude/projects/-private-var-folders-87-tdf6vfls1fj-4ydz-y6sk3580000gn-T-vibe-kanban-worktrees-c4dd-phase-5-us3-smoo/5880de22-8701-486b-b1a5-c0cc0a152fbe.jsonl",
+  "cwd": "/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/c4dd-phase-5-us3-smoo",
+  "source": "resume",
+  "timestamp": "2026-01-11T17:21:44.854717",
+  "project_dir": "/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/c4dd-phase-5-us3-smoo"
 }

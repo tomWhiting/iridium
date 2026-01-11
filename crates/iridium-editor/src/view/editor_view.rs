@@ -3,12 +3,15 @@
 //! The EditorView combines text rendering, cursor, highlights, and the render
 //! loop into a complete visual representation of the editor.
 
-use crate::editor::{navigation, EditorController, Position};
+use crate::editor::EditorController;
 use crate::render::{RenderError, TextRenderer};
 
 use super::cursor_renderer::{CursorConfig, CursorRenderer};
 use super::frame_timer::{FrameStats, FrameTimer, TargetFrameRate};
+use super::gutter::{GutterConfig, GutterRenderer};
 use super::highlight::{HighlightConfig, HighlightRect, HighlightRenderer};
+use super::line_cache::LineCache;
+use super::viewport::Viewport;
 
 /// Configuration for the editor view.
 #[derive(Debug, Clone)]
@@ -19,6 +22,8 @@ pub struct ViewConfig {
     pub cursor: CursorConfig,
     /// Highlight configuration.
     pub highlight: HighlightConfig,
+    /// Gutter configuration.
+    pub gutter: GutterConfig,
     /// Left padding in pixels.
     pub padding_left: f32,
     /// Top padding in pixels.
@@ -39,6 +44,7 @@ impl Default for ViewConfig {
             frame_rate: TargetFrameRate::Fps120,
             cursor: CursorConfig::default(),
             highlight: HighlightConfig::default(),
+            gutter: GutterConfig::default(),
             padding_left: 4.0,
             padding_top: 4.0,
             padding_right: 4.0,
@@ -55,6 +61,7 @@ impl ViewConfig {
     pub fn dark_theme() -> Self {
         Self {
             highlight: HighlightConfig::dark_theme(),
+            gutter: GutterConfig::dark_theme(),
             background_color: [0.12, 0.12, 0.12, 1.0],
             text_color: [0.87, 0.87, 0.87, 1.0],
             ..Default::default()
@@ -66,6 +73,7 @@ impl ViewConfig {
     pub fn light_theme() -> Self {
         Self {
             highlight: HighlightConfig::light_theme(),
+            gutter: GutterConfig::light_theme(),
             background_color: [0.98, 0.98, 0.98, 1.0],
             text_color: [0.13, 0.13, 0.13, 1.0],
             cursor: CursorConfig::default().with_color(0.0, 0.0, 0.0, 1.0),
@@ -86,82 +94,6 @@ impl ViewConfig {
     }
 }
 
-/// Viewport state for scrolling.
-#[derive(Debug, Clone, Default)]
-pub struct Viewport {
-    /// Scroll offset X.
-    pub scroll_x: f32,
-    /// Scroll offset Y.
-    pub scroll_y: f32,
-    /// Viewport width.
-    pub width: f32,
-    /// Viewport height.
-    pub height: f32,
-}
-
-impl Viewport {
-    /// Creates a new viewport.
-    #[must_use]
-    pub fn new(width: f32, height: f32) -> Self {
-        Self {
-            scroll_x: 0.0,
-            scroll_y: 0.0,
-            width,
-            height,
-        }
-    }
-
-    /// Ensures the cursor is visible by scrolling if necessary.
-    pub fn ensure_cursor_visible(
-        &mut self,
-        cursor: Position,
-        char_width: f32,
-        line_height: f32,
-        padding: (f32, f32), // (horizontal, vertical) padding for visibility
-    ) {
-        let cursor_x = cursor.column as f32 * char_width;
-        let cursor_y = cursor.line as f32 * line_height;
-
-        // Horizontal scrolling
-        if cursor_x < self.scroll_x + padding.0 {
-            self.scroll_x = (cursor_x - padding.0).max(0.0);
-        } else if cursor_x > self.scroll_x + self.width - padding.0 {
-            self.scroll_x = cursor_x - self.width + padding.0;
-        }
-
-        // Vertical scrolling
-        if cursor_y < self.scroll_y + padding.1 {
-            self.scroll_y = (cursor_y - padding.1).max(0.0);
-        } else if cursor_y + line_height > self.scroll_y + self.height - padding.1 {
-            self.scroll_y = cursor_y + line_height - self.height + padding.1;
-        }
-    }
-
-    /// Scrolls by the given delta.
-    pub fn scroll_by(&mut self, delta_x: f32, delta_y: f32) {
-        self.scroll_x = (self.scroll_x + delta_x).max(0.0);
-        self.scroll_y = (self.scroll_y + delta_y).max(0.0);
-    }
-
-    /// Returns the first visible line.
-    #[must_use]
-    pub fn first_visible_line(&self, line_height: f32) -> usize {
-        (self.scroll_y / line_height).floor() as usize
-    }
-
-    /// Returns the last visible line.
-    #[must_use]
-    pub fn last_visible_line(&self, line_height: f32) -> usize {
-        ((self.scroll_y + self.height) / line_height).ceil() as usize
-    }
-
-    /// Returns the number of lines visible in the viewport.
-    #[must_use]
-    pub fn visible_lines(&self, line_height: f32) -> usize {
-        (self.height / line_height).ceil() as usize
-    }
-}
-
 /// The complete editor view.
 ///
 /// Integrates the editor controller with rendering components to provide
@@ -173,6 +105,8 @@ pub struct EditorView {
     cursor_renderer: CursorRenderer,
     /// Highlight renderer.
     highlight_renderer: HighlightRenderer,
+    /// Gutter renderer.
+    gutter_renderer: GutterRenderer,
     /// Frame timer.
     frame_timer: FrameTimer,
     /// Viewport state.
@@ -182,9 +116,9 @@ pub struct EditorView {
     /// Font metrics.
     char_width: f32,
     line_height: f32,
-    /// Cached line lengths for highlight rendering.
-    line_lengths_cache: Vec<usize>,
-    /// Whether the cache needs updating.
+    /// Line length cache for large file optimization.
+    line_cache: LineCache,
+    /// Whether the content has changed requiring cache invalidation.
     cache_dirty: bool,
 }
 
@@ -200,18 +134,20 @@ impl EditorView {
     pub fn with_config(width: f32, height: f32, config: ViewConfig) -> Self {
         let cursor_renderer = CursorRenderer::new(config.cursor.clone());
         let highlight_renderer = HighlightRenderer::new(config.highlight.clone());
+        let gutter_renderer = GutterRenderer::new(config.gutter.clone());
         let frame_timer = FrameTimer::new(config.frame_rate);
 
         Self {
             controller: EditorController::new(),
             cursor_renderer,
             highlight_renderer,
+            gutter_renderer,
             frame_timer,
             viewport: Viewport::new(width, height),
             config,
             char_width: 8.0,
             line_height: 20.0,
-            line_lengths_cache: Vec::new(),
+            line_cache: LineCache::new(),
             cache_dirty: true,
         }
     }
@@ -274,6 +210,9 @@ impl EditorView {
             .set_font_metrics(char_width, line_height, line_height * 0.8);
         self.highlight_renderer
             .set_font_metrics(char_width, line_height);
+        self.gutter_renderer
+            .set_font_metrics(char_width, line_height);
+        self.viewport.set_font_metrics(char_width, line_height);
         self.controller_mut()
             .mouse_handler_mut()
             .set_font_metrics(char_width, line_height);
@@ -281,10 +220,9 @@ impl EditorView {
 
     /// Resizes the view.
     pub fn resize(&mut self, width: f32, height: f32) {
-        self.viewport.width = width;
-        self.viewport.height = height;
+        self.viewport.resize(width, height);
         self.highlight_renderer.set_viewport(width, height);
-        let page_lines = (height / self.line_height) as usize;
+        let page_lines = self.viewport.visible_lines();
         self.controller_mut().set_page_lines(page_lines);
     }
 
@@ -302,13 +240,16 @@ impl EditorView {
         let cursor_pos = self.controller.editor().cursor_position();
         self.cursor_renderer.set_position(cursor_pos);
 
+        // Update viewport with current line count
+        let line_count = self.controller.editor().line_count();
+        self.viewport.set_total_lines(line_count);
+        self.gutter_renderer.set_total_lines(line_count);
+
         // Ensure cursor is visible
-        self.viewport.ensure_cursor_visible(
-            cursor_pos,
-            self.char_width,
-            self.line_height,
-            (self.char_width * 2.0, self.line_height),
-        );
+        self.viewport.ensure_cursor_visible(cursor_pos);
+
+        // Update momentum scrolling if active
+        self.viewport.update_momentum();
 
         // Update mouse handler scroll
         self.controller
@@ -316,24 +257,26 @@ impl EditorView {
             .set_scroll(self.viewport.scroll_x, self.viewport.scroll_y);
         self.controller
             .mouse_handler_mut()
-            .set_padding(self.config.padding_left, self.config.padding_top);
+            .set_padding(self.config.padding_left + self.gutter_renderer.total_width(), self.config.padding_top);
 
-        // Update line lengths cache if dirty
+        // Update line cache if dirty (invalidated) or visible range changed
         if self.cache_dirty {
-            self.update_line_lengths_cache();
+            self.line_cache.invalidate();
             self.cache_dirty = false;
         }
+
+        // Always update the visible range cache
+        self.update_line_cache();
     }
 
-    /// Updates the line lengths cache.
-    fn update_line_lengths_cache(&mut self) {
+    /// Updates the line cache for the visible line range.
+    ///
+    /// Uses windowed caching - only caches visible lines plus a buffer zone.
+    /// This is efficient for large files (100k+ lines).
+    fn update_line_cache(&mut self) {
+        let (first, last) = self.viewport.visible_line_range();
         let buffer = self.controller.editor().buffer();
-        self.line_lengths_cache.clear();
-
-        for line_idx in 0..buffer.len_lines() {
-            let len = navigation::line_length(buffer, line_idx);
-            self.line_lengths_cache.push(len);
-        }
+        self.line_cache.update_visible(buffer, first, last);
     }
 
     /// Returns whether the cursor should be drawn.
@@ -368,12 +311,15 @@ impl EditorView {
         let cursor_pos = self.controller.editor().cursor_position();
         let selection = self.controller.editor().selection();
 
+        // Get line lengths from cache for highlight rendering
+        let line_lengths = self.line_cache.all_lengths();
+
         let mut rects = self.highlight_renderer.generate_highlights(
             cursor_pos,
             selection,
             self.viewport.scroll_x,
             self.viewport.scroll_y,
-            &self.line_lengths_cache,
+            &line_lengths,
         );
 
         // Adjust for padding
@@ -408,22 +354,34 @@ impl EditorView {
     }
 
     /// Returns the visible text content for rendering.
+    ///
+    /// This method implements viewport culling by returning only the lines
+    /// that are currently visible in the viewport, improving performance
+    /// for large files.
     #[must_use]
     pub fn visible_text(&self) -> String {
-        // For now, return all content. In a real implementation, this would
-        // return only visible lines for performance.
-        self.controller.editor().content()
+        let (first_line, last_line) = self.viewport.visible_line_range();
+        let buffer = self.controller.editor().buffer();
+        let total_lines = buffer.len_lines();
+
+        // Clamp to valid line range
+        let first = first_line.min(total_lines.saturating_sub(1));
+        let last = last_line.min(total_lines.saturating_sub(1));
+
+        // Build visible text from individual lines
+        let mut result = String::new();
+        for line_idx in first..=last {
+            let line = buffer.line(line_idx);
+            result.push_str(&line.to_string());
+        }
+
+        result
     }
 
     /// Returns the range of visible lines.
     #[must_use]
     pub fn visible_line_range(&self) -> (usize, usize) {
-        let first = self.viewport.first_visible_line(self.line_height);
-        let last = self
-            .viewport
-            .last_visible_line(self.line_height)
-            .min(self.controller.editor().line_count().saturating_sub(1));
-        (first, last)
+        self.viewport.visible_line_range()
     }
 
     /// Prepares the text renderer with current content.
@@ -441,13 +399,37 @@ impl EditorView {
         text_renderer.set_text(&text);
         text_renderer.shape();
 
-        // Calculate position values before creating the text area
-        let left = self.config.padding_left - self.viewport.scroll_x;
-        let top = self.config.padding_top - self.viewport.scroll_y;
+        // Calculate position values for viewport-culled text rendering
+        // Account for gutter width and padding
+        let gutter_width = self.gutter_renderer.total_width();
+        let left = self.config.padding_left + gutter_width - self.viewport.scroll_x;
+
+        // Since visible_text() returns only visible lines starting at first_visible_line,
+        // we need to position the text where that first line would appear.
+        // The top position is: padding + (first_line * line_height) - scroll_y
+        // But since scroll_y ≈ first_line * line_height, this simplifies to:
+        // padding + (scroll_y - floor(scroll_y / line_height) * line_height) - scroll_y
+        // Which is: padding - (scroll_y mod line_height), giving subpixel scrolling
+        let first_line = self.viewport.first_visible_line();
+        let first_line_y = first_line as f32 * self.line_height;
+        let top = self.config.padding_top + first_line_y - self.viewport.scroll_y;
+
         let color = self.text_glyphon_color();
 
         text_renderer.prepare_at(device, queue, left, top, color)?;
         Ok(())
+    }
+
+    /// Returns the gutter renderer.
+    #[must_use]
+    pub fn gutter_renderer(&self) -> &GutterRenderer {
+        &self.gutter_renderer
+    }
+
+    /// Returns the total gutter width.
+    #[must_use]
+    pub fn gutter_width(&self) -> f32 {
+        self.gutter_renderer.total_width()
     }
 
     /// Resets the cursor blink timer.
@@ -481,6 +463,7 @@ impl std::fmt::Debug for EditorView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::Position;
 
     #[test]
     fn test_view_config_default() {
@@ -500,6 +483,8 @@ mod tests {
     #[test]
     fn test_viewport_scroll() {
         let mut viewport = Viewport::new(800.0, 600.0);
+        viewport.set_total_lines(100);
+        viewport.set_content_width(1000.0);
         viewport.scroll_by(100.0, 50.0);
         assert_eq!(viewport.scroll_x, 100.0);
         assert_eq!(viewport.scroll_y, 50.0);
@@ -512,22 +497,28 @@ mod tests {
 
     #[test]
     fn test_viewport_visible_lines() {
-        let viewport = Viewport::new(800.0, 600.0);
-        assert_eq!(viewport.visible_lines(20.0), 30);
-        assert_eq!(viewport.first_visible_line(20.0), 0);
-        assert_eq!(viewport.last_visible_line(20.0), 30);
+        let mut viewport = Viewport::new(800.0, 600.0);
+        viewport.set_font_metrics(10.0, 20.0);
+        viewport.set_total_lines(100);
+        // 600px / 20px per line = 30 visible lines
+        assert_eq!(viewport.visible_lines(), 30);
+        assert_eq!(viewport.first_visible_line(), 0);
+        // Lines 0-29 are visible (30 lines total)
+        assert_eq!(viewport.last_visible_line(), 29);
     }
 
     #[test]
     fn test_viewport_ensure_cursor_visible() {
         let mut viewport = Viewport::new(800.0, 600.0);
+        viewport.set_font_metrics(10.0, 20.0);
+        viewport.set_total_lines(100);
 
         // Cursor at (0, 0) - should stay at scroll (0, 0)
-        viewport.ensure_cursor_visible(Position::new(0, 0), 10.0, 20.0, (20.0, 20.0));
+        viewport.ensure_cursor_visible(Position::new(0, 0));
         assert_eq!(viewport.scroll_y, 0.0);
 
         // Cursor at line 50 - should scroll down
-        viewport.ensure_cursor_visible(Position::new(50, 0), 10.0, 20.0, (20.0, 20.0));
+        viewport.ensure_cursor_visible(Position::new(50, 0));
         assert!(viewport.scroll_y > 0.0);
     }
 
@@ -562,6 +553,7 @@ mod tests {
         view.update();
 
         let (x, y, _w, h) = view.cursor_rect();
+        // Position accounts for padding, but cursor_rect uses viewport's scroll position
         assert_eq!(x, 50.0 + view.config.padding_left); // 5 * 10 + padding
         assert_eq!(y, 40.0 + view.config.padding_top); // 2 * 20 + padding
         assert_eq!(h, 20.0);

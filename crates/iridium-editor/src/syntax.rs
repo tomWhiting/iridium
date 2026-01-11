@@ -41,7 +41,7 @@ pub const fn highlight_to_color(highlight: HighlightType, syntax: &SyntaxColors)
         // Types
         HighlightType::Type | HighlightType::TypeBuiltin | HighlightType::TypeInterface => {
             syntax.type_name
-        }
+        },
 
         // Operators
         HighlightType::Operator => syntax.operator,
@@ -347,7 +347,9 @@ mod tests {
         let colors = SyntaxColors::dark();
         let default = Color::rgb(1.0, 1.0, 1.0);
 
-        let spans: Vec<_> = highlighter.colored_spans(source, &colors, default).collect();
+        let spans: Vec<_> = highlighter
+            .colored_spans(source, &colors, default)
+            .collect();
 
         // Should produce spans covering the entire source
         let total_len: usize = spans.iter().map(|(s, _)| s.len()).sum();

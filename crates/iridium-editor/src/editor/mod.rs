@@ -102,9 +102,9 @@ impl From<&IridiumError> for ErrorCode {
             IridiumError::FontLoadFailed { .. } => Self::FontLoadFailed,
             IridiumError::ParseError { .. } => Self::ParseError,
             IridiumError::InvalidUtf8 { .. } => Self::InvalidUtf8,
-            IridiumError::InvalidPosition { .. } | IridiumError::InvalidRange | IridiumError::NotSupported { .. } => {
-                Self::ParseError
-            }
+            IridiumError::InvalidPosition { .. }
+            | IridiumError::InvalidRange
+            | IridiumError::NotSupported { .. } => Self::ParseError,
         }
     }
 }

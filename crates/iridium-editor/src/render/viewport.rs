@@ -44,7 +44,13 @@ impl Viewport {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn new(width: f32, height: f32, line_height: f32) -> Self {
         let visible_lines = (height / line_height).ceil() as usize;
-        Self { width, height, visible_lines, line_height, ..Self::default() }
+        Self {
+            width,
+            height,
+            visible_lines,
+            line_height,
+            ..Self::default()
+        }
     }
 
     /// Returns true if the given line is visible.
@@ -230,7 +236,9 @@ impl<'a> Iterator for VisibleLinesIterator<'a> {
             return None;
         }
 
-        let doc_line = self.fold_state.visual_to_document_line(self.current_visual_line);
+        let doc_line = self
+            .fold_state
+            .visual_to_document_line(self.current_visual_line);
 
         // Check if we've exceeded document bounds
         if doc_line >= self.total_lines {
@@ -249,7 +257,11 @@ mod tests {
 
     #[test]
     fn viewport_contains_line() {
-        let viewport = Viewport { first_line: 10, visible_lines: 20, ..Viewport::default() };
+        let viewport = Viewport {
+            first_line: 10,
+            visible_lines: 20,
+            ..Viewport::default()
+        };
 
         assert!(!viewport.contains_line(5));
         assert!(viewport.contains_line(10));
@@ -259,7 +271,11 @@ mod tests {
 
     #[test]
     fn viewport_scroll_to_position() {
-        let mut viewport = Viewport { first_line: 10, visible_lines: 20, ..Viewport::default() };
+        let mut viewport = Viewport {
+            first_line: 10,
+            visible_lines: 20,
+            ..Viewport::default()
+        };
 
         // Position above viewport
         viewport.scroll_to_position(Position::new(5, 0));
@@ -284,7 +300,11 @@ line 5"#;
 
     #[test]
     fn is_line_visible_with_folds() {
-        let viewport = Viewport { first_line: 0, visible_lines: 10, ..Viewport::default() };
+        let viewport = Viewport {
+            first_line: 0,
+            visible_lines: 10,
+            ..Viewport::default()
+        };
         let mut fold_state = setup_fold_state();
 
         // Without folds, all lines visible
@@ -303,7 +323,11 @@ line 5"#;
 
     #[test]
     fn visible_document_lines_iterator() {
-        let viewport = Viewport { first_line: 0, visible_lines: 10, ..Viewport::default() };
+        let viewport = Viewport {
+            first_line: 0,
+            visible_lines: 10,
+            ..Viewport::default()
+        };
         let mut fold_state = setup_fold_state();
         fold_state.fold_at(1);
 
@@ -364,7 +388,11 @@ line 5"#;
 
     #[test]
     fn visible_line_count_with_folds() {
-        let viewport = Viewport { first_line: 0, visible_lines: 10, ..Viewport::default() };
+        let viewport = Viewport {
+            first_line: 0,
+            visible_lines: 10,
+            ..Viewport::default()
+        };
         let mut fold_state = setup_fold_state();
 
         // Without folds, we can show up to 6 lines (total doc lines)

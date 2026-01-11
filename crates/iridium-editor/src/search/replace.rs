@@ -12,11 +12,17 @@ pub struct ReplaceResult {
 impl ReplaceResult {
     /// Creates a new replace result.
     pub const fn new(count: usize, replaced_text: Vec<String>) -> Self {
-        Self { count, replaced_text }
+        Self {
+            count,
+            replaced_text,
+        }
     }
 
     /// Creates an empty result (no replacements).
     pub const fn empty() -> Self {
-        Self { count: 0, replaced_text: Vec::new() }
+        Self {
+            count: 0,
+            replaced_text: Vec::new(),
+        }
     }
 }

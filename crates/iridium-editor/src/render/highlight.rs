@@ -27,13 +27,25 @@ impl HighlightRect {
     /// Creates a new highlight rectangle.
     #[must_use]
     pub const fn new(x: f32, y: f32, width: f32, height: f32, color: Color) -> Self {
-        Self { x, y, width, height, color }
+        Self {
+            x,
+            y,
+            width,
+            height,
+            color,
+        }
     }
 
     /// Creates a full-width line highlight.
     #[must_use]
     pub fn full_line(y: f32, width: f32, height: f32, color: Color) -> Self {
-        Self { x: 0.0, y, width, height, color }
+        Self {
+            x: 0.0,
+            y,
+            width,
+            height,
+            color,
+        }
     }
 }
 
@@ -547,7 +559,7 @@ mod tests {
         assert_eq!(rects.len(), 1);
         let rect = &rects[0];
         assert!((rect.x - 16.0).abs() < 0.001); // column 2 * 8
-        assert!((rect.y - 0.0).abs() < 0.001);  // line 0 * 20
+        assert!((rect.y - 0.0).abs() < 0.001); // line 0 * 20
         assert!((rect.width - 40.0).abs() < 0.001); // (7-2) * 8
         assert!((rect.height - 20.0).abs() < 0.001);
     }
@@ -660,14 +672,8 @@ mod tests {
         let color = Color::new(0.1, 0.1, 0.1, 1.0);
 
         // Two cursors on the same line
-        let rects = renderer.compute_current_lines(
-            vec![5, 5, 5].into_iter(),
-            20.0,
-            800.0,
-            0,
-            50,
-            color,
-        );
+        let rects =
+            renderer.compute_current_lines(vec![5, 5, 5].into_iter(), 20.0, 800.0, 0, 50, color);
 
         // Should produce only one rectangle
         assert_eq!(rects.len(), 1);

@@ -101,25 +101,45 @@ impl Modifiers {
     /// No modifiers pressed.
     #[must_use]
     pub const fn none() -> Self {
-        Self { shift: false, ctrl: false, alt: false, meta: false }
+        Self {
+            shift: false,
+            ctrl: false,
+            alt: false,
+            meta: false,
+        }
     }
 
     /// Shift only.
     #[must_use]
     pub const fn shift() -> Self {
-        Self { shift: true, ctrl: false, alt: false, meta: false }
+        Self {
+            shift: true,
+            ctrl: false,
+            alt: false,
+            meta: false,
+        }
     }
 
     /// Ctrl only.
     #[must_use]
     pub const fn ctrl() -> Self {
-        Self { shift: false, ctrl: true, alt: false, meta: false }
+        Self {
+            shift: false,
+            ctrl: true,
+            alt: false,
+            meta: false,
+        }
     }
 
     /// Ctrl+Shift.
     #[must_use]
     pub const fn ctrl_shift() -> Self {
-        Self { shift: true, ctrl: true, alt: false, meta: false }
+        Self {
+            shift: true,
+            ctrl: true,
+            alt: false,
+            meta: false,
+        }
     }
 }
 
@@ -138,7 +158,11 @@ impl KeyEvent {
     /// Creates a new key event.
     #[must_use]
     pub const fn new(key: KeyCode, modifiers: Modifiers) -> Self {
-        Self { key, modifiers, is_repeat: false }
+        Self {
+            key,
+            modifiers,
+            is_repeat: false,
+        }
     }
 
     /// Creates a new key event with no modifiers.
@@ -199,7 +223,9 @@ impl KeyboardHandler {
     /// Creates a new keyboard handler.
     #[must_use]
     pub const fn new() -> Self {
-        Self { preferred_column: None }
+        Self {
+            preferred_column: None,
+        }
     }
 
     /// Handles a keyboard event.
@@ -231,10 +257,10 @@ impl KeyboardHandler {
             // Character input
             KeyCode::Char(c) if event.modifiers.ctrl => {
                 self.handle_ctrl_char(c, document, cursor, history)
-            }
+            },
             KeyCode::Char(c) if !event.modifiers.alt && !event.modifiers.meta => {
                 self.handle_char_input(c, document, cursor)
-            }
+            },
 
             // Enter key
             KeyCode::Enter => self.handle_enter(document, cursor),
@@ -272,7 +298,12 @@ impl KeyboardHandler {
     }
 
     /// Handles left arrow key.
-    fn handle_left(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_left(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         let new_cursor = if event.modifiers.ctrl {
@@ -287,7 +318,12 @@ impl KeyboardHandler {
     }
 
     /// Handles right arrow key.
-    fn handle_right(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_right(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         let new_cursor = if event.modifiers.ctrl {
@@ -302,19 +338,34 @@ impl KeyboardHandler {
     }
 
     /// Handles up arrow key.
-    fn handle_up(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_up(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         let new_cursor = self.move_line_up(document, cursor, event.modifiers.shift);
         self.create_selection_command(cursor, &new_cursor)
     }
 
     /// Handles down arrow key.
-    fn handle_down(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_down(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         let new_cursor = self.move_line_down(document, cursor, event.modifiers.shift);
         self.create_selection_command(cursor, &new_cursor)
     }
 
     /// Handles Home key.
-    fn handle_home(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_home(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         let new_cursor = if event.modifiers.ctrl {
@@ -329,7 +380,12 @@ impl KeyboardHandler {
     }
 
     /// Handles End key.
-    fn handle_end(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_end(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         let new_cursor = if event.modifiers.ctrl {
@@ -364,7 +420,12 @@ impl KeyboardHandler {
     }
 
     /// Handles character input.
-    fn handle_char_input(&mut self, c: char, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_char_input(
+        &mut self,
+        c: char,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
         self.insert_text(&c.to_string(), document, cursor)
     }
@@ -377,7 +438,12 @@ impl KeyboardHandler {
     }
 
     /// Handles Tab key.
-    fn handle_tab(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_tab(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         if event.modifiers.shift {
@@ -391,7 +457,12 @@ impl KeyboardHandler {
     }
 
     /// Handles Backspace key.
-    fn handle_backspace(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_backspace(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         // If there's a selection, delete it
@@ -408,7 +479,12 @@ impl KeyboardHandler {
     }
 
     /// Handles Delete key.
-    fn handle_delete(&mut self, event: &KeyEvent, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_delete(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         self.preferred_column = None;
 
         // If there's a selection, delete it
@@ -440,7 +516,12 @@ impl KeyboardHandler {
     // ========== Navigation helpers ==========
 
     /// Moves cursor one character to the left.
-    fn move_char_left(&self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_char_left(
+        &self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
         let new_head = if head.column > 0 {
             Position::new(head.line, head.column - 1)
@@ -457,7 +538,12 @@ impl KeyboardHandler {
     }
 
     /// Moves cursor one character to the right.
-    fn move_char_right(&self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_char_right(
+        &self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
         let line_len = document.line_len(head.line).unwrap_or(0);
 
@@ -474,21 +560,36 @@ impl KeyboardHandler {
     }
 
     /// Moves cursor one word to the left.
-    fn move_word_left(&self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_word_left(
+        &self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
         let new_head = self.find_word_boundary_left(document, head);
         self.make_cursor_state(cursor, new_head, extend_selection)
     }
 
     /// Moves cursor one word to the right.
-    fn move_word_right(&self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_word_right(
+        &self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
         let new_head = self.find_word_boundary_right(document, head);
         self.make_cursor_state(cursor, new_head, extend_selection)
     }
 
     /// Moves cursor one line up.
-    fn move_line_up(&mut self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_line_up(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
 
         if head.line == 0 {
@@ -513,7 +614,12 @@ impl KeyboardHandler {
     }
 
     /// Moves cursor one line down.
-    fn move_line_down(&mut self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_line_down(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
         let line_count = document.line_count();
 
@@ -551,7 +657,10 @@ impl KeyboardHandler {
         let line_text = document.line(head.line).unwrap_or_default();
 
         // Find first non-whitespace character
-        let first_non_ws = line_text.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
+        let first_non_ws = line_text
+            .chars()
+            .position(|c| !c.is_whitespace())
+            .unwrap_or(0);
 
         // Smart home: toggle between first non-ws and column 0
         let new_column = if head.column == first_non_ws || head.column == 0 {
@@ -565,7 +674,12 @@ impl KeyboardHandler {
     }
 
     /// Moves cursor to end of line.
-    fn move_to_line_end(&self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_to_line_end(
+        &self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let head = cursor.primary.head;
         let line_len = document.line_len(head.line).unwrap_or(0);
         let new_head = Position::new(head.line, line_len);
@@ -579,7 +693,12 @@ impl KeyboardHandler {
     }
 
     /// Moves cursor to end of document.
-    fn move_to_document_end(&self, document: &Document, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    fn move_to_document_end(
+        &self,
+        document: &Document,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let last_line = document.line_count().saturating_sub(1);
         let last_col = document.line_len(last_line).unwrap_or(0);
         let new_head = Position::new(last_line, last_col);
@@ -605,20 +724,34 @@ impl KeyboardHandler {
         let mut col = pos.column.min(chars.len());
 
         // Skip whitespace
-        while col > 0 && chars.get(col.saturating_sub(1)).map_or(false, |c| c.is_whitespace()) {
+        while col > 0
+            && chars
+                .get(col.saturating_sub(1))
+                .map_or(false, |c| c.is_whitespace())
+        {
             col -= 1;
         }
 
         // Skip word characters
         let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
-        if col > 0 && chars.get(col.saturating_sub(1)).map_or(false, |c| is_word_char(*c)) {
-            while col > 0 && chars.get(col.saturating_sub(1)).map_or(false, |c| is_word_char(*c)) {
+        if col > 0
+            && chars
+                .get(col.saturating_sub(1))
+                .map_or(false, |c| is_word_char(*c))
+        {
+            while col > 0
+                && chars
+                    .get(col.saturating_sub(1))
+                    .map_or(false, |c| is_word_char(*c))
+            {
                 col -= 1;
             }
         } else {
             // Skip non-word, non-whitespace characters (punctuation)
             while col > 0
-                && chars.get(col.saturating_sub(1)).map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
+                && chars
+                    .get(col.saturating_sub(1))
+                    .map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
             {
                 col -= 1;
             }
@@ -650,7 +783,11 @@ impl KeyboardHandler {
                 col += 1;
             }
         } else if chars.get(col).map_or(false, |c| !c.is_whitespace()) {
-            while col < line_len && chars.get(col).map_or(false, |c| !is_word_char(*c) && !c.is_whitespace()) {
+            while col < line_len
+                && chars
+                    .get(col)
+                    .map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
+            {
                 col += 1;
             }
         }
@@ -687,7 +824,10 @@ impl KeyboardHandler {
                 // Delete selection first
                 let range = selection.range();
                 let deleted = document.slice(range);
-                commands.push(Command::Delete { range, deleted_text: deleted });
+                commands.push(Command::Delete {
+                    range,
+                    deleted_text: deleted,
+                });
                 range.start
             };
 
@@ -754,7 +894,10 @@ impl KeyboardHandler {
         let new_cursor = CursorState::at(range.start);
 
         let commands = vec![
-            Command::Delete { range, deleted_text: deleted },
+            Command::Delete {
+                range,
+                deleted_text: deleted,
+            },
             Command::SetSelection {
                 old_state: cursor.clone(),
                 new_state: new_cursor,
@@ -775,7 +918,10 @@ impl KeyboardHandler {
         let (start_pos, deleted_text) = if head.column > 0 {
             let start = Position::new(head.line, head.column - 1);
             let line_text = document.line(head.line).unwrap_or_default();
-            let deleted_char = line_text.chars().nth(head.column - 1).map_or(String::new(), |c| c.to_string());
+            let deleted_char = line_text
+                .chars()
+                .nth(head.column - 1)
+                .map_or(String::new(), |c| c.to_string());
             (start, deleted_char)
         } else {
             // Delete newline at end of previous line
@@ -789,7 +935,10 @@ impl KeyboardHandler {
         let new_cursor = CursorState::at(start_pos);
 
         let commands = vec![
-            Command::Delete { range, deleted_text },
+            Command::Delete {
+                range,
+                deleted_text,
+            },
             Command::SetSelection {
                 old_state: cursor.clone(),
                 new_state: new_cursor,
@@ -812,7 +961,10 @@ impl KeyboardHandler {
         let (end_pos, deleted_text) = if head.column < line_len {
             let end = Position::new(head.line, head.column + 1);
             let line_text = document.line(head.line).unwrap_or_default();
-            let deleted_char = line_text.chars().nth(head.column).map_or(String::new(), |c| c.to_string());
+            let deleted_char = line_text
+                .chars()
+                .nth(head.column)
+                .map_or(String::new(), |c| c.to_string());
             (end, deleted_char)
         } else {
             // Delete newline at end of current line
@@ -842,7 +994,10 @@ impl KeyboardHandler {
         let new_cursor = CursorState::at(start_pos);
 
         let commands = vec![
-            Command::Delete { range, deleted_text },
+            Command::Delete {
+                range,
+                deleted_text,
+            },
             Command::SetSelection {
                 old_state: cursor.clone(),
                 new_state: new_cursor,
@@ -907,7 +1062,10 @@ impl KeyboardHandler {
 
             let command = Command::Compound {
                 commands: vec![
-                    Command::Delete { range, deleted_text: text.clone() },
+                    Command::Delete {
+                        range,
+                        deleted_text: text.clone(),
+                    },
                     Command::SetSelection {
                         old_state: cursor.clone(),
                         new_state: new_cursor,
@@ -923,7 +1081,10 @@ impl KeyboardHandler {
 
             let command = Command::Compound {
                 commands: vec![
-                    Command::Delete { range, deleted_text: text.clone() },
+                    Command::Delete {
+                        range,
+                        deleted_text: text.clone(),
+                    },
                     Command::SetSelection {
                         old_state: cursor.clone(),
                         new_state: new_cursor,
@@ -974,7 +1135,11 @@ impl KeyboardHandler {
     ///
     /// If no selection exists, selects the word at cursor.
     /// If a selection exists, finds the next occurrence and adds a cursor there.
-    fn handle_add_selection_next_match(&mut self, document: &Document, cursor: &CursorState) -> KeyResult {
+    fn handle_add_selection_next_match(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
         // Get the search text - either from selection or select word at cursor
         let (search_text, initial_selection) = if cursor.primary.is_collapsed() {
             // No selection - select word at cursor first
@@ -1016,7 +1181,8 @@ impl KeyboardHandler {
             let Some(match_start) = document.offset_to_position(abs_offset) else {
                 return KeyResult::Handled;
             };
-            let Some(match_end) = document.offset_to_position(abs_offset + search_text.len()) else {
+            let Some(match_end) = document.offset_to_position(abs_offset + search_text.len())
+            else {
                 return KeyResult::Handled;
             };
 
@@ -1040,8 +1206,7 @@ impl KeyboardHandler {
 
                 // Don't add if it's the same as an existing selection
                 let new_range = Range::new(match_start, match_end);
-                let already_selected =
-                    new_cursor.all_selections().any(|s| s.range() == new_range);
+                let already_selected = new_cursor.all_selections().any(|s| s.range() == new_range);
 
                 if !already_selected {
                     let new_selection = Selection::new(match_start, match_end);
@@ -1096,13 +1261,21 @@ impl KeyboardHandler {
             end += 1;
         }
 
-        Selection::new(Position::new(position.line, start), Position::new(position.line, end))
+        Selection::new(
+            Position::new(position.line, start),
+            Position::new(position.line, end),
+        )
     }
 
     // ========== Utility methods ==========
 
     /// Creates a new cursor state with the given head position.
-    fn make_cursor_state(&self, old: &CursorState, new_head: Position, extend_selection: bool) -> CursorState {
+    fn make_cursor_state(
+        &self,
+        old: &CursorState,
+        new_head: Position,
+        extend_selection: bool,
+    ) -> CursorState {
         let new_selection = if extend_selection {
             Selection::new(old.primary.anchor, new_head)
         } else {
@@ -1146,7 +1319,12 @@ mod tests {
         let cursor = CursorState::at(Position::new(0, 5));
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Left), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Left),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head, Position::new(0, 4));
@@ -1161,7 +1339,12 @@ mod tests {
         let cursor = CursorState::at(Position::new(0, 5));
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Right), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Right),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head, Position::new(0, 6));
@@ -1177,7 +1360,12 @@ mod tests {
         let cursor = CursorState::at(Position::new(0, 11));
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Right), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Right),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head, Position::new(1, 0));
@@ -1243,7 +1431,12 @@ mod tests {
         let cursor = CursorState::at(Position::new(0, 5));
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Backspace), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Backspace),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::Compound { commands }) = result {
             assert!(commands.iter().any(|c| matches!(c, Command::Delete { .. })));
@@ -1258,7 +1451,12 @@ mod tests {
         let cursor = CursorState::at(Position::new(0, 5));
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Home), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Home),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head.column, 0);
@@ -1273,7 +1471,12 @@ mod tests {
         let cursor = CursorState::at(Position::new(0, 0));
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::End), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::End),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head, Position::new(0, 11));
@@ -1289,7 +1492,12 @@ mod tests {
         let doc = Document::new("Hello World");
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Escape), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Escape),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert!(new_state.primary.is_collapsed());
@@ -1306,7 +1514,12 @@ mod tests {
         let mut handler = KeyboardHandler::new();
 
         // Move up - should try to stay at column 11 but will be clamped
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Up), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Up),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head.line, 0);
@@ -1350,7 +1563,12 @@ mod tests {
             // Should have 2 cursors now
             assert_eq!(new_state.cursor_count(), 2);
             // Second cursor at "foo" position 8-11
-            assert!(new_state.secondary.iter().any(|s| s.start() == Position::new(0, 8)));
+            assert!(
+                new_state
+                    .secondary
+                    .iter()
+                    .any(|s| s.start() == Position::new(0, 8))
+            );
         } else {
             panic!("Expected SetSelection command");
         }
@@ -1365,7 +1583,12 @@ mod tests {
         let doc = Document::new("Line 1\nLine 2\nLine 3");
         let mut handler = KeyboardHandler::new();
 
-        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Escape), &doc, &cursor, &UndoTree::new());
+        let result = handler.handle_key(
+            &KeyEvent::simple(KeyCode::Escape),
+            &doc,
+            &cursor,
+            &UndoTree::new(),
+        );
 
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             // Should have only 1 cursor

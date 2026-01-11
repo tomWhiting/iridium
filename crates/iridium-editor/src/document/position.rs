@@ -88,14 +88,20 @@ impl Range {
         if start <= end {
             Self { start, end }
         } else {
-            Self { start: end, end: start }
+            Self {
+                start: end,
+                end: start,
+            }
         }
     }
 
     /// Creates an empty range at the given position.
     #[must_use]
     pub const fn empty(position: Position) -> Self {
-        Self { start: position, end: position }
+        Self {
+            start: position,
+            end: position,
+        }
     }
 
     /// Returns true if the range is empty (start == end).

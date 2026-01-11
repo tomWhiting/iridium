@@ -92,10 +92,10 @@ impl HighlightType {
             // Keywords
             "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
                 Some(Self::Keyword)
-            }
+            },
             "keyword.control" | "keyword.return" | "keyword.control.return" => {
                 Some(Self::KeywordControl)
-            }
+            },
             "keyword.operator" | "operator" => Some(Self::Operator),
 
             // Strings
@@ -116,7 +116,7 @@ impl HighlightType {
             "function.method" | "method" | "method.call" => Some(Self::FunctionMethod),
             "function.special" | "function.macro" | "macro" | "function.special.definition" => {
                 Some(Self::FunctionSpecial)
-            }
+            },
 
             // Variables
             "variable" | "identifier" => Some(Self::Variable),
@@ -132,7 +132,7 @@ impl HighlightType {
             "punctuation.bracket" | "bracket" => Some(Self::PunctuationBracket),
             "punctuation.delimiter" | "delimiter" | "punctuation" => {
                 Some(Self::PunctuationDelimiter)
-            }
+            },
             "punctuation.special" => Some(Self::PunctuationSpecial),
 
             // Properties/fields
@@ -256,7 +256,11 @@ impl HighlightSpan {
     /// Creates a new highlight span.
     #[must_use]
     pub const fn new(start: usize, end: usize, highlight: HighlightType) -> Self {
-        Self { start, end, highlight }
+        Self {
+            start,
+            end,
+            highlight,
+        }
     }
 }
 
@@ -268,7 +272,9 @@ impl PartialOrd for HighlightSpan {
 
 impl Ord for HighlightSpan {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.start.cmp(&other.start).then_with(|| self.end.cmp(&other.end))
+        self.start
+            .cmp(&other.start)
+            .then_with(|| self.end.cmp(&other.end))
     }
 }
 
@@ -322,7 +328,10 @@ impl LanguageRegistry {
             crate::Language::JavaScript,
             tree_sitter_javascript::LANGUAGE.into(),
         );
-        grammars.insert(crate::Language::Tsx, tree_sitter_typescript::LANGUAGE_TSX.into());
+        grammars.insert(
+            crate::Language::Tsx,
+            tree_sitter_typescript::LANGUAGE_TSX.into(),
+        );
         grammars.insert(crate::Language::Go, tree_sitter_go::LANGUAGE.into());
         grammars.insert(crate::Language::Json, tree_sitter_json::LANGUAGE.into());
         grammars.insert(crate::Language::Yaml, tree_sitter_yaml::LANGUAGE.into());
@@ -372,21 +381,25 @@ impl Highlighter {
     pub fn new(language: crate::Language) -> Result<Self, SyntaxError> {
         let registry = LanguageRegistry::new();
 
-        let ts_language = registry.get(language).ok_or_else(|| SyntaxError::UnsupportedLanguage {
-            language: language.id().to_string(),
-        })?;
+        let ts_language =
+            registry
+                .get(language)
+                .ok_or_else(|| SyntaxError::UnsupportedLanguage {
+                    language: language.id().to_string(),
+                })?;
 
         let mut parser = Parser::new();
-        parser.set_language(ts_language).map_err(|e| SyntaxError::ParseError {
-            message: format!("Failed to set language: {e}"),
-        })?;
+        parser
+            .set_language(ts_language)
+            .map_err(|e| SyntaxError::ParseError {
+                message: format!("Failed to set language: {e}"),
+            })?;
 
         // Load the highlights query
-        let query_source = queries::highlights(language.id()).ok_or_else(|| {
-            SyntaxError::QueryError {
+        let query_source =
+            queries::highlights(language.id()).ok_or_else(|| SyntaxError::QueryError {
                 message: format!("No highlights query for language: {}", language.id()),
-            }
-        })?;
+            })?;
 
         let query = Query::new(ts_language, query_source).map_err(|e| SyntaxError::QueryError {
             message: format!("Query parse error at offset {}: {}", e.offset, e.message),
@@ -648,7 +661,10 @@ mod tests {
         let spans = highlighter.highlight(source);
 
         // Should have at least some spans
-        assert!(!spans.is_empty(), "Rust code should produce highlight spans");
+        assert!(
+            !spans.is_empty(),
+            "Rust code should produce highlight spans"
+        );
 
         // Verify the 'fn' keyword is highlighted
         let has_fn_span = spans.iter().any(|s| s.start == 0 && s.end == 2);
@@ -662,7 +678,10 @@ mod tests {
         let source = "def hello():\n    print('Hello')";
         let spans = highlighter.highlight(source);
 
-        assert!(!spans.is_empty(), "Python code should produce highlight spans");
+        assert!(
+            !spans.is_empty(),
+            "Python code should produce highlight spans"
+        );
     }
 
     #[test]
@@ -706,7 +725,10 @@ mod tests {
         let source = r#"{"name": "test", "value": 42, "active": true}"#;
         let spans = highlighter.highlight(source);
 
-        assert!(!spans.is_empty(), "JSON code should produce highlight spans");
+        assert!(
+            !spans.is_empty(),
+            "JSON code should produce highlight spans"
+        );
     }
 
     #[test]
@@ -735,7 +757,10 @@ mod tests {
         let source = "#!/bin/bash\necho \"Hello World\"";
         let spans = highlighter.highlight(source);
 
-        assert!(!spans.is_empty(), "Bash code should produce highlight spans");
+        assert!(
+            !spans.is_empty(),
+            "Bash code should produce highlight spans"
+        );
     }
 
     #[test]
@@ -778,10 +803,9 @@ mod tests {
         // Insert text: "fn main() { let x = 1; }"
         let new_source = "fn main() { let x = 1; }";
         let spans2 = highlighter.update(
-            new_source,
-            12,  // start_byte: after "{ "
-            12,  // old_end_byte: same position
-            23,  // new_end_byte: after "let x = 1; "
+            new_source, 12, // start_byte: after "{ "
+            12, // old_end_byte: same position
+            23, // new_end_byte: after "let x = 1; "
         );
 
         assert!(!spans1.is_empty());

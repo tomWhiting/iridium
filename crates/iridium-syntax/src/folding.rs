@@ -233,7 +233,12 @@ impl FoldableNodeTypes {
                 imports: &[],
             },
             Language::Yaml => Self {
-                blocks: &["block_mapping", "block_sequence", "flow_mapping", "flow_sequence"],
+                blocks: &[
+                    "block_mapping",
+                    "block_sequence",
+                    "flow_mapping",
+                    "flow_sequence",
+                ],
                 comments: &["comment"],
                 imports: &[],
             },
@@ -294,7 +299,10 @@ impl LanguageRegistry {
             Language::TypeScript,
             tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         );
-        grammars.insert(Language::JavaScript, tree_sitter_javascript::LANGUAGE.into());
+        grammars.insert(
+            Language::JavaScript,
+            tree_sitter_javascript::LANGUAGE.into(),
+        );
         grammars.insert(Language::Tsx, tree_sitter_typescript::LANGUAGE_TSX.into());
         grammars.insert(Language::Go, tree_sitter_go::LANGUAGE.into());
         grammars.insert(Language::Json, tree_sitter_json::LANGUAGE.into());
@@ -643,7 +651,9 @@ mod tests {
         assert!(!regions.is_empty(), "Should detect function as foldable");
 
         // Should have at least the function body
-        let has_function = regions.iter().any(|r| r.start_line == 0 && r.kind == FoldKind::Block);
+        let has_function = regions
+            .iter()
+            .any(|r| r.start_line == 0 && r.kind == FoldKind::Block);
         assert!(has_function, "Should detect main function");
     }
 
@@ -759,6 +769,9 @@ fn main() {}"#;
         let has_single_line = regions
             .iter()
             .any(|r| r.start_line == r.end_line && r.kind == FoldKind::Block);
-        assert!(!has_single_line, "Single-line blocks should not be foldable");
+        assert!(
+            !has_single_line,
+            "Single-line blocks should not be foldable"
+        );
     }
 }

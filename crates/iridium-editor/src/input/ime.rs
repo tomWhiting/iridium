@@ -174,9 +174,10 @@ impl ImeHandler {
     ) -> ImeResult {
         match event {
             ImeEvent::Enabled => self.handle_enabled(cursor),
-            ImeEvent::Preedit { text, cursor: ime_cursor } => {
-                self.handle_preedit(text, *ime_cursor)
-            }
+            ImeEvent::Preedit {
+                text,
+                cursor: ime_cursor,
+            } => self.handle_preedit(text, *ime_cursor),
             ImeEvent::Commit { text } => self.handle_commit(text, document, cursor),
             ImeEvent::Disabled => self.handle_disabled(),
         }
@@ -227,7 +228,10 @@ impl ImeHandler {
             let new_cursor = CursorState::at(new_cursor_pos);
 
             let commands = vec![
-                Command::Delete { range, deleted_text: deleted },
+                Command::Delete {
+                    range,
+                    deleted_text: deleted,
+                },
                 Command::Insert {
                     position: range.start,
                     text: text.to_string(),
@@ -347,14 +351,19 @@ mod tests {
         // Start and preedit
         let _ = handler.handle_ime(&ImeEvent::Enabled, &doc, &cursor);
         let _ = handler.handle_ime(
-            &ImeEvent::Preedit { text: "ni".to_string(), cursor: Some(2) },
+            &ImeEvent::Preedit {
+                text: "ni".to_string(),
+                cursor: Some(2),
+            },
             &doc,
             &cursor,
         );
 
         // Commit
         let result = handler.handle_ime(
-            &ImeEvent::Commit { text: "你".to_string() },
+            &ImeEvent::Commit {
+                text: "你".to_string(),
+            },
             &doc,
             &cursor,
         );
@@ -362,7 +371,11 @@ mod tests {
         assert!(!handler.is_composing());
 
         if let ImeResult::Command(Command::Compound { commands }) = result {
-            assert!(commands.iter().any(|c| matches!(c, Command::Insert { text, .. } if text == "你")));
+            assert!(
+                commands
+                    .iter()
+                    .any(|c| matches!(c, Command::Insert { text, .. } if text == "你"))
+            );
         } else {
             panic!("Expected Command result");
         }
@@ -377,7 +390,10 @@ mod tests {
         // Start and preedit
         let _ = handler.handle_ime(&ImeEvent::Enabled, &doc, &cursor);
         let _ = handler.handle_ime(
-            &ImeEvent::Preedit { text: "ni".to_string(), cursor: Some(2) },
+            &ImeEvent::Preedit {
+                text: "ni".to_string(),
+                cursor: Some(2),
+            },
             &doc,
             &cursor,
         );

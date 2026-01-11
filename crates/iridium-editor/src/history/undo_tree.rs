@@ -152,7 +152,10 @@ impl UndoTree {
     /// Creates an undo tree with a custom grouping timeout.
     #[must_use]
     pub fn with_timeout(group_timeout_ms: u64) -> Self {
-        Self { group_timeout_ms, ..Self::new() }
+        Self {
+            group_timeout_ms,
+            ..Self::new()
+        }
     }
 
     /// Pushes a new command onto the tree.
@@ -258,7 +261,10 @@ impl UndoTree {
 
         // Find common ancestor
         let current_set: std::collections::HashSet<_> = path_to_root_current.iter().collect();
-        let common_ancestor = path_to_root_target.iter().find(|id| current_set.contains(id)).copied()?;
+        let common_ancestor = path_to_root_target
+            .iter()
+            .find(|id| current_set.contains(id))
+            .copied()?;
 
         let mut commands = Vec::new();
 
@@ -276,7 +282,10 @@ impl UndoTree {
         }
 
         // Redo from common ancestor to target
-        let redo_path: Vec<_> = path_to_root_target.into_iter().take_while(|id| *id != common_ancestor).collect();
+        let redo_path: Vec<_> = path_to_root_target
+            .into_iter()
+            .take_while(|id| *id != common_ancestor)
+            .collect();
 
         for node_id in redo_path.into_iter().rev() {
             if let Some(node_data) = self.nodes.get(&node_id) {
@@ -295,19 +304,25 @@ impl UndoTree {
     /// Returns true if undo is available.
     #[must_use]
     pub fn can_undo(&self) -> bool {
-        self.nodes.get(&self.current).is_some_and(|n| n.parent.is_some())
+        self.nodes
+            .get(&self.current)
+            .is_some_and(|n| n.parent.is_some())
     }
 
     /// Returns true if redo is available.
     #[must_use]
     pub fn can_redo(&self) -> bool {
-        self.nodes.get(&self.current).is_some_and(|n| !n.children.is_empty())
+        self.nodes
+            .get(&self.current)
+            .is_some_and(|n| !n.children.is_empty())
     }
 
     /// Returns the number of redo branches at the current node.
     #[must_use]
     pub fn branch_count(&self) -> usize {
-        self.nodes.get(&self.current).map_or(0, |n| n.children.len())
+        self.nodes
+            .get(&self.current)
+            .map_or(0, |n| n.children.len())
     }
 
     /// Returns information about the undo tree structure.
@@ -343,7 +358,10 @@ impl UndoTree {
             let elapsed = now.duration_since(last_time);
             if elapsed.as_millis() < u128::from(self.group_timeout_ms) {
                 // Only group if current node has a command (not root)
-                return self.nodes.get(&self.current).is_some_and(|n| n.command.is_some());
+                return self
+                    .nodes
+                    .get(&self.current)
+                    .is_some_and(|n| n.command.is_some());
             }
         }
         false
@@ -356,7 +374,10 @@ mod tests {
     use crate::document::Position;
 
     fn insert_cmd(text: &str) -> Command {
-        Command::Insert { position: Position::new(0, 0), text: text.to_string() }
+        Command::Insert {
+            position: Position::new(0, 0),
+            text: text.to_string(),
+        }
     }
 
     #[test]

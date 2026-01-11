@@ -31,7 +31,10 @@ pub struct WebEditor {
     editor: Editor,
     surface: WebSurface,
     text_renderer: TextRenderer,
-    quad_renderer: QuadRenderer,
+    /// Quad renderer for background elements (gutter, selection highlights)
+    background_quad_renderer: QuadRenderer,
+    /// Quad renderer for foreground elements (cursor) - separate buffer to avoid GPU conflicts
+    cursor_quad_renderer: QuadRenderer,
     cursor_renderer: CursorRenderer,
     gutter_renderer: GutterRenderer,
     highlighter: SimpleHighlighter,
@@ -105,11 +108,14 @@ pub async fn create_web_editor(
     ));
     log("[Iridium] TextRenderer created");
 
-    // Create quad renderer for cursor and highlights
-    log("[Iridium] Creating QuadRenderer...");
-    let mut quad_renderer = QuadRenderer::new(surface.device(), surface.format());
-    quad_renderer.update_viewport(surface.queue(), width, height);
-    log("[Iridium] QuadRenderer created");
+    // Create quad renderers - separate buffers to avoid GPU write conflicts
+    // (multiple queue.write_buffer calls to same buffer within a frame cause corruption)
+    log("[Iridium] Creating QuadRenderers...");
+    let mut background_quad_renderer = QuadRenderer::new(surface.device(), surface.format());
+    background_quad_renderer.update_viewport(surface.queue(), width, height);
+    let mut cursor_quad_renderer = QuadRenderer::new(surface.device(), surface.format());
+    cursor_quad_renderer.update_viewport(surface.queue(), width, height);
+    log("[Iridium] QuadRenderers created");
 
     // Create editor with default config
     let editor = Editor::new(EditorConfig::default());
@@ -123,7 +129,8 @@ pub async fn create_web_editor(
         editor,
         surface,
         text_renderer,
-        quad_renderer,
+        background_quad_renderer,
+        cursor_quad_renderer,
         cursor_renderer,
         gutter_renderer,
         highlighter,
@@ -279,7 +286,9 @@ impl WebEditor {
         self.surface.resize(width, height);
         self.text_renderer
             .update_viewport(self.surface.queue(), width, height);
-        self.quad_renderer
+        self.background_quad_renderer
+            .update_viewport(self.surface.queue(), width, height);
+        self.cursor_quad_renderer
             .update_viewport(self.surface.queue(), width, height);
         self.needs_redraw = true;
     }
@@ -319,7 +328,12 @@ impl WebEditor {
             self.surface.width(),
             self.surface.height(),
         );
-        self.quad_renderer.update_viewport(
+        self.background_quad_renderer.update_viewport(
+            self.surface.queue(),
+            self.surface.width(),
+            self.surface.height(),
+        );
+        self.cursor_quad_renderer.update_viewport(
             self.surface.queue(),
             self.surface.width(),
             self.surface.height(),
@@ -521,9 +535,20 @@ impl WebEditor {
             a: f64::from(bg.a),
         };
 
-        // Render frame
+        // Batch all background quads (gutter + selection) together
+        let mut background_quads: Vec<Quad> = Vec::with_capacity(
+            gutter_quads.len() + selection_quads.len()
+        );
+        background_quads.extend(gutter_quads);
+        background_quads.extend(selection_quads);
+
+        // Render frame using SEPARATE quad renderers for background and cursor
+        // This is critical: queue.write_buffer() to the same buffer multiple times within
+        // a frame causes only the last write to be visible. Using separate QuadRenderers
+        // with separate vertex buffers avoids this GPU synchronization issue.
         let text_renderer = &self.text_renderer;
-        let quad_renderer = &self.quad_renderer;
+        let background_quad_renderer = &self.background_quad_renderer;
+        let cursor_quad_renderer = &self.cursor_quad_renderer;
         let queue = self.surface.queue_arc();
         self.surface
             .render_frame(|view, device, q| {
@@ -550,11 +575,9 @@ impl WebEditor {
                         multiview_mask: None,
                     });
 
-                    // Render gutter background first
-                    quad_renderer.render(&mut pass, &queue, &gutter_quads);
-
-                    // Render selection highlights (behind text)
-                    quad_renderer.render(&mut pass, &queue, &selection_quads);
+                    // Render gutter background and selection highlights (behind text)
+                    // Uses background_quad_renderer with its own vertex buffer
+                    background_quad_renderer.render(&mut pass, &queue, &background_quads);
 
                     // Render text (main content and gutter line numbers)
                     text_renderer
@@ -563,8 +586,9 @@ impl WebEditor {
                             message: e.to_string(),
                         })?;
 
-                    // Render cursor on top
-                    quad_renderer.render(&mut pass, &queue, &cursor_quads);
+                    // Render cursor on top - uses cursor_quad_renderer with its own vertex buffer
+                    // This avoids the GPU buffer overwrite issue that caused selection blinking
+                    cursor_quad_renderer.render(&mut pass, &queue, &cursor_quads);
                 }
 
                 q.submit(std::iter::once(encoder.finish()));

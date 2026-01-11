@@ -636,6 +636,7 @@ dependencies = [
 name = "iridium-editor"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "cosmic-text 0.16.0",
  "criterion",
  "glyphon",

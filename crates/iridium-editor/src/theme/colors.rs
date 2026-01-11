@@ -1,0 +1,228 @@
+//! Color definitions for themes.
+
+use serde::{Deserialize, Serialize};
+
+/// RGBA color with components in 0-1 range.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Color {
+    /// Red component (0.0-1.0)
+    pub r: f32,
+    /// Green component (0.0-1.0)
+    pub g: f32,
+    /// Blue component (0.0-1.0)
+    pub b: f32,
+    /// Alpha component (0.0-1.0)
+    pub a: f32,
+}
+
+impl Color {
+    /// Creates a new color from RGBA values (0-1 range).
+    #[must_use]
+    pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+
+    /// Creates a color from RGB values (0-1 range), with full opacity.
+    #[must_use]
+    pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
+        Self { r, g, b, a: 1.0 }
+    }
+
+    /// Creates a color from a hex string (e.g., "#FF5500" or "FF5500").
+    #[must_use]
+    pub fn from_hex(hex: &str) -> Option<Self> {
+        let hex = hex.trim_start_matches('#');
+        if hex.len() != 6 && hex.len() != 8 {
+            return None;
+        }
+
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        let a = if hex.len() == 8 { u8::from_str_radix(&hex[6..8], 16).ok()? } else { 255 };
+
+        Some(Self {
+            r: f32::from(r) / 255.0,
+            g: f32::from(g) / 255.0,
+            b: f32::from(b) / 255.0,
+            a: f32::from(a) / 255.0,
+        })
+    }
+
+    /// Converts to an array for shader uniforms.
+    #[must_use]
+    pub const fn to_array(self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Self::rgb(0.0, 0.0, 0.0)
+    }
+}
+
+/// Editor chrome colors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EditorColors {
+    /// Main editor background
+    pub background: Color,
+    /// Default text color
+    pub foreground: Color,
+    /// Selection highlight when focused
+    pub selection: Color,
+    /// Selection highlight when unfocused
+    pub selection_inactive: Color,
+    /// Cursor color
+    pub cursor: Color,
+    /// Line number color
+    pub line_number: Color,
+    /// Active line number color
+    pub line_number_active: Color,
+    /// Current line background highlight
+    pub current_line: Color,
+    /// Gutter background
+    pub gutter: Color,
+    /// Minimap background
+    pub minimap_background: Color,
+    /// Search match highlight
+    pub search_match: Color,
+    /// Current search match highlight
+    pub search_match_current: Color,
+}
+
+impl EditorColors {
+    /// Creates dark theme editor colors.
+    #[must_use]
+    pub fn dark() -> Self {
+        Self {
+            background: Color::from_hex("1e1e1e").unwrap_or_default(),
+            foreground: Color::from_hex("d4d4d4").unwrap_or_default(),
+            selection: Color::new(0.26, 0.42, 0.56, 0.5),
+            selection_inactive: Color::new(0.26, 0.42, 0.56, 0.3),
+            cursor: Color::from_hex("aeafad").unwrap_or_default(),
+            line_number: Color::from_hex("858585").unwrap_or_default(),
+            line_number_active: Color::from_hex("c6c6c6").unwrap_or_default(),
+            current_line: Color::new(0.15, 0.15, 0.15, 1.0),
+            gutter: Color::from_hex("1e1e1e").unwrap_or_default(),
+            minimap_background: Color::from_hex("1e1e1e").unwrap_or_default(),
+            search_match: Color::new(0.52, 0.37, 0.13, 0.6),
+            search_match_current: Color::new(0.82, 0.67, 0.33, 0.8),
+        }
+    }
+
+    /// Creates light theme editor colors.
+    #[must_use]
+    pub fn light() -> Self {
+        Self {
+            background: Color::from_hex("ffffff").unwrap_or_default(),
+            foreground: Color::from_hex("333333").unwrap_or_default(),
+            selection: Color::new(0.68, 0.85, 1.0, 0.5),
+            selection_inactive: Color::new(0.68, 0.85, 1.0, 0.3),
+            cursor: Color::from_hex("000000").unwrap_or_default(),
+            line_number: Color::from_hex("999999").unwrap_or_default(),
+            line_number_active: Color::from_hex("333333").unwrap_or_default(),
+            current_line: Color::new(0.97, 0.97, 0.97, 1.0),
+            gutter: Color::from_hex("f5f5f5").unwrap_or_default(),
+            minimap_background: Color::from_hex("f5f5f5").unwrap_or_default(),
+            search_match: Color::new(1.0, 0.92, 0.55, 0.6),
+            search_match_current: Color::new(1.0, 0.72, 0.25, 0.8),
+        }
+    }
+}
+
+/// Syntax highlighting colors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyntaxColors {
+    /// Keywords (if, else, fn, etc.)
+    pub keyword: Color,
+    /// String literals
+    pub string: Color,
+    /// Numeric literals
+    pub number: Color,
+    /// Comments
+    pub comment: Color,
+    /// Function names
+    pub function: Color,
+    /// Variable names
+    pub variable: Color,
+    /// Type names
+    pub type_name: Color,
+    /// Operators
+    pub operator: Color,
+    /// Punctuation
+    pub punctuation: Color,
+    /// Object properties
+    pub property: Color,
+    /// Constants
+    pub constant: Color,
+    /// HTML/XML tags
+    pub tag: Color,
+    /// HTML/XML attributes
+    pub attribute: Color,
+    /// Syntax errors
+    pub error: Color,
+}
+
+impl SyntaxColors {
+    /// Creates dark theme syntax colors.
+    #[must_use]
+    pub fn dark() -> Self {
+        Self {
+            keyword: Color::from_hex("569cd6").unwrap_or_default(),
+            string: Color::from_hex("ce9178").unwrap_or_default(),
+            number: Color::from_hex("b5cea8").unwrap_or_default(),
+            comment: Color::from_hex("6a9955").unwrap_or_default(),
+            function: Color::from_hex("dcdcaa").unwrap_or_default(),
+            variable: Color::from_hex("9cdcfe").unwrap_or_default(),
+            type_name: Color::from_hex("4ec9b0").unwrap_or_default(),
+            operator: Color::from_hex("d4d4d4").unwrap_or_default(),
+            punctuation: Color::from_hex("d4d4d4").unwrap_or_default(),
+            property: Color::from_hex("9cdcfe").unwrap_or_default(),
+            constant: Color::from_hex("4fc1ff").unwrap_or_default(),
+            tag: Color::from_hex("569cd6").unwrap_or_default(),
+            attribute: Color::from_hex("9cdcfe").unwrap_or_default(),
+            error: Color::from_hex("f44747").unwrap_or_default(),
+        }
+    }
+
+    /// Creates light theme syntax colors.
+    #[must_use]
+    pub fn light() -> Self {
+        Self {
+            keyword: Color::from_hex("0000ff").unwrap_or_default(),
+            string: Color::from_hex("a31515").unwrap_or_default(),
+            number: Color::from_hex("098658").unwrap_or_default(),
+            comment: Color::from_hex("008000").unwrap_or_default(),
+            function: Color::from_hex("795e26").unwrap_or_default(),
+            variable: Color::from_hex("001080").unwrap_or_default(),
+            type_name: Color::from_hex("267f99").unwrap_or_default(),
+            operator: Color::from_hex("000000").unwrap_or_default(),
+            punctuation: Color::from_hex("000000").unwrap_or_default(),
+            property: Color::from_hex("001080").unwrap_or_default(),
+            constant: Color::from_hex("0070c1").unwrap_or_default(),
+            tag: Color::from_hex("800000").unwrap_or_default(),
+            attribute: Color::from_hex("ff0000").unwrap_or_default(),
+            error: Color::from_hex("ff0000").unwrap_or_default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_from_hex() {
+        let color = Color::from_hex("#FF5500").unwrap();
+        assert!((color.r - 1.0).abs() < 0.01);
+        assert!((color.g - 0.333).abs() < 0.01);
+        assert!((color.b - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn color_from_hex_with_alpha() {
+        let color = Color::from_hex("FF550080").unwrap();
+        assert!((color.a - 0.502).abs() < 0.01);
+    }
+}

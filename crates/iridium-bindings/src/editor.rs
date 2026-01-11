@@ -8,16 +8,13 @@ use std::sync::{Arc, Mutex};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use iridium_editor::{
-    Editor, EditorConfig, Position, Range, Selection,
-    search::SearchOptions,
-};
+use iridium_editor::{Editor, EditorConfig, Position, Range, Selection, search::SearchOptions};
 use iridium_syntax::Language;
 
 use crate::events::{EventCallback, EventEmitter};
 use crate::types::{
-    JsEditorConfig, JsFoldInfo, JsPosition, JsRange, JsSearchOptions,
-    JsSearchResult, JsSelection, JsUndoInfo,
+    JsEditorConfig, JsFoldInfo, JsPosition, JsRange, JsSearchOptions, JsSearchResult, JsSelection,
+    JsUndoInfo,
 };
 
 /// The Iridium editor instance exposed to TypeScript.
@@ -221,8 +218,7 @@ impl IridiumEditor {
                 .map(|l| l.chars().count())
                 .unwrap_or(0);
 
-            let selection =
-                Selection::new(Position::zero(), Position::new(last_line, last_col));
+            let selection = Selection::new(Position::zero(), Position::new(last_line, last_col));
             editor.state_mut().cursor = iridium_editor::CursorState::new(selection);
         });
         self.emit_selection_changed();
@@ -572,8 +568,7 @@ impl IridiumEditor {
     /// Sets the language for syntax highlighting and folding.
     #[napi]
     pub fn set_language(&self, language: String) -> bool {
-        let lang = Language::from_extension(&language)
-            .or_else(|| Language::from_id(&language));
+        let lang = Language::from_extension(&language).or_else(|| Language::from_id(&language));
 
         if let Some(lang) = lang {
             self.with_editor_mut(|editor| {
@@ -643,7 +638,10 @@ impl IridiumEditor {
     #[napi]
     pub fn resize(&self, width: f64, height: f64) {
         self.with_editor_mut(|editor| {
-            editor.state_mut().viewport.resize(width as f32, height as f32);
+            editor
+                .state_mut()
+                .viewport
+                .resize(width as f32, height as f32);
         });
     }
 

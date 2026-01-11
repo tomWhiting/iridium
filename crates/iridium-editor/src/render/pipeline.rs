@@ -853,7 +853,10 @@ mod tests {
             background: rect,
             background_color: color,
             content_rects: vec![(content_rect, content_color)],
-            viewport_indicator: Some((MinimapRect::new(100.0, 0.0, 120.0, 100.0), ThemeColor::new(1.0, 1.0, 1.0, 0.15))),
+            viewport_indicator: Some((
+                MinimapRect::new(100.0, 0.0, 120.0, 100.0),
+                ThemeColor::new(1.0, 1.0, 1.0, 0.15),
+            )),
             visible: true,
         };
 
@@ -883,10 +886,10 @@ mod tests {
         // Verify first vertex (top-left): x, y, r, g, b, a
         assert!((vertices[0] - 10.0).abs() < f32::EPSILON); // x
         assert!((vertices[1] - 20.0).abs() < f32::EPSILON); // y
-        assert!((vertices[2] - 1.0).abs() < f32::EPSILON);  // r
-        assert!((vertices[3] - 0.0).abs() < f32::EPSILON);  // g
-        assert!((vertices[4] - 0.5).abs() < f32::EPSILON);  // b
-        assert!((vertices[5] - 0.8).abs() < f32::EPSILON);  // a
+        assert!((vertices[2] - 1.0).abs() < f32::EPSILON); // r
+        assert!((vertices[3] - 0.0).abs() < f32::EPSILON); // g
+        assert!((vertices[4] - 0.5).abs() < f32::EPSILON); // b
+        assert!((vertices[5] - 0.8).abs() < f32::EPSILON); // a
     }
 
     #[test]

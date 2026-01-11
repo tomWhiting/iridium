@@ -73,15 +73,23 @@ impl EventEmitter {
 
         let subscription = Subscription { id, callback };
 
-        let mut subs = self.subscriptions.write().unwrap_or_else(|e| e.into_inner());
-        subs.entry(event.to_string()).or_default().push(subscription);
+        let mut subs = self
+            .subscriptions
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        subs.entry(event.to_string())
+            .or_default()
+            .push(subscription);
 
         id
     }
 
     /// Unsubscribes using a subscription ID.
     pub fn unsubscribe(&self, subscription_id: u32) {
-        let mut subs = self.subscriptions.write().unwrap_or_else(|e| e.into_inner());
+        let mut subs = self
+            .subscriptions
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
 
         for listeners in subs.values_mut() {
             listeners.retain(|s| s.id != subscription_id);
@@ -90,13 +98,19 @@ impl EventEmitter {
 
     /// Removes all listeners for a specific event.
     pub fn remove_listeners(&self, event: &str) {
-        let mut subs = self.subscriptions.write().unwrap_or_else(|e| e.into_inner());
+        let mut subs = self
+            .subscriptions
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         subs.remove(event);
     }
 
     /// Clears all subscriptions.
     pub fn clear_all(&self) {
-        let mut subs = self.subscriptions.write().unwrap_or_else(|e| e.into_inner());
+        let mut subs = self
+            .subscriptions
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         subs.clear();
     }
 
@@ -111,9 +125,10 @@ impl EventEmitter {
             for subscription in listeners {
                 // Call the callback with the data
                 // Using non-blocking mode; ignore errors since callbacks may be disconnected
-                let _ = subscription
-                    .callback
-                    .call(Ok(data.to_string()), ThreadsafeFunctionCallMode::NonBlocking);
+                let _ = subscription.callback.call(
+                    Ok(data.to_string()),
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
             }
         }
     }
@@ -146,8 +161,16 @@ impl Default for EventEmitter {
     }
 }
 
-// Make EventEmitter Send + Sync safe
+// SAFETY: EventEmitter is safe to send between threads and share across threads:
+// - `subscriptions` is wrapped in `Arc<RwLock<...>>` which is Send + Sync
+// - `next_id` is AtomicU32 which is Send + Sync
+// - The contained `ThreadsafeFunction` from napi-rs is designed to be thread-safe
+//   (it's the mechanism for safely calling JS from any thread)
+// The auto-derive doesn't work because ThreadsafeFunction doesn't implement
+// Send/Sync directly, but it's documented as safe for cross-thread use.
+#[expect(unsafe_code, reason = "Required for cross-thread event emission")]
 unsafe impl Send for EventEmitter {}
+#[expect(unsafe_code, reason = "Required for cross-thread event emission")]
 unsafe impl Sync for EventEmitter {}
 
 /// Standalone event emitter exposed to TypeScript.

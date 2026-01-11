@@ -236,7 +236,12 @@ impl MinimapRect {
     /// Creates a new minimap rect.
     #[must_use]
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 }
 
@@ -405,7 +410,12 @@ impl MinimapDragState {
     /// * `viewport_first_line` - The current first visible line
     /// * `viewport_visible_lines` - Number of visible lines
     #[allow(clippy::cast_precision_loss)]
-    pub fn start(&mut self, line: usize, viewport_first_line: usize, viewport_visible_lines: usize) {
+    pub fn start(
+        &mut self,
+        line: usize,
+        viewport_first_line: usize,
+        viewport_visible_lines: usize,
+    ) {
         self.is_dragging = true;
         self.start_line = Some(line);
 

@@ -88,8 +88,7 @@ fn viewport_indicator_calculate() {
     let document = create_test_document();
 
     let dims = MinimapDimensions::calculate(&config, &viewport, &document, 20.0);
-    let indicator =
-        ViewportIndicator::calculate(&dims, &viewport, 0.15, Color::rgb(1.0, 1.0, 1.0));
+    let indicator = ViewportIndicator::calculate(&dims, &viewport, 0.15, Color::rgb(1.0, 1.0, 1.0));
 
     assert!(indicator.height > 0.0);
     assert!((indicator.color.a - 0.15).abs() < 0.01);

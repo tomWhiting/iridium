@@ -436,7 +436,7 @@ impl KeyboardHandler {
             'y' => self.handle_redo(history),
             'a' => self.handle_select_all(document, cursor),
             'd' => self.handle_add_selection_next_match(document, cursor), // T107
-            'f' => KeyResult::Search(SearchAction::OpenSearch), // T121
+            'f' => KeyResult::Search(SearchAction::OpenSearch),            // T121
             _ => KeyResult::Ignored,
         }
     }

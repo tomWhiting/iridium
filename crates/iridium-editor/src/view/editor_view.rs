@@ -4,14 +4,12 @@
 //! loop into a complete visual representation of the editor.
 
 use crate::editor::EditorController;
-use crate::render::{RenderError, TextRenderer};
+use crate::render::{GutterConfig, GutterRenderer, RenderError, TextRenderer, Viewport};
 
 use super::cursor_renderer::{CursorConfig, CursorRenderer};
 use super::frame_timer::{FrameStats, FrameTimer, TargetFrameRate};
-use super::gutter::{GutterConfig, GutterRenderer};
 use super::highlight::{HighlightConfig, HighlightRect, HighlightRenderer};
 use super::line_cache::LineCache;
-use super::viewport::Viewport;
 
 /// Configuration for the editor view.
 #[derive(Debug, Clone)]

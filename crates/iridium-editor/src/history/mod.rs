@@ -10,8 +10,8 @@
 
 mod commands;
 mod stack;
-mod tree;
+mod undo_tree;
 
 pub use commands::Command;
 pub use stack::History;
-pub use tree::{NodeId, NodeInfo, UndoTree};
+pub use undo_tree::{NodeId, NodeInfo, UndoTree};

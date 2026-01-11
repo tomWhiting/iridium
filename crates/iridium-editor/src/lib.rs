@@ -39,9 +39,11 @@ pub use input::{
     InputAction, InputResult, Key, KeyEvent, KeyHandler, Modifiers, MouseButton, MouseEvent,
     MouseEventKind, MouseHandler,
 };
-pub use render::{RenderError, RenderPipeline, TextRenderer};
+pub use render::{
+    GutterConfig, GutterRenderer, GutterWidth, RenderError, RenderPipeline, ScrollConfig,
+    ScrollDirection, TextRenderer, Viewport,
+};
 pub use view::{
-    CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, GutterConfig, GutterRenderer,
-    GutterWidth, HighlightConfig, HighlightRenderer, ScrollConfig, ScrollDirection,
-    TargetFrameRate, ViewConfig, Viewport,
+    CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, HighlightConfig,
+    HighlightRenderer, TargetFrameRate, ViewConfig,
 };

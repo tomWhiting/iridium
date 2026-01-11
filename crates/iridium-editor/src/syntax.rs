@@ -123,12 +123,12 @@ impl DocumentHighlighter {
 
     /// Detects and sets the language from a file extension.
     ///
-    /// Returns `None` if the extension is not recognized or the language
-    /// is not supported.
+    /// Returns `None` if the extension is not recognized or the highlighter
+    /// fails to initialize.
     pub fn set_language_from_extension(&mut self, ext: &str) -> Option<Language> {
         let lang = Language::from_extension(ext)?;
 
-        if lang.is_supported() && self.set_language(lang).is_ok() {
+        if self.set_language(lang).is_ok() {
             return Some(lang);
         }
 

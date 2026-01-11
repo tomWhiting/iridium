@@ -297,8 +297,6 @@ mod queries {
             "bash" => Some(include_query!("bash", "highlights.scm")),
             "c" => Some(include_query!("c", "highlights.scm")),
             "cpp" => Some(include_query!("cpp", "highlights.scm")),
-            "cypher" => Some(include_query!("cypher", "highlights.scm")),
-            "sql" => Some(include_query!("sql", "highlights.scm")),
             _ => None,
         }
     }
@@ -333,13 +331,6 @@ impl LanguageRegistry {
         grammars.insert(crate::Language::Bash, tree_sitter_bash::LANGUAGE.into());
         grammars.insert(crate::Language::C, tree_sitter_c::LANGUAGE.into());
         grammars.insert(crate::Language::Cpp, tree_sitter_cpp::LANGUAGE.into());
-
-        // Note: SQL uses an older tree-sitter version (0.19.5) which is incompatible
-        // with tree-sitter 0.26.3. We skip it for now and use fallback highlighting.
-        // grammars.insert(crate::Language::Sql, tree_sitter_sql::language());
-
-        // Note: Cypher requires a git dependency (not on crates.io). For now,
-        // we'll rely on the bundled query file with a compatible grammar later.
 
         Self { grammars }
     }
@@ -813,13 +804,6 @@ mod tests {
         assert_eq!(spans[1].start, 0);
         assert_eq!(spans[1].end, 10);
         assert_eq!(spans[2].start, 10);
-    }
-
-    #[test]
-    fn test_unsupported_language() {
-        // SQL and Cypher are currently unsupported due to version mismatches
-        let result = Highlighter::new(Language::Sql);
-        assert!(result.is_err());
     }
 
     #[test]

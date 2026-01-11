@@ -10,6 +10,6 @@ mod viewport;
 
 pub use gutter::GutterRenderer;
 pub use minimap::MinimapRenderer;
-pub use pipeline::RenderPipeline;
+pub use pipeline::{GpuInfo, RenderConfig, RenderPipeline, DEFAULT_TEXTURE_FORMAT};
 pub use text::TextRenderer;
 pub use viewport::Viewport;

@@ -13,13 +13,14 @@ These have real logic, not just type definitions:
 | Tasks | Component | Notes |
 |-------|-----------|-------|
 | T014-T019 | Core types (Position, Range, Selection, CursorState, Document, LineEnding) | Full implementations with Ord, methods, tests |
-| T020, T022 | Command enum + inverse() | All variants, inverse logic works |
+| T020-T022 | Command enum + apply() + inverse() | All variants, apply/inverse logic work, comprehensive tests |
 | T023-T028 | Theme system (Color, EditorColors, SyntaxColors, Typography, Theme) | Hex parsing, dark/light presets |
 | T029 | EditorConfig | All options with defaults |
 | T030-T031 | Error types | IridiumError, ErrorCode with From impl |
 | T037-T038 | EditorState, EditorEvent | Composes all state, event variants defined |
 | T039-T042 | Document operations | insert/delete/replace/offset conversions work with ropey 2.0 |
 | T062-T070, T072 | UndoTree core | Full tree implementation: push, undo, redo, branching, jump_to_node, grouping |
+| T032-T036 | GPU Pipeline + Text Rendering | wgpu 28.0 device/queue init, glyphon 0.10 TextRenderer, glyph atlas management |
 
 ### Type Definitions Only (stubs behind them)
 
@@ -37,8 +38,6 @@ These modules have `_placeholder: ()` fields and empty method bodies:
 - `input/keyboard.rs` - KeyboardHandler
 - `input/mouse.rs` - MouseHandler
 - `input/ime.rs` - ImeHandler
-- `render/pipeline.rs` - RenderPipeline
-- `render/text.rs` - TextRenderer
 - `render/gutter.rs` - GutterRenderer
 - `render/minimap.rs` - MinimapRenderer
 - `syntax/highlight.rs` - Highlighter (type exists, methods stub)
@@ -48,9 +47,6 @@ These modules have `_placeholder: ()` fields and empty method bodies:
 
 ### Not Started
 
-- T013: `tests/` directory structure
-- T021: `Command::apply()` method
-- T032-T036: GPU pipeline initialization (wgpu, glyphon)
 - T073: `UndoTree::get_node_info()`
 - T074: Wiring undo tree into editor operations
 
@@ -80,3 +76,48 @@ Required Cargo.toml features: `metric_chars`, `metric_lines_lf_cr`
 ### napi-rs 3.x
 
 Using stable napi-rs 3.8.2 (not alpha). Bindings compile but are minimal stubs.
+
+### wgpu 28.0 API Changes
+
+The project uses wgpu 28.0 which has significant API changes from earlier versions:
+
+```rust
+// request_adapter now returns Result, not Option
+let adapter = instance.request_adapter(&options).await?;
+
+// enumerate_adapters is now async
+let adapters = instance.enumerate_adapters(Backends::all()).await;
+
+// DeviceDescriptor requires trace field
+DeviceDescriptor {
+    trace: Trace::Off,
+    ..Default::default()
+}
+
+// RenderPassColorAttachment needs depth_slice
+RenderPassColorAttachment {
+    depth_slice: None,
+    ..
+}
+
+// RenderPassDescriptor needs multiview_mask
+RenderPassDescriptor {
+    multiview_mask: None,
+    ..
+}
+```
+
+Uses `pollster` crate for blocking on async GPU initialization.
+
+### glyphon 0.10 + cosmic-text 0.15/0.16
+
+Text rendering uses glyphon 0.10 with cosmic-text:
+
+```rust
+// TextRenderer::new needs mutable atlas
+GlyphonTextRenderer::new(&mut atlas, device, MultisampleState::default(), None)
+
+// Buffer methods need 5 args (added alignment parameter)
+buffer.set_text(&mut font_system, text, &attrs, Shaping::Advanced, None);
+buffer.set_rich_text(&mut font_system, spans, &default_attrs, Shaping::Advanced, None);
+```

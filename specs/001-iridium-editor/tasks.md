@@ -341,13 +341,13 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 9
 
-- [ ] T146 [US9] Implement Theme::from_json() for loading theme definitions in crates/iridium-editor/src/theme/mod.rs
-- [ ] T147 [US9] Implement runtime theme switching in EditorState in crates/iridium-editor/src/editor/core.rs
-- [ ] T148 [US9] Implement font loading and caching in crates/iridium-editor/src/render/text.rs
-- [ ] T149 [US9] Implement runtime font change support in crates/iridium-editor/src/render/text.rs
-- [ ] T150 [US9] Update shader uniforms for theme colors in crates/iridium-editor/src/render/pipeline.rs
-- [ ] T151 [US9] Create VS Code theme compatibility layer in crates/iridium-editor/src/theme/mod.rs
-- [ ] T152 [US9] Expose setTheme() and getTheme() in public API in crates/iridium-editor/src/lib.rs
+- [x] T146 [US9] Implement Theme::from_json() for loading theme definitions in crates/iridium-editor/src/theme/mod.rs
+- [x] T147 [US9] Implement runtime theme switching in EditorState in crates/iridium-editor/src/editor/core.rs
+- [x] T148 [US9] Implement font loading and caching in crates/iridium-editor/src/render/text.rs
+- [x] T149 [US9] Implement runtime font change support in crates/iridium-editor/src/render/text.rs
+- [x] T150 [US9] Update shader uniforms for theme colors in crates/iridium-editor/src/render/pipeline.rs
+- [x] T151 [US9] Create VS Code theme compatibility layer in crates/iridium-editor/src/theme/vscode.rs
+- [x] T152 [US9] Expose setTheme() and getTheme() in public API in crates/iridium-editor/src/editor/core.rs
 
 **Checkpoint**: User Story 9 complete - theming with hot reload works
 

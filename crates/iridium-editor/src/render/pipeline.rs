@@ -13,6 +13,7 @@ use wgpu::{
 };
 
 use crate::editor::IridiumError;
+use crate::theme::{Color as ThemeColor, EditorColors, SyntaxColors, Theme};
 
 /// Default texture format for rendering.
 /// BGRA8 is commonly supported across platforms and provides good compatibility.
@@ -367,6 +368,205 @@ impl RenderPipeline {
     pub fn submit(&self, encoder: CommandEncoder) {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
+
+    /// Converts a theme color to a wgpu Color for render passes (T150).
+    ///
+    /// This converts from Iridium's theme color format (f32 0.0-1.0)
+    /// to wgpu's Color format (f64).
+    #[must_use]
+    pub fn theme_color_to_wgpu(color: ThemeColor) -> Color {
+        Color {
+            r: f64::from(color.r),
+            g: f64::from(color.g),
+            b: f64::from(color.b),
+            a: f64::from(color.a),
+        }
+    }
+
+    /// Creates a clear color from the theme's background color (T150).
+    ///
+    /// Convenience method for getting the appropriate clear color
+    /// when beginning a render pass.
+    #[must_use]
+    pub fn clear_color_from_theme(theme: &Theme) -> Color {
+        Self::theme_color_to_wgpu(theme.editor.background)
+    }
+
+    /// Begins a render pass with the theme's background as clear color (T150).
+    ///
+    /// This is a convenience method that uses the theme's editor background
+    /// color to clear the render target.
+    ///
+    /// # Arguments
+    ///
+    /// * `encoder` - The command encoder to record the render pass
+    /// * `target` - The texture view to render to
+    /// * `theme` - The theme to get the background color from
+    pub fn begin_themed_render_pass<'a>(
+        &self,
+        encoder: &'a mut CommandEncoder,
+        target: &'a TextureView,
+        theme: &Theme,
+    ) -> wgpu::RenderPass<'a> {
+        self.begin_render_pass(encoder, target, Self::clear_color_from_theme(theme))
+    }
+}
+
+/// Theme uniform data for GPU shaders (T150).
+///
+/// This struct contains theme colors packed into a format suitable for
+/// uploading to GPU uniform buffers. Each color is stored as [f32; 4]
+/// in RGBA order.
+///
+/// # WGSL Shader Usage
+///
+/// ```wgsl
+/// struct ThemeColors {
+///     background: vec4<f32>,
+///     foreground: vec4<f32>,
+///     selection: vec4<f32>,
+///     cursor: vec4<f32>,
+///     current_line: vec4<f32>,
+///     // ... additional colors
+/// }
+///
+/// @group(0) @binding(0)
+/// var<uniform> theme: ThemeColors;
+/// ```
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct ThemeUniforms {
+    /// Editor background color
+    pub background: [f32; 4],
+    /// Default text color
+    pub foreground: [f32; 4],
+    /// Selection highlight color
+    pub selection: [f32; 4],
+    /// Inactive selection color
+    pub selection_inactive: [f32; 4],
+    /// Cursor color
+    pub cursor: [f32; 4],
+    /// Line number color
+    pub line_number: [f32; 4],
+    /// Active line number color
+    pub line_number_active: [f32; 4],
+    /// Current line highlight color
+    pub current_line: [f32; 4],
+    /// Gutter background color
+    pub gutter: [f32; 4],
+    /// Search match highlight color
+    pub search_match: [f32; 4],
+    /// Current search match highlight color
+    pub search_match_current: [f32; 4],
+}
+
+impl ThemeUniforms {
+    /// Creates theme uniforms from editor colors (T150).
+    #[must_use]
+    #[allow(dead_code)] // Part of T150 API for future shader integration
+    pub const fn from_editor_colors(colors: &EditorColors) -> Self {
+        Self {
+            background: colors.background.to_array(),
+            foreground: colors.foreground.to_array(),
+            selection: colors.selection.to_array(),
+            selection_inactive: colors.selection_inactive.to_array(),
+            cursor: colors.cursor.to_array(),
+            line_number: colors.line_number.to_array(),
+            line_number_active: colors.line_number_active.to_array(),
+            current_line: colors.current_line.to_array(),
+            gutter: colors.gutter.to_array(),
+            search_match: colors.search_match.to_array(),
+            search_match_current: colors.search_match_current.to_array(),
+        }
+    }
+
+    /// Creates theme uniforms from a theme (T150).
+    #[must_use]
+    #[allow(dead_code)] // Part of T150 API for future shader integration
+    pub const fn from_theme(theme: &Theme) -> Self {
+        Self::from_editor_colors(&theme.editor)
+    }
+
+    /// Returns the byte size of the uniform struct.
+    #[must_use]
+    #[allow(dead_code)] // Part of T150 API for future shader integration
+    pub const fn size() -> u64 {
+        std::mem::size_of::<Self>() as u64
+    }
+}
+
+/// Syntax color uniform data for GPU shaders (T150).
+///
+/// Contains syntax highlighting colors for shader-based rendering.
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct SyntaxUniforms {
+    /// Keyword color
+    pub keyword: [f32; 4],
+    /// String literal color
+    pub string: [f32; 4],
+    /// Number literal color
+    pub number: [f32; 4],
+    /// Comment color
+    pub comment: [f32; 4],
+    /// Function name color
+    pub function: [f32; 4],
+    /// Variable name color
+    pub variable: [f32; 4],
+    /// Type name color
+    pub type_name: [f32; 4],
+    /// Operator color
+    pub operator: [f32; 4],
+    /// Punctuation color
+    pub punctuation: [f32; 4],
+    /// Property color
+    pub property: [f32; 4],
+    /// Constant color
+    pub constant: [f32; 4],
+    /// Tag color (HTML/XML)
+    pub tag: [f32; 4],
+    /// Attribute color
+    pub attribute: [f32; 4],
+    /// Error color
+    pub error: [f32; 4],
+}
+
+impl SyntaxUniforms {
+    /// Creates syntax uniforms from syntax colors (T150).
+    #[must_use]
+    #[allow(dead_code)] // Part of T150 API for future shader integration
+    pub const fn from_syntax_colors(colors: &SyntaxColors) -> Self {
+        Self {
+            keyword: colors.keyword.to_array(),
+            string: colors.string.to_array(),
+            number: colors.number.to_array(),
+            comment: colors.comment.to_array(),
+            function: colors.function.to_array(),
+            variable: colors.variable.to_array(),
+            type_name: colors.type_name.to_array(),
+            operator: colors.operator.to_array(),
+            punctuation: colors.punctuation.to_array(),
+            property: colors.property.to_array(),
+            constant: colors.constant.to_array(),
+            tag: colors.tag.to_array(),
+            attribute: colors.attribute.to_array(),
+            error: colors.error.to_array(),
+        }
+    }
+
+    /// Creates syntax uniforms from a theme (T150).
+    #[must_use]
+    #[allow(dead_code)] // Part of T150 API for future shader integration
+    pub const fn from_theme(theme: &Theme) -> Self {
+        Self::from_syntax_colors(&theme.syntax)
+    }
+
+    /// Returns the byte size of the uniform struct.
+    #[must_use]
+    #[allow(dead_code)] // Part of T150 API for future shader integration
+    pub const fn size() -> u64 {
+        std::mem::size_of::<Self>() as u64
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +591,64 @@ mod tests {
         };
         assert_eq!(info.name, "Test GPU");
         assert_eq!(info.backend, "Vulkan");
+    }
+
+    #[test]
+    fn theme_uniforms_from_theme() {
+        let theme = Theme::dark();
+        let uniforms = ThemeUniforms::from_theme(&theme);
+
+        // Verify background color matches theme
+        assert_eq!(uniforms.background[0], theme.editor.background.r);
+        assert_eq!(uniforms.background[1], theme.editor.background.g);
+        assert_eq!(uniforms.background[2], theme.editor.background.b);
+        assert_eq!(uniforms.background[3], theme.editor.background.a);
+    }
+
+    #[test]
+    fn syntax_uniforms_from_theme() {
+        let theme = Theme::light();
+        let uniforms = SyntaxUniforms::from_theme(&theme);
+
+        // Verify keyword color matches theme
+        assert_eq!(uniforms.keyword[0], theme.syntax.keyword.r);
+        assert_eq!(uniforms.keyword[1], theme.syntax.keyword.g);
+        assert_eq!(uniforms.keyword[2], theme.syntax.keyword.b);
+        assert_eq!(uniforms.keyword[3], theme.syntax.keyword.a);
+    }
+
+    #[test]
+    fn theme_uniforms_size() {
+        // 11 colors * 4 floats * 4 bytes = 176 bytes
+        assert_eq!(ThemeUniforms::size(), 176);
+    }
+
+    #[test]
+    fn syntax_uniforms_size() {
+        // 14 colors * 4 floats * 4 bytes = 224 bytes
+        assert_eq!(SyntaxUniforms::size(), 224);
+    }
+
+    #[test]
+    fn theme_color_to_wgpu_conversion() {
+        let theme_color = ThemeColor::new(0.5, 0.25, 0.75, 1.0);
+        let wgpu_color = RenderPipeline::theme_color_to_wgpu(theme_color);
+
+        assert!((wgpu_color.r - 0.5).abs() < 0.001);
+        assert!((wgpu_color.g - 0.25).abs() < 0.001);
+        assert!((wgpu_color.b - 0.75).abs() < 0.001);
+        assert!((wgpu_color.a - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn clear_color_from_dark_theme() {
+        let theme = Theme::dark();
+        let clear_color = RenderPipeline::clear_color_from_theme(&theme);
+
+        // Dark theme should have a dark background
+        assert!(clear_color.r < 0.2);
+        assert!(clear_color.g < 0.2);
+        assert!(clear_color.b < 0.2);
     }
 
     // Note: Actual GPU initialization tests require hardware

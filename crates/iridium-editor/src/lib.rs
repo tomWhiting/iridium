@@ -34,7 +34,7 @@ pub use events::{
     ContentChangedEvent, CursorMovedEvent, EditorEvent, EventEmitter, SelectionChangeReason,
     SelectionChangedEvent,
 };
-pub use history::{Command, History};
+pub use history::{Command, History, NodeId, NodeInfo, UndoTree};
 pub use input::{
     InputAction, InputResult, Key, KeyEvent, KeyHandler, Modifiers, MouseEvent, MouseHandler,
 };

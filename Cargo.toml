@@ -21,7 +21,7 @@ glyphon = "0.10.0"
 cosmic-text = "0.16.0"
 
 # Text buffer
-ropey = "1"
+ropey = { version = "2.0.0-beta.1", features = ["metric_chars", "metric_lines_lf_cr"] }
 
 # Syntax highlighting
 tree-sitter = "0.26.3"

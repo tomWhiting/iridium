@@ -1,17 +1,11 @@
-//! Undo/redo command history.
+//! Undo/redo history with tree structure.
 //!
-//! This module provides command-based history management for undo/redo
-//! functionality. Each edit operation is recorded as a command that can
-//! be applied and unapplied.
-//!
-//! Two history implementations are provided:
-//! - `History`: A simple linear stack (discards redo history on new edits)
-//! - `UndoTree`: A branching tree that preserves all history branches
+//! This module implements a tree-structured undo history where branches
+//! are preserved when edits are made after undo operations. This ensures
+//! users never lose work.
 
 mod commands;
-mod stack;
 mod undo_tree;
 
 pub use commands::Command;
-pub use stack::History;
-pub use undo_tree::{NodeId, NodeInfo, UndoTree};
+pub use undo_tree::{UndoNodeId, UndoTree};

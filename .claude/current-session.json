@@ -1,10 +1,10 @@
 {
   "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d4aa",
-  "session_name": "Sergeant Pickles, Attorney at Law",
+  "session_name": "Sergeant Pickles (resumed)",
   "nickname": "Sergeant Pickles",
   "transcript_path": "/Users/tom/.claude/projects/-Users-tom-Developer-projects-deno-rust-iridium/f47ac10b-58cc-4372-a567-0e02b2c3d4aa.jsonl",
   "cwd": "/Users/tom/Developer/projects/deno_rust/iridium",
   "source": "compact",
-  "timestamp": "2026-01-11T18:30:02.593862",
+  "timestamp": "2026-01-11T20:53:45.719247",
   "project_dir": "/Users/tom/Developer/projects/deno_rust/iridium"
 }

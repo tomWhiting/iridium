@@ -1,36 +1,49 @@
 [package]
 name = "iridium-editor"
-description = "GPU-accelerated text editor component"
+description = "GPU-accelerated text editor core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 authors.workspace = true
 
-[dependencies]
-# Core text handling
-ropey.workspace = true
+[lints]
+workspace = true
 
+[dependencies]
 # GPU rendering
 wgpu.workspace = true
 glyphon.workspace = true
+cosmic-text.workspace = true
+
+# Text buffer
+ropey.workspace = true
+
+# Syntax (internal)
+iridium-syntax.workspace = true
+
+# Serialization (themes, config)
+serde.workspace = true
+serde_json.workspace = true
 
 # Error handling
 thiserror.workspace = true
 
+# Search
+regex.workspace = true
+
 # Logging
 tracing.workspace = true
-
-# Async runtime (for initialization)
-tokio.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
 tracing-subscriber.workspace = true
 
 [[bench]]
-name = "buffer_benchmarks"
+name = "editing"
 harness = false
 
 [[bench]]
-name = "scrolling_benchmarks"
+name = "rendering"
 harness = false

@@ -1,16 +1,15 @@
-//! GPU rendering pipeline with wgpu and glyphon.
+//! GPU rendering subsystem.
 //!
-//! This module provides GPU-accelerated text rendering using wgpu for
-//! the graphics backend and glyphon for text shaping and rendering.
+//! This module handles all rendering using wgpu and glyphon.
 
-mod error;
 mod gutter;
+mod minimap;
 mod pipeline;
 mod text;
 mod viewport;
 
-pub use error::RenderError;
-pub use gutter::{GutterConfig, GutterRenderer, GutterWidth, LineNumberEntry};
+pub use gutter::GutterRenderer;
+pub use minimap::MinimapRenderer;
 pub use pipeline::RenderPipeline;
 pub use text::TextRenderer;
-pub use viewport::{ScrollConfig, ScrollDirection, Viewport};
+pub use viewport::Viewport;

@@ -122,13 +122,13 @@ pub struct CursorState {
 impl CursorState {
     /// Creates a new cursor state with a single primary cursor.
     #[must_use]
-    pub fn new(primary: Selection) -> Self {
+    pub const fn new(primary: Selection) -> Self {
         Self { primary, secondary: Vec::new() }
     }
 
     /// Creates a cursor state with a collapsed cursor at the given position.
     #[must_use]
-    pub fn at(position: Position) -> Self {
+    pub const fn at(position: Position) -> Self {
         Self::new(Selection::collapsed(position))
     }
 

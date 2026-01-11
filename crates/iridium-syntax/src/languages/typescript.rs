@@ -8,7 +8,7 @@ pub struct TypeScriptConfig {
 
 impl TypeScriptConfig {
     /// Creates a new TypeScript configuration.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

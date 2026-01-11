@@ -9,7 +9,7 @@ pub struct KeyboardHandler {
 
 impl KeyboardHandler {
     /// Creates a new keyboard handler.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

@@ -9,7 +9,7 @@ pub struct MouseHandler {
 
 impl MouseHandler {
     /// Creates a new mouse handler.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

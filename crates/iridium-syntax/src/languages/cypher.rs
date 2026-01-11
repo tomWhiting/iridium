@@ -8,7 +8,7 @@ pub struct CypherConfig {
 
 impl CypherConfig {
     /// Creates a new Cypher configuration.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

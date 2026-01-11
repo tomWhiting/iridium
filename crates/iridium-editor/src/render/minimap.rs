@@ -9,7 +9,7 @@ pub struct MinimapRenderer {
 
 impl MinimapRenderer {
     /// Creates a new minimap renderer.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

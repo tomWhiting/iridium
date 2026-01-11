@@ -141,6 +141,7 @@ impl EditorState {
 /// let editor = Editor::new(EditorConfig::default())?;
 /// editor.set_content("Hello, world!");
 /// ```
+#[allow(clippy::type_complexity)]
 pub struct Editor {
     /// The editor state
     state: EditorState,
@@ -175,7 +176,7 @@ impl Editor {
     }
 
     /// Returns a mutable reference to the editor state.
-    pub fn state_mut(&mut self) -> &mut EditorState {
+    pub const fn state_mut(&mut self) -> &mut EditorState {
         &mut self.state
     }
 
@@ -195,7 +196,7 @@ impl Editor {
 
     /// Returns the current cursor position.
     #[must_use]
-    pub fn cursor(&self) -> Position {
+    pub const fn cursor(&self) -> Position {
         self.state.cursor.primary.head
     }
 
@@ -215,6 +216,7 @@ impl Editor {
     }
 
     /// Emits an event to all listeners.
+    #[allow(clippy::needless_pass_by_value)]
     fn emit(&self, event: EditorEvent) {
         for listener in &self.listeners {
             listener(&event);

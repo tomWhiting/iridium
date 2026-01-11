@@ -38,23 +38,25 @@ impl FoldRegion {
 
     /// Returns the number of lines in this region.
     #[must_use]
-    pub fn line_count(&self) -> usize {
+    pub const fn line_count(&self) -> usize {
         self.end_line.saturating_sub(self.start_line) + 1
     }
 
     /// Returns true if the given line is within this region.
     #[must_use]
-    pub fn contains_line(&self, line: usize) -> bool {
+    pub const fn contains_line(&self, line: usize) -> bool {
         line >= self.start_line && line <= self.end_line
     }
 }
 
 /// Detects foldable regions in source code.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FoldDetector {
     language: super::Language,
 }
 
+#[allow(dead_code)]
 impl FoldDetector {
     /// Creates a new fold detector for the given language.
     #[must_use]
@@ -64,7 +66,8 @@ impl FoldDetector {
 
     /// Detects all foldable regions in the source code.
     #[must_use]
-    pub fn detect(&self, _source: &str) -> Vec<FoldRegion> {
+    #[allow(clippy::unused_self)]
+    pub const fn detect(&self, _source: &str) -> Vec<FoldRegion> {
         // Fold detection will be implemented using tree-sitter
         Vec::new()
     }

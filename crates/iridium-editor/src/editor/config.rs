@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 ///     ..EditorConfig::default()
 /// };
 /// ```
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EditorConfig {
     /// Tab width in spaces (default: 4)

@@ -62,7 +62,7 @@ pub enum Command {
     /// A group of commands executed atomically.
     Compound {
         /// The commands in this group
-        commands: Vec<Command>,
+        commands: Vec<Self>,
     },
 }
 
@@ -208,14 +208,12 @@ mod tests {
 
         let inverse = cmd.inverse();
 
-        match inverse {
-            Command::Delete { range, deleted_text } => {
-                assert_eq!(range.start, Position::new(0, 0));
-                assert_eq!(range.end, Position::new(0, 5));
-                assert_eq!(deleted_text, "Hello");
-            }
-            _ => panic!("Expected Delete command"),
-        }
+        let Command::Delete { range, deleted_text } = inverse else {
+            unreachable!("Expected Delete command");
+        };
+        assert_eq!(range.start, Position::new(0, 0));
+        assert_eq!(range.end, Position::new(0, 5));
+        assert_eq!(deleted_text, "Hello");
     }
 
     #[test]
@@ -227,13 +225,11 @@ mod tests {
 
         let inverse = cmd.inverse();
 
-        match inverse {
-            Command::Insert { position, text } => {
-                assert_eq!(position, Position::new(0, 0));
-                assert_eq!(text, "Hello");
-            }
-            _ => panic!("Expected Insert command"),
-        }
+        let Command::Insert { position, text } = inverse else {
+            unreachable!("Expected Insert command");
+        };
+        assert_eq!(position, Position::new(0, 0));
+        assert_eq!(text, "Hello");
     }
 
     #[test]
@@ -245,13 +241,11 @@ mod tests {
 
         let inverse = cmd.inverse();
 
-        match inverse {
-            Command::SetSelection { old_state, new_state } => {
-                assert_eq!(old_state, new);
-                assert_eq!(new_state, old);
-            }
-            _ => panic!("Expected SetSelection command"),
-        }
+        let Command::SetSelection { old_state, new_state } = inverse else {
+            unreachable!("Expected SetSelection command");
+        };
+        assert_eq!(old_state, new);
+        assert_eq!(new_state, old);
     }
 
     #[test]

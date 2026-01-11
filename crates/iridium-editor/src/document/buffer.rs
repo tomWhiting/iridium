@@ -7,7 +7,7 @@ use super::position::{Position, Range};
 use crate::editor::IridiumError;
 
 /// The line type used for line counting and indexing.
-/// LF_CR treats both \n and \r as line endings.
+/// `LF_CR` treats both `\n` and `\r` as line endings.
 const LINE_TYPE: LineType = LineType::LF_CR;
 
 /// Line ending style for the document.
@@ -25,6 +25,7 @@ pub enum LineEnding {
 impl LineEnding {
     /// Returns the string representation of this line ending.
     #[must_use]
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Lf => "\n",
@@ -56,10 +57,8 @@ impl LineEnding {
             i += 1;
         }
 
-        if crlf_count >= lf_count && crlf_count >= cr_count {
-            if crlf_count > 0 {
-                return Self::CrLf;
-            }
+        if crlf_count >= lf_count && crlf_count >= cr_count && crlf_count > 0 {
+            return Self::CrLf;
         }
         if cr_count > lf_count && cr_count > 0 {
             return Self::Cr;
@@ -219,8 +218,9 @@ impl Document {
     ///
     /// Returns an error if the position is out of bounds.
     pub fn insert(&mut self, position: Position, text: &str) -> Result<(), IridiumError> {
-        let offset = self.position_to_offset(position).ok_or_else(|| {
-            IridiumError::InvalidPosition { line: position.line, column: position.column }
+        let offset = self.position_to_offset(position).ok_or(IridiumError::InvalidPosition {
+            line: position.line,
+            column: position.column,
         })?;
 
         self.content.insert(offset, text);
@@ -235,12 +235,14 @@ impl Document {
     ///
     /// Returns an error if the range is out of bounds.
     pub fn delete(&mut self, range: Range) -> Result<String, IridiumError> {
-        let start_offset = self.position_to_offset(range.start).ok_or_else(|| {
-            IridiumError::InvalidPosition { line: range.start.line, column: range.start.column }
+        let start_offset = self.position_to_offset(range.start).ok_or(IridiumError::InvalidPosition {
+            line: range.start.line,
+            column: range.start.column,
         })?;
 
-        let end_offset = self.position_to_offset(range.end).ok_or_else(|| {
-            IridiumError::InvalidPosition { line: range.end.line, column: range.end.column }
+        let end_offset = self.position_to_offset(range.end).ok_or(IridiumError::InvalidPosition {
+            line: range.end.line,
+            column: range.end.column,
         })?;
 
         let deleted = self.content.slice(start_offset..end_offset).to_string();
@@ -268,7 +270,7 @@ impl Document {
     }
 
     /// Sets the line ending style for the document.
-    pub fn set_line_ending(&mut self, line_ending: LineEnding) {
+    pub const fn set_line_ending(&mut self, line_ending: LineEnding) {
         self.line_ending = line_ending;
     }
 
@@ -294,6 +296,7 @@ impl Document {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

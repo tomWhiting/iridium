@@ -9,7 +9,7 @@ pub struct GutterRenderer {
 
 impl GutterRenderer {
     /// Creates a new gutter renderer.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

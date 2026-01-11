@@ -161,7 +161,7 @@ impl TextRenderer {
 
     /// Returns the current font size in pixels.
     #[must_use]
-    pub fn font_size(&self) -> f32 {
+    pub const fn font_size(&self) -> f32 {
         self.config.font_size
     }
 
@@ -180,7 +180,7 @@ impl TextRenderer {
     /// Returns a mutable reference to the font system.
     ///
     /// This can be used to load additional fonts or query font information.
-    pub fn font_system_mut(&mut self) -> &mut FontSystem {
+    pub const fn font_system_mut(&mut self) -> &mut FontSystem {
         &mut self.font_system
     }
 
@@ -340,14 +340,14 @@ impl TextRenderer {
     /// * `bounds` - The bounds to clip text to
     /// * `default_color` - Default text color
     #[must_use]
-    pub fn create_text_area<'a>(
-        buffer: &'a Buffer,
+    pub fn create_text_area(
+        buffer: &Buffer,
         left: f32,
         top: f32,
         scale: f32,
         bounds: TextBounds,
         default_color: Color,
-    ) -> TextArea<'a> {
+    ) -> TextArea<'_> {
         TextArea {
             buffer,
             left,
@@ -360,12 +360,16 @@ impl TextRenderer {
     }
 
     /// Converts a theme Color to a glyphon Color.
+    ///
+    /// Color components are expected to be in 0.0..=1.0 range.
+    /// Values are clamped and converted to u8.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn to_glyphon_color(color: Color) -> GlyphonColor {
         GlyphonColor::rgba(
-            (color.r * 255.0) as u8,
-            (color.g * 255.0) as u8,
-            (color.b * 255.0) as u8,
-            (color.a * 255.0) as u8,
+            (color.r.clamp(0.0, 1.0) * 255.0) as u8,
+            (color.g.clamp(0.0, 1.0) * 255.0) as u8,
+            (color.b.clamp(0.0, 1.0) * 255.0) as u8,
+            (color.a.clamp(0.0, 1.0) * 255.0) as u8,
         )
     }
 }
@@ -375,6 +379,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn text_render_config_default() {
         let config = TextRenderConfig::default();
         assert_eq!(config.font_size, DEFAULT_FONT_SIZE);

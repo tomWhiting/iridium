@@ -11,7 +11,10 @@ mod text;
 mod viewport;
 
 pub use cursor::{BlinkState, CursorConfig, CursorRect, CursorRenderer, CursorStyle};
-pub use gutter::GutterRenderer;
+pub use gutter::{
+    FoldIndicator, FoldIndicatorEntry, GutterBackground, GutterConfig, GutterRenderer,
+    LineNumberEntry,
+};
 pub use highlight::{CurrentLineRenderer, HighlightRect, SelectionRenderer};
 pub use minimap::MinimapRenderer;
 pub use pipeline::{GpuInfo, RenderConfig, RenderPipeline, DEFAULT_TEXTURE_FORMAT};

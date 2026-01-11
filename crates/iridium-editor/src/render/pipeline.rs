@@ -159,7 +159,7 @@ impl RenderPipeline {
             Ok(adapter) => adapter,
             Err(e) => {
                 return Err(Self::create_adapter_error(&instance, e).await);
-            }
+            },
         };
 
         // Collect GPU info for diagnostics

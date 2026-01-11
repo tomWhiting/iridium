@@ -16,10 +16,9 @@ pub use gutter::{
     LineNumberEntry,
 };
 pub use highlight::{
-    CurrentLineRenderer, FoldPlaceholder, FoldPlaceholderRenderer, HighlightRect,
-    SelectionRenderer,
+    CurrentLineRenderer, FoldPlaceholder, FoldPlaceholderRenderer, HighlightRect, SelectionRenderer,
 };
 pub use minimap::MinimapRenderer;
-pub use pipeline::{GpuInfo, RenderConfig, RenderPipeline, DEFAULT_TEXTURE_FORMAT};
+pub use pipeline::{DEFAULT_TEXTURE_FORMAT, GpuInfo, RenderConfig, RenderPipeline};
 pub use text::{TextRenderConfig, TextRenderer};
 pub use viewport::Viewport;

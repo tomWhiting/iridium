@@ -97,29 +97,35 @@ impl Command {
     /// cmd.apply(&mut doc, &mut cursor).unwrap();
     /// assert_eq!(doc.text(), "Hello, World");
     /// ```
-    pub fn apply(&self, document: &mut Document, cursor: &mut CursorState) -> Result<(), IridiumError> {
+    pub fn apply(
+        &self,
+        document: &mut Document,
+        cursor: &mut CursorState,
+    ) -> Result<(), IridiumError> {
         match self {
             Self::Insert { position, text } => {
                 document.insert(*position, text)?;
-            }
+            },
 
             Self::Delete { range, .. } => {
                 document.delete(*range)?;
-            }
+            },
 
-            Self::Replace { range, new_text, .. } => {
+            Self::Replace {
+                range, new_text, ..
+            } => {
                 document.replace(*range, new_text)?;
-            }
+            },
 
             Self::SetSelection { new_state, .. } => {
                 *cursor = new_state.clone();
-            }
+            },
 
             Self::Compound { commands } => {
                 for cmd in commands {
                     cmd.apply(document, cursor)?;
                 }
-            }
+            },
         }
 
         Ok(())
@@ -137,23 +143,33 @@ impl Command {
                     range: Range::new(*position, end),
                     deleted_text: text.clone(),
                 }
-            }
+            },
 
-            Self::Delete { range, deleted_text } => Self::Insert {
+            Self::Delete {
+                range,
+                deleted_text,
+            } => Self::Insert {
                 position: range.start,
                 text: deleted_text.clone(),
             },
 
-            Self::Replace { range, old_text, new_text } => {
+            Self::Replace {
+                range,
+                old_text,
+                new_text,
+            } => {
                 let new_end = Self::compute_end_position(range.start, new_text);
                 Self::Replace {
                     range: Range::new(range.start, new_end),
                     old_text: new_text.clone(),
                     new_text: old_text.clone(),
                 }
-            }
+            },
 
-            Self::SetSelection { old_state, new_state } => Self::SetSelection {
+            Self::SetSelection {
+                old_state,
+                new_state,
+            } => Self::SetSelection {
                 old_state: new_state.clone(),
                 new_state: old_state.clone(),
             },
@@ -170,9 +186,16 @@ impl Command {
         match self {
             Self::Insert { text, .. } => text.is_empty(),
             Self::Delete { deleted_text, .. } => deleted_text.is_empty(),
-            Self::Replace { old_text, new_text, .. } => old_text == new_text,
-            Self::SetSelection { old_state, new_state } => old_state == new_state,
-            Self::Compound { commands } => commands.is_empty() || commands.iter().all(Self::is_empty),
+            Self::Replace {
+                old_text, new_text, ..
+            } => old_text == new_text,
+            Self::SetSelection {
+                old_state,
+                new_state,
+            } => old_state == new_state,
+            Self::Compound { commands } => {
+                commands.is_empty() || commands.iter().all(Self::is_empty)
+            },
         }
     }
 
@@ -182,7 +205,9 @@ impl Command {
         match self {
             Self::Insert { text, .. } => !text.is_empty(),
             Self::Delete { deleted_text, .. } => !deleted_text.is_empty(),
-            Self::Replace { old_text, new_text, .. } => old_text != new_text,
+            Self::Replace {
+                old_text, new_text, ..
+            } => old_text != new_text,
             Self::SetSelection { .. } => false,
             Self::Compound { commands } => commands.iter().any(Self::modifies_content),
         }
@@ -193,7 +218,10 @@ impl Command {
     pub fn modifies_selection(&self) -> bool {
         match self {
             Self::Insert { .. } | Self::Delete { .. } | Self::Replace { .. } => false,
-            Self::SetSelection { old_state, new_state } => old_state != new_state,
+            Self::SetSelection {
+                old_state,
+                new_state,
+            } => old_state != new_state,
             Self::Compound { commands } => commands.iter().any(Self::modifies_selection),
         }
     }
@@ -230,7 +258,11 @@ mod tests {
 
         let inverse = cmd.inverse();
 
-        let Command::Delete { range, deleted_text } = inverse else {
+        let Command::Delete {
+            range,
+            deleted_text,
+        } = inverse
+        else {
             unreachable!("Expected Delete command");
         };
         assert_eq!(range.start, Position::new(0, 0));
@@ -259,11 +291,18 @@ mod tests {
         let old = CursorState::at(Position::new(0, 0));
         let new = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 5)));
 
-        let cmd = Command::SetSelection { old_state: old.clone(), new_state: new.clone() };
+        let cmd = Command::SetSelection {
+            old_state: old.clone(),
+            new_state: new.clone(),
+        };
 
         let inverse = cmd.inverse();
 
-        let Command::SetSelection { old_state, new_state } = inverse else {
+        let Command::SetSelection {
+            old_state,
+            new_state,
+        } = inverse
+        else {
             unreachable!("Expected SetSelection command");
         };
         assert_eq!(old_state, new);
@@ -272,10 +311,20 @@ mod tests {
 
     #[test]
     fn empty_commands() {
-        assert!(Command::Insert { position: Position::zero(), text: String::new() }.is_empty());
+        assert!(
+            Command::Insert {
+                position: Position::zero(),
+                text: String::new()
+            }
+            .is_empty()
+        );
 
         assert!(
-            Command::Delete { range: Range::empty(Position::zero()), deleted_text: String::new() }.is_empty()
+            Command::Delete {
+                range: Range::empty(Position::zero()),
+                deleted_text: String::new()
+            }
+            .is_empty()
         );
 
         assert!(Command::Compound { commands: vec![] }.is_empty());

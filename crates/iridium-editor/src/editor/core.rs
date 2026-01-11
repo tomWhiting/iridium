@@ -286,14 +286,14 @@ impl Editor {
                     if matches!(cmd, Command::SetSelection { .. }) {
                         self.apply_command(cmd);
                     }
-                }
-                KeyResult::Handled | KeyResult::Ignored => {}
+                },
+                KeyResult::Handled | KeyResult::Ignored => {},
                 KeyResult::Clipboard(clip) => {
                     // Only allow copy in read-only mode
                     if matches!(clip, ClipboardOperation::Copy(_)) {
                         return Some(clip);
                     }
-                }
+                },
             }
             return None;
         }
@@ -309,7 +309,7 @@ impl Editor {
             KeyResult::Command(cmd) => {
                 self.apply_command(cmd);
                 None
-            }
+            },
             KeyResult::Clipboard(clip) => Some(clip),
             KeyResult::Handled | KeyResult::Ignored => None,
         }
@@ -327,16 +327,16 @@ impl Editor {
         match result {
             MouseResult::Command(cmd) => {
                 self.apply_command(cmd);
-            }
+            },
             MouseResult::Scroll { delta_x, delta_y } => {
                 // Handle scrolling
                 self.scroll_by(delta_x, delta_y);
-            }
+            },
             MouseResult::ToggleFold { line } => {
                 // T136: Handle fold indicator click
                 self.toggle_fold_at(line);
-            }
-            MouseResult::Handled | MouseResult::Ignored => {}
+            },
+            MouseResult::Handled | MouseResult::Ignored => {},
         }
     }
 
@@ -349,13 +349,15 @@ impl Editor {
             return None;
         }
 
-        let result = self.ime_handler.handle_ime(event, &self.state.document, &self.state.cursor);
+        let result = self
+            .ime_handler
+            .handle_ime(event, &self.state.document, &self.state.cursor);
 
         match result {
             ImeResult::Command(cmd) => {
                 self.apply_command(cmd);
                 None
-            }
+            },
             ImeResult::StateChanged(state) => Some(state),
             ImeResult::Handled | ImeResult::Ignored => None,
         }
@@ -387,7 +389,9 @@ impl Editor {
         // Convert pixel delta to lines (assuming ~20px line height)
         let line_delta = (delta_y / 20.0) as i32;
         let new_line = if line_delta < 0 {
-            self.state.scroll_line.saturating_sub(line_delta.unsigned_abs() as usize)
+            self.state
+                .scroll_line
+                .saturating_sub(line_delta.unsigned_abs() as usize)
         } else {
             self.state.scroll_line.saturating_add(line_delta as usize)
         };
@@ -436,7 +440,10 @@ impl Editor {
     /// Returns true if an action was undone.
     pub fn undo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.undo() {
-            if let Err(e) = cmd.inverse().apply(&mut self.state.document, &mut self.state.cursor) {
+            if let Err(e) = cmd
+                .inverse()
+                .apply(&mut self.state.document, &mut self.state.cursor)
+            {
                 self.emit(&EditorEvent::Error {
                     message: e.to_string(),
                     code: "UNDO_FAILED".to_string(),
@@ -481,7 +488,10 @@ impl Editor {
         if !self.state.cursor.primary.is_collapsed() {
             let range = self.state.cursor.primary.range();
             let deleted = self.state.document.slice(range);
-            let cmd = Command::Delete { range, deleted_text: deleted };
+            let cmd = Command::Delete {
+                range,
+                deleted_text: deleted,
+            };
             self.apply_command(cmd);
         }
 
@@ -832,8 +842,8 @@ mod tests {
 
     #[test]
     fn editor_theme_changed_event() {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         let mut editor = Editor::with_defaults();
         let event_received = Arc::new(AtomicBool::new(false));
@@ -968,8 +978,8 @@ line 5"#;
 
     #[test]
     fn editor_fold_changed_event() {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         let mut editor = Editor::with_defaults();
         let event_received = Arc::new(AtomicBool::new(false));

@@ -261,13 +261,7 @@ impl TextRenderer {
     /// * `width` - The new width in pixels
     /// * `height` - The new height in pixels
     pub fn update_viewport(&mut self, queue: &Queue, width: u32, height: u32) {
-        self.viewport.update(
-            queue,
-            Resolution {
-                width,
-                height,
-            },
-        );
+        self.viewport.update(queue, Resolution { width, height });
     }
 
     /// Prepares text areas for rendering.

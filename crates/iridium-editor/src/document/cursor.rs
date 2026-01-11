@@ -45,7 +45,10 @@ impl Selection {
     /// Creates a collapsed selection (cursor) at the given position.
     #[must_use]
     pub const fn collapsed(position: Position) -> Self {
-        Self { anchor: position, head: position }
+        Self {
+            anchor: position,
+            head: position,
+        }
     }
 
     /// Returns true if the selection is collapsed (just a cursor).
@@ -150,7 +153,10 @@ impl CursorState {
     /// Creates a new cursor state with a single primary cursor.
     #[must_use]
     pub const fn new(primary: Selection) -> Self {
-        Self { primary, secondary: Vec::new() }
+        Self {
+            primary,
+            secondary: Vec::new(),
+        }
     }
 
     /// Creates a cursor state with a collapsed cursor at the given position.
@@ -182,7 +188,11 @@ impl CursorState {
     pub fn add_cursor(&mut self, selection: Selection) {
         // Find the insertion point
         let pos = selection.start();
-        let insert_idx = self.secondary.iter().position(|s| s.start() > pos).unwrap_or(self.secondary.len());
+        let insert_idx = self
+            .secondary
+            .iter()
+            .position(|s| s.start() > pos)
+            .unwrap_or(self.secondary.len());
 
         self.secondary.insert(insert_idx, selection);
         self.merge_overlapping();

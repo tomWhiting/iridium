@@ -242,7 +242,7 @@ pub struct GutterClickConfig {
 impl Default for GutterClickConfig {
     fn default() -> Self {
         Self {
-            gutter_width: 48.0,  // Default: padding(8) + 2 digits(16) + padding(8) + fold(16)
+            gutter_width: 48.0, // Default: padding(8) + 2 digits(16) + padding(8) + fold(16)
             fold_indicator_width: 16.0,
             fold_indicators_enabled: true,
         }
@@ -304,16 +304,14 @@ impl MouseHandler {
         match event.kind {
             MouseEventKind::Press if event.button == Some(MouseButton::Left) => {
                 self.handle_left_press(event, document, cursor, viewport)
-            }
+            },
             MouseEventKind::Release if event.button == Some(MouseButton::Left) => {
                 self.handle_left_release()
-            }
+            },
             MouseEventKind::Drag if event.button == Some(MouseButton::Left) => {
                 self.handle_drag(event, document, cursor, viewport)
-            }
-            MouseEventKind::Scroll => {
-                self.handle_scroll(event)
-            }
+            },
+            MouseEventKind::Scroll => self.handle_scroll(event),
             _ => MouseResult::Ignored,
         }
     }
@@ -360,7 +358,8 @@ impl MouseHandler {
         }
 
         // Fold indicator is at the right edge of the gutter
-        let fold_x_start = self.gutter_config.gutter_width - self.gutter_config.fold_indicator_width;
+        let fold_x_start =
+            self.gutter_config.gutter_width - self.gutter_config.fold_indicator_width;
         let fold_x_end = self.gutter_config.gutter_width;
 
         // Check if x is within fold indicator area
@@ -517,9 +516,10 @@ impl MouseHandler {
     fn detect_multi_click(&mut self, x: f32, y: f32) -> u32 {
         let now = Instant::now();
 
-        let is_multi_click = if let (Some(last_time), Some((last_x, last_y))) =
-            (self.click_state.last_click_time, self.click_state.last_click_pos)
-        {
+        let is_multi_click = if let (Some(last_time), Some((last_x, last_y))) = (
+            self.click_state.last_click_time,
+            self.click_state.last_click_pos,
+        ) {
             let elapsed = now.duration_since(last_time).as_millis();
             let distance = ((x - last_x).powi(2) + (y - last_y).powi(2)).sqrt();
 
@@ -621,7 +621,10 @@ impl MouseHandler {
             }
         }
 
-        Selection::new(Position::new(position.line, start), Position::new(position.line, end))
+        Selection::new(
+            Position::new(position.line, start),
+            Position::new(position.line, end),
+        )
     }
 
     /// Selects the line at the given position.
@@ -641,7 +644,12 @@ impl MouseHandler {
     }
 
     /// Creates a word selection spanning from anchor word to current word.
-    fn create_word_selection(&self, anchor: Position, current: Position, document: &Document) -> Selection {
+    fn create_word_selection(
+        &self,
+        anchor: Position,
+        current: Position,
+        document: &Document,
+    ) -> Selection {
         let anchor_word = self.select_word_at(anchor, document);
         let current_word = self.select_word_at(current, document);
 
@@ -653,7 +661,12 @@ impl MouseHandler {
     }
 
     /// Creates a line selection spanning from anchor line to current line.
-    fn create_line_selection(&self, anchor: Position, current: Position, document: &Document) -> Selection {
+    fn create_line_selection(
+        &self,
+        anchor: Position,
+        current: Position,
+        document: &Document,
+    ) -> Selection {
         let anchor_line = self.select_line_at(anchor, document);
         let current_line = self.select_line_at(current, document);
 
@@ -870,7 +883,10 @@ mod tests {
         let result = handler.handle_mouse(&event, &doc, &cursor, &viewport);
 
         // Should be a SetSelection command, not ToggleFold
-        assert!(matches!(result, MouseResult::Command(Command::SetSelection { .. })));
+        assert!(matches!(
+            result,
+            MouseResult::Command(Command::SetSelection { .. })
+        ));
     }
 
     #[test]

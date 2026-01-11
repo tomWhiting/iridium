@@ -218,10 +218,12 @@ impl Document {
     ///
     /// Returns an error if the position is out of bounds.
     pub fn insert(&mut self, position: Position, text: &str) -> Result<(), IridiumError> {
-        let offset = self.position_to_offset(position).ok_or(IridiumError::InvalidPosition {
-            line: position.line,
-            column: position.column,
-        })?;
+        let offset = self
+            .position_to_offset(position)
+            .ok_or(IridiumError::InvalidPosition {
+                line: position.line,
+                column: position.column,
+            })?;
 
         self.content.insert(offset, text);
         Ok(())
@@ -235,15 +237,19 @@ impl Document {
     ///
     /// Returns an error if the range is out of bounds.
     pub fn delete(&mut self, range: Range) -> Result<String, IridiumError> {
-        let start_offset = self.position_to_offset(range.start).ok_or(IridiumError::InvalidPosition {
-            line: range.start.line,
-            column: range.start.column,
-        })?;
+        let start_offset =
+            self.position_to_offset(range.start)
+                .ok_or(IridiumError::InvalidPosition {
+                    line: range.start.line,
+                    column: range.start.column,
+                })?;
 
-        let end_offset = self.position_to_offset(range.end).ok_or(IridiumError::InvalidPosition {
-            line: range.end.line,
-            column: range.end.column,
-        })?;
+        let end_offset =
+            self.position_to_offset(range.end)
+                .ok_or(IridiumError::InvalidPosition {
+                    line: range.end.line,
+                    column: range.end.column,
+                })?;
 
         let deleted = self.content.slice(start_offset..end_offset).to_string();
         self.content.remove(start_offset..end_offset);
@@ -318,7 +324,9 @@ mod tests {
     #[test]
     fn document_delete() {
         let mut doc = Document::new("Hello World");
-        let deleted = doc.delete(Range::new(Position::new(0, 5), Position::new(0, 11))).unwrap();
+        let deleted = doc
+            .delete(Range::new(Position::new(0, 5), Position::new(0, 11)))
+            .unwrap();
         assert_eq!(deleted, " World");
         assert_eq!(doc.text(), "Hello");
     }
@@ -326,7 +334,12 @@ mod tests {
     #[test]
     fn document_replace() {
         let mut doc = Document::new("Hello World");
-        let old = doc.replace(Range::new(Position::new(0, 6), Position::new(0, 11)), "Rust").unwrap();
+        let old = doc
+            .replace(
+                Range::new(Position::new(0, 6), Position::new(0, 11)),
+                "Rust",
+            )
+            .unwrap();
         assert_eq!(old, "World");
         assert_eq!(doc.text(), "Hello Rust");
     }

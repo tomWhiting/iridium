@@ -72,7 +72,13 @@ impl CursorRect {
     /// Creates a new cursor rectangle.
     #[must_use]
     pub const fn new(x: f32, y: f32, width: f32, height: f32, color: Color) -> Self {
-        Self { x, y, width, height, color }
+        Self {
+            x,
+            y,
+            width,
+            height,
+            color,
+        }
     }
 }
 
@@ -402,8 +408,8 @@ mod tests {
     fn cursor_filters_invisible_lines() {
         let renderer = CursorRenderer::default();
         let positions = vec![
-            Position::new(0, 0),  // Before viewport
-            Position::new(10, 0), // In viewport
+            Position::new(0, 0),   // Before viewport
+            Position::new(10, 0),  // In viewport
             Position::new(100, 0), // After viewport
         ];
         let line_height = 20.0;
@@ -436,15 +442,8 @@ mod tests {
         let char_width = 8.0;
         let color = Color::rgb(1.0, 1.0, 1.0);
 
-        let rects = renderer.compute_cursors(
-            positions.iter(),
-            line_height,
-            char_width,
-            0.0,
-            0,
-            50,
-            color,
-        );
+        let rects =
+            renderer.compute_cursors(positions.iter(), line_height, char_width, 0.0, 0, 50, color);
 
         assert_eq!(rects.len(), 1);
         // Block cursor should have char_width width

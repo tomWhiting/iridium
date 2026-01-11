@@ -139,10 +139,16 @@ pub fn convert_vscode_theme(vscode: &VsCodeTheme) -> Theme {
 /// Converts VS Code editor UI colors to Iridium editor colors.
 fn convert_editor_colors(colors: &HashMap<String, String>, editor: &mut EditorColors) {
     // Map VS Code color keys to Iridium colors
-    if let Some(color) = colors.get("editor.background").and_then(|c| Color::from_hex(c)) {
+    if let Some(color) = colors
+        .get("editor.background")
+        .and_then(|c| Color::from_hex(c))
+    {
         editor.background = color;
     }
-    if let Some(color) = colors.get("editor.foreground").and_then(|c| Color::from_hex(c)) {
+    if let Some(color) = colors
+        .get("editor.foreground")
+        .and_then(|c| Color::from_hex(c))
+    {
         editor.foreground = color;
     }
     if let Some(color) = colors
@@ -409,10 +415,7 @@ mod tests {
     fn convert_multiple_scopes() {
         let token_colors = vec![VsCodeTokenColor {
             name: Some("Strings".to_string()),
-            scope: VsCodeScope::Multiple(vec![
-                "string".to_string(),
-                "string.quoted".to_string(),
-            ]),
+            scope: VsCodeScope::Multiple(vec!["string".to_string(), "string.quoted".to_string()]),
             settings: VsCodeTokenSettings {
                 foreground: Some("#00ff00".to_string()),
                 background: None,

@@ -844,10 +844,10 @@ mod tests {
 
         // Hit on line 2
         let line = renderer.hit_test_fold_indicator(
-            45.0,  // x in fold indicator area
-            45.0,  // y (line 2: 40-60)
-            0,     // first_visible_line
-            10,    // visible_lines
+            45.0, // x in fold indicator area
+            45.0, // y (line 2: 40-60)
+            0,    // first_visible_line
+            10,   // visible_lines
             total_lines,
             line_height,
             char_width,
@@ -856,19 +856,37 @@ mod tests {
 
         // Miss - x before fold indicator
         let line = renderer.hit_test_fold_indicator(
-            30.0, 45.0, 0, 10, total_lines, line_height, char_width,
+            30.0,
+            45.0,
+            0,
+            10,
+            total_lines,
+            line_height,
+            char_width,
         );
         assert_eq!(line, None);
 
         // Miss - x after fold indicator
         let line = renderer.hit_test_fold_indicator(
-            60.0, 45.0, 0, 10, total_lines, line_height, char_width,
+            60.0,
+            45.0,
+            0,
+            10,
+            total_lines,
+            line_height,
+            char_width,
         );
         assert_eq!(line, None);
 
         // Miss - y below visible area
         let line = renderer.hit_test_fold_indicator(
-            45.0, 250.0, 0, 10, total_lines, line_height, char_width,
+            45.0,
+            250.0,
+            0,
+            10,
+            total_lines,
+            line_height,
+            char_width,
         );
         assert_eq!(line, None);
     }
@@ -879,13 +897,11 @@ mod tests {
 
         // When scrolled to line 50, clicking on y=10 should hit line 50
         let line = renderer.hit_test_fold_indicator(
-            45.0,  // x in fold indicator area
-            10.0,  // y (first line in viewport)
-            50,    // first_visible_line
-            10,    // visible_lines
-            100,
-            20.0,
-            8.0,
+            45.0, // x in fold indicator area
+            10.0, // y (first line in viewport)
+            50,   // first_visible_line
+            10,   // visible_lines
+            100, 20.0, 8.0,
         );
         assert_eq!(line, Some(50));
     }

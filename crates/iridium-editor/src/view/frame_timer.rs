@@ -228,7 +228,10 @@ impl FrameTimer {
     /// Returns true if there's time for optional work.
     #[must_use]
     pub fn has_budget_for_optional_work(&self) -> bool {
-        matches!(self.current_budget(), FrameBudget::Comfortable | FrameBudget::Warning)
+        matches!(
+            self.current_budget(),
+            FrameBudget::Comfortable | FrameBudget::Warning
+        )
     }
 
     /// Returns frame timing statistics.
@@ -378,9 +381,12 @@ mod tests {
     fn frame_timer_default_target() {
         let timer = FrameTimer::new();
         // Allow small tolerance due to floating-point calculation
-        let diff = timer.target_duration().as_nanos() as i128
-            - TARGET_FRAME_DURATION.as_nanos() as i128;
-        assert!(diff.abs() < 1000, "Target duration should be approximately 8.33ms");
+        let diff =
+            timer.target_duration().as_nanos() as i128 - TARGET_FRAME_DURATION.as_nanos() as i128;
+        assert!(
+            diff.abs() < 1000,
+            "Target duration should be approximately 8.33ms"
+        );
     }
 
     #[test]

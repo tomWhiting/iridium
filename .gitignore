@@ -62,3 +62,6 @@ logs/
 index.js
 index.d.ts
 *.node
+
+.claude/current-session.json
+.claude/sessions.jsonl

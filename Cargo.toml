@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/iridium-editor",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Iridium Team"]
+
+[workspace.dependencies]
+# Core text handling
+ropey = "1"
+
+# GPU rendering
+wgpu = "28"
+glyphon = "0.10"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Error handling
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Testing
+criterion = "0.5"

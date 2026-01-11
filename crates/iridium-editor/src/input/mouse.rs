@@ -710,12 +710,9 @@ impl MouseHandler {
             return MouseResult::Ignored;
         }
 
-        if let Some(target_line) = minimap_renderer.handle_click(
-            event.x,
-            event.y,
-            minimap_dimensions,
-            viewport,
-        ) {
+        if let Some(target_line) =
+            minimap_renderer.handle_click(event.x, event.y, minimap_dimensions, viewport)
+        {
             MouseResult::ScrollToLine { target_line }
         } else {
             MouseResult::Ignored
@@ -749,12 +746,9 @@ impl MouseHandler {
             return MouseResult::Ignored;
         }
 
-        if let Some(target_line) = minimap_renderer.handle_drag(
-            event.x,
-            event.y,
-            minimap_dimensions,
-            viewport,
-        ) {
+        if let Some(target_line) =
+            minimap_renderer.handle_drag(event.x, event.y, minimap_dimensions, viewport)
+        {
             MouseResult::ScrollToLine { target_line }
         } else {
             MouseResult::Ignored

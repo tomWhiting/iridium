@@ -20,14 +20,14 @@ pub use highlight::{
     SearchHighlightRenderer, SelectionRenderer,
 };
 pub use minimap::{
-    MinimapConfig, MinimapDimensions, MinimapDragState, MinimapInteraction, MinimapLine,
-    MinimapPosition, MinimapRect, MinimapRenderer, MinimapSegment, ViewportIndicator,
     DEFAULT_CHARS_PER_LINE, DEFAULT_MINIMAP_WIDTH, MAX_LINE_HEIGHT, MAX_MINIMAP_WIDTH,
-    MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT, MIN_LINE_HEIGHT, MIN_MINIMAP_WIDTH,
+    MIN_LINE_HEIGHT, MIN_MINIMAP_WIDTH, MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT, MinimapConfig,
+    MinimapDimensions, MinimapDragState, MinimapInteraction, MinimapLine, MinimapPosition,
+    MinimapRect, MinimapRenderer, MinimapSegment, ViewportIndicator,
 };
 pub use pipeline::{
-    GpuInfo, MinimapRenderData, RenderConfig, RenderPipeline, SyntaxUniforms, ThemeUniforms,
-    DEFAULT_TEXTURE_FORMAT,
+    DEFAULT_TEXTURE_FORMAT, GpuInfo, MinimapRenderData, RenderConfig, RenderPipeline,
+    SyntaxUniforms, ThemeUniforms,
 };
 pub use text::{TextRenderConfig, TextRenderer};
 pub use viewport::Viewport;

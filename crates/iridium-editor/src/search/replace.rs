@@ -299,7 +299,9 @@ mod tests {
 
     fn setup_search(doc: &Document, query: &str) -> SearchState {
         let mut state = SearchState::new();
-        state.find_all(query, &SearchOptions::default(), doc).unwrap();
+        state
+            .find_all(query, &SearchOptions::default(), doc)
+            .unwrap();
         state
     }
 

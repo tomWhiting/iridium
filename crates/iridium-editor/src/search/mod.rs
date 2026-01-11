@@ -41,5 +41,5 @@ mod replace;
 
 pub use find::{SearchOptions, SearchState};
 pub use replace::{
-    replace_all, replace_at_index, replace_current, replace_in_selection, ReplaceResult,
+    ReplaceResult, replace_all, replace_at_index, replace_current, replace_in_selection,
 };

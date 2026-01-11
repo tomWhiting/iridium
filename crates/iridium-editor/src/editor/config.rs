@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::render::{MinimapPosition, DEFAULT_MINIMAP_WIDTH};
+use crate::render::{DEFAULT_MINIMAP_WIDTH, MinimapPosition};
 
 /// Editor configuration options.
 ///

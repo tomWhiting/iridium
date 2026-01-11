@@ -195,8 +195,15 @@ pub enum JsEventType {
 // ============================================================================
 
 /// Error information for TypeScript consumers.
+///
+/// This struct is exported to TypeScript via napi-rs for error reporting.
+/// It may not be constructed directly in Rust code, but is part of the public API.
 #[napi(object)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[expect(
+    dead_code,
+    reason = "Exported to TypeScript, may be constructed by consumers"
+)]
 pub struct JsError {
     /// Error message
     pub message: String,

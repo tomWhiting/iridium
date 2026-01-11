@@ -331,11 +331,9 @@ impl MinimapRenderer {
             return None;
         }
 
-        let target = self.drag_state.update(
-            current_line,
-            viewport.visible_lines,
-            dimensions.total_lines,
-        );
+        let target =
+            self.drag_state
+                .update(current_line, viewport.visible_lines, dimensions.total_lines);
 
         Some(target)
     }

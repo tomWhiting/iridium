@@ -261,7 +261,7 @@ pub fn get_extensions_for_language(language: String) -> Vec<String> {
         Some(Language::Python) => vec!["py".to_string(), "pyi".to_string(), "pyw".to_string()],
         Some(Language::TypeScript) => {
             vec!["ts".to_string(), "mts".to_string(), "cts".to_string()]
-        }
+        },
         Some(Language::JavaScript) => vec![
             "js".to_string(),
             "mjs".to_string(),

@@ -268,6 +268,54 @@ impl TextRenderer {
         Ok(())
     }
 
+    /// Prepares the renderer with a text area at the given position.
+    ///
+    /// This is a convenience method that creates the text area and prepares
+    /// in one call, avoiding borrow conflicts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if GPU upload fails.
+    pub fn prepare_at(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        x: f32,
+        y: f32,
+        color: Color,
+    ) -> Result<(), RenderError> {
+        let text_area = TextArea {
+            buffer: &self.text_buffer,
+            left: x,
+            top: y,
+            scale: 1.0,
+            bounds: TextBounds {
+                left: 0,
+                top: 0,
+                right: self.dimensions.0 as i32,
+                bottom: self.dimensions.1 as i32,
+            },
+            default_color: color,
+            custom_glyphs: &[],
+        };
+
+        self.renderer
+            .prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                &self.viewport,
+                [text_area],
+                &mut self.swash_cache,
+            )
+            .map_err(|e| RenderError::TextLayoutFailed {
+                message: format!("Failed to prepare text: {e:?}"),
+            })?;
+
+        Ok(())
+    }
+
     /// Renders text to the given render pass.
     ///
     /// Call this after prepare(). Renders all text areas that were prepared.

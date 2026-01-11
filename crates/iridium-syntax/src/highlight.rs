@@ -617,6 +617,7 @@ fn byte_to_point(source: &str, byte_offset: usize) -> tree_sitter::Point {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::similar_names)]
 mod tests {
     use super::*;
     use crate::Language;
@@ -659,11 +660,8 @@ mod tests {
         assert!(!spans.is_empty(), "Rust code should produce highlight spans");
 
         // Verify the 'fn' keyword is highlighted
-        let fn_spans: Vec<_> = spans
-            .iter()
-            .filter(|s| s.start == 0 && s.end == 2)
-            .collect();
-        assert!(!fn_spans.is_empty(), "'fn' should be highlighted");
+        let has_fn_span = spans.iter().any(|s| s.start == 0 && s.end == 2);
+        assert!(has_fn_span, "'fn' should be highlighted");
     }
 
     #[test]
@@ -803,11 +801,11 @@ mod tests {
 
     #[test]
     fn test_span_ordering() {
-        let span1 = HighlightSpan::new(0, 5, HighlightType::Keyword);
-        let span2 = HighlightSpan::new(10, 15, HighlightType::String);
-        let span3 = HighlightSpan::new(0, 10, HighlightType::Function);
+        let first = HighlightSpan::new(0, 5, HighlightType::Keyword);
+        let second = HighlightSpan::new(10, 15, HighlightType::String);
+        let third = HighlightSpan::new(0, 10, HighlightType::Function);
 
-        let mut spans = vec![span2.clone(), span1.clone(), span3.clone()];
+        let mut spans = [second, first, third];
         spans.sort();
 
         assert_eq!(spans[0].start, 0);

@@ -45,7 +45,13 @@ impl LineNumberEntry {
     /// Creates a new line number entry.
     #[must_use]
     pub const fn new(line_number: usize, x: f32, y: f32, is_current: bool, color: Color) -> Self {
-        Self { line_number, x, y, is_current, color }
+        Self {
+            line_number,
+            x,
+            y,
+            is_current,
+            color,
+        }
     }
 }
 
@@ -66,7 +72,12 @@ impl FoldIndicatorEntry {
     /// Creates a new fold indicator entry.
     #[must_use]
     pub const fn new(indicator: FoldIndicator, x: f32, y: f32, color: Color) -> Self {
-        Self { indicator, x, y, color }
+        Self {
+            indicator,
+            x,
+            y,
+            color,
+        }
     }
 }
 
@@ -85,7 +96,11 @@ impl GutterBackground {
     /// Creates a new gutter background.
     #[must_use]
     pub const fn new(width: f32, height: f32, color: Color) -> Self {
-        Self { width, height, color }
+        Self {
+            width,
+            height,
+            color,
+        }
     }
 }
 
@@ -163,7 +178,13 @@ impl GutterRenderer {
     /// Creates a new gutter renderer with default configuration.
     #[must_use]
     pub const fn new() -> Self {
-        Self { config: GutterConfig { char_width: DEFAULT_CHAR_WIDTH, show_fold_indicators: true, padding: GUTTER_PADDING } }
+        Self {
+            config: GutterConfig {
+                char_width: DEFAULT_CHAR_WIDTH,
+                show_fold_indicators: true,
+                padding: GUTTER_PADDING,
+            },
+        }
     }
 
     /// Creates a new gutter renderer with custom configuration.
@@ -217,8 +238,11 @@ impl GutterRenderer {
     pub fn calculate_width(&self, total_lines: usize, char_width: f32) -> f32 {
         let digit_count = Self::digit_columns(total_lines);
         let number_width = digit_count as f32 * char_width;
-        let fold_width =
-            if self.config.show_fold_indicators { FOLD_INDICATOR_WIDTH } else { 0.0 };
+        let fold_width = if self.config.show_fold_indicators {
+            FOLD_INDICATOR_WIDTH
+        } else {
+            0.0
+        };
 
         self.config.padding + number_width + self.config.padding + fold_width
     }
@@ -295,7 +319,11 @@ impl GutterRenderer {
                 let screen_line = line - first_visible_line;
                 let y = screen_line as f32 * line_height;
                 let is_current = current_line == Some(line);
-                let color = if is_current { active_line_color } else { line_number_color };
+                let color = if is_current {
+                    active_line_color
+                } else {
+                    line_number_color
+                };
 
                 // Line numbers are 1-indexed for display
                 LineNumberEntry::new(line + 1, right_x, y, is_current, color)
@@ -342,7 +370,11 @@ impl GutterRenderer {
                 let screen_line = line - first_visible_line;
                 let y = screen_line as f32 * line_height;
                 let is_current = cursor_set.contains(&line);
-                let color = if is_current { active_line_color } else { line_number_color };
+                let color = if is_current {
+                    active_line_color
+                } else {
+                    line_number_color
+                };
 
                 LineNumberEntry::new(line + 1, right_x, y, is_current, color)
             })
@@ -451,7 +483,10 @@ mod tests {
 
     #[test]
     fn gutter_width_no_fold_indicators() {
-        let config = GutterConfig { show_fold_indicators: false, ..Default::default() };
+        let config = GutterConfig {
+            show_fold_indicators: false,
+            ..Default::default()
+        };
         let renderer = GutterRenderer::with_config(config);
         let char_width = 8.0;
 
@@ -467,12 +502,12 @@ mod tests {
         let active_color = Color::rgb(1.0, 1.0, 1.0);
 
         let entries = renderer.compute_line_numbers(
-            0,    // first_visible_line
-            10,   // visible_lines
-            100,  // total_lines
+            0,       // first_visible_line
+            10,      // visible_lines
+            100,     // total_lines
             Some(5), // current_line
-            20.0, // line_height
-            8.0,  // char_width
+            20.0,    // line_height
+            8.0,     // char_width
             line_number_color,
             active_color,
         );
@@ -503,10 +538,7 @@ mod tests {
             10,   // visible_lines
             100,  // total_lines
             None, // no current line
-            20.0,
-            8.0,
-            color,
-            color,
+            20.0, 8.0, color, color,
         );
 
         assert_eq!(entries.len(), 10);
@@ -525,14 +557,10 @@ mod tests {
         let color = Color::rgb(0.5, 0.5, 0.5);
 
         let entries = renderer.compute_line_numbers(
-            95,   // first_visible_line
-            10,   // visible_lines (would go past 100)
-            100,  // total_lines
-            None,
-            20.0,
-            8.0,
-            color,
-            color,
+            95,  // first_visible_line
+            10,  // visible_lines (would go past 100)
+            100, // total_lines
+            None, 20.0, 8.0, color, color,
         );
 
         // Should only have 5 entries (lines 95-99)
@@ -605,7 +633,10 @@ mod tests {
 
     #[test]
     fn fold_indicators_disabled() {
-        let config = GutterConfig { show_fold_indicators: false, ..Default::default() };
+        let config = GutterConfig {
+            show_fold_indicators: false,
+            ..Default::default()
+        };
         let renderer = GutterRenderer::with_config(config);
         let color = Color::rgb(0.5, 0.5, 0.5);
 
@@ -652,7 +683,8 @@ mod tests {
         let color = Color::rgb(0.5, 0.5, 0.5);
         let char_width = 8.0;
 
-        let entries = renderer.compute_line_numbers(0, 5, 100, None, 20.0, char_width, color, color);
+        let entries =
+            renderer.compute_line_numbers(0, 5, 100, None, 20.0, char_width, color, color);
 
         // For 100 lines, we need 3 digit columns
         // x should be: padding(8) + 3 * char_width(8) = 32

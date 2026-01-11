@@ -1,0 +1,55 @@
+{
+  "name": "iridium-bindings",
+  "version": "0.1.0",
+  "description": "TypeScript/WASM bindings for the Iridium GPU-accelerated text editor",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node",
+    "*.wasm"
+  ],
+  "keywords": [
+    "editor",
+    "text-editor",
+    "gpu",
+    "webgpu",
+    "wasm",
+    "rust",
+    "napi-rs"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/graphspace/iridium"
+  },
+  "engines": {
+    "node": ">= 18"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "echo \"No tests yet\"",
+    "universal": "napi universal"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0-alpha.68"
+  },
+  "napi": {
+    "name": "iridium-bindings",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  }
+}

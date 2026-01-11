@@ -9,8 +9,8 @@ use crate::input::{
     ClipboardOperation, ImeEvent, ImeHandler, ImeResult, ImeState, KeyEvent, KeyResult,
     KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
 };
-use crate::search::{replace_all, replace_current, SearchOptions, SearchState};
 use crate::render::Viewport;
+use crate::search::{SearchOptions, SearchState, replace_all, replace_current};
 use crate::theme::Theme;
 
 /// Events emitted by the editor to the host application.
@@ -274,18 +274,18 @@ impl Editor {
                     if matches!(cmd, Command::SetSelection { .. }) {
                         self.apply_command(cmd);
                     }
-                }
-                KeyResult::Handled | KeyResult::Ignored => {}
+                },
+                KeyResult::Handled | KeyResult::Ignored => {},
                 KeyResult::Clipboard(clip) => {
                     // Only allow copy in read-only mode
                     if matches!(clip, ClipboardOperation::Copy(_)) {
                         return EditorKeyResult::Clipboard(clip);
                     }
-                }
+                },
                 // Search actions are allowed in read-only mode
                 KeyResult::Search(action) => {
                     return self.handle_search_action(action);
-                }
+                },
             }
             return EditorKeyResult::None;
         }
@@ -301,7 +301,7 @@ impl Editor {
             KeyResult::Command(cmd) => {
                 self.apply_command(cmd);
                 EditorKeyResult::None
-            }
+            },
             KeyResult::Clipboard(clip) => EditorKeyResult::Clipboard(clip),
             KeyResult::Search(action) => self.handle_search_action(action),
             KeyResult::Handled | KeyResult::Ignored => EditorKeyResult::None,
@@ -315,15 +315,15 @@ impl Editor {
             SearchAction::CloseSearch => {
                 self.close_search();
                 EditorKeyResult::Search(action)
-            }
+            },
             SearchAction::NextMatch => {
                 self.goto_next_match();
                 EditorKeyResult::None
-            }
+            },
             SearchAction::PreviousMatch => {
                 self.goto_previous_match();
                 EditorKeyResult::None
-            }
+            },
         }
     }
 
@@ -339,12 +339,12 @@ impl Editor {
         match result {
             MouseResult::Command(cmd) => {
                 self.apply_command(cmd);
-            }
+            },
             MouseResult::Scroll { delta_x, delta_y } => {
                 // Handle scrolling
                 self.scroll_by(delta_x, delta_y);
-            }
-            MouseResult::Handled | MouseResult::Ignored => {}
+            },
+            MouseResult::Handled | MouseResult::Ignored => {},
         }
     }
 
@@ -357,13 +357,15 @@ impl Editor {
             return None;
         }
 
-        let result = self.ime_handler.handle_ime(event, &self.state.document, &self.state.cursor);
+        let result = self
+            .ime_handler
+            .handle_ime(event, &self.state.document, &self.state.cursor);
 
         match result {
             ImeResult::Command(cmd) => {
                 self.apply_command(cmd);
                 None
-            }
+            },
             ImeResult::StateChanged(state) => Some(state),
             ImeResult::Handled | ImeResult::Ignored => None,
         }
@@ -395,7 +397,9 @@ impl Editor {
         // Convert pixel delta to lines (assuming ~20px line height)
         let line_delta = (delta_y / 20.0) as i32;
         let new_line = if line_delta < 0 {
-            self.state.scroll_line.saturating_sub(line_delta.unsigned_abs() as usize)
+            self.state
+                .scroll_line
+                .saturating_sub(line_delta.unsigned_abs() as usize)
         } else {
             self.state.scroll_line.saturating_add(line_delta as usize)
         };
@@ -444,7 +448,10 @@ impl Editor {
     /// Returns true if an action was undone.
     pub fn undo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.undo() {
-            if let Err(e) = cmd.inverse().apply(&mut self.state.document, &mut self.state.cursor) {
+            if let Err(e) = cmd
+                .inverse()
+                .apply(&mut self.state.document, &mut self.state.cursor)
+            {
                 self.emit(&EditorEvent::Error {
                     message: e.to_string(),
                     code: "UNDO_FAILED".to_string(),
@@ -489,7 +496,10 @@ impl Editor {
         if !self.state.cursor.primary.is_collapsed() {
             let range = self.state.cursor.primary.range();
             let deleted = self.state.document.slice(range);
-            let cmd = Command::Delete { range, deleted_text: deleted };
+            let cmd = Command::Delete {
+                range,
+                deleted_text: deleted,
+            };
             self.apply_command(cmd);
         }
 
@@ -617,11 +627,15 @@ impl Editor {
     ///
     /// Returns `Ok(())` on success, or `Err(String)` if the regex is invalid.
     pub fn find(&mut self, query: &str, options: &SearchOptions) -> Result<(), String> {
-        self.state.search.find_all(query, options, &self.state.document)?;
+        self.state
+            .search
+            .find_all(query, options, &self.state.document)?;
 
         // Move to nearest match from current cursor position
         if self.state.search.has_matches() {
-            self.state.search.goto_nearest_match(self.state.cursor.primary.head);
+            self.state
+                .search
+                .goto_nearest_match(self.state.cursor.primary.head);
 
             // Move cursor to current match
             if let Some(range) = self.state.search.current_range() {
@@ -647,7 +661,10 @@ impl Editor {
     /// Returns `Ok(true)` if the matches changed, `Ok(false)` otherwise,
     /// or `Err(String)` if the regex is invalid.
     pub fn update_search(&mut self, query: &str) -> Result<bool, String> {
-        let changed = self.state.search.update_query(query, &self.state.document)?;
+        let changed = self
+            .state
+            .search
+            .update_query(query, &self.state.document)?;
         if changed {
             self.emit_search_updated();
         }
@@ -656,7 +673,9 @@ impl Editor {
 
     /// Sets search options and re-runs the search.
     pub fn set_search_options(&mut self, options: SearchOptions) -> Result<(), String> {
-        self.state.search.set_options(options, &self.state.document)?;
+        self.state
+            .search
+            .set_options(options, &self.state.document)?;
         self.emit_search_updated();
         Ok(())
     }
@@ -705,8 +724,12 @@ impl Editor {
             return false;
         }
 
-        let cmd =
-            replace_current(&self.state.search, replacement, &self.state.document, &self.state.cursor);
+        let cmd = replace_current(
+            &self.state.search,
+            replacement,
+            &self.state.document,
+            &self.state.cursor,
+        );
 
         if let Some(cmd) = cmd {
             self.apply_command(cmd);
@@ -714,7 +737,10 @@ impl Editor {
             // Re-run search to update match positions
             let query = self.state.search.query.clone();
             let options = self.state.search.options.clone();
-            let _ = self.state.search.find_all(&query, &options, &self.state.document);
+            let _ = self
+                .state
+                .search
+                .find_all(&query, &options, &self.state.document);
 
             // Move to next match
             self.goto_next_match();
@@ -740,8 +766,12 @@ impl Editor {
             return 0;
         }
 
-        let result =
-            replace_all(&self.state.search, replacement, &self.state.document, &self.state.cursor);
+        let result = replace_all(
+            &self.state.search,
+            replacement,
+            &self.state.document,
+            &self.state.cursor,
+        );
 
         if let Some((cmd, replace_result)) = result {
             self.apply_command(cmd);
@@ -763,7 +793,7 @@ impl Editor {
 
     /// Returns true if a search is currently active.
     #[must_use]
-    pub fn is_searching(&self) -> bool {
+    pub const fn is_searching(&self) -> bool {
         self.state.search.is_active
     }
 
@@ -781,7 +811,7 @@ impl Editor {
 
     /// Returns the current match index (0-based), if any.
     #[must_use]
-    pub fn current_match_index(&self) -> Option<usize> {
+    pub const fn current_match_index(&self) -> Option<usize> {
         self.state.search.current_match
     }
 
@@ -869,8 +899,8 @@ mod tests {
 
     #[test]
     fn editor_theme_changed_event() {
-        use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         let mut editor = Editor::with_defaults();
         let event_received = Arc::new(AtomicBool::new(false));

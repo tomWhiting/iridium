@@ -100,7 +100,10 @@ impl EditorState {
     /// Creates a new editor state with the given content.
     #[must_use]
     pub fn new(content: &str) -> Self {
-        Self { document: Document::new(content), ..Self::default() }
+        Self {
+            document: Document::new(content),
+            ..Self::default()
+        }
     }
 
     /// Creates an empty editor state.
@@ -151,7 +154,10 @@ impl Editor {
     #[must_use]
     pub fn new(config: EditorConfig) -> Self {
         Self {
-            state: EditorState { config, ..EditorState::default() },
+            state: EditorState {
+                config,
+                ..EditorState::default()
+            },
             listeners: Vec::new(),
         }
     }
@@ -176,7 +182,9 @@ impl Editor {
     /// Sets the content, replacing everything.
     pub fn set_content(&mut self, content: &str) {
         self.state.set_content(content);
-        self.emit(EditorEvent::ContentChanged { content: content.to_string() });
+        self.emit(EditorEvent::ContentChanged {
+            content: content.to_string(),
+        });
     }
 
     /// Returns the current content.

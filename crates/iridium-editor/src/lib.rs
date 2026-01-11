@@ -11,17 +11,35 @@
 //! - `buffer` - Text buffer management using rope data structure
 //! - `editor` - Core editor state and cursor management
 //! - `history` - Undo/redo command system
+//! - `input` - Keyboard and mouse event handling
 //! - `render` - GPU rendering pipeline with wgpu and glyphon
 //! - `syntax` - Syntax highlighting (tree-sitter integration)
 //! - `lsp` - Language Server Protocol client
 
 pub mod buffer;
 pub mod editor;
+pub mod events;
 pub mod history;
+pub mod input;
 pub mod render;
+pub mod view;
 
 // Re-export primary types for convenient access
 pub use buffer::Buffer;
-pub use editor::{Cursor, Editor, Position, Selection};
+pub use editor::{
+    Clipboard, ControllerConfig, Cursor, Editor, EditorController, MemoryClipboard, Position,
+    Selection,
+};
+pub use events::{
+    ContentChangedEvent, CursorMovedEvent, EditorEvent, EventEmitter, SelectionChangeReason,
+    SelectionChangedEvent,
+};
 pub use history::{Command, History};
+pub use input::{
+    InputAction, InputResult, Key, KeyEvent, KeyHandler, Modifiers, MouseEvent, MouseHandler,
+};
 pub use render::{RenderError, RenderPipeline, TextRenderer};
+pub use view::{
+    CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, HighlightConfig,
+    HighlightRenderer, TargetFrameRate, ViewConfig, Viewport,
+};

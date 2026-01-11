@@ -148,6 +148,19 @@ impl KeyEvent {
     }
 }
 
+/// Search-related actions triggered by keyboard input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchAction {
+    /// Open the search panel (Ctrl+F)
+    OpenSearch,
+    /// Go to next match (F3 or Enter in search)
+    NextMatch,
+    /// Go to previous match (Shift+F3)
+    PreviousMatch,
+    /// Close search panel (Escape when search is open)
+    CloseSearch,
+}
+
 /// Result of handling a keyboard event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyResult {
@@ -159,6 +172,9 @@ pub enum KeyResult {
 
     /// The event triggered a clipboard operation
     Clipboard(ClipboardOperation),
+
+    /// The event triggered a search action (T121, T122)
+    Search(SearchAction),
 
     /// The event was not handled (pass to next handler)
     Ignored,
@@ -249,10 +265,15 @@ impl KeyboardHandler {
             // Escape - collapse to primary cursor
             KeyCode::Escape => self.handle_escape(cursor),
 
-            // Function keys (not handled)
+            // F3 - Next match (T122)
+            KeyCode::F3 if !event.modifiers.shift => KeyResult::Search(SearchAction::NextMatch),
+            // Shift+F3 - Previous match (T122)
+            KeyCode::F3 if event.modifiers.shift => KeyResult::Search(SearchAction::PreviousMatch),
+
+            // Other function keys (not handled)
             KeyCode::F1
             | KeyCode::F2
-            | KeyCode::F3
+            | KeyCode::F3 // Fallback (shouldn't reach here due to guards above)
             | KeyCode::F4
             | KeyCode::F5
             | KeyCode::F6
@@ -359,6 +380,7 @@ impl KeyboardHandler {
             'y' => self.handle_redo(history),
             'a' => self.handle_select_all(document, cursor),
             'd' => self.handle_add_selection_next_match(document, cursor), // T107
+            'f' => KeyResult::Search(SearchAction::OpenSearch), // T121
             _ => KeyResult::Ignored,
         }
     }

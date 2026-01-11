@@ -1,8 +1,11 @@
-//! Selection and line highlighting.
+//! Selection, line, and search highlighting.
 //!
-//! This module provides rendering primitives for selection highlights and
-//! current line highlighting. These are rendered as colored rectangles
-//! behind the text.
+//! This module provides rendering primitives for:
+//! - Selection highlights
+//! - Current line highlighting
+//! - Search match highlighting (T123, T124)
+//!
+//! These are rendered as colored rectangles behind the text.
 
 use crate::document::{Range, Selection};
 use crate::theme::Color;
@@ -303,6 +306,142 @@ impl CurrentLineRenderer {
     }
 }
 
+/// Renders search match highlights (T123, T124).
+///
+/// This renderer computes the rectangles needed to highlight search matches.
+/// It uses different colors for:
+/// - All matches (search_match color)
+/// - Current match (search_match_current color)
+///
+/// # Example
+///
+/// ```ignore
+/// let renderer = SearchHighlightRenderer::new();
+/// let rects = renderer.compute_search_highlights(
+///     &search_state.matches,
+///     search_state.current_match,
+///     |line| document.line_len(line).unwrap_or(0),
+///     line_height,
+///     char_width,
+///     scroll_x,
+///     first_visible_line,
+///     visible_lines,
+///     theme.editor.search_match,
+///     theme.editor.search_match_current,
+/// );
+/// // Draw the highlight rectangles
+/// ```
+#[derive(Debug, Default)]
+pub struct SearchHighlightRenderer {
+    /// Reuse selection renderer for range highlighting
+    selection_renderer: SelectionRenderer,
+}
+
+impl SearchHighlightRenderer {
+    /// Creates a new search highlight renderer.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            selection_renderer: SelectionRenderer::new(),
+        }
+    }
+
+    /// Computes highlight rectangles for search matches.
+    ///
+    /// # Arguments
+    ///
+    /// * `matches` - All match ranges in document coordinates
+    /// * `current_match` - Index of the current match (if any)
+    /// * `line_lengths` - Function to get the length of a line (in columns)
+    /// * `line_height` - Height of a line in pixels
+    /// * `char_width` - Width of a character in pixels
+    /// * `scroll_x` - Horizontal scroll offset in pixels
+    /// * `first_visible_line` - First visible line number
+    /// * `visible_lines` - Number of visible lines
+    /// * `match_color` - Color for regular matches
+    /// * `current_match_color` - Color for the current match
+    ///
+    /// Returns highlight rectangles in screen coordinates.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_search_highlights<F>(
+        &self,
+        matches: &[Range],
+        current_match: Option<usize>,
+        line_lengths: F,
+        line_height: f32,
+        char_width: f32,
+        scroll_x: f32,
+        first_visible_line: usize,
+        visible_lines: usize,
+        match_color: Color,
+        current_match_color: Color,
+    ) -> Vec<HighlightRect>
+    where
+        F: Fn(usize) -> usize + Copy,
+    {
+        let last_visible_line = first_visible_line + visible_lines;
+        let mut rects = Vec::new();
+
+        for (idx, range) in matches.iter().enumerate() {
+            // Quick visibility check - skip if entirely outside viewport
+            if range.end.line < first_visible_line || range.start.line >= last_visible_line {
+                continue;
+            }
+
+            let is_current = current_match == Some(idx);
+            let color = if is_current { current_match_color } else { match_color };
+
+            let match_rects = self.selection_renderer.compute_selection_range(
+                *range,
+                line_lengths,
+                line_height,
+                char_width,
+                // Use a large viewport width since we don't want matches to extend full width
+                10000.0,
+                scroll_x,
+                first_visible_line,
+                visible_lines,
+                color,
+            );
+
+            rects.extend(match_rects);
+        }
+
+        rects
+    }
+
+    /// Computes highlight rectangles for a single search match.
+    ///
+    /// This is useful when you only need to highlight the current match.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_single_match<F>(
+        &self,
+        range: &Range,
+        line_lengths: F,
+        line_height: f32,
+        char_width: f32,
+        scroll_x: f32,
+        first_visible_line: usize,
+        visible_lines: usize,
+        color: Color,
+    ) -> Vec<HighlightRect>
+    where
+        F: Fn(usize) -> usize,
+    {
+        self.selection_renderer.compute_selection_range(
+            *range,
+            line_lengths,
+            line_height,
+            char_width,
+            10000.0,
+            scroll_x,
+            first_visible_line,
+            visible_lines,
+            color,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +643,183 @@ mod tests {
         assert_eq!(rects.len(), 1);
         // X should be offset by scroll
         assert!((rects[0].x - 24.0).abs() < 0.001); // (5 * 8) - 16 scroll
+    }
+
+    // T123: Search match highlighting tests
+    #[test]
+    fn search_highlights_basic() {
+        let renderer = SearchHighlightRenderer::new();
+        let matches = vec![
+            Range::new(Position::new(0, 0), Position::new(0, 3)),
+            Range::new(Position::new(0, 8), Position::new(0, 11)),
+            Range::new(Position::new(2, 0), Position::new(2, 3)),
+        ];
+        let match_color = Color::new(1.0, 1.0, 0.0, 0.3);
+        let current_color = Color::new(1.0, 0.5, 0.0, 0.5);
+
+        let rects = renderer.compute_search_highlights(
+            &matches,
+            None, // no current match
+            line_lengths,
+            20.0,
+            8.0,
+            0.0,
+            0,
+            50,
+            match_color,
+            current_color,
+        );
+
+        // Should have 3 rectangles (one per match)
+        assert_eq!(rects.len(), 3);
+
+        // All should have match_color since no current match
+        for rect in &rects {
+            assert!((rect.color.r - 1.0).abs() < 0.001);
+            assert!((rect.color.g - 1.0).abs() < 0.001);
+        }
+    }
+
+    // T124: Current match has different color
+    #[test]
+    fn search_highlights_current_match_color() {
+        let renderer = SearchHighlightRenderer::new();
+        let matches = vec![
+            Range::new(Position::new(0, 0), Position::new(0, 3)),
+            Range::new(Position::new(0, 8), Position::new(0, 11)),
+            Range::new(Position::new(2, 0), Position::new(2, 3)),
+        ];
+        let match_color = Color::new(1.0, 1.0, 0.0, 0.3);
+        let current_color = Color::new(1.0, 0.5, 0.0, 0.5);
+
+        let rects = renderer.compute_search_highlights(
+            &matches,
+            Some(1), // second match is current
+            line_lengths,
+            20.0,
+            8.0,
+            0.0,
+            0,
+            50,
+            match_color,
+            current_color,
+        );
+
+        assert_eq!(rects.len(), 3);
+
+        // First and third matches should have match_color
+        assert!((rects[0].color.g - 1.0).abs() < 0.001); // yellow
+        assert!((rects[2].color.g - 1.0).abs() < 0.001); // yellow
+
+        // Second match (current) should have current_color (orange)
+        assert!((rects[1].color.g - 0.5).abs() < 0.001); // orange
+    }
+
+    #[test]
+    fn search_highlights_outside_viewport() {
+        let renderer = SearchHighlightRenderer::new();
+        let matches = vec![
+            Range::new(Position::new(0, 0), Position::new(0, 3)), // Before viewport
+            Range::new(Position::new(15, 0), Position::new(15, 3)), // In viewport
+            Range::new(Position::new(30, 0), Position::new(30, 3)), // After viewport
+        ];
+        let match_color = Color::new(1.0, 1.0, 0.0, 0.3);
+        let current_color = Color::new(1.0, 0.5, 0.0, 0.5);
+
+        let rects = renderer.compute_search_highlights(
+            &matches,
+            None,
+            |_| 20,
+            20.0,
+            8.0,
+            0.0,
+            10, // first_visible_line
+            10, // visible_lines (10-19)
+            match_color,
+            current_color,
+        );
+
+        // Only the middle match should be visible
+        assert_eq!(rects.len(), 1);
+        // Y position should be at screen line 5 (line 15 - first_visible 10)
+        assert!((rects[0].y - 100.0).abs() < 0.001); // (15-10) * 20
+    }
+
+    #[test]
+    fn search_highlights_multiline_match() {
+        let renderer = SearchHighlightRenderer::new();
+        // A match spanning multiple lines
+        let matches = vec![
+            Range::new(Position::new(0, 5), Position::new(2, 3)),
+        ];
+        let match_color = Color::new(1.0, 1.0, 0.0, 0.3);
+        let current_color = Color::new(1.0, 0.5, 0.0, 0.5);
+
+        let rects = renderer.compute_search_highlights(
+            &matches,
+            Some(0),
+            line_lengths,
+            20.0,
+            8.0,
+            0.0,
+            0,
+            50,
+            match_color,
+            current_color,
+        );
+
+        // Should produce multiple rectangles for the multiline match
+        assert!(rects.len() >= 2);
+
+        // All should have current_color since it's the current match
+        for rect in &rects {
+            assert!((rect.color.g - 0.5).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn search_highlights_empty_matches() {
+        let renderer = SearchHighlightRenderer::new();
+        let matches: Vec<Range> = vec![];
+        let match_color = Color::new(1.0, 1.0, 0.0, 0.3);
+        let current_color = Color::new(1.0, 0.5, 0.0, 0.5);
+
+        let rects = renderer.compute_search_highlights(
+            &matches,
+            None,
+            line_lengths,
+            20.0,
+            8.0,
+            0.0,
+            0,
+            50,
+            match_color,
+            current_color,
+        );
+
+        assert!(rects.is_empty());
+    }
+
+    #[test]
+    fn search_single_match() {
+        let renderer = SearchHighlightRenderer::new();
+        let range = Range::new(Position::new(1, 5), Position::new(1, 10));
+        let color = Color::new(1.0, 0.5, 0.0, 0.5);
+
+        let rects = renderer.compute_single_match(
+            &range,
+            line_lengths,
+            20.0,
+            8.0,
+            0.0,
+            0,
+            50,
+            color,
+        );
+
+        assert_eq!(rects.len(), 1);
+        assert!((rects[0].x - 40.0).abs() < 0.001); // column 5 * 8
+        assert!((rects[0].y - 20.0).abs() < 0.001); // line 1 * 20
+        assert!((rects[0].width - 40.0).abs() < 0.001); // (10-5) * 8
     }
 }

@@ -28,7 +28,7 @@
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
-use crate::document::{Document, Range, Position};
+use crate::document::{Document, Position, Range};
 
 /// Search options for find operations.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,10 +157,7 @@ impl SearchState {
         // Find the first match that starts at or after the position
         let idx = self.matches.iter().position(|r| r.start >= position);
 
-        self.current_match = Some(match idx {
-            Some(i) => i,
-            None => 0, // Wrap to first match if none found after position
-        });
+        self.current_match = Some(idx.unwrap_or(0));
     }
 
     /// Finds all matches of the query in the document.
@@ -235,7 +232,7 @@ impl SearchState {
             let match_end = match_start + query.len();
 
             // Check whole-word boundary if required
-            if options.whole_word && !self.is_word_boundary(text, match_start, match_end) {
+            if options.whole_word && !Self::is_word_boundary(text, match_start, match_end) {
                 start = match_start + 1;
                 continue;
             }
@@ -273,7 +270,7 @@ impl SearchState {
             let match_end = mat.end();
 
             // Check whole-word boundary if required
-            if options.whole_word && !self.is_word_boundary(text, match_start, match_end) {
+            if options.whole_word && !Self::is_word_boundary(text, match_start, match_end) {
                 continue;
             }
 
@@ -290,7 +287,7 @@ impl SearchState {
     }
 
     /// Checks if a match is at a word boundary.
-    fn is_word_boundary(&self, text: &str, start: usize, end: usize) -> bool {
+    fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
         let bytes = text.as_bytes();
 
         // Check character before start
@@ -313,7 +310,7 @@ impl SearchState {
     }
 
     /// Returns true if the byte is a word character (alphanumeric or underscore).
-    fn is_word_char(byte: u8) -> bool {
+    const fn is_word_char(byte: u8) -> bool {
         byte.is_ascii_alphanumeric() || byte == b'_'
     }
 
@@ -321,11 +318,7 @@ impl SearchState {
     ///
     /// This is useful for incremental search where the query is updated
     /// as the user types.
-    pub fn update_query(
-        &mut self,
-        query: &str,
-        document: &Document,
-    ) -> Result<bool, String> {
+    pub fn update_query(&mut self, query: &str, document: &Document) -> Result<bool, String> {
         let old_count = self.matches.len();
         self.find_all(query, &self.options.clone(), document)?;
         Ok(self.matches.len() != old_count)
@@ -370,9 +363,10 @@ impl SearchState {
     }
 
     /// Validates a regex pattern without performing a search.
-    #[must_use]
     pub fn validate_regex(pattern: &str) -> Result<(), String> {
-        Regex::new(pattern).map(|_| ()).map_err(|e| format!("Invalid regex: {e}"))
+        Regex::new(pattern)
+            .map(|_| ())
+            .map_err(|e| format!("Invalid regex: {e}"))
     }
 }
 
@@ -388,7 +382,9 @@ mod tests {
     fn find_all_basic() {
         let doc = create_test_doc();
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         assert_eq!(state.match_count(), 4);
         assert_eq!(state.current_match, Some(0));
@@ -398,7 +394,9 @@ mod tests {
     fn find_all_case_insensitive() {
         let doc = Document::new("FOO foo Foo fOO");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         // Default is case-insensitive
         assert_eq!(state.match_count(), 4);
@@ -408,7 +406,9 @@ mod tests {
     fn find_all_case_sensitive() {
         let doc = Document::new("FOO foo Foo fOO");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::case_sensitive(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::case_sensitive(), &doc)
+            .unwrap();
 
         assert_eq!(state.match_count(), 1);
     }
@@ -417,7 +417,9 @@ mod tests {
     fn find_all_whole_word() {
         let doc = Document::new("foo foobar barfoo foo");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::whole_word(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::whole_word(), &doc)
+            .unwrap();
 
         // Should only match standalone "foo", not "foobar" or "barfoo"
         assert_eq!(state.match_count(), 2);
@@ -427,7 +429,9 @@ mod tests {
     fn find_all_regex() {
         let doc = Document::new("foo123 bar456 baz789");
         let mut state = SearchState::new();
-        state.find_all(r"\w+\d+", &SearchOptions::regex_mode(), &doc).unwrap();
+        state
+            .find_all(r"\w+\d+", &SearchOptions::regex_mode(), &doc)
+            .unwrap();
 
         assert_eq!(state.match_count(), 3);
     }
@@ -446,7 +450,9 @@ mod tests {
     fn next_match_wraps() {
         let doc = Document::new("foo foo");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         assert_eq!(state.current_match, Some(0));
         state.next_match();
@@ -459,7 +465,9 @@ mod tests {
     fn previous_match_wraps() {
         let doc = Document::new("foo foo");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         assert_eq!(state.current_match, Some(0));
         state.previous_match();
@@ -470,7 +478,9 @@ mod tests {
     fn current_range() {
         let doc = Document::new("foo bar");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         let range = state.current_range().unwrap();
         assert_eq!(range.start, Position::new(0, 0));
@@ -481,7 +491,9 @@ mod tests {
     fn goto_nearest_match() {
         let doc = Document::new("foo bar foo baz foo");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         // Start at position after second foo
         state.goto_nearest_match(Position::new(0, 10));
@@ -494,7 +506,9 @@ mod tests {
     fn clear_resets_state() {
         let doc = Document::new("foo bar");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
         assert!(state.has_matches());
 
         state.clear();
@@ -507,7 +521,9 @@ mod tests {
     fn empty_query_clears_matches() {
         let doc = Document::new("foo bar");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
         assert!(state.has_matches());
 
         state.find_all("", &SearchOptions::default(), &doc).unwrap();
@@ -519,7 +535,9 @@ mod tests {
     fn multiline_search() {
         let doc = Document::new("foo bar\nfoo baz");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
 
         assert_eq!(state.match_count(), 2);
 
@@ -538,7 +556,9 @@ mod tests {
     fn update_query_detects_changes() {
         let doc = Document::new("foo bar baz");
         let mut state = SearchState::new();
-        state.find_all("foo", &SearchOptions::default(), &doc).unwrap();
+        state
+            .find_all("foo", &SearchOptions::default(), &doc)
+            .unwrap();
         assert_eq!(state.match_count(), 1);
 
         // Query that finds different number of matches

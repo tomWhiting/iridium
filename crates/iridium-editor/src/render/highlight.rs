@@ -29,13 +29,25 @@ impl HighlightRect {
     /// Creates a new highlight rectangle.
     #[must_use]
     pub const fn new(x: f32, y: f32, width: f32, height: f32, color: Color) -> Self {
-        Self { x, y, width, height, color }
+        Self {
+            x,
+            y,
+            width,
+            height,
+            color,
+        }
     }
 
     /// Creates a full-width line highlight.
     #[must_use]
     pub fn full_line(y: f32, width: f32, height: f32, color: Color) -> Self {
-        Self { x: 0.0, y, width, height, color }
+        Self {
+            x: 0.0,
+            y,
+            width,
+            height,
+            color,
+        }
     }
 }
 
@@ -310,8 +322,8 @@ impl CurrentLineRenderer {
 ///
 /// This renderer computes the rectangles needed to highlight search matches.
 /// It uses different colors for:
-/// - All matches (search_match color)
-/// - Current match (search_match_current color)
+/// - All matches (`search_match` color)
+/// - Current match (`search_match_current` color)
 ///
 /// # Example
 ///
@@ -389,7 +401,11 @@ impl SearchHighlightRenderer {
             }
 
             let is_current = current_match == Some(idx);
-            let color = if is_current { current_match_color } else { match_color };
+            let color = if is_current {
+                current_match_color
+            } else {
+                match_color
+            };
 
             let match_rects = self.selection_renderer.compute_selection_range(
                 *range,
@@ -479,7 +495,7 @@ mod tests {
         assert_eq!(rects.len(), 1);
         let rect = &rects[0];
         assert!((rect.x - 16.0).abs() < 0.001); // column 2 * 8
-        assert!((rect.y - 0.0).abs() < 0.001);  // line 0 * 20
+        assert!((rect.y - 0.0).abs() < 0.001); // line 0 * 20
         assert!((rect.width - 40.0).abs() < 0.001); // (7-2) * 8
         assert!((rect.height - 20.0).abs() < 0.001);
     }
@@ -592,14 +608,8 @@ mod tests {
         let color = Color::new(0.1, 0.1, 0.1, 1.0);
 
         // Two cursors on the same line
-        let rects = renderer.compute_current_lines(
-            vec![5, 5, 5].into_iter(),
-            20.0,
-            800.0,
-            0,
-            50,
-            color,
-        );
+        let rects =
+            renderer.compute_current_lines(vec![5, 5, 5].into_iter(), 20.0, 800.0, 0, 50, color);
 
         // Should produce only one rectangle
         assert_eq!(rects.len(), 1);
@@ -749,9 +759,7 @@ mod tests {
     fn search_highlights_multiline_match() {
         let renderer = SearchHighlightRenderer::new();
         // A match spanning multiple lines
-        let matches = vec![
-            Range::new(Position::new(0, 5), Position::new(2, 3)),
-        ];
+        let matches = vec![Range::new(Position::new(0, 5), Position::new(2, 3))];
         let match_color = Color::new(1.0, 1.0, 0.0, 0.3);
         let current_color = Color::new(1.0, 0.5, 0.0, 0.5);
 
@@ -806,16 +814,8 @@ mod tests {
         let range = Range::new(Position::new(1, 5), Position::new(1, 10));
         let color = Color::new(1.0, 0.5, 0.0, 0.5);
 
-        let rects = renderer.compute_single_match(
-            &range,
-            line_lengths,
-            20.0,
-            8.0,
-            0.0,
-            0,
-            50,
-            color,
-        );
+        let rects =
+            renderer.compute_single_match(&range, line_lengths, 20.0, 8.0, 0.0, 0, 50, color);
 
         assert_eq!(rects.len(), 1);
         assert!((rects[0].x - 40.0).abs() < 0.001); // column 5 * 8

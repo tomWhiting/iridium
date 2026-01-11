@@ -42,6 +42,6 @@ pub use input::{
 pub use render::{RenderError, RenderPipeline, TextRenderer};
 pub use view::{
     CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, GutterConfig, GutterRenderer,
-    GutterWidth, HighlightConfig, HighlightRenderer, ScrollConfig, ScrollDirection, TargetFrameRate,
-    ViewConfig, Viewport,
+    GutterWidth, HighlightConfig, HighlightRenderer, ScrollConfig, ScrollDirection,
+    TargetFrameRate, ViewConfig, Viewport,
 };

@@ -255,9 +255,10 @@ impl EditorView {
         self.controller
             .mouse_handler_mut()
             .set_scroll(self.viewport.scroll_x, self.viewport.scroll_y);
-        self.controller
-            .mouse_handler_mut()
-            .set_padding(self.config.padding_left + self.gutter_renderer.total_width(), self.config.padding_top);
+        self.controller.mouse_handler_mut().set_padding(
+            self.config.padding_left + self.gutter_renderer.total_width(),
+            self.config.padding_top,
+        );
 
         // Update line cache if dirty (invalidated) or visible range changed
         if self.cache_dirty {

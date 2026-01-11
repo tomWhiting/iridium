@@ -70,10 +70,10 @@ impl Default for GutterConfig {
             min_digits: 3,
             padding_left: 8.0,
             padding_right: 12.0,
-            line_number_color: [0.5, 0.5, 0.5, 1.0],        // Gray
+            line_number_color: [0.5, 0.5, 0.5, 1.0], // Gray
             current_line_number_color: [0.9, 0.9, 0.9, 1.0], // Bright gray
-            background_color: [0.10, 0.10, 0.10, 1.0],       // Darker than editor
-            separator_color: [0.2, 0.2, 0.2, 1.0],           // Subtle separator
+            background_color: [0.10, 0.10, 0.10, 1.0], // Darker than editor
+            separator_color: [0.2, 0.2, 0.2, 1.0],   // Subtle separator
             show_separator: true,
         }
     }
@@ -203,7 +203,9 @@ impl GutterRenderer {
 
     /// Updates the cached gutter width based on total lines.
     fn update_cached_width(&mut self) {
-        let digits = self.digit_count(self.total_lines).max(self.config.min_digits);
+        let digits = self
+            .digit_count(self.total_lines)
+            .max(self.config.min_digits);
         let line_number_width = digits as f32 * self.char_width;
         self.cached_width = GutterWidth::new(
             line_number_width,
@@ -264,7 +266,9 @@ impl GutterRenderer {
     /// Right-aligns the number to match the gutter width.
     #[must_use]
     pub fn format_line_number(&self, number: usize) -> String {
-        let digits = self.digit_count(self.total_lines).max(self.config.min_digits);
+        let digits = self
+            .digit_count(self.total_lines)
+            .max(self.config.min_digits);
         format!("{:>width$}", number, width = digits)
     }
 

@@ -172,6 +172,12 @@ pub enum MouseResult {
         line: usize,
     },
 
+    /// Scroll to a specific line (T142: minimap click-to-navigate)
+    ScrollToLine {
+        /// Target line to scroll to
+        target_line: usize,
+    },
+
     /// The event was not handled (pass to next handler)
     Ignored,
 }
@@ -675,6 +681,96 @@ impl MouseHandler {
         } else {
             Selection::new(anchor_line.end(), current_line.start())
         }
+    }
+
+    /// Handles a minimap click event (T142: click-to-navigate).
+    ///
+    /// Returns `ScrollToLine` result if the click was on the minimap,
+    /// or `Ignored` if the click was outside minimap bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The mouse press event
+    /// * `minimap_renderer` - The minimap renderer to delegate to
+    /// * `minimap_dimensions` - Current minimap dimensions
+    /// * `viewport` - Current viewport
+    #[must_use]
+    pub fn handle_minimap_click(
+        &mut self,
+        event: &MouseEvent,
+        minimap_renderer: &mut crate::render::MinimapRenderer,
+        minimap_dimensions: &crate::render::MinimapDimensions,
+        viewport: &Viewport,
+    ) -> MouseResult {
+        if event.kind != MouseEventKind::Press || event.button != Some(MouseButton::Left) {
+            return MouseResult::Ignored;
+        }
+
+        if !minimap_dimensions.contains(event.x, event.y) {
+            return MouseResult::Ignored;
+        }
+
+        if let Some(target_line) = minimap_renderer.handle_click(
+            event.x,
+            event.y,
+            minimap_dimensions,
+            viewport,
+        ) {
+            MouseResult::ScrollToLine { target_line }
+        } else {
+            MouseResult::Ignored
+        }
+    }
+
+    /// Handles a minimap drag event (T143: drag-to-scroll).
+    ///
+    /// Returns `ScrollToLine` result if dragging on minimap,
+    /// or `Ignored` if not currently dragging on minimap.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The mouse drag event
+    /// * `minimap_renderer` - The minimap renderer to delegate to
+    /// * `minimap_dimensions` - Current minimap dimensions
+    /// * `viewport` - Current viewport
+    #[must_use]
+    pub fn handle_minimap_drag(
+        &mut self,
+        event: &MouseEvent,
+        minimap_renderer: &mut crate::render::MinimapRenderer,
+        minimap_dimensions: &crate::render::MinimapDimensions,
+        viewport: &Viewport,
+    ) -> MouseResult {
+        if event.kind != MouseEventKind::Drag || event.button != Some(MouseButton::Left) {
+            return MouseResult::Ignored;
+        }
+
+        if !minimap_renderer.is_dragging() {
+            return MouseResult::Ignored;
+        }
+
+        if let Some(target_line) = minimap_renderer.handle_drag(
+            event.x,
+            event.y,
+            minimap_dimensions,
+            viewport,
+        ) {
+            MouseResult::ScrollToLine { target_line }
+        } else {
+            MouseResult::Ignored
+        }
+    }
+
+    /// Handles a minimap release event to end dragging.
+    ///
+    /// # Arguments
+    ///
+    /// * `minimap_renderer` - The minimap renderer to notify
+    pub fn handle_minimap_release(
+        &mut self,
+        minimap_renderer: &mut crate::render::MinimapRenderer,
+    ) {
+        minimap_renderer.handle_release();
     }
 }
 

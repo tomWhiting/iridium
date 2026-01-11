@@ -16,9 +16,18 @@ pub use gutter::{
     LineNumberEntry,
 };
 pub use highlight::{
-    CurrentLineRenderer, FoldPlaceholder, FoldPlaceholderRenderer, HighlightRect, SelectionRenderer,
+    CurrentLineRenderer, FoldPlaceholder, FoldPlaceholderRenderer, HighlightRect,
+    SearchHighlightRenderer, SelectionRenderer,
 };
-pub use minimap::MinimapRenderer;
-pub use pipeline::{DEFAULT_TEXTURE_FORMAT, GpuInfo, RenderConfig, RenderPipeline};
+pub use minimap::{
+    MinimapConfig, MinimapDimensions, MinimapDragState, MinimapInteraction, MinimapLine,
+    MinimapPosition, MinimapRect, MinimapRenderer, MinimapSegment, ViewportIndicator,
+    DEFAULT_CHARS_PER_LINE, DEFAULT_MINIMAP_WIDTH, MAX_LINE_HEIGHT, MAX_MINIMAP_WIDTH,
+    MINIMAP_CHAR_WIDTH, MINIMAP_LINE_HEIGHT, MIN_LINE_HEIGHT, MIN_MINIMAP_WIDTH,
+};
+pub use pipeline::{
+    GpuInfo, MinimapRenderData, RenderConfig, RenderPipeline, SyntaxUniforms, ThemeUniforms,
+    DEFAULT_TEXTURE_FORMAT,
+};
 pub use text::{TextRenderConfig, TextRenderer};
 pub use viewport::Viewport;

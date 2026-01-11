@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::render::{MinimapPosition, DEFAULT_MINIMAP_WIDTH};
+
 /// Editor configuration options.
 ///
 /// All options have sensible defaults. Use [`EditorConfig::default()`] for
@@ -35,6 +37,16 @@ pub struct EditorConfig {
 
     /// Show minimap (default: true)
     pub show_minimap: bool,
+
+    /// Minimap width in pixels (default: 120.0)
+    pub minimap_width: f32,
+
+    /// Minimap position relative to editor (default: Right)
+    #[serde(default)]
+    pub minimap_position: MinimapPosition,
+
+    /// Whether to show syntax colors in minimap (default: true)
+    pub minimap_show_syntax_colors: bool,
 
     /// Cursor blink rate in milliseconds (0 = no blink, default: 500)
     pub cursor_blink_ms: u32,
@@ -73,6 +85,9 @@ impl Default for EditorConfig {
             auto_indent: true,
             show_line_numbers: true,
             show_minimap: true,
+            minimap_width: DEFAULT_MINIMAP_WIDTH,
+            minimap_position: MinimapPosition::Right,
+            minimap_show_syntax_colors: true,
             cursor_blink_ms: 500,
             undo_group_timeout_ms: 500,
             scroll_past_end: false,

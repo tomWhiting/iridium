@@ -229,11 +229,13 @@ A developer embedding Iridium in their React application can pass content, recei
 - **FR-015**: Editor MUST keep cursor visible, scrolling viewport when cursor would move off-screen
 
 **Syntax Highlighting**
-- **FR-016**: Editor MUST support syntax highlighting for Cypher query language
-- **FR-017**: Editor MUST support syntax highlighting for SQL
-- **FR-018**: Editor MUST support syntax highlighting for Rust, Python, and TypeScript
+- **FR-016**: Editor MUST support syntax highlighting for Cypher query language using tree-sitter-cypher grammar
+- **FR-017**: Editor MUST support syntax highlighting for SQL using tree-sitter-sql grammar
+- **FR-018**: Editor MUST support syntax highlighting for Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, C, and C++ using bundled tree-sitter query files
 - **FR-019**: Editor MUST update highlighting incrementally when text changes (not full re-parse)
 - **FR-020**: Syntax highlighting MUST NOT cause visible lag during typing
+- **FR-020a**: Editor MUST use bundled `.scm` query files (highlights.scm, brackets.scm, indents.scm, injections.scm) sourced from Zed editor for language-specific highlighting patterns
+- **FR-020b**: Editor MUST support additional query types (outline.scm, textobjects.scm) for future code intelligence features
 
 **Multiple Cursors**
 - **FR-021**: Editor MUST support adding cursors via Ctrl+Click
@@ -329,7 +331,7 @@ A developer embedding Iridium in their React application can pass content, recei
 - WebGPU is available in the target browser. Fallback to WebGL2 is not in scope for initial release.
 - Host application handles file I/O. Iridium receives content as a string and emits changes; it does not read/write files directly.
 - LSP integration is provided by a separate crate (iridium-lsp). This spec covers the editor component (iridium-editor) only.
-- Tree-sitter grammars for Cypher, SQL, Rust, Python, and TypeScript exist and are usable. Custom grammar development is out of scope.
+- Tree-sitter grammars and query files for supported languages are available. For Cypher, tree-sitter-cypher from GitHub (taekwombo/tree-sitter-cypher or simplificare-org/tree-sitter-cypher) will be used as a git dependency since no crates.io package exists. Query files (.scm) are bundled from Zed editor where available; for languages without bundled queries, minimal highlights.scm files will be created. If query files require minor updates to work with newer tree-sitter grammar versions, those updates should be made; if extensive rewrites are needed, the compatible grammar version should be used instead.
 - The host application provides the canvas/surface for rendering. Iridium does not create windows or manage application lifecycle.
 - Clipboard operations are mediated by the host platform. Iridium emits clipboard intents; the host executes them.
 - IME (Input Method Editor) events are provided by the browser/host. Iridium handles composition events correctly but does not implement IME directly.

@@ -116,15 +116,29 @@ crates/
 ├── iridium-syntax/          # Syntax highlighting crate
 │   ├── src/
 │   │   ├── lib.rs
-│   │   ├── highlight.rs     # Highlighting engine
+│   │   ├── highlight.rs     # Highlighting engine (executes .scm queries)
 │   │   ├── languages/
 │   │   │   ├── mod.rs
-│   │   │   ├── cypher.rs    # Cypher configuration
+│   │   │   ├── cypher.rs    # Cypher configuration (uses tree-sitter-cypher git dep)
 │   │   │   ├── sql.rs       # SQL configuration
 │   │   │   ├── rust.rs      # Rust configuration
 │   │   │   ├── python.rs    # Python configuration
-│   │   │   └── typescript.rs
-│   │   └── folding.rs       # Code folding regions
+│   │   │   ├── typescript.rs
+│   │   │   └── queries/     # Bundled TreeSitter query files (from Zed)
+│   │   │       ├── rust/    # highlights.scm, brackets.scm, indents.scm, etc.
+│   │   │       ├── python/
+│   │   │       ├── typescript/
+│   │   │       ├── javascript/
+│   │   │       ├── go/
+│   │   │       ├── json/
+│   │   │       ├── yaml/
+│   │   │       ├── markdown/
+│   │   │       ├── css/
+│   │   │       ├── bash/
+│   │   │       ├── c/
+│   │   │       ├── cpp/
+│   │   │       └── ... (14+ languages)
+│   │   └── folding.rs       # Code folding regions (uses outline.scm)
 │   └── Cargo.toml
 │
 └── iridium-bindings/        # JS/WASM bindings crate
@@ -164,6 +178,8 @@ This structure allows:
 | Three crates | Clean separation, reusability | Single crate would couple syntax to rendering |
 | Undo tree (not stack) | User requirement, prevents data loss | Linear undo loses history branches |
 | Command-sourced | Enables undo tree, debugging, replay | Direct mutation harder to reason about |
+| Bundled .scm query files | Proven patterns from Zed editor, comprehensive coverage, maintainable | Hard-coded highlight patterns would be inconsistent and incomplete |
+| tree-sitter-cypher git dep | No crates.io package exists for Cypher; taekwombo/tree-sitter-cypher (v0.25.9) closest to our tree-sitter 0.26.3 | simplificare-org version uses older tree-sitter 0.24.4 |
 
 ## Phase Summary
 

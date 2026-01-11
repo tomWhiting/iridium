@@ -1,6 +1,6 @@
 //! Benchmarks for rendering operations.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn render_benchmark(c: &mut Criterion) {
     c.bench_function("render_frame", |b| {

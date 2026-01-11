@@ -322,14 +322,14 @@ Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, 
 
 ### Implementation for User Story 8
 
-- [ ] T138 [US8] Implement minimap dimensions and scaling calculations in crates/iridium-editor/src/render/minimap.rs
-- [ ] T139 [US8] Implement minimap text rendering (scaled down) in crates/iridium-editor/src/render/minimap.rs
-- [ ] T140 [US8] Implement minimap syntax coloring in crates/iridium-editor/src/render/minimap.rs
-- [ ] T141 [US8] Implement viewport indicator rendering on minimap in crates/iridium-editor/src/render/minimap.rs
-- [ ] T142 [US8] Implement minimap click-to-navigate in crates/iridium-editor/src/input/mouse.rs
-- [ ] T143 [US8] Implement minimap drag-to-scroll in crates/iridium-editor/src/input/mouse.rs
-- [ ] T144 [US8] Wire minimap toggle into EditorConfig in crates/iridium-editor/src/editor/config.rs
-- [ ] T145 [US8] Integrate minimap into main render pass in crates/iridium-editor/src/render/pipeline.rs
+- [x] T138 [US8] Implement minimap dimensions and scaling calculations in crates/iridium-editor/src/render/minimap.rs
+- [x] T139 [US8] Implement minimap text rendering (scaled down) in crates/iridium-editor/src/render/minimap.rs
+- [x] T140 [US8] Implement minimap syntax coloring in crates/iridium-editor/src/render/minimap.rs
+- [x] T141 [US8] Implement viewport indicator rendering on minimap in crates/iridium-editor/src/render/minimap.rs
+- [x] T142 [US8] Implement minimap click-to-navigate in crates/iridium-editor/src/input/mouse.rs
+- [x] T143 [US8] Implement minimap drag-to-scroll in crates/iridium-editor/src/input/mouse.rs
+- [x] T144 [US8] Wire minimap toggle into EditorConfig in crates/iridium-editor/src/editor/config.rs
+- [x] T145 [US8] Integrate minimap into main render pass in crates/iridium-editor/src/render/pipeline.rs
 
 **Checkpoint**: User Story 8 complete - minimap with navigation works
 

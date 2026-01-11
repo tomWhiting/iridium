@@ -302,6 +302,10 @@ impl Editor {
                 // Handle scrolling
                 self.scroll_by(delta_x, delta_y);
             }
+            MouseResult::ScrollToLine { target_line } => {
+                // Handle minimap click-to-navigate (T142)
+                self.scroll_to_line(target_line);
+            }
             MouseResult::Handled | MouseResult::Ignored => {}
         }
     }
@@ -361,6 +365,20 @@ impl Editor {
         // Clamp to document bounds
         let max_line = self.state.document.line_count().saturating_sub(1);
         self.state.scroll_line = new_line.min(max_line);
+
+        self.emit(&EditorEvent::ScrollChanged {
+            first_line: self.state.scroll_line,
+        });
+    }
+
+    /// Scrolls to show a specific line (T142: minimap click-to-navigate).
+    ///
+    /// The viewport will be positioned to show the target line.
+    /// Used by minimap click and drag navigation.
+    pub fn scroll_to_line(&mut self, line: usize) {
+        // Clamp to document bounds
+        let max_line = self.state.document.line_count().saturating_sub(1);
+        self.state.scroll_line = line.min(max_line);
 
         self.emit(&EditorEvent::ScrollChanged {
             first_line: self.state.scroll_line,

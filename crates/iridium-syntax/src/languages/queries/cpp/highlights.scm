@@ -1,72 +1,47 @@
+; C++ Highlights Query
+; Compatible with tree-sitter-cpp 0.23.4
+
+; Comments
+(comment) @comment
+
+; Strings
+[
+  (string_literal)
+  (system_lib_string)
+  (char_literal)
+  (raw_string_literal)
+] @string
+
+; Numbers
+(number_literal) @number
+
+; Boolean
+[
+  (true)
+  (false)
+] @boolean
+
+; Null
+(null) @constant.builtin
+
+; Identifiers
 (identifier) @variable
 (field_identifier) @property
 (namespace_identifier) @namespace
 
-(concept_definition
-    name: (identifier) @concept)
-
-(requires_clause
-    constraint: (template_type
-        name: (type_identifier) @concept))
-
-(module_name
-  (identifier) @module)
-
-(module_declaration
-  name: (module_name
-    (identifier) @module))
-
-(import_declaration
-  name: (module_name
-    (identifier) @module))
-
-(import_declaration
-  partition: (module_partition
-    (module_name
-      (identifier) @module)))
+; Function calls
+(call_expression
+  function: (identifier) @function)
 
 (call_expression
   function: (qualified_identifier
     name: (identifier) @function))
 
 (call_expression
-  (qualified_identifier
-    (identifier) @function.call))
-
-(call_expression
-  (qualified_identifier
-    (qualified_identifier
-      (identifier) @function.call)))
-
-(call_expression
-  (qualified_identifier
-    (qualified_identifier
-      (qualified_identifier
-        (identifier) @function.call))))
-
-((qualified_identifier
-  (qualified_identifier
-    (qualified_identifier
-      (qualified_identifier
-        (identifier) @function.call)))) @_parent
-  (#has-ancestor? @_parent call_expression))
-
-(call_expression
-  function: (identifier) @function)
-
-(call_expression
   function: (field_expression
-    field: (field_identifier) @function))
+    field: (field_identifier) @function.method))
 
-(preproc_function_def
-  name: (identifier) @function.special)
-
-(template_function
-  name: (identifier) @function)
-
-(template_method
-  name: (field_identifier) @function)
-
+; Function definitions
 (function_declarator
   declarator: (identifier) @function)
 
@@ -77,32 +52,44 @@
 (function_declarator
   declarator: (field_identifier) @function)
 
-(operator_name
-  (identifier)? @operator) @function
+(template_function
+  name: (identifier) @function)
 
-(operator_name
-  "<=>" @operator.spaceship)
+(template_method
+  name: (field_identifier) @function)
 
 (destructor_name (identifier) @function)
 
-((namespace_identifier) @type
- (#match? @type "^[A-Z]"))
+(operator_name) @function
 
-(auto) @type
+; Preprocessor function
+(preproc_function_def
+  name: (identifier) @function.special)
+
+; Types
 (type_identifier) @type
-type: (primitive_type) @type.builtin
+(primitive_type) @type.builtin
 (sized_type_specifier) @type.builtin
+(auto) @type
 
-(attribute
-    name: (identifier) @attribute)
+((namespace_identifier) @type
+  (#match? @type "^[A-Z]"))
 
+; Constants (UPPER_CASE identifiers)
 ((identifier) @constant.builtin
- (#match? @constant.builtin "^_*[A-Z][A-Z\\d_]*$"))
+  (#match? @constant.builtin "^[A-Z_][A-Z\\d_]*$"))
 
+; Labels
 (statement_identifier) @label
-(this) @variable.builtin
-("static_assert") @function.builtin
 
+; Special
+(this) @variable.builtin
+
+; Attributes
+(attribute
+  name: (identifier) @attribute)
+
+; Keywords
 [
   "alignas"
   "alignof"
@@ -115,13 +102,10 @@ type: (primitive_type) @type.builtin
   "delete"
   "enum"
   "explicit"
-  "export"
   "extern"
   "final"
   "friend"
-  "import"
   "inline"
-  "module"
   "namespace"
   "new"
   "noexcept"
@@ -144,6 +128,7 @@ type: (primitive_type) @type.builtin
   (type_qualifier)
 ] @keyword
 
+; Control flow keywords
 [
   "break"
   "case"
@@ -165,6 +150,7 @@ type: (primitive_type) @type.builtin
   "while"
 ] @keyword.control
 
+; Preprocessor directives
 [
   "#define"
   "#elif"
@@ -177,44 +163,7 @@ type: (primitive_type) @type.builtin
   (preproc_directive)
 ] @keyword.directive
 
-(comment) @comment
-
-[
-  (true)
-  (false)
-] @boolean
-
-[
-  (null)
-  ("nullptr")
-] @constant.builtin
-
-(number_literal) @number
-
-[
-  (string_literal)
-  (system_lib_string)
-  (char_literal)
-  (raw_string_literal)
-] @string
-
-[
-  ","
-  ":"
-  "::"
-  ";"
-  (raw_string_delimiter)
-] @punctuation.delimiter
-
-[
-  "{"
-  "}"
-  "("
-  ")"
-  "["
-  "]"
-] @punctuation.bracket
-
+; Operators
 [
   "."
   ".*"
@@ -254,23 +203,22 @@ type: (primitive_type) @type.builtin
   "<="
   ">="
   "?"
-  "and"
-  "and_eq"
-  "bitand"
-  "bitor"
-  "compl"
-  "not"
-  "not_eq"
-  "or"
-  "or_eq"
-  "xor"
-  "xor_eq"
+  "<=>"
 ] @operator
 
-"<=>" @operator.spaceship
+; Punctuation
+[
+  ","
+  ":"
+  "::"
+  ";"
+] @punctuation.delimiter
 
-(binary_expression
-  operator: "<=>" @operator.spaceship)
-
-(conditional_expression ":" @operator)
-(user_defined_literal (literal_suffix) @operator)
+[
+  "{"
+  "}"
+  "("
+  ")"
+  "["
+  "]"
+] @punctuation.bracket

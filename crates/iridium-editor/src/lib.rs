@@ -38,6 +38,7 @@ pub mod history;
 pub mod input;
 pub mod render;
 pub mod search;
+pub mod syntax;
 pub mod theme;
 pub mod view;
 
@@ -49,5 +50,6 @@ pub use input::{ClipboardOperation, KeyCode, KeyEvent, KeyResult, KeyboardHandle
 pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
 pub use input::ImeHandler;
 pub use render::{CursorRenderer, CurrentLineRenderer, SelectionRenderer};
+pub use syntax::{DocumentHighlighter, HighlightSpan, HighlightType, Language};
 pub use theme::Theme;
 pub use view::{DeltaTime, FrameBudget, FrameStats, FrameTimer};

@@ -245,16 +245,16 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 5
 
-- [ ] T102 [US5] Implement CursorState::add_cursor() in crates/iridium-editor/src/document/cursor.rs
-- [ ] T103 [US5] Implement CursorState::remove_cursor() in crates/iridium-editor/src/document/cursor.rs
-- [ ] T104 [US5] Implement CursorState::collapse_to_primary() in crates/iridium-editor/src/document/cursor.rs
-- [ ] T105 [US5] Implement cursor sorting and overlap prevention in crates/iridium-editor/src/document/cursor.rs
-- [ ] T106 [US5] Implement Ctrl+Click to add cursor in crates/iridium-editor/src/input/mouse.rs
-- [ ] T107 [US5] Implement Ctrl+D (Add Selection to Next Match) in crates/iridium-editor/src/input/keyboard.rs
-- [ ] T108 [US5] Implement Escape to collapse to primary cursor in crates/iridium-editor/src/input/keyboard.rs
-- [ ] T109 [US5] Update all editing operations to work with multiple cursors in crates/iridium-editor/src/editor/core.rs
-- [ ] T110 [US5] Implement multi-cursor rendering in crates/iridium-editor/src/render/text.rs
-- [ ] T111 [US5] Implement multi-selection highlight rendering in crates/iridium-editor/src/render/text.rs
+- [x] T102 [US5] Implement CursorState::add_cursor() in crates/iridium-editor/src/document/cursor.rs
+- [x] T103 [US5] Implement CursorState::remove_cursor() in crates/iridium-editor/src/document/cursor.rs
+- [x] T104 [US5] Implement CursorState::collapse_to_primary() in crates/iridium-editor/src/document/cursor.rs
+- [x] T105 [US5] Implement cursor sorting and overlap prevention in crates/iridium-editor/src/document/cursor.rs
+- [x] T106 [US5] Implement Ctrl+Click to add cursor in crates/iridium-editor/src/input/mouse.rs
+- [x] T107 [US5] Implement Ctrl+D (Add Selection to Next Match) in crates/iridium-editor/src/input/keyboard.rs
+- [x] T108 [US5] Implement Escape to collapse to primary cursor in crates/iridium-editor/src/input/keyboard.rs
+- [x] T109 [US5] Update all editing operations to work with multiple cursors in crates/iridium-editor/src/input/keyboard.rs
+- [x] T110 [US5] Implement multi-cursor rendering in crates/iridium-editor/src/render/cursor.rs
+- [x] T111 [US5] Implement multi-selection highlight rendering in crates/iridium-editor/src/render/highlight.rs
 
 **Checkpoint**: User Story 5 complete - multi-cursor editing works
 

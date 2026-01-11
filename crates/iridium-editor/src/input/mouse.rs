@@ -202,7 +202,7 @@ impl Default for ClickState {
 /// - Double-click to select word
 /// - Triple-click to select line
 /// - Drag to select range
-/// - Ctrl+click for multi-cursor (placeholder, refined in US5)
+/// - Ctrl+click to add cursor (T106)
 /// - Shift+click to extend selection
 #[derive(Debug, Default)]
 pub struct MouseHandler {
@@ -354,12 +354,17 @@ impl MouseHandler {
     ) -> MouseResult {
         self.selection_mode = SelectionMode::Character;
 
-        let new_cursor = if event.shift {
+        let new_cursor = if event.ctrl {
+            // T106: Ctrl+Click adds a new cursor at the clicked position
+            let mut new_state = cursor.clone();
+            new_state.add_cursor(Selection::collapsed(position));
+            new_state
+        } else if event.shift {
             // Extend selection from current anchor
             let selection = Selection::new(cursor.primary.anchor, position);
             CursorState::new(selection)
         } else {
-            // Position cursor
+            // Position cursor (single cursor mode)
             CursorState::at(position)
         };
 
@@ -678,5 +683,54 @@ mod tests {
         let selection = handler.select_line_at(Position::new(0, 2), &doc);
         assert_eq!(selection.start(), Position::new(0, 0));
         assert_eq!(selection.end(), Position::new(1, 0)); // To start of next line
+    }
+
+    #[test]
+    fn ctrl_click_adds_cursor() {
+        let doc = create_test_document();
+        let viewport = create_test_viewport();
+        let cursor = CursorState::at(Position::new(0, 0));
+        let mut handler = MouseHandler::new();
+
+        // Ctrl+click to add a cursor
+        let event = MouseEvent::press(MouseButton::Left, 100.0, 30.0).with_ctrl();
+        let result = handler.handle_mouse(&event, &doc, &cursor, &viewport);
+
+        if let MouseResult::Command(Command::SetSelection { new_state, .. }) = result {
+            // Should have 2 cursors now
+            assert_eq!(new_state.cursor_count(), 2);
+            // Primary cursor should still be at original position
+            assert_eq!(new_state.primary.head, Position::new(0, 0));
+        } else {
+            panic!("Expected SetSelection command");
+        }
+    }
+
+    #[test]
+    fn multiple_ctrl_clicks_add_multiple_cursors() {
+        let doc = create_test_document();
+        let viewport = create_test_viewport();
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        let mut handler = MouseHandler::new();
+
+        // First Ctrl+click
+        let event1 = MouseEvent::press(MouseButton::Left, 100.0, 10.0).with_ctrl();
+        if let MouseResult::Command(Command::SetSelection { new_state, .. }) =
+            handler.handle_mouse(&event1, &doc, &cursor, &viewport)
+        {
+            cursor = new_state;
+        }
+        handler.handle_left_release();
+
+        // Second Ctrl+click
+        let event2 = MouseEvent::press(MouseButton::Left, 100.0, 30.0).with_ctrl();
+        if let MouseResult::Command(Command::SetSelection { new_state, .. }) =
+            handler.handle_mouse(&event2, &doc, &cursor, &viewport)
+        {
+            cursor = new_state;
+        }
+
+        // Should have 3 cursors now
+        assert_eq!(cursor.cursor_count(), 3);
     }
 }

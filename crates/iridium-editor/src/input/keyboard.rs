@@ -358,6 +358,7 @@ impl KeyboardHandler {
             'z' => self.handle_undo(history),
             'y' => self.handle_redo(history),
             'a' => self.handle_select_all(document, cursor),
+            'd' => self.handle_add_selection_next_match(document, cursor), // T107
             _ => KeyResult::Ignored,
         }
     }
@@ -664,37 +665,55 @@ impl KeyboardHandler {
 
     // ========== Editing helpers ==========
 
-    /// Inserts text at all cursor positions.
+    /// Inserts text at all cursor positions (T109).
+    ///
+    /// Handles multiple cursors by inserting at each position, properly adjusting
+    /// positions for earlier insertions/deletions.
     fn insert_text(&self, text: &str, document: &Document, cursor: &CursorState) -> KeyResult {
         let mut commands = Vec::new();
 
-        // Handle selection replacement for all cursors
-        for selection in cursor.all_selections() {
-            if !selection.is_collapsed() {
-                // Delete the selection first
+        // Collect all selections, sorted by position (end to start for proper offset adjustment)
+        let mut selections: Vec<Selection> = cursor.all_selections().copied().collect();
+        selections.sort_by(|a, b| b.start().cmp(&a.start())); // Sort descending
+
+        // Track offset adjustments from earlier operations
+        let mut new_selections = Vec::new();
+
+        // Process from end to start to maintain valid positions
+        for selection in &selections {
+            let insert_pos = if selection.is_collapsed() {
+                selection.head
+            } else {
+                // Delete selection first
                 let range = selection.range();
                 let deleted = document.slice(range);
                 commands.push(Command::Delete { range, deleted_text: deleted });
-            }
+                range.start
+            };
+
+            commands.push(Command::Insert {
+                position: insert_pos,
+                text: text.to_string(),
+            });
+
+            // Compute new cursor position after insert
+            let new_pos = Self::compute_position_after_insert(insert_pos, text);
+            new_selections.push(Selection::collapsed(new_pos));
         }
 
-        // Insert at each cursor position (adjusted for previous deletions)
-        // For simplicity, we handle single cursor case properly
-        // Multi-cursor will be refined in US5
-        let insert_pos = if cursor.primary.is_collapsed() {
-            cursor.primary.head
+        // Reverse to get correct order (start to end)
+        new_selections.reverse();
+
+        // Create new cursor state with all cursors
+        let new_cursor = if new_selections.is_empty() {
+            cursor.clone()
         } else {
-            cursor.primary.range().start
+            let primary = new_selections.remove(0);
+            CursorState {
+                primary,
+                secondary: new_selections,
+            }
         };
-
-        commands.push(Command::Insert {
-            position: insert_pos,
-            text: text.to_string(),
-        });
-
-        // Create cursor update command - cursor moves after inserted text
-        let new_cursor_pos = Self::compute_position_after_insert(insert_pos, text);
-        let new_cursor = CursorState::at(new_cursor_pos);
 
         commands.push(Command::SetSelection {
             old_state: cursor.clone(),
@@ -951,6 +970,135 @@ impl KeyboardHandler {
         })
     }
 
+    /// Handles Ctrl+D - Add Selection to Next Match (T107).
+    ///
+    /// If no selection exists, selects the word at cursor.
+    /// If a selection exists, finds the next occurrence and adds a cursor there.
+    fn handle_add_selection_next_match(&mut self, document: &Document, cursor: &CursorState) -> KeyResult {
+        // Get the search text - either from selection or select word at cursor
+        let (search_text, initial_selection) = if cursor.primary.is_collapsed() {
+            // No selection - select word at cursor first
+            let word_sel = self.select_word_at(cursor.primary.head, document);
+            if word_sel.is_collapsed() {
+                return KeyResult::Handled; // No word to select
+            }
+            let text = document.slice(word_sel.range());
+            (text, Some(word_sel))
+        } else {
+            // Use existing selection
+            let text = document.slice(cursor.primary.range());
+            (text, None)
+        };
+
+        if search_text.is_empty() {
+            return KeyResult::Handled;
+        }
+
+        let mut new_cursor = cursor.clone();
+
+        // If we had to select a word first, do that
+        if let Some(sel) = initial_selection {
+            new_cursor.primary = sel;
+            return KeyResult::Command(Command::SetSelection {
+                old_state: cursor.clone(),
+                new_state: new_cursor,
+            });
+        }
+
+        // Find the next occurrence after the last cursor
+        let search_start = self.get_last_selection_end(&new_cursor);
+        let doc_text = document.text();
+        let search_offset = document.position_to_offset(search_start).unwrap_or(0);
+
+        // Search for next occurrence
+        if let Some(match_offset) = doc_text[search_offset..].find(&search_text) {
+            let abs_offset = search_offset + match_offset;
+            let Some(match_start) = document.offset_to_position(abs_offset) else {
+                return KeyResult::Handled;
+            };
+            let Some(match_end) = document.offset_to_position(abs_offset + search_text.len()) else {
+                return KeyResult::Handled;
+            };
+
+            let new_selection = Selection::new(match_start, match_end);
+            new_cursor.add_cursor(new_selection);
+
+            KeyResult::Command(Command::SetSelection {
+                old_state: cursor.clone(),
+                new_state: new_cursor,
+            })
+        } else {
+            // Wrap around to start of document
+            if let Some(match_offset) = doc_text.find(&search_text) {
+                let Some(match_start) = document.offset_to_position(match_offset) else {
+                    return KeyResult::Handled;
+                };
+                let Some(match_end) = document.offset_to_position(match_offset + search_text.len())
+                else {
+                    return KeyResult::Handled;
+                };
+
+                // Don't add if it's the same as an existing selection
+                let new_range = Range::new(match_start, match_end);
+                let already_selected =
+                    new_cursor.all_selections().any(|s| s.range() == new_range);
+
+                if !already_selected {
+                    let new_selection = Selection::new(match_start, match_end);
+                    new_cursor.add_cursor(new_selection);
+
+                    return KeyResult::Command(Command::SetSelection {
+                        old_state: cursor.clone(),
+                        new_state: new_cursor,
+                    });
+                }
+            }
+            KeyResult::Handled
+        }
+    }
+
+    /// Gets the position after the last selection (for Ctrl+D search).
+    fn get_last_selection_end(&self, cursor: &CursorState) -> Position {
+        let mut last_end = cursor.primary.end();
+        for sel in &cursor.secondary {
+            if sel.end() > last_end {
+                last_end = sel.end();
+            }
+        }
+        last_end
+    }
+
+    /// Selects the word at the given position.
+    fn select_word_at(&self, position: Position, document: &Document) -> Selection {
+        let line_text = document.line(position.line).unwrap_or_default();
+        let chars: Vec<char> = line_text.chars().collect();
+
+        if chars.is_empty() {
+            return Selection::collapsed(position);
+        }
+
+        let col = position.column.min(chars.len().saturating_sub(1));
+        let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+
+        // Check if we're on a word character
+        if !chars.get(col).map_or(false, |c| is_word_char(*c)) {
+            return Selection::collapsed(position);
+        }
+
+        // Find word boundaries
+        let mut start = col;
+        let mut end = col;
+
+        while start > 0 && chars.get(start - 1).map_or(false, |c| is_word_char(*c)) {
+            start -= 1;
+        }
+        while end < chars.len() && chars.get(end).map_or(false, |c| is_word_char(*c)) {
+            end += 1;
+        }
+
+        Selection::new(Position::new(position.line, start), Position::new(position.line, end))
+    }
+
     // ========== Utility methods ==========
 
     /// Creates a new cursor state with the given head position.
@@ -1163,6 +1311,66 @@ mod tests {
         if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert_eq!(new_state.primary.head.line, 0);
             assert_eq!(new_state.primary.head.column, 5); // Clamped to "Short" length
+        } else {
+            panic!("Expected SetSelection command");
+        }
+    }
+
+    #[test]
+    fn ctrl_d_selects_word_first() {
+        let doc = Document::new("foo bar foo baz foo");
+        let cursor = CursorState::at(Position::new(0, 1)); // Inside "foo"
+        let mut handler = KeyboardHandler::new();
+
+        // First Ctrl+D should select the word
+        let event = KeyEvent::new(KeyCode::Char('d'), Modifiers::ctrl());
+        let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+
+        if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
+            assert!(!new_state.primary.is_collapsed());
+            assert_eq!(new_state.primary.start(), Position::new(0, 0));
+            assert_eq!(new_state.primary.end(), Position::new(0, 3)); // "foo"
+        } else {
+            panic!("Expected SetSelection command");
+        }
+    }
+
+    #[test]
+    fn ctrl_d_adds_next_match() {
+        let doc = Document::new("foo bar foo baz foo");
+        // Start with "foo" already selected
+        let cursor = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 3)));
+        let mut handler = KeyboardHandler::new();
+
+        // Ctrl+D should find next "foo"
+        let event = KeyEvent::new(KeyCode::Char('d'), Modifiers::ctrl());
+        let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+
+        if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
+            // Should have 2 cursors now
+            assert_eq!(new_state.cursor_count(), 2);
+            // Second cursor at "foo" position 8-11
+            assert!(new_state.secondary.iter().any(|s| s.start() == Position::new(0, 8)));
+        } else {
+            panic!("Expected SetSelection command");
+        }
+    }
+
+    #[test]
+    fn escape_collapses_multi_cursor() {
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        cursor.add_cursor(Selection::collapsed(Position::new(1, 0)));
+        cursor.add_cursor(Selection::collapsed(Position::new(2, 0)));
+
+        let doc = Document::new("Line 1\nLine 2\nLine 3");
+        let mut handler = KeyboardHandler::new();
+
+        let result = handler.handle_key(&KeyEvent::simple(KeyCode::Escape), &doc, &cursor, &UndoTree::new());
+
+        if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
+            // Should have only 1 cursor
+            assert_eq!(new_state.cursor_count(), 1);
+            assert!(new_state.secondary.is_empty());
         } else {
             panic!("Expected SetSelection command");
         }

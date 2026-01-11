@@ -89,6 +89,33 @@ impl Selection {
     pub fn end(&self) -> Position {
         std::cmp::max(self.anchor, self.head)
     }
+
+    /// Returns true if this selection overlaps with another.
+    #[must_use]
+    pub fn overlaps(&self, other: &Self) -> bool {
+        let self_start = self.start();
+        let self_end = self.end();
+        let other_start = other.start();
+        let other_end = other.end();
+
+        // Two ranges overlap if one starts before the other ends
+        self_start < other_end && other_start < self_end
+    }
+
+    /// Merges this selection with another, expanding to cover both.
+    ///
+    /// The direction is preserved from `self`.
+    #[must_use]
+    pub fn merge(&self, other: &Self) -> Self {
+        let min_start = std::cmp::min(self.start(), other.start());
+        let max_end = std::cmp::max(self.end(), other.end());
+
+        if self.is_forward() {
+            Self::new(min_start, max_end)
+        } else {
+            Self::new(max_end, min_start)
+        }
+    }
 }
 
 /// Cursor state supporting multiple cursors.
@@ -176,11 +203,55 @@ impl CursorState {
         self.secondary.clear();
     }
 
+    /// Sorts all cursors by position.
+    ///
+    /// Secondary cursors are sorted by their start position.
+    pub fn sort(&mut self) {
+        self.secondary.sort_by(|a, b| a.start().cmp(&b.start()));
+    }
+
     /// Merges overlapping cursors.
+    ///
+    /// After merging, all cursors are sorted by position and no two cursors overlap.
+    /// Adjacent selections (where one ends where another starts) are also merged.
     fn merge_overlapping(&mut self) {
-        // Simple implementation: remove duplicates based on head position
-        // A more sophisticated version would merge overlapping ranges
-        self.secondary.dedup_by(|a, b| a.head == b.head);
+        if self.secondary.is_empty() {
+            return;
+        }
+
+        // First, check if any secondary cursor overlaps with primary
+        // If so, merge into primary and remove from secondary
+        let mut i = 0;
+        while i < self.secondary.len() {
+            if self.primary.overlaps(&self.secondary[i])
+                || self.primary.end() == self.secondary[i].start()
+                || self.secondary[i].end() == self.primary.start()
+            {
+                self.primary = self.primary.merge(&self.secondary[i]);
+                self.secondary.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+
+        // Sort secondaries by start position
+        self.sort();
+
+        // Merge adjacent/overlapping secondaries
+        let mut i = 0;
+        while i + 1 < self.secondary.len() {
+            let current_end = self.secondary[i].end();
+            let next_start = self.secondary[i + 1].start();
+
+            if self.secondary[i].overlaps(&self.secondary[i + 1]) || current_end == next_start {
+                let merged = self.secondary[i].merge(&self.secondary[i + 1]);
+                self.secondary[i] = merged;
+                self.secondary.remove(i + 1);
+                // Don't increment i, check the merged selection against the next one
+            } else {
+                i += 1;
+            }
+        }
     }
 }
 
@@ -226,5 +297,66 @@ mod tests {
 
         state.collapse_to_primary();
         assert_eq!(state.cursor_count(), 1);
+    }
+
+    #[test]
+    fn selection_overlaps() {
+        let sel1 = Selection::new(Position::new(0, 0), Position::new(0, 10));
+        let sel2 = Selection::new(Position::new(0, 5), Position::new(0, 15));
+        assert!(sel1.overlaps(&sel2));
+        assert!(sel2.overlaps(&sel1));
+
+        let sel3 = Selection::new(Position::new(0, 20), Position::new(0, 30));
+        assert!(!sel1.overlaps(&sel3));
+    }
+
+    #[test]
+    fn selection_merge() {
+        let sel1 = Selection::new(Position::new(0, 0), Position::new(0, 10));
+        let sel2 = Selection::new(Position::new(0, 5), Position::new(0, 15));
+        let merged = sel1.merge(&sel2);
+        assert_eq!(merged.start(), Position::new(0, 0));
+        assert_eq!(merged.end(), Position::new(0, 15));
+    }
+
+    #[test]
+    fn cursor_state_merge_overlapping() {
+        let mut state = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 5)));
+        // Add overlapping cursor
+        state.add_cursor(Selection::new(Position::new(0, 3), Position::new(0, 10)));
+        // Should be merged into primary
+        assert_eq!(state.cursor_count(), 1);
+        assert_eq!(state.primary.start(), Position::new(0, 0));
+        assert_eq!(state.primary.end(), Position::new(0, 10));
+    }
+
+    #[test]
+    fn cursor_state_merge_adjacent() {
+        let mut state = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 5)));
+        // Add adjacent cursor (starts where primary ends)
+        state.add_cursor(Selection::new(Position::new(0, 5), Position::new(0, 10)));
+        // Should be merged
+        assert_eq!(state.cursor_count(), 1);
+        assert_eq!(state.primary.end(), Position::new(0, 10));
+    }
+
+    #[test]
+    fn cursor_state_no_merge_non_overlapping() {
+        let mut state = CursorState::new(Selection::collapsed(Position::new(0, 0)));
+        state.add_cursor(Selection::collapsed(Position::new(0, 10)));
+        state.add_cursor(Selection::collapsed(Position::new(0, 20)));
+        // All distinct, should not merge
+        assert_eq!(state.cursor_count(), 3);
+    }
+
+    #[test]
+    fn cursor_state_sorted() {
+        let mut state = CursorState::at(Position::new(1, 0));
+        state.add_cursor(Selection::collapsed(Position::new(0, 0))); // Before primary
+        state.add_cursor(Selection::collapsed(Position::new(2, 0))); // After primary
+
+        // Secondary should be sorted
+        assert_eq!(state.secondary[0].head, Position::new(0, 0));
+        assert_eq!(state.secondary[1].head, Position::new(2, 0));
     }
 }

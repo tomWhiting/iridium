@@ -28,18 +28,18 @@ examples/                   # Web and native examples
 
 **Purpose**: Project initialization, workspace setup, and core dependencies
 
-- [ ] T001 Create Rust workspace with Cargo.toml at repository root defining three crates
-- [ ] T002 Initialize iridium-editor crate with Cargo.toml in crates/iridium-editor/
-- [ ] T003 [P] Initialize iridium-syntax crate with Cargo.toml in crates/iridium-syntax/
-- [ ] T004 [P] Initialize iridium-bindings crate with Cargo.toml in crates/iridium-bindings/
-- [ ] T005 Add wgpu, glyphon, cosmic-text dependencies to iridium-editor via cargo add
-- [ ] T006 [P] Add ropey dependency to iridium-editor via cargo add
-- [ ] T007 [P] Add tree-sitter dependency to iridium-syntax via cargo add
-- [ ] T008 [P] Add napi-rs v3 dependencies to iridium-bindings via cargo add
-- [ ] T009 Configure rustfmt.toml with project formatting rules
-- [ ] T010 [P] Configure clippy.toml with lint rules
-- [ ] T011 Create module structure in crates/iridium-editor/src/ with mod.rs files for editor/, document/, history/, render/, input/, search/, theme/
-- [ ] T012 [P] Create module structure in crates/iridium-syntax/src/ with mod.rs files for languages/
+- [x] T001 Create Rust workspace with Cargo.toml at repository root defining three crates
+- [x] T002 Initialize iridium-editor crate with Cargo.toml in crates/iridium-editor/
+- [x] T003 [P] Initialize iridium-syntax crate with Cargo.toml in crates/iridium-syntax/
+- [x] T004 [P] Initialize iridium-bindings crate with Cargo.toml in crates/iridium-bindings/
+- [x] T005 Add wgpu, glyphon, cosmic-text dependencies to iridium-editor via cargo add
+- [x] T006 [P] Add ropey dependency to iridium-editor via cargo add
+- [x] T007 [P] Add tree-sitter dependency to iridium-syntax via cargo add
+- [x] T008 [P] Add napi-rs v3 dependencies to iridium-bindings via cargo add
+- [x] T009 Configure rustfmt.toml with project formatting rules
+- [x] T010 [P] Configure clippy.toml with lint rules
+- [x] T011 Create module structure in crates/iridium-editor/src/ with mod.rs files for editor/, document/, history/, render/, input/, search/, theme/
+- [x] T012 [P] Create module structure in crates/iridium-syntax/src/ with mod.rs files for languages/
 - [ ] T013 [P] Create tests/ directory structure with integration/, visual/, benchmarks/
 
 **Checkpoint**: Workspace compiles with `cargo build`, all crates resolve dependencies
@@ -54,36 +54,36 @@ examples/                   # Web and native examples
 
 ### Core Types
 
-- [ ] T014 Implement Position struct with line/column fields in crates/iridium-editor/src/document/position.rs
-- [ ] T015 [P] Implement Range struct with start/end positions in crates/iridium-editor/src/document/position.rs
-- [ ] T016 Implement Selection struct with anchor/head in crates/iridium-editor/src/document/cursor.rs
-- [ ] T017 Implement CursorState struct with primary and secondary cursors in crates/iridium-editor/src/document/cursor.rs
-- [ ] T018 Implement Document struct wrapping ropey::Rope in crates/iridium-editor/src/document/buffer.rs
-- [ ] T019 Implement LineEnding enum and line ending detection in crates/iridium-editor/src/document/buffer.rs
+- [x] T014 Implement Position struct with line/column fields in crates/iridium-editor/src/document/position.rs
+- [x] T015 [P] Implement Range struct with start/end positions in crates/iridium-editor/src/document/position.rs
+- [x] T016 Implement Selection struct with anchor/head in crates/iridium-editor/src/document/cursor.rs
+- [x] T017 Implement CursorState struct with primary and secondary cursors in crates/iridium-editor/src/document/cursor.rs
+- [x] T018 Implement Document struct wrapping ropey::Rope in crates/iridium-editor/src/document/buffer.rs
+- [x] T019 Implement LineEnding enum and line ending detection in crates/iridium-editor/src/document/buffer.rs
 
 ### Command System
 
-- [ ] T020 Define Command enum (Insert, Delete, Replace, SetSelection, Compound) in crates/iridium-editor/src/history/commands.rs
+- [x] T020 Define Command enum (Insert, Delete, Replace, SetSelection, Compound) in crates/iridium-editor/src/history/commands.rs
 - [ ] T021 Implement Command::apply() method for all variants in crates/iridium-editor/src/history/commands.rs
-- [ ] T022 Implement Command::inverse() method for all variants in crates/iridium-editor/src/history/commands.rs
+- [x] T022 Implement Command::inverse() method for all variants in crates/iridium-editor/src/history/commands.rs
 
 ### Theme System (needed for rendering)
 
-- [ ] T023 Implement Color struct (RGBA f32) in crates/iridium-editor/src/theme/colors.rs
-- [ ] T024 [P] Implement EditorColors struct in crates/iridium-editor/src/theme/colors.rs
-- [ ] T025 [P] Implement SyntaxColors struct in crates/iridium-editor/src/theme/colors.rs
-- [ ] T026 Implement Typography struct in crates/iridium-editor/src/theme/fonts.rs
-- [ ] T027 Implement Theme struct combining colors and typography in crates/iridium-editor/src/theme/mod.rs
-- [ ] T028 Create default dark and light themes in crates/iridium-editor/src/theme/mod.rs
+- [x] T023 Implement Color struct (RGBA f32) in crates/iridium-editor/src/theme/colors.rs
+- [x] T024 [P] Implement EditorColors struct in crates/iridium-editor/src/theme/colors.rs
+- [x] T025 [P] Implement SyntaxColors struct in crates/iridium-editor/src/theme/colors.rs
+- [x] T026 Implement Typography struct in crates/iridium-editor/src/theme/fonts.rs
+- [x] T027 Implement Theme struct combining colors and typography in crates/iridium-editor/src/theme/mod.rs
+- [x] T028 Create default dark and light themes in crates/iridium-editor/src/theme/mod.rs
 
 ### Configuration
 
-- [ ] T029 Implement EditorConfig struct with all configuration options in crates/iridium-editor/src/editor/config.rs
+- [x] T029 Implement EditorConfig struct with all configuration options in crates/iridium-editor/src/editor/config.rs
 
 ### Error Types
 
-- [ ] T030 Define IridiumError enum with all error variants in crates/iridium-editor/src/editor/mod.rs
-- [ ] T031 [P] Define ErrorCode enum for host communication in crates/iridium-editor/src/editor/mod.rs
+- [x] T030 Define IridiumError enum with all error variants in crates/iridium-editor/src/editor/mod.rs
+- [x] T031 [P] Define ErrorCode enum for host communication in crates/iridium-editor/src/editor/mod.rs
 
 ### GPU Pipeline Foundation
 
@@ -95,8 +95,8 @@ examples/                   # Web and native examples
 
 ### Editor State
 
-- [ ] T037 Implement EditorState struct composing Document, CursorState, Theme, Config in crates/iridium-editor/src/editor/core.rs
-- [ ] T038 Implement EditorEvent enum for host communication in crates/iridium-editor/src/editor/core.rs
+- [x] T037 Implement EditorState struct composing Document, CursorState, Theme, Config in crates/iridium-editor/src/editor/core.rs
+- [x] T038 Implement EditorEvent enum for host communication in crates/iridium-editor/src/editor/core.rs
 
 **Checkpoint**: Foundation ready - `cargo test` passes, basic types functional
 
@@ -110,10 +110,10 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 1
 
-- [ ] T039 [US1] Implement Document::insert() for inserting text at position in crates/iridium-editor/src/document/buffer.rs
-- [ ] T040 [US1] Implement Document::delete() for deleting range in crates/iridium-editor/src/document/buffer.rs
-- [ ] T041 [US1] Implement Document::replace() for replacing range in crates/iridium-editor/src/document/buffer.rs
-- [ ] T042 [US1] Implement position_to_offset and offset_to_position conversions in crates/iridium-editor/src/document/buffer.rs
+- [x] T039 [US1] Implement Document::insert() for inserting text at position in crates/iridium-editor/src/document/buffer.rs
+- [x] T040 [US1] Implement Document::delete() for deleting range in crates/iridium-editor/src/document/buffer.rs
+- [x] T041 [US1] Implement Document::replace() for replacing range in crates/iridium-editor/src/document/buffer.rs
+- [x] T042 [US1] Implement position_to_offset and offset_to_position conversions in crates/iridium-editor/src/document/buffer.rs
 - [ ] T043 [US1] Implement keyboard event handling for arrow key navigation in crates/iridium-editor/src/input/keyboard.rs
 - [ ] T044 [P] [US1] Implement keyboard event handling for Home/End keys in crates/iridium-editor/src/input/keyboard.rs
 - [ ] T045 [P] [US1] Implement keyboard event handling for Ctrl+arrows word navigation in crates/iridium-editor/src/input/keyboard.rs
@@ -146,17 +146,17 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 2
 
-- [ ] T062 [US2] Implement UndoNodeId type in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T063 [US2] Implement UndoNode struct with parent/children/command/timestamp in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T064 [US2] Implement UndoTree struct with nodes HashMap and current pointer in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T065 [US2] Implement UndoTree::push() to add new command as child of current in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T066 [US2] Implement UndoTree::undo() to apply inverse and move to parent in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T067 [US2] Implement UndoTree::redo() to apply command and move to child in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T068 [US2] Implement UndoTree::redo_branch() for selecting specific child branch in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T069 [US2] Implement UndoTree::jump_to_node() for arbitrary tree navigation in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T070 [US2] Implement edit grouping based on 500ms pause timeout in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T062 [US2] Implement UndoNodeId type in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T063 [US2] Implement UndoNode struct with parent/children/command/timestamp in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T064 [US2] Implement UndoTree struct with nodes HashMap and current pointer in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T065 [US2] Implement UndoTree::push() to add new command as child of current in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T066 [US2] Implement UndoTree::undo() to apply inverse and move to parent in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T067 [US2] Implement UndoTree::redo() to apply command and move to child in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T068 [US2] Implement UndoTree::redo_branch() for selecting specific child branch in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T069 [US2] Implement UndoTree::jump_to_node() for arbitrary tree navigation in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T070 [US2] Implement edit grouping based on 500ms pause timeout in crates/iridium-editor/src/history/undo_tree.rs
 - [ ] T071 [US2] Implement keyboard bindings for Ctrl+Z (undo) and Ctrl+Y/Ctrl+Shift+Z (redo) in crates/iridium-editor/src/input/keyboard.rs
-- [ ] T072 [US2] Implement UndoTree::get_tree_info() for exposing tree structure to host in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T072 [US2] Implement UndoTree::get_tree_info() for exposing tree structure to host in crates/iridium-editor/src/history/undo_tree.rs
 - [ ] T073 [US2] Implement UndoTree::get_node_info() for individual node inspection in crates/iridium-editor/src/history/undo_tree.rs
 - [ ] T074 [US2] Wire undo tree into EditorState in crates/iridium-editor/src/editor/core.rs
 
@@ -197,8 +197,8 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 4
 
-- [ ] T087 [US4] Implement HighlightType enum in crates/iridium-syntax/src/lib.rs
-- [ ] T088 [US4] Implement HighlightSpan struct in crates/iridium-syntax/src/lib.rs
+- [x] T087 [US4] Implement HighlightType enum in crates/iridium-syntax/src/lib.rs
+- [x] T088 [US4] Implement HighlightSpan struct in crates/iridium-syntax/src/lib.rs
 - [ ] T089 [US4] Create tree-sitter Parser wrapper in crates/iridium-syntax/src/highlight.rs
 - [ ] T090 [US4] Implement incremental parsing with tree-sitter edit in crates/iridium-syntax/src/highlight.rs
 - [ ] T091 [US4] Implement highlight query execution in crates/iridium-syntax/src/highlight.rs
@@ -276,8 +276,8 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 7
 
-- [ ] T127 [US7] Implement FoldKind enum in crates/iridium-syntax/src/folding.rs
-- [ ] T128 [US7] Implement FoldRegion struct in crates/iridium-syntax/src/folding.rs
+- [x] T127 [US7] Implement FoldKind enum in crates/iridium-syntax/src/folding.rs
+- [x] T128 [US7] Implement FoldRegion struct in crates/iridium-syntax/src/folding.rs
 - [ ] T129 [US7] Implement fold region detection from tree-sitter nodes in crates/iridium-syntax/src/folding.rs
 - [ ] T130 [US7] Implement fold/unfold state tracking in crates/iridium-editor/src/editor/core.rs
 - [ ] T131 [US7] Implement fold_at() operation in crates/iridium-editor/src/editor/core.rs

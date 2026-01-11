@@ -270,21 +270,21 @@ Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, 
 
 ### Implementation for User Story 6
 
-- [ ] T112 [US6] Implement SearchOptions struct in crates/iridium-editor/src/search/find.rs
-- [ ] T113 [US6] Implement SearchState struct in crates/iridium-editor/src/search/find.rs
-- [ ] T114 [US6] Implement find_all() for locating all matches in crates/iridium-editor/src/search/find.rs
-- [ ] T115 [US6] Implement regex search support in crates/iridium-editor/src/search/find.rs
-- [ ] T116 [US6] Implement case-sensitive/insensitive toggle in crates/iridium-editor/src/search/find.rs
-- [ ] T117 [US6] Implement whole-word matching in crates/iridium-editor/src/search/find.rs
-- [ ] T118 [US6] Implement next_match() and previous_match() navigation in crates/iridium-editor/src/search/find.rs
-- [ ] T119 [US6] Implement replace_current() in crates/iridium-editor/src/search/replace.rs
-- [ ] T120 [US6] Implement replace_all() as single compound command in crates/iridium-editor/src/search/replace.rs
-- [ ] T121 [US6] Implement Ctrl+F keyboard binding for search in crates/iridium-editor/src/input/keyboard.rs
-- [ ] T122 [US6] Implement F3/Shift+F3 for next/previous match in crates/iridium-editor/src/input/keyboard.rs
-- [ ] T123 [US6] Implement search match highlighting in crates/iridium-editor/src/render/text.rs
-- [ ] T124 [US6] Implement current match highlight (different color) in crates/iridium-editor/src/render/text.rs
-- [ ] T125 [US6] Implement SearchUpdated event emission in crates/iridium-editor/src/editor/core.rs
-- [ ] T126 [US6] Wire search state into EditorState in crates/iridium-editor/src/editor/core.rs
+- [x] T112 [US6] Implement SearchOptions struct in crates/iridium-editor/src/search/find.rs
+- [x] T113 [US6] Implement SearchState struct in crates/iridium-editor/src/search/find.rs
+- [x] T114 [US6] Implement find_all() for locating all matches in crates/iridium-editor/src/search/find.rs
+- [x] T115 [US6] Implement regex search support in crates/iridium-editor/src/search/find.rs
+- [x] T116 [US6] Implement case-sensitive/insensitive toggle in crates/iridium-editor/src/search/find.rs
+- [x] T117 [US6] Implement whole-word matching in crates/iridium-editor/src/search/find.rs
+- [x] T118 [US6] Implement next_match() and previous_match() navigation in crates/iridium-editor/src/search/find.rs
+- [x] T119 [US6] Implement replace_current() in crates/iridium-editor/src/search/replace.rs
+- [x] T120 [US6] Implement replace_all() as single compound command in crates/iridium-editor/src/search/replace.rs
+- [x] T121 [US6] Implement Ctrl+F keyboard binding for search in crates/iridium-editor/src/input/keyboard.rs
+- [x] T122 [US6] Implement F3/Shift+F3 for next/previous match in crates/iridium-editor/src/input/keyboard.rs
+- [x] T123 [US6] Implement search match highlighting in crates/iridium-editor/src/render/highlight.rs
+- [x] T124 [US6] Implement current match highlight (different color) in crates/iridium-editor/src/render/highlight.rs
+- [x] T125 [US6] Implement SearchUpdated event emission in crates/iridium-editor/src/editor/core.rs
+- [x] T126 [US6] Wire search state into EditorState in crates/iridium-editor/src/editor/core.rs
 
 **Checkpoint**: User Story 6 complete - search and replace with all options
 

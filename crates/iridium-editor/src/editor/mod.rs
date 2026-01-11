@@ -11,7 +11,7 @@ mod config;
 mod core;
 
 pub use config::EditorConfig;
-pub use core::{Editor, EditorEvent, EditorState};
+pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 
 use thiserror::Error;
 

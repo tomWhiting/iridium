@@ -10,6 +10,9 @@ mod pipeline;
 mod text;
 mod viewport;
 
+#[cfg(feature = "web")]
+mod web;
+
 pub use cursor::{BlinkState, CursorConfig, CursorRect, CursorRenderer, CursorStyle};
 pub use gutter::{
     FoldIndicator, FoldIndicatorEntry, GutterBackground, GutterConfig, GutterRenderer,
@@ -31,3 +34,9 @@ pub use pipeline::{
 };
 pub use text::{TextRenderConfig, TextRenderer};
 pub use viewport::Viewport;
+
+#[cfg(feature = "web")]
+pub use web::WebRenderConfig;
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+pub use web::{performance_now, request_animation_frame, WebSurface};

@@ -20,8 +20,8 @@ cosmic-text.workspace = true
 # Text buffer
 ropey.workspace = true
 
-# Syntax (internal)
-iridium-syntax.workspace = true
+# Syntax (internal, optional for WASM builds without tree-sitter)
+iridium-syntax = { workspace = true, optional = true }
 
 # Serialization (themes, config)
 serde.workspace = true
@@ -37,6 +37,17 @@ regex.workspace = true
 tracing.workspace = true
 pollster = "0.4.0"
 bytemuck = { version = "1.24.0", features = ["derive"] }
+
+# WASM/Browser (optional)
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+
+[features]
+default = ["syntax"]
+syntax = ["iridium-syntax"]
+web = ["wasm-bindgen", "wasm-bindgen-futures", "web-sys", "js-sys"]
 
 [dev-dependencies]
 criterion.workspace = true

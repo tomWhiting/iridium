@@ -253,6 +253,8 @@ impl<'a> Iterator for VisibleLinesIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "syntax")]
     use iridium_syntax::Language;
 
     #[test]
@@ -286,6 +288,7 @@ mod tests {
         assert_eq!(viewport.first_line, 31);
     }
 
+    #[cfg(feature = "syntax")]
     fn setup_fold_state() -> FoldState {
         let code = r#"line 0
 fn foo() {
@@ -299,6 +302,7 @@ line 5"#;
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn is_line_visible_with_folds() {
         let viewport = Viewport {
             first_line: 0,
@@ -322,6 +326,7 @@ line 5"#;
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn visible_document_lines_iterator() {
         let viewport = Viewport {
             first_line: 0,
@@ -338,6 +343,7 @@ line 5"#;
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn document_line_at_y_with_folds() {
         let viewport = Viewport {
             first_line: 0,
@@ -360,6 +366,7 @@ line 5"#;
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn screen_y_for_line_with_folds() {
         let viewport = Viewport {
             first_line: 0,

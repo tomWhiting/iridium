@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lints]
 workspace = true
 
@@ -15,29 +18,43 @@ workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Core editor
+# Core editor (workspace default-features = false, we control syntax via our own feature)
 iridium-editor.workspace = true
-iridium-syntax.workspace = true
+iridium-syntax = { workspace = true, optional = true }
 
 # GPU (for WebGPU support check)
 wgpu.workspace = true
+glyphon = { workspace = true, optional = true }
 
-# Bindings
-napi.workspace = true
-napi-derive.workspace = true
+# Bindings (napi for Node.js)
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
 
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
 
-# Async
-tokio.workspace = true
+# Async (optional, not used for WASM)
+tokio = { workspace = true, optional = true }
 
 # Error handling
 thiserror.workspace = true
 
 # Logging
 tracing.workspace = true
+
+# WASM/Browser support (optional)
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["napi"]
+napi = ["dep:napi", "dep:napi-derive", "syntax", "tokio"]
+syntax = ["iridium-syntax", "iridium-editor/syntax"]
+web = ["wasm-bindgen", "wasm-bindgen-futures", "web-sys", "js-sys", "iridium-editor/web", "glyphon", "console_error_panic_hook"]
 
 [build-dependencies]
 napi-build = "2"

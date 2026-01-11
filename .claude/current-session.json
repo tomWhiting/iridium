@@ -1,10 +1,10 @@
 {
-  "session_id": "1f2c2ec2-cf80-495d-a37f-1bb045b6b43d",
-  "session_name": "Mr. Fluffington (resumed)",
-  "nickname": "Mr. Fluffington",
-  "transcript_path": "/Users/tom/.claude/projects/-private-var-folders-87-tdf6vfls1fj-4ydz-y6sk3580000gn-T-vibe-kanban-worktrees-3320-phase-12-us10-ho/1f2c2ec2-cf80-495d-a37f-1bb045b6b43d.jsonl",
-  "cwd": "/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/3320-phase-12-us10-ho",
-  "source": "compact",
-  "timestamp": "2026-01-12T01:06:57.646312",
-  "project_dir": "/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/3320-phase-12-us10-ho"
+  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d4aa",
+  "session_name": "Bartholomew the Devourer",
+  "nickname": "Bartholomew",
+  "transcript_path": "/Users/tom/.claude/projects/-Users-tom-Developer-projects-deno-rust-iridium/f47ac10b-58cc-4372-a567-0e02b2c3d4aa.jsonl",
+  "cwd": "/Users/tom/Developer/projects/deno_rust/iridium",
+  "source": "resume",
+  "timestamp": "2026-01-12T04:50:48.675723",
+  "project_dir": "/Users/tom/Developer/projects/deno_rust/iridium"
 }

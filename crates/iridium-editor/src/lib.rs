@@ -38,7 +38,10 @@ pub mod history;
 pub mod input;
 pub mod render;
 pub mod search;
+#[cfg(feature = "syntax")]
 pub mod syntax;
+#[cfg(not(feature = "syntax"))]
+pub mod syntax_stubs;
 pub mod theme;
 pub mod view;
 
@@ -50,6 +53,9 @@ pub use input::ImeHandler;
 pub use input::{ClipboardOperation, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers};
 pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
 pub use render::{CurrentLineRenderer, CursorRenderer, SelectionRenderer};
+#[cfg(feature = "syntax")]
 pub use syntax::{DocumentHighlighter, HighlightSpan, HighlightType, Language};
+#[cfg(not(feature = "syntax"))]
+pub use syntax_stubs::Language;
 pub use theme::Theme;
 pub use view::{DeltaTime, FrameBudget, FrameStats, FrameTimer};

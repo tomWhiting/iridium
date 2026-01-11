@@ -5,7 +5,11 @@
 
 use std::collections::HashSet;
 
+#[cfg(feature = "syntax")]
 use iridium_syntax::{FoldDetector, FoldKind, FoldRegion, Language};
+#[cfg(not(feature = "syntax"))]
+use crate::syntax_stubs::{FoldDetector, FoldKind, FoldRegion, Language};
+
 use serde::{Deserialize, Serialize};
 
 /// Manages the fold state for a document.

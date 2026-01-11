@@ -52,6 +52,19 @@ thiserror = "2.0.17"
 # Async runtime (for bindings)
 tokio = { version = "1.49.0", features = ["rt", "rt-multi-thread", "sync"] }
 
+# WASM/Browser support
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "CssStyleDeclaration",
+    "Performance",
+] }
+js-sys = "0.3"
+
 # Regex for search
 regex = "1.12.2"
 
@@ -63,7 +76,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 criterion = { version = "0.8.1", features = ["html_reports"] }
 
 # Internal crates
-iridium-editor = { path = "crates/iridium-editor" }
+iridium-editor = { path = "crates/iridium-editor", default-features = false }
 iridium-syntax = { path = "crates/iridium-syntax" }
 iridium-bindings = { path = "crates/iridium-bindings" }
 

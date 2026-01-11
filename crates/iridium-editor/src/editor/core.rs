@@ -13,7 +13,11 @@ use crate::input::{
 use crate::render::Viewport;
 use crate::search::{SearchOptions, SearchState, replace_all, replace_current};
 use crate::theme::Theme;
+
+#[cfg(feature = "syntax")]
 use iridium_syntax::{FoldKind, Language};
+#[cfg(not(feature = "syntax"))]
+use crate::syntax_stubs::{FoldKind, Language};
 
 /// Events emitted by the editor to the host application.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -176,6 +176,28 @@ impl Command {
         }
     }
 
+    /// Returns true if this command modifies document content.
+    #[must_use]
+    pub fn modifies_content(&self) -> bool {
+        match self {
+            Self::Insert { text, .. } => !text.is_empty(),
+            Self::Delete { deleted_text, .. } => !deleted_text.is_empty(),
+            Self::Replace { old_text, new_text, .. } => old_text != new_text,
+            Self::SetSelection { .. } => false,
+            Self::Compound { commands } => commands.iter().any(Self::modifies_content),
+        }
+    }
+
+    /// Returns true if this command modifies the selection/cursor state.
+    #[must_use]
+    pub fn modifies_selection(&self) -> bool {
+        match self {
+            Self::Insert { .. } | Self::Delete { .. } | Self::Replace { .. } => false,
+            Self::SetSelection { old_state, new_state } => old_state != new_state,
+            Self::Compound { commands } => commands.iter().any(Self::modifies_selection),
+        }
+    }
+
     /// Computes the end position after inserting text at a position.
     fn compute_end_position(start: Position, text: &str) -> Position {
         let mut line = start.line;

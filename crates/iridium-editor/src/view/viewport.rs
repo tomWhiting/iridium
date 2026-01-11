@@ -281,7 +281,10 @@ impl Viewport {
     pub fn ensure_cursor_visible(&mut self, cursor: Position) {
         self.ensure_cursor_visible_with_padding(
             cursor,
-            (self.config.horizontal_margin, self.config.vertical_margin_lines as f32 * self.line_height),
+            (
+                self.config.horizontal_margin,
+                self.config.vertical_margin_lines as f32 * self.line_height,
+            ),
         );
     }
 
@@ -519,7 +522,10 @@ impl Viewport {
     /// Returns the scroll position change since the last check.
     #[must_use]
     pub fn scroll_delta(&self) -> (f32, f32) {
-        (self.scroll_x - self.prev_scroll_x, self.scroll_y - self.prev_scroll_y)
+        (
+            self.scroll_x - self.prev_scroll_x,
+            self.scroll_y - self.prev_scroll_y,
+        )
     }
 
     // =========================================================================

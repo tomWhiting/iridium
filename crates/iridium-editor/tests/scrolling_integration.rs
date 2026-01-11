@@ -57,7 +57,11 @@ mod viewport_tests {
         // Should still show approximately 30 lines (600px / 20px)
         // May vary slightly due to subpixel scrolling
         let visible_count = last - first + 1;
-        assert!(visible_count >= 29 && visible_count <= 32, "Expected ~30 lines visible, got {}", visible_count);
+        assert!(
+            (29..=32).contains(&visible_count),
+            "Expected ~30 lines visible, got {}",
+            visible_count
+        );
     }
 
     #[test]
@@ -142,7 +146,10 @@ mod scroll_input_tests {
             alt: false,
         };
 
-        let result = view.controller_mut().mouse_handler_mut().handle_mouse(&event);
+        let result = view
+            .controller_mut()
+            .mouse_handler_mut()
+            .handle_mouse(&event);
         assert!(result.consumed);
         assert!(!result.actions.is_empty());
 

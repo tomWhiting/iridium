@@ -84,6 +84,7 @@ crates/
 │   │   ├── history/
 │   │   │   ├── mod.rs
 │   │   │   ├── undo_tree.rs # Tree-structured undo
+│   │   │   ├── stack.rs     # Simple linear undo (alternative to tree)
 │   │   │   └── commands.rs  # Reversible commands
 │   │   ├── render/
 │   │   │   ├── mod.rs
@@ -92,6 +93,11 @@ crates/
 │   │   │   ├── viewport.rs  # Scroll/viewport management
 │   │   │   ├── gutter.rs    # Line numbers, fold indicators
 │   │   │   └── minimap.rs   # Minimap rendering
+│   │   ├── view/
+│   │   │   ├── mod.rs
+│   │   │   ├── frame_timer.rs  # Frame timing for 120fps target
+│   │   │   ├── line_cache.rs   # Windowed line caching for large files
+│   │   │   └── editor_view.rs  # Main editor view integration
 │   │   ├── input/
 │   │   │   ├── mod.rs
 │   │   │   ├── keyboard.rs  # Key event handling

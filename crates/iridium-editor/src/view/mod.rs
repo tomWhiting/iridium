@@ -6,15 +6,14 @@
 mod cursor_renderer;
 mod editor_view;
 mod frame_timer;
-mod gutter;
 mod highlight;
 mod line_cache;
-mod viewport;
 
 pub use cursor_renderer::{CursorConfig, CursorRenderer};
 pub use editor_view::{EditorView, ViewConfig};
 pub use frame_timer::{FrameStats, FrameTimer, TargetFrameRate};
-pub use gutter::{GutterConfig, GutterRenderer, GutterWidth};
 pub use highlight::{HighlightConfig, HighlightRenderer};
 pub use line_cache::LineCache;
-pub use viewport::{ScrollConfig, ScrollDirection, Viewport};
+
+// Re-export rendering types from render module for backwards compatibility
+pub use crate::render::{GutterConfig, GutterRenderer, GutterWidth, ScrollConfig, ScrollDirection, Viewport};

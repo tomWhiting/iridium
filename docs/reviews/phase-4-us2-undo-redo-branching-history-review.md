@@ -26,7 +26,7 @@ All tasks were implemented successfully with production-quality code.
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `crates/iridium-editor/src/history/tree.rs` | Branching undo tree implementation | 772 |
+| `crates/iridium-editor/src/history/undo_tree.rs` | Branching undo tree implementation | 772 |
 | `crates/iridium-editor/src/history/commands.rs` | Edit commands with apply/unapply | 509 |
 | `crates/iridium-editor/src/history/mod.rs` | History module declarations | 17 |
 | `crates/iridium-editor/src/editor/core.rs` | Editor with undo tree integration | 780 |

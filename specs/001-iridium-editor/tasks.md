@@ -155,10 +155,12 @@ examples/                   # Web and native examples
 - [x] T068 [US2] Implement UndoTree::redo_branch() for selecting specific child branch in crates/iridium-editor/src/history/undo_tree.rs
 - [x] T069 [US2] Implement UndoTree::jump_to_node() for arbitrary tree navigation in crates/iridium-editor/src/history/undo_tree.rs
 - [x] T070 [US2] Implement edit grouping based on 500ms pause timeout in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T071 [US2] Implement keyboard bindings for Ctrl+Z (undo) and Ctrl+Y/Ctrl+Shift+Z (redo) in crates/iridium-editor/src/input/keyboard.rs
+- [x] T071 [US2] Implement keyboard bindings for Ctrl+Z (undo) and Ctrl+Y/Ctrl+Shift+Z (redo) in crates/iridium-editor/src/input/keyboard.rs
 - [x] T072 [US2] Implement UndoTree::get_tree_info() for exposing tree structure to host in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T073 [US2] Implement UndoTree::get_node_info() for individual node inspection in crates/iridium-editor/src/history/undo_tree.rs
-- [ ] T074 [US2] Wire undo tree into EditorState in crates/iridium-editor/src/editor/core.rs
+- [x] T073 [US2] Implement UndoTree::get_node_info() for individual node inspection in crates/iridium-editor/src/history/undo_tree.rs
+- [x] T074 [US2] Wire undo tree into EditorState in crates/iridium-editor/src/editor/core.rs
+
+**Bonus**: `history/stack.rs` - Simple linear undo stack implementation for testing and simpler use cases.
 
 **Checkpoint**: User Story 2 complete - undo tree with branches is functional
 
@@ -172,18 +174,20 @@ examples/                   # Web and native examples
 
 ### Implementation for User Story 3
 
-- [ ] T075 [US3] Implement Viewport struct with scroll position and dimensions in crates/iridium-editor/src/render/viewport.rs
-- [ ] T076 [US3] Implement Viewport::scroll_to_line() in crates/iridium-editor/src/render/viewport.rs
-- [ ] T077 [US3] Implement Viewport::scroll_to_position() in crates/iridium-editor/src/render/viewport.rs
-- [ ] T078 [US3] Implement Viewport::ensure_cursor_visible() in crates/iridium-editor/src/render/viewport.rs
-- [ ] T079 [US3] Implement mouse wheel scroll handling in crates/iridium-editor/src/input/mouse.rs
-- [ ] T080 [US3] Implement trackpad momentum scrolling in crates/iridium-editor/src/input/mouse.rs
-- [ ] T081 [US3] Implement Page Up/Down keyboard handling in crates/iridium-editor/src/input/keyboard.rs
-- [ ] T082 [US3] Implement Go to Line command in crates/iridium-editor/src/editor/core.rs
-- [ ] T083 [US3] Implement viewport culling for rendering only visible lines in crates/iridium-editor/src/render/text.rs
-- [ ] T084 [US3] Implement line number gutter rendering in crates/iridium-editor/src/render/gutter.rs
-- [ ] T085 [US3] Implement ScrollChanged event emission in crates/iridium-editor/src/editor/core.rs
-- [ ] T086 [US3] Optimize rendering for large files with line caching in crates/iridium-editor/src/render/text.rs
+- [x] T075 [US3] Implement Viewport struct with scroll position and dimensions in crates/iridium-editor/src/render/viewport.rs
+- [x] T076 [US3] Implement Viewport::scroll_to_line() in crates/iridium-editor/src/render/viewport.rs
+- [x] T077 [US3] Implement Viewport::scroll_to_position() in crates/iridium-editor/src/render/viewport.rs
+- [x] T078 [US3] Implement Viewport::ensure_cursor_visible() in crates/iridium-editor/src/render/viewport.rs
+- [x] T079 [US3] Implement mouse wheel scroll handling in crates/iridium-editor/src/input/mouse.rs
+- [x] T080 [US3] Implement trackpad momentum scrolling in crates/iridium-editor/src/input/mouse.rs
+- [x] T081 [US3] Implement Page Up/Down keyboard handling in crates/iridium-editor/src/input/keyboard.rs
+- [x] T082 [US3] Implement Go to Line command in crates/iridium-editor/src/editor/core.rs
+- [x] T083 [US3] Implement viewport culling for rendering only visible lines in crates/iridium-editor/src/render/text.rs
+- [x] T084 [US3] Implement line number gutter rendering in crates/iridium-editor/src/render/gutter.rs
+- [x] T085 [US3] Implement ScrollChanged event emission in crates/iridium-editor/src/editor/core.rs
+- [x] T086 [US3] Optimize rendering for large files with line caching in crates/iridium-editor/src/render/text.rs
+
+**Bonus**: `view/frame_timer.rs` - Frame timing logic for 120fps target; `view/line_cache.rs` - Windowed line caching optimization; `view/editor_view.rs` - Main editor view integration point.
 
 **Checkpoint**: User Story 3 complete - smooth scrolling at 120fps on large files
 

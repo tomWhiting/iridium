@@ -504,10 +504,9 @@ impl Editor {
     /// Returns true if an action was undone.
     pub fn undo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.undo() {
-            if let Err(e) = cmd
-                .inverse()
-                .apply(&mut self.state.document, &mut self.state.cursor)
-            {
+            // Note: history.undo() already returns the inverse command,
+            // so we apply it directly without calling .inverse() again
+            if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
                 self.emit(&EditorEvent::Error {
                     message: e.to_string(),
                     code: "UNDO_FAILED".to_string(),

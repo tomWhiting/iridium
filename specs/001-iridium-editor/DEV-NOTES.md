@@ -32,7 +32,15 @@ These tasks are "done" in that the types exist, but the systems using them are s
 | Tasks | Component | What's Missing |
 |-------|-----------|----------------|
 | T127-T128 | FoldKind, FoldRegion | Types defined, but `FoldDetector.detect()` returns `Vec::new()` |
-| T092-T093 | Cypher, SQL | Query files bundled but grammars incompatible with tree-sitter 0.26 |
+
+### Dropped Features (incompatible dependencies)
+
+| Tasks | Component | Status |
+|-------|-----------|--------|
+| T092 | Cypher | DROPPED: tree-sitter-cypher not available on crates.io, git versions incompatible with tree-sitter 0.26 |
+| T093 | SQL | DROPPED: tree-sitter-sql only has v0.0.2 requiring tree-sitter 0.19.5 (incompatible with 0.26) |
+
+These languages have been removed from the Language enum. The Language enum now only contains fully supported languages (13 total).
 
 ### Integration Gaps (partial implementations)
 

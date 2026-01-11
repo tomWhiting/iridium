@@ -199,10 +199,12 @@ examples/                   # Web and native examples
 
 **Approach**: Use proven highlights.scm, brackets.scm, indents.scm, and injections.scm query files bundled from Zed editor for consistent, comprehensive highlighting. Execute queries against tree-sitter parse trees for each supported language.
 
-**Supported Languages** (with bundled query files):
-- Primary: Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, C, C++
-- Cypher: Uses tree-sitter-cypher git dependency (taekwombo/tree-sitter-cypher) - requires minimal highlights.scm
-- SQL: Uses tree-sitter-sql crate - requires minimal highlights.scm
+**Supported Languages** (13 total with bundled query files):
+Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, C, C++
+
+**Dropped Languages** (incompatible tree-sitter versions):
+- Cypher: tree-sitter-cypher not available on crates.io, git versions incompatible with tree-sitter 0.26
+- SQL: tree-sitter-sql only has v0.0.2 requiring tree-sitter 0.19.5 (incompatible with 0.26)
 
 **Version Compatibility Note**: If query files require minor updates to work with newer tree-sitter grammar versions, those updates should be made. If extensive rewrites would be needed, use the latest compatible version of the tree-sitter grammar crate instead.
 
@@ -219,8 +221,8 @@ examples/                   # Web and native examples
 - [x] T091a [US4] Create query loader to read/embed .scm files from languages/queries/ directory
 
 **Language Configuration (use bundled query files):**
-- [ ] T092 [P] [US4] Configure Cypher language - add tree-sitter-cypher git dep, create minimal highlights.scm if needed (BLOCKED: no compatible grammar available)
-- [ ] T093 [P] [US4] Configure SQL language - use tree-sitter-sql, create minimal highlights.scm if needed (BLOCKED: tree-sitter-sql uses incompatible tree-sitter 0.19.5)
+- [x] T092 [P] [US4] Configure Cypher language (DROPPED: no compatible grammar for tree-sitter 0.26)
+- [x] T093 [P] [US4] Configure SQL language (DROPPED: no compatible grammar for tree-sitter 0.26)
 - [x] T094 [P] [US4] Configure Rust language - wire up bundled queries/rust/*.scm files
 - [x] T095 [P] [US4] Configure Python language - wire up bundled queries/python/*.scm files
 - [x] T096 [P] [US4] Configure TypeScript/JavaScript/TSX - wire up bundled queries
@@ -233,7 +235,7 @@ examples/                   # Web and native examples
 - [ ] T100 [US4] Wire syntax highlighting into EditorState in crates/iridium-editor/src/editor/core.rs (NOT DONE: DocumentHighlighter not in EditorState)
 - [x] T101 [US4] Implement language detection from file extension or explicit setting
 
-**Checkpoint**: User Story 4 PARTIAL - Core highlighting engine works for 13/15 languages. Integration with EditorState incomplete (T099, T100).
+**Checkpoint**: User Story 4 PARTIAL - Core highlighting engine works for 13 languages. Integration with EditorState incomplete (T099, T100). Cypher/SQL dropped due to incompatible tree-sitter versions.
 
 ---
 

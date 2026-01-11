@@ -1,6 +1,8 @@
 //! Benchmarks for editing operations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 use iridium_editor::{Document, Position};
 
 fn insert_benchmark(c: &mut Criterion) {
@@ -8,7 +10,8 @@ fn insert_benchmark(c: &mut Criterion) {
 
     c.bench_function("insert_char", |b| {
         b.iter(|| {
-            doc.insert(black_box(Position::new(0, 5)), black_box("x")).unwrap();
+            let result = doc.insert(black_box(Position::new(0, 5)), black_box("x"));
+            let _ = black_box(result);
         });
     });
 }

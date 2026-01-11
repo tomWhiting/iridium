@@ -352,7 +352,7 @@ impl Editor {
         let max_line = self.state.document.line_count().saturating_sub(1);
         self.state.scroll_line = new_line.min(max_line);
 
-        self.emit(EditorEvent::ScrollChanged {
+        self.emit(&EditorEvent::ScrollChanged {
             first_line: self.state.scroll_line,
         });
     }
@@ -368,7 +368,7 @@ impl Editor {
 
         // Apply the command
         if let Err(e) = command.apply(&mut self.state.document, &mut self.state.cursor) {
-            self.emit(EditorEvent::Error {
+            self.emit(&EditorEvent::Error {
                 message: e.to_string(),
                 code: "COMMAND_FAILED".to_string(),
             });
@@ -393,7 +393,7 @@ impl Editor {
     pub fn undo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.undo() {
             if let Err(e) = cmd.inverse().apply(&mut self.state.document, &mut self.state.cursor) {
-                self.emit(EditorEvent::Error {
+                self.emit(&EditorEvent::Error {
                     message: e.to_string(),
                     code: "UNDO_FAILED".to_string(),
                 });
@@ -413,7 +413,7 @@ impl Editor {
     pub fn redo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.redo() {
             if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
-                self.emit(EditorEvent::Error {
+                self.emit(&EditorEvent::Error {
                     message: e.to_string(),
                     code: "REDO_FAILED".to_string(),
                 });
@@ -463,15 +463,15 @@ impl Editor {
     }
 
     /// Emits an event to all listeners.
-    fn emit(&self, event: EditorEvent) {
+    fn emit(&self, event: &EditorEvent) {
         for listener in &self.listeners {
-            listener(&event);
+            listener(event);
         }
     }
 
     /// Emits a content changed event (T060).
     fn emit_content_changed(&self) {
-        self.emit(EditorEvent::ContentChanged {
+        self.emit(&EditorEvent::ContentChanged {
             content: self.state.content(),
         });
     }
@@ -479,7 +479,7 @@ impl Editor {
     /// Emits a selection changed event (T061).
     fn emit_selection_changed(&self) {
         let selections: Vec<Selection> = self.state.cursor.all_selections().copied().collect();
-        self.emit(EditorEvent::SelectionChanged { selections });
+        self.emit(&EditorEvent::SelectionChanged { selections });
     }
 }
 

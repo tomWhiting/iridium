@@ -1,49 +1,47 @@
 //! # Iridium Editor
 //!
-//! A GPU-accelerated text editor component built in Rust.
+//! A GPU-accelerated text editor core built with Rust and wgpu.
 //!
-//! Iridium renders at 120fps using WebGPU/wgpu, delivering the fluid, responsive
-//! editing experience found in modern native editors—but portable to the browser
-//! via WebAssembly.
+//! Iridium provides professional-grade text editing capabilities including:
+//! - 120fps rendering performance
+//! - Sub-8ms input latency
+//! - Multi-cursor editing
+//! - Tree-structured undo/redo history
+//! - Syntax highlighting via tree-sitter
+//! - Code folding
+//! - Minimap navigation
+//! - Theming support
 //!
 //! ## Architecture
 //!
-//! - `buffer` - Text buffer management using rope data structure
-//! - `editor` - Core editor state and cursor management
-//! - `history` - Undo/redo command system
-//! - `input` - Keyboard and mouse event handling
-//! - `render` - GPU rendering pipeline with wgpu and glyphon
-//! - `syntax` - Syntax highlighting (tree-sitter integration)
-//! - `lsp` - Language Server Protocol client
+//! The editor follows a command-sourced architecture where all mutations
+//! go through reversible [`Command`] objects, enabling the undo tree.
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use iridium_editor::{Editor, EditorConfig};
+//!
+//! let config = EditorConfig::default();
+//! let editor = Editor::new(config)?;
+//!
+//! editor.set_content("Hello, world!");
+//! editor.insert(" Iridium");
+//! ```
 
-pub mod buffer;
+#![doc(html_root_url = "https://docs.rs/iridium-editor/0.1.0")]
+
+// Module declarations only - no implementation here
+pub mod document;
 pub mod editor;
-pub mod events;
 pub mod history;
 pub mod input;
 pub mod render;
-pub mod view;
+pub mod search;
+pub mod theme;
 
-// Re-export primary types for convenient access
-pub use buffer::Buffer;
-pub use editor::{
-    Clipboard, ControllerConfig, Cursor, Editor, EditorController, MemoryClipboard, Position,
-    Selection,
-};
-pub use events::{
-    ContentChangedEvent, CursorMovedEvent, EditorEvent, EventEmitter, ScrollChangedEvent,
-    ScrollSource, SelectionChangeReason, SelectionChangedEvent,
-};
-pub use history::{Command, History, NodeId, NodeInfo, UndoTree};
-pub use input::{
-    InputAction, InputResult, Key, KeyEvent, KeyHandler, Modifiers, MouseButton, MouseEvent,
-    MouseEventKind, MouseHandler,
-};
-pub use render::{
-    GutterConfig, GutterRenderer, GutterWidth, RenderError, RenderPipeline, ScrollConfig,
-    ScrollDirection, TextRenderer, Viewport,
-};
-pub use view::{
-    CursorConfig, CursorRenderer, EditorView, FrameStats, FrameTimer, HighlightConfig,
-    HighlightRenderer, TargetFrameRate, ViewConfig,
-};
+// Re-exports for convenient access
+pub use document::{CursorState, Document, Position, Range, Selection};
+pub use editor::{Editor, EditorConfig, EditorEvent, EditorState, IridiumError};
+pub use history::{Command, UndoTree};
+pub use theme::Theme;

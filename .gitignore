@@ -1,0 +1,67 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+
+# Node/npm (for bindings)
+node_modules/
+*.node
+.npm/
+package-lock.json
+
+# WASM build
+pkg/
+*.wasm
+
+# Test/coverage
+*.profraw
+*.profdata
+coverage/
+lcov.info
+tarpaulin-report.html
+
+# Benchmark results
+target/criterion/
+
+# Documentation build
+/docs/book/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Editor backups
+*.bak
+*.orig
+
+# napi-rs generated
+index.js
+index.d.ts
+*.node
+
+.claude/current-session.json
+.claude/sessions.jsonl

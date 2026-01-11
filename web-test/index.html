@@ -65,6 +65,11 @@
             width: 100%;
             height: 100%;
             display: block;
+            outline: none;
+            cursor: text;
+        }
+        #editor-canvas:focus {
+            box-shadow: inset 0 0 0 2px #0e639c;
         }
         .toolbar {
             display: flex;
@@ -144,9 +149,11 @@
             <button id="btn-undo" disabled>Undo</button>
             <button id="btn-redo" disabled>Redo</button>
             <button id="btn-theme" disabled>Toggle Theme</button>
+            <button id="btn-syntax" disabled>Toggle Syntax</button>
+            <button id="btn-gutter" disabled>Toggle Gutter</button>
         </div>
         <div class="editor-container">
-            <canvas id="editor-canvas"></canvas>
+            <canvas id="editor-canvas" tabindex="0"></canvas>
         </div>
         <div class="info-panel" id="info">
             Cursor: Line 0, Column 0 | Lines: 0 | Undo: false | Redo: false
@@ -177,6 +184,8 @@
         const btnUndo = document.getElementById('btn-undo');
         const btnRedo = document.getElementById('btn-redo');
         const btnTheme = document.getElementById('btn-theme');
+        const btnSyntax = document.getElementById('btn-syntax');
+        const btnGutter = document.getElementById('btn-gutter');
 
         // Info panel
         const infoPanel = document.getElementById('info');
@@ -247,11 +256,23 @@
                 canvas.width = rect.width * window.devicePixelRatio;
                 canvas.height = rect.height * window.devicePixelRatio;
 
-                editor = await wasm.createWebEditor(canvas);
+                const pixelRatio = window.devicePixelRatio || 1;
+                editor = await wasm.createWebEditor(canvas, pixelRatio);
 
                 editorStatus.classList.remove('pending');
                 editorStatus.classList.add('success');
                 log('WebEditor created', 'success');
+
+                // Load a font - REQUIRED for WASM since no system fonts are available
+                log('Fetching font...');
+                const fontUrl = 'https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/ttf/FiraCode-Regular.ttf';
+                const fontResponse = await fetch(fontUrl);
+                if (!fontResponse.ok) {
+                    throw new Error(`Failed to fetch font: ${fontResponse.status}`);
+                }
+                const fontData = new Uint8Array(await fontResponse.arrayBuffer());
+                editor.loadFont(fontData);
+                log('Font loaded', 'success');
 
                 // Set initial content
                 editor.setContent(`// Welcome to Iridium Editor!
@@ -273,6 +294,8 @@ fn main() {
                 btnUndo.disabled = false;
                 btnRedo.disabled = false;
                 btnTheme.disabled = false;
+                btnSyntax.disabled = false;
+                btnGutter.disabled = false;
 
                 // Set up button handlers
                 btnInsert.addEventListener('click', () => {
@@ -305,6 +328,20 @@ fn main() {
                     editor.forceRender();
                 });
 
+                btnSyntax.addEventListener('click', () => {
+                    const enabled = editor.isSyntaxEnabled();
+                    editor.setSyntaxEnabled(!enabled);
+                    editor.forceRender();
+                    log(`Syntax highlighting ${!enabled ? 'enabled' : 'disabled'}`);
+                });
+
+                btnGutter.addEventListener('click', () => {
+                    const enabled = editor.isGutterEnabled();
+                    editor.setGutterEnabled(!enabled);
+                    editor.forceRender();
+                    log(`Gutter ${!enabled ? 'enabled' : 'disabled'}`);
+                });
+
                 // Handle window resize
                 window.addEventListener('resize', () => {
                     const rect = canvas.getBoundingClientRect();
@@ -313,6 +350,218 @@ fn main() {
                     editor.resize(canvas.width, canvas.height);
                     editor.forceRender();
                 });
+
+                // Mouse selection handling
+                let isDragging = false;
+
+                function getMousePosition(e) {
+                    const rect = canvas.getBoundingClientRect();
+                    // Account for pixel ratio - mouse events are in CSS pixels, canvas is scaled
+                    const x = (e.clientX - rect.left) * window.devicePixelRatio;
+                    const y = (e.clientY - rect.top) * window.devicePixelRatio;
+                    return editor.pixelToPosition(x, y);
+                }
+
+                canvas.addEventListener('mousedown', (e) => {
+                    canvas.focus();
+                    const [line, column] = getMousePosition(e);
+
+                    if (e.shiftKey) {
+                        // Shift+click: extend selection
+                        editor.extendSelectionToPosition(line, column);
+                    } else {
+                        // Normal click: set cursor, start potential drag
+                        editor.setCursorFromClick(line, column);
+                        isDragging = true;
+                    }
+                    editor.forceRender();
+                    updateInfo();
+                });
+
+                canvas.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        const [line, column] = getMousePosition(e);
+                        editor.extendSelectionToPosition(line, column);
+                        editor.forceRender();
+                        updateInfo();
+                    }
+                });
+
+                canvas.addEventListener('mouseup', () => {
+                    isDragging = false;
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    // Continue drag if mouse leaves canvas
+                    // (don't stop dragging, let mouseup on document handle it)
+                });
+
+                document.addEventListener('mouseup', () => {
+                    isDragging = false;
+                });
+
+                // Handle keyboard input with Mac modifier support
+                canvas.addEventListener('keydown', (e) => {
+                    let handled = true;
+                    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                    const selecting = e.shiftKey;
+
+                    // Handle arrow keys with modifiers
+                    if (e.key === 'ArrowLeft') {
+                        if (e.metaKey && isMac) {
+                            // Cmd+Left: go to line start
+                            selecting ? editor.extendSelectionLineStart() : editor.moveCursorLineStart();
+                        } else if (e.altKey) {
+                            // Option+Left: word left
+                            selecting ? editor.extendSelectionWordLeft() : editor.moveCursorWordLeft();
+                        } else if (e.ctrlKey && !isMac) {
+                            // Ctrl+Left on non-Mac: word left
+                            selecting ? editor.extendSelectionWordLeft() : editor.moveCursorWordLeft();
+                        } else {
+                            selecting ? editor.extendSelectionLeft() : editor.moveCursorLeft();
+                        }
+                    } else if (e.key === 'ArrowRight') {
+                        if (e.metaKey && isMac) {
+                            // Cmd+Right: go to line end
+                            selecting ? editor.extendSelectionLineEnd() : editor.moveCursorLineEnd();
+                        } else if (e.altKey) {
+                            // Option+Right: word right
+                            selecting ? editor.extendSelectionWordRight() : editor.moveCursorWordRight();
+                        } else if (e.ctrlKey && !isMac) {
+                            // Ctrl+Right on non-Mac: word right
+                            selecting ? editor.extendSelectionWordRight() : editor.moveCursorWordRight();
+                        } else {
+                            selecting ? editor.extendSelectionRight() : editor.moveCursorRight();
+                        }
+                    } else if (e.key === 'ArrowUp') {
+                        if (e.metaKey && isMac) {
+                            // Cmd+Up: go to document start
+                            selecting ? editor.extendSelectionDocStart() : editor.moveCursorDocStart();
+                        } else {
+                            selecting ? editor.extendSelectionUp() : editor.moveCursorUp();
+                        }
+                    } else if (e.key === 'ArrowDown') {
+                        if (e.metaKey && isMac) {
+                            // Cmd+Down: go to document end
+                            selecting ? editor.extendSelectionDocEnd() : editor.moveCursorDocEnd();
+                        } else {
+                            selecting ? editor.extendSelectionDown() : editor.moveCursorDown();
+                        }
+                    } else if (e.key === 'Home') {
+                        // Home key: line start (or doc start with Cmd)
+                        if (e.metaKey || e.ctrlKey) {
+                            selecting ? editor.extendSelectionDocStart() : editor.moveCursorDocStart();
+                        } else {
+                            selecting ? editor.extendSelectionLineStart() : editor.moveCursorLineStart();
+                        }
+                    } else if (e.key === 'End') {
+                        // End key: line end (or doc end with Cmd)
+                        if (e.metaKey || e.ctrlKey) {
+                            selecting ? editor.extendSelectionDocEnd() : editor.moveCursorDocEnd();
+                        } else {
+                            selecting ? editor.extendSelectionLineEnd() : editor.moveCursorLineEnd();
+                        }
+                    } else if (e.key === 'a' && (e.metaKey || e.ctrlKey)) {
+                        // Cmd+A / Ctrl+A: select all
+                        editor.selectAll();
+                    } else if (e.key === 'Backspace') {
+                        if (e.metaKey && isMac) {
+                            // Cmd+Backspace: delete to line start
+                            editor.deleteToLineStart();
+                        } else if (e.altKey) {
+                            // Option+Backspace: delete word backward
+                            editor.deleteWordBackward();
+                        } else if (e.ctrlKey && !isMac) {
+                            // Ctrl+Backspace on non-Mac: delete word backward
+                            editor.deleteWordBackward();
+                        } else {
+                            editor.backspace();
+                        }
+                    } else if (e.key === 'Delete') {
+                        if (e.altKey) {
+                            // Option+Delete (Fn+Option+Backspace): delete word forward
+                            editor.deleteWordForward();
+                        } else if (e.ctrlKey && !isMac) {
+                            // Ctrl+Delete on non-Mac: delete word forward
+                            editor.deleteWordForward();
+                        } else {
+                            editor.delete_forward();
+                        }
+                    } else if (e.key === 'k' && e.ctrlKey) {
+                        // Ctrl+K: delete to end of line (Emacs-style)
+                        editor.deleteToLineEnd();
+                    } else if (e.key === 'a' && e.ctrlKey && isMac && !e.metaKey) {
+                        // Ctrl+A on Mac: go to line start (Emacs-style)
+                        selecting ? editor.extendSelectionLineStart() : editor.moveCursorLineStart();
+                    } else if (e.key === 'e' && e.ctrlKey && isMac) {
+                        // Ctrl+E on Mac: go to line end (Emacs-style)
+                        selecting ? editor.extendSelectionLineEnd() : editor.moveCursorLineEnd();
+                    } else if (e.key === 'Enter') {
+                        editor.insert('\n');
+                    } else if (e.key === 'Tab') {
+                        editor.insert('    ');
+                    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+                        // Handle regular character input
+                        // Auto-pairing for brackets and quotes
+                        const pairs = {
+                            '(': ')',
+                            '[': ']',
+                            '{': '}',
+                            '"': '"',
+                            "'": "'",
+                            '`': '`'
+                        };
+
+                        if (pairs[e.key]) {
+                            // Insert both characters and move cursor back
+                            editor.insert(e.key + pairs[e.key]);
+                            editor.moveCursorLeft();
+                        } else {
+                            editor.insert(e.key);
+                        }
+                    } else if (e.metaKey || e.ctrlKey) {
+                        // Handle shortcuts
+                        if (e.key === 'z') {
+                            if (e.shiftKey) {
+                                editor.redo();
+                            } else {
+                                editor.undo();
+                            }
+                        } else if (e.key === 'y') {
+                            editor.redo();
+                        } else {
+                            handled = false;
+                        }
+                    } else {
+                        handled = false;
+                    }
+
+                    if (handled) {
+                        e.preventDefault();
+                        editor.forceRender();
+                        updateInfo();
+                    }
+                });
+
+                // Animation loop for cursor blinking
+                let lastRenderTime = 0;
+                const BLINK_INTERVAL = 500; // 500ms half-cycle for cursor blink
+
+                function animate(currentTime) {
+                    // Only re-render periodically to update cursor blink
+                    // The cursor blinks every 500ms, so we render at least that often
+                    if (currentTime - lastRenderTime >= BLINK_INTERVAL) {
+                        editor.forceRender();
+                        lastRenderTime = currentTime;
+                    }
+                    requestAnimationFrame(animate);
+                }
+
+                // Start the animation loop
+                requestAnimationFrame(animate);
+
+                // Auto-focus the canvas
+                canvas.focus();
 
                 // Update info panel
                 updateInfo();

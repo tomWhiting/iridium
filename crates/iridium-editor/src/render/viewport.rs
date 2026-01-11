@@ -40,25 +40,26 @@ impl Default for Viewport {
 impl Viewport {
     /// Creates a new viewport with the given dimensions.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn new(width: f32, height: f32, line_height: f32) -> Self {
         let visible_lines = (height / line_height).ceil() as usize;
-        Self { width, height, line_height, visible_lines, ..Self::default() }
+        Self { width, height, visible_lines, line_height, ..Self::default() }
     }
 
     /// Returns true if the given line is visible.
     #[must_use]
-    pub fn contains_line(&self, line: usize) -> bool {
+    pub const fn contains_line(&self, line: usize) -> bool {
         line >= self.first_line && line < self.first_line + self.visible_lines
     }
 
     /// Scrolls to make a specific line the first visible line.
-    pub fn scroll_to_line(&mut self, line: usize) {
+    pub const fn scroll_to_line(&mut self, line: usize) {
         self.first_line = line;
         self.scroll_offset_y = 0.0;
     }
 
     /// Scrolls to make a position visible.
-    pub fn scroll_to_position(&mut self, position: Position) {
+    pub const fn scroll_to_position(&mut self, position: Position) {
         if position.line < self.first_line {
             self.scroll_to_line(position.line);
         } else if position.line >= self.first_line + self.visible_lines {
@@ -67,11 +68,12 @@ impl Viewport {
     }
 
     /// Ensures the cursor is visible, scrolling if necessary.
-    pub fn ensure_cursor_visible(&mut self, cursor: Position) {
+    pub const fn ensure_cursor_visible(&mut self, cursor: Position) {
         self.scroll_to_position(cursor);
     }
 
     /// Updates the viewport size.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn resize(&mut self, width: f32, height: f32) {
         self.width = width;
         self.height = height;
@@ -80,7 +82,7 @@ impl Viewport {
 
     /// Returns the last visible line number.
     #[must_use]
-    pub fn last_visible_line(&self) -> usize {
+    pub const fn last_visible_line(&self) -> usize {
         self.first_line + self.visible_lines
     }
 }

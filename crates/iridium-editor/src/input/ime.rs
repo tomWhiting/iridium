@@ -9,7 +9,7 @@ pub struct ImeHandler {
 
 impl ImeHandler {
     /// Creates a new IME handler.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

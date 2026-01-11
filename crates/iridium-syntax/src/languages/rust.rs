@@ -8,7 +8,7 @@ pub struct RustConfig {
 
 impl RustConfig {
     /// Creates a new Rust configuration.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

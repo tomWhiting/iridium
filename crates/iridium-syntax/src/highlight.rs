@@ -66,7 +66,7 @@ pub struct Highlighter {
 impl Highlighter {
     /// Creates a new highlighter for the given language.
     #[must_use]
-    pub fn new(language: super::Language) -> Self {
+    pub const fn new(language: super::Language) -> Self {
         Self { language, _placeholder: () }
     }
 
@@ -80,7 +80,8 @@ impl Highlighter {
     ///
     /// Returns a list of highlight spans sorted by start position.
     #[must_use]
-    pub fn highlight(&self, _source: &str) -> Vec<HighlightSpan> {
+    #[allow(clippy::unused_self)]
+    pub const fn highlight(&self, _source: &str) -> Vec<HighlightSpan> {
         // Tree-sitter highlighting will be implemented
         Vec::new()
     }
@@ -88,7 +89,8 @@ impl Highlighter {
     /// Updates highlights incrementally after an edit.
     ///
     /// This is more efficient than re-highlighting the entire document.
-    pub fn update(
+    #[allow(clippy::unused_self)]
+    pub const fn update(
         &mut self,
         _source: &str,
         _start_byte: usize,

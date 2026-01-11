@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use wgpu::{
     Adapter, Backends, Color, CommandEncoder, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, InstanceFlags, Limits, LoadOp, Operations, PowerPreference, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
+    InstanceDescriptor, InstanceFlags, Limits, LoadOp, MemoryHints, Operations, PowerPreference,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, StoreOp,
     TextureFormat, TextureView, Trace,
 };
 
@@ -36,10 +36,10 @@ impl GpuInfo {
     fn from_adapter(adapter: &Adapter) -> Self {
         let info = adapter.get_info();
         Self {
-            name: info.name.clone(),
+            name: info.name,
             backend: format!("{:?}", info.backend),
             device_type: format!("{:?}", info.device_type),
-            driver: info.driver.clone(),
+            driver: info.driver,
         }
     }
 }
@@ -169,7 +169,7 @@ impl RenderPipeline {
             label: Some("Iridium Editor Device"),
             required_features: config.required_features,
             required_limits: config.limits.clone(),
-            memory_hints: Default::default(),
+            memory_hints: MemoryHints::default(),
             trace: Trace::Off,
             ..Default::default()
         };
@@ -196,13 +196,12 @@ impl RenderPipeline {
 
         let message = if adapters.is_empty() {
             format!(
-                "No GPU adapters found: {}\n\n\
+                "No GPU adapters found: {error}\n\n\
                  WebGPU/wgpu requires a compatible GPU.\n\
                  Please ensure your system has:\n\
                  - A GPU with Vulkan, Metal, DX12, or WebGPU support\n\
                  - Up-to-date graphics drivers installed\n\
-                 - For browsers: WebGPU-capable browser (Chrome 113+, Firefox 121+)",
-                error
+                 - For browsers: WebGPU-capable browser (Chrome 113+, Firefox 121+)"
             )
         } else {
             let adapter_list: String = adapters
@@ -222,10 +221,9 @@ impl RenderPipeline {
                 .join("\n");
 
             format!(
-                "No suitable GPU adapter found: {}\n\n\
-                 Available adapters:\n{}\n\n\
-                 Try adjusting power preference or required features.",
-                error, adapter_list
+                "No suitable GPU adapter found: {error}\n\n\
+                 Available adapters:\n{adapter_list}\n\n\
+                 Try adjusting power preference or required features."
             )
         };
 
@@ -233,6 +231,7 @@ impl RenderPipeline {
     }
 
     /// Creates a detailed error message when device request fails.
+    #[allow(clippy::needless_pass_by_value)]
     fn create_device_error(
         adapter: &Adapter,
         gpu_info: &GpuInfo,
@@ -242,7 +241,7 @@ impl RenderPipeline {
         let adapter_limits = adapter.limits();
 
         let message = format!(
-            "Failed to create GPU device: {}\n\n\
+            "Failed to create GPU device: {error}\n\n\
              GPU: {} ({}, {})\n\
              Driver: {}\n\n\
              Requested limits vs adapter limits:\n\
@@ -250,7 +249,6 @@ impl RenderPipeline {
              - max_bind_groups: {} vs {}\n\
              - max_uniform_buffer_binding_size: {} vs {}\n\n\
              Try using more compatible limits (e.g., Limits::downlevel_webgl2_defaults()).",
-            error,
             gpu_info.name,
             gpu_info.backend,
             gpu_info.device_type,

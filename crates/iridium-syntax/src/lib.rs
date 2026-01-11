@@ -78,7 +78,7 @@ impl Language {
 
     /// Returns all supported languages.
     #[must_use]
-    pub fn all() -> &'static [Self] {
+    pub const fn all() -> &'static [Self] {
         &[Self::Cypher, Self::Sql, Self::Rust, Self::Python, Self::TypeScript]
     }
 }

@@ -8,7 +8,7 @@ pub struct SqlConfig {
 
 impl SqlConfig {
     /// Creates a new SQL configuration.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _placeholder: () }
     }
 }

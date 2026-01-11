@@ -27,7 +27,8 @@ impl UndoNodeId {
 /// A node in the undo tree representing a document state.
 #[derive(Debug, Clone)]
 struct UndoNode {
-    /// Unique identifier
+    /// Unique identifier (used for debugging and future serialization)
+    #[allow(dead_code)]
     id: UndoNodeId,
     /// Parent node (None for root)
     parent: Option<UndoNodeId>,
@@ -35,14 +36,17 @@ struct UndoNode {
     children: Vec<UndoNodeId>,
     /// Command that was applied to reach this state from parent
     command: Option<Command>,
-    /// When this edit was made
+    /// When this edit was made (used for edit grouping and future features)
+    #[allow(dead_code)]
     timestamp: Instant,
-    /// Optional description for this edit
+    /// Optional description for this edit (reserved for future features)
+    #[allow(dead_code)]
     description: Option<String>,
 }
 
 /// Information about an undo node for external use.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct UndoNodeInfo {
     /// Unique node identifier
     pub id: String,
@@ -166,17 +170,16 @@ impl UndoTree {
         if should_group {
             // Group with current node by replacing its command
             if let Some(current_node) = self.nodes.get_mut(&self.current) {
-                if let Some(existing_cmd) = &current_node.command {
+                let new_command = if let Some(existing_cmd) = &current_node.command {
                     // Combine into compound command
-                    let combined = Command::Compound {
+                    Command::Compound {
                         commands: vec![existing_cmd.clone(), command],
-                    };
-                    current_node.command = Some(combined);
-                    current_node.timestamp = now;
+                    }
                 } else {
-                    current_node.command = Some(command);
-                    current_node.timestamp = now;
-                }
+                    command
+                };
+                current_node.command = Some(new_command);
+                current_node.timestamp = now;
             }
         } else {
             // Create new node

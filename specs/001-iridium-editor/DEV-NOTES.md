@@ -21,6 +21,9 @@ These have real logic, not just type definitions:
 | T039-T042 | Document operations | insert/delete/replace/offset conversions work with ropey 2.0 |
 | T062-T070, T072 | UndoTree core | Full tree implementation: push, undo, redo, branching, jump_to_node, grouping |
 | T032-T036 | GPU Pipeline + Text Rendering | wgpu 28.0 device/queue init, glyphon 0.10 TextRenderer, glyph atlas management |
+| T087-T091a | Syntax Highlighting Core | Full Highlighter with tree-sitter, query execution, incremental parsing |
+| T094-T096a | Language Support | 13 languages configured: Rust, Python, TypeScript, JavaScript, TSX, Go, JSON, YAML, Markdown, CSS, Bash, C, C++ |
+| T097-T098, T101 | Syntax Integration | iridium-syntax integrated, DocumentHighlighter with caching, language detection |
 
 ### Type Definitions Only (stubs behind them)
 
@@ -28,8 +31,23 @@ These tasks are "done" in that the types exist, but the systems using them are s
 
 | Tasks | Component | What's Missing |
 |-------|-----------|----------------|
-| T087-T088 | HighlightType, HighlightSpan | Types defined, but `Highlighter.highlight()` returns `Vec::new()` |
 | T127-T128 | FoldKind, FoldRegion | Types defined, but `FoldDetector.detect()` returns `Vec::new()` |
+
+### Dropped Features (incompatible dependencies)
+
+| Tasks | Component | Status |
+|-------|-----------|--------|
+| T092 | Cypher | DROPPED: tree-sitter-cypher not available on crates.io, git versions incompatible with tree-sitter 0.26 |
+| T093 | SQL | DROPPED: tree-sitter-sql only has v0.0.2 requiring tree-sitter 0.19.5 (incompatible with 0.26) |
+
+These languages have been removed from the Language enum. The Language enum now only contains fully supported languages (13 total).
+
+### Integration Gaps (partial implementations)
+
+| Tasks | Component | What's Missing |
+|-------|-----------|----------------|
+| T099 | Syntax Rendering | `TextRenderer.set_rich_text()` exists but not called with highlight data |
+| T100 | EditorState Syntax | `DocumentHighlighter` not added to `EditorState` |
 
 ### Known Stubs (placeholder implementations)
 
@@ -40,9 +58,7 @@ These modules have `_placeholder: ()` fields and empty method bodies:
 - `input/ime.rs` - ImeHandler
 - `render/gutter.rs` - GutterRenderer
 - `render/minimap.rs` - MinimapRenderer
-- `syntax/highlight.rs` - Highlighter (type exists, methods stub)
 - `syntax/folding.rs` - FoldDetector (type exists, methods stub)
-- `syntax/languages/*.rs` - All language configs
 - `bindings/events.rs` - EventEmitter
 
 ### Not Started

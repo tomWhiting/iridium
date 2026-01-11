@@ -297,8 +297,6 @@ mod queries {
             "bash" => Some(include_query!("bash", "highlights.scm")),
             "c" => Some(include_query!("c", "highlights.scm")),
             "cpp" => Some(include_query!("cpp", "highlights.scm")),
-            "cypher" => Some(include_query!("cypher", "highlights.scm")),
-            "sql" => Some(include_query!("sql", "highlights.scm")),
             _ => None,
         }
     }
@@ -333,13 +331,6 @@ impl LanguageRegistry {
         grammars.insert(crate::Language::Bash, tree_sitter_bash::LANGUAGE.into());
         grammars.insert(crate::Language::C, tree_sitter_c::LANGUAGE.into());
         grammars.insert(crate::Language::Cpp, tree_sitter_cpp::LANGUAGE.into());
-
-        // Note: SQL uses an older tree-sitter version (0.19.5) which is incompatible
-        // with tree-sitter 0.26.3. We skip it for now and use fallback highlighting.
-        // grammars.insert(crate::Language::Sql, tree_sitter_sql::language());
-
-        // Note: Cypher requires a git dependency (not on crates.io). For now,
-        // we'll rely on the bundled query file with a compatible grammar later.
 
         Self { grammars }
     }
@@ -617,6 +608,7 @@ fn byte_to_point(source: &str, byte_offset: usize) -> tree_sitter::Point {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::similar_names)]
 mod tests {
     use super::*;
     use crate::Language;
@@ -659,11 +651,8 @@ mod tests {
         assert!(!spans.is_empty(), "Rust code should produce highlight spans");
 
         // Verify the 'fn' keyword is highlighted
-        let fn_spans: Vec<_> = spans
-            .iter()
-            .filter(|s| s.start == 0 && s.end == 2)
-            .collect();
-        assert!(!fn_spans.is_empty(), "'fn' should be highlighted");
+        let has_fn_span = spans.iter().any(|s| s.start == 0 && s.end == 2);
+        assert!(has_fn_span, "'fn' should be highlighted");
     }
 
     #[test]
@@ -803,11 +792,11 @@ mod tests {
 
     #[test]
     fn test_span_ordering() {
-        let span1 = HighlightSpan::new(0, 5, HighlightType::Keyword);
-        let span2 = HighlightSpan::new(10, 15, HighlightType::String);
-        let span3 = HighlightSpan::new(0, 10, HighlightType::Function);
+        let first = HighlightSpan::new(0, 5, HighlightType::Keyword);
+        let second = HighlightSpan::new(10, 15, HighlightType::String);
+        let third = HighlightSpan::new(0, 10, HighlightType::Function);
 
-        let mut spans = vec![span2.clone(), span1.clone(), span3.clone()];
+        let mut spans = [second, first, third];
         spans.sort();
 
         assert_eq!(spans[0].start, 0);
@@ -815,13 +804,6 @@ mod tests {
         assert_eq!(spans[1].start, 0);
         assert_eq!(spans[1].end, 10);
         assert_eq!(spans[2].start, 10);
-    }
-
-    #[test]
-    fn test_unsupported_language() {
-        // SQL and Cypher are currently unsupported due to version mismatches
-        let result = Highlighter::new(Language::Sql);
-        assert!(result.is_err());
     }
 
     #[test]

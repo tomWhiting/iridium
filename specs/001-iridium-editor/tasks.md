@@ -40,7 +40,7 @@ examples/                   # Web and native examples
 - [x] T010 [P] Configure clippy.toml with lint rules
 - [x] T011 Create module structure in crates/iridium-editor/src/ with mod.rs files for editor/, document/, history/, render/, input/, search/, theme/
 - [x] T012 [P] Create module structure in crates/iridium-syntax/src/ with mod.rs files for languages/
-- [ ] T013 [P] Create tests/ directory structure with integration/, visual/, benchmarks/
+- [x] T013 [P] Create tests/ directory structure with integration/, visual/, benchmarks/
 
 **Checkpoint**: Workspace compiles with `cargo build`, all crates resolve dependencies
 
@@ -64,7 +64,7 @@ examples/                   # Web and native examples
 ### Command System
 
 - [x] T020 Define Command enum (Insert, Delete, Replace, SetSelection, Compound) in crates/iridium-editor/src/history/commands.rs
-- [ ] T021 Implement Command::apply() method for all variants in crates/iridium-editor/src/history/commands.rs
+- [x] T021 Implement Command::apply() method for all variants in crates/iridium-editor/src/history/commands.rs
 - [x] T022 Implement Command::inverse() method for all variants in crates/iridium-editor/src/history/commands.rs
 
 ### Theme System (needed for rendering)
@@ -87,11 +87,11 @@ examples/                   # Web and native examples
 
 ### GPU Pipeline Foundation
 
-- [ ] T032 Create wgpu Device and Queue initialization in crates/iridium-editor/src/render/pipeline.rs
-- [ ] T033 Implement GPU error handling with detailed error messages in crates/iridium-editor/src/render/pipeline.rs
-- [ ] T034 Create basic render pass structure in crates/iridium-editor/src/render/pipeline.rs
-- [ ] T035 Initialize glyphon TextRenderer and FontSystem in crates/iridium-editor/src/render/text.rs
-- [ ] T036 Implement glyph atlas management in crates/iridium-editor/src/render/text.rs
+- [x] T032 Create wgpu Device and Queue initialization in crates/iridium-editor/src/render/pipeline.rs
+- [x] T033 Implement GPU error handling with detailed error messages in crates/iridium-editor/src/render/pipeline.rs
+- [x] T034 Create basic render pass structure in crates/iridium-editor/src/render/pipeline.rs
+- [x] T035 Initialize glyphon TextRenderer and FontSystem in crates/iridium-editor/src/render/text.rs
+- [x] T036 Implement glyph atlas management in crates/iridium-editor/src/render/text.rs
 
 ### Editor State
 

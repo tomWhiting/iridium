@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::{CursorState, Position, Range};
+use crate::document::{CursorState, Document, Position, Range};
+use crate::editor::IridiumError;
 
 /// A command that can be applied to the document.
 ///
@@ -66,6 +67,64 @@ pub enum Command {
 }
 
 impl Command {
+    /// Applies this command to the document and cursor state.
+    ///
+    /// This method mutates the document according to the command type:
+    /// - `Insert`: Inserts text at the specified position
+    /// - `Delete`: Deletes text in the specified range
+    /// - `Replace`: Replaces text in the specified range with new text
+    /// - `SetSelection`: Updates the cursor/selection state
+    /// - `Compound`: Applies all sub-commands in order
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command references invalid positions or ranges
+    /// in the document.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use iridium_editor::{Command, Document, CursorState, Position};
+    ///
+    /// let mut doc = Document::new("Hello World");
+    /// let mut cursor = CursorState::at(Position::zero());
+    ///
+    /// let cmd = Command::Insert {
+    ///     position: Position::new(0, 5),
+    ///     text: ",".to_string(),
+    /// };
+    ///
+    /// cmd.apply(&mut doc, &mut cursor).unwrap();
+    /// assert_eq!(doc.text(), "Hello, World");
+    /// ```
+    pub fn apply(&self, document: &mut Document, cursor: &mut CursorState) -> Result<(), IridiumError> {
+        match self {
+            Self::Insert { position, text } => {
+                document.insert(*position, text)?;
+            }
+
+            Self::Delete { range, .. } => {
+                document.delete(*range)?;
+            }
+
+            Self::Replace { range, new_text, .. } => {
+                document.replace(*range, new_text)?;
+            }
+
+            Self::SetSelection { new_state, .. } => {
+                *cursor = new_state.clone();
+            }
+
+            Self::Compound { commands } => {
+                for cmd in commands {
+                    cmd.apply(document, cursor)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Returns the inverse of this command.
     ///
     /// Applying the inverse undoes the effect of this command.
@@ -204,5 +263,104 @@ mod tests {
         );
 
         assert!(Command::Compound { commands: vec![] }.is_empty());
+    }
+
+    #[test]
+    fn apply_insert() {
+        let mut doc = Document::new("Hello World");
+        let mut cursor = CursorState::at(Position::zero());
+
+        let cmd = Command::Insert {
+            position: Position::new(0, 5),
+            text: ",".to_string(),
+        };
+
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "Hello, World");
+    }
+
+    #[test]
+    fn apply_delete() {
+        let mut doc = Document::new("Hello, World");
+        let mut cursor = CursorState::at(Position::zero());
+
+        let cmd = Command::Delete {
+            range: Range::new(Position::new(0, 5), Position::new(0, 6)),
+            deleted_text: ",".to_string(),
+        };
+
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "Hello World");
+    }
+
+    #[test]
+    fn apply_replace() {
+        let mut doc = Document::new("Hello World");
+        let mut cursor = CursorState::at(Position::zero());
+
+        let cmd = Command::Replace {
+            range: Range::new(Position::new(0, 6), Position::new(0, 11)),
+            old_text: "World".to_string(),
+            new_text: "Rust".to_string(),
+        };
+
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "Hello Rust");
+    }
+
+    #[test]
+    fn apply_set_selection() {
+        let mut doc = Document::new("Hello");
+        let mut cursor = CursorState::at(Position::zero());
+
+        let new_state = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 5)));
+
+        let cmd = Command::SetSelection {
+            old_state: cursor.clone(),
+            new_state: new_state.clone(),
+        };
+
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(cursor, new_state);
+    }
+
+    #[test]
+    fn apply_compound() {
+        let mut doc = Document::new("Hello");
+        let mut cursor = CursorState::at(Position::zero());
+
+        let cmd = Command::Compound {
+            commands: vec![
+                Command::Insert {
+                    position: Position::new(0, 5),
+                    text: " World".to_string(),
+                },
+                Command::Insert {
+                    position: Position::new(0, 0),
+                    text: "Say: ".to_string(),
+                },
+            ],
+        };
+
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "Say: Hello World");
+    }
+
+    #[test]
+    fn apply_and_inverse_roundtrip() {
+        let mut doc = Document::new("Hello");
+        let mut cursor = CursorState::at(Position::zero());
+
+        let cmd = Command::Insert {
+            position: Position::new(0, 5),
+            text: " World".to_string(),
+        };
+
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "Hello World");
+
+        let inverse = cmd.inverse();
+        inverse.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "Hello");
     }
 }

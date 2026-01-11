@@ -7,7 +7,6 @@
 //!
 //! ## Supported Languages
 //!
-//! **With full tree-sitter grammar support:**
 //! - Rust
 //! - Python
 //! - TypeScript
@@ -21,10 +20,6 @@
 //! - Bash
 //! - C
 //! - C++
-//!
-//! **Query files bundled (grammar pending):**
-//! - Cypher (Neo4j query language) - requires tree-sitter-cypher git dependency
-//! - SQL - tree-sitter-sql uses incompatible tree-sitter version
 //!
 //! ## Example
 //!
@@ -48,13 +43,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Supported programming languages.
+///
+/// All variants have full tree-sitter grammar support and can be used
+/// with the `Highlighter` without errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
-    /// Cypher query language (Neo4j)
-    Cypher,
-    /// SQL
-    Sql,
     /// Rust
     Rust,
     /// Python
@@ -88,8 +82,6 @@ impl Language {
     #[must_use]
     pub const fn id(&self) -> &'static str {
         match self {
-            Self::Cypher => "cypher",
-            Self::Sql => "sql",
             Self::Rust => "rust",
             Self::Python => "python",
             Self::TypeScript => "typescript",
@@ -110,8 +102,6 @@ impl Language {
     #[must_use]
     pub fn from_id(id: &str) -> Option<Self> {
         match id.to_lowercase().as_str() {
-            "cypher" | "cql" => Some(Self::Cypher),
-            "sql" => Some(Self::Sql),
             "rust" | "rs" => Some(Self::Rust),
             "python" | "py" => Some(Self::Python),
             "typescript" | "ts" => Some(Self::TypeScript),
@@ -146,8 +136,6 @@ impl Language {
             "sh" | "bash" | "zsh" => Some(Self::Bash),
             "c" | "h" => Some(Self::C),
             "cpp" | "cxx" | "cc" | "hpp" | "hxx" | "hh" => Some(Self::Cpp),
-            "sql" => Some(Self::Sql),
-            "cypher" | "cql" => Some(Self::Cypher),
             _ => None,
         }
     }
@@ -169,37 +157,7 @@ impl Language {
             Self::Bash,
             Self::C,
             Self::Cpp,
-            Self::Cypher,
-            Self::Sql,
         ]
-    }
-
-    /// Returns languages that have full tree-sitter grammar support.
-    ///
-    /// These languages can be used with the `Highlighter` without errors.
-    #[must_use]
-    pub const fn supported() -> &'static [Self] {
-        &[
-            Self::Rust,
-            Self::Python,
-            Self::TypeScript,
-            Self::JavaScript,
-            Self::Tsx,
-            Self::Go,
-            Self::Json,
-            Self::Yaml,
-            Self::Markdown,
-            Self::Css,
-            Self::Bash,
-            Self::C,
-            Self::Cpp,
-        ]
-    }
-
-    /// Returns true if this language has full tree-sitter grammar support.
-    #[must_use]
-    pub const fn is_supported(&self) -> bool {
-        !matches!(self, Self::Cypher | Self::Sql)
     }
 }
 
@@ -256,13 +214,5 @@ mod tests {
             let parsed = Language::from_id(id);
             assert_eq!(parsed, Some(*lang), "Failed roundtrip for {id}");
         }
-    }
-
-    #[test]
-    fn test_language_is_supported() {
-        assert!(Language::Rust.is_supported());
-        assert!(Language::Python.is_supported());
-        assert!(!Language::Cypher.is_supported());
-        assert!(!Language::Sql.is_supported());
     }
 }

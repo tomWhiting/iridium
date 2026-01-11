@@ -41,21 +41,38 @@
 
 #![doc(html_root_url = "https://docs.rs/iridium-bindings/0.1.0")]
 
+// Napi modules (Node.js bindings)
+#[cfg(feature = "napi")]
 mod editor;
+#[cfg(feature = "napi")]
 mod events;
+#[cfg(feature = "napi")]
 mod types;
 
+#[cfg(feature = "napi")]
 pub use editor::IridiumEditor;
+#[cfg(feature = "napi")]
 pub use events::{EventCallback, EventEmitter, JsEventEmitter};
+#[cfg(feature = "napi")]
 pub use types::*;
 
+#[cfg(feature = "napi")]
 use napi::bindgen_prelude::*;
+#[cfg(feature = "napi")]
 use napi_derive::napi;
 
+// WASM module (browser bindings)
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+mod wasm;
+
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+pub use wasm::*;
+
 // ============================================================================
-// Factory Functions (T154)
+// Factory Functions (T154) - napi only
 // ============================================================================
 
+#[cfg(feature = "napi")]
 /// Creates a new editor instance with optional configuration.
 ///
 /// This is the recommended way to create an editor in TypeScript.
@@ -72,6 +89,7 @@ pub fn create_editor(config: Option<JsEditorConfig>) -> Result<IridiumEditor> {
     IridiumEditor::with_config(config)
 }
 
+#[cfg(feature = "napi")]
 /// Creates an editor instance with initial content.
 ///
 /// This is a convenience function that creates an editor and sets content
@@ -95,9 +113,10 @@ pub fn create_editor_with_content(
 }
 
 // ============================================================================
-// WebGPU Support Check (T155)
+// WebGPU Support Check (T155) - napi only
 // ============================================================================
 
+#[cfg(feature = "napi")]
 /// Check if WebGPU is supported in the current environment.
 ///
 /// This performs an actual check by attempting to request a GPU adapter.
@@ -120,6 +139,7 @@ pub async fn is_webgpu_supported() -> bool {
     check_webgpu_support().await
 }
 
+#[cfg(feature = "napi")]
 /// Internal function to check WebGPU support.
 async fn check_webgpu_support() -> bool {
     use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags};
@@ -142,6 +162,7 @@ async fn check_webgpu_support() -> bool {
     adapter.is_ok()
 }
 
+#[cfg(feature = "napi")]
 /// Get detailed GPU information.
 ///
 /// Returns information about the available GPU adapter, or None if
@@ -186,6 +207,7 @@ pub async fn get_gpu_info() -> Option<JsGPUInfo> {
     })
 }
 
+#[cfg(feature = "napi")]
 /// GPU information for TypeScript.
 #[napi(object)]
 #[derive(Debug, Clone)]
@@ -201,9 +223,10 @@ pub struct JsGPUInfo {
 }
 
 // ============================================================================
-// Utility Functions
+// Utility Functions - napi only
 // ============================================================================
 
+#[cfg(all(feature = "napi", feature = "syntax"))]
 /// Get the list of supported languages for syntax highlighting.
 ///
 /// Returns an array of language IDs that can be used with `setLanguage()`.
@@ -224,6 +247,7 @@ pub fn get_supported_languages() -> Vec<String> {
         .collect()
 }
 
+#[cfg(all(feature = "napi", feature = "syntax"))]
 /// Get language information for a file extension.
 ///
 /// Returns the language ID for the given extension, or None if not recognized.
@@ -240,6 +264,7 @@ pub fn get_language_for_extension(extension: String) -> Option<String> {
     iridium_syntax::Language::from_extension(&extension).map(|l| l.id().to_string())
 }
 
+#[cfg(all(feature = "napi", feature = "syntax"))]
 /// Get the list of file extensions for a language.
 ///
 /// Returns an array of file extensions (without dots) that match the language.
@@ -288,6 +313,7 @@ pub fn get_extensions_for_language(language: String) -> Vec<String> {
     }
 }
 
+#[cfg(feature = "napi")]
 /// Library version.
 ///
 /// Returns the version of the iridium-bindings package.
@@ -296,6 +322,7 @@ pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+#[cfg(feature = "napi")]
 /// Get full version information.
 ///
 /// Returns version information for all Iridium components.
@@ -308,6 +335,7 @@ pub fn get_version_info() -> JsVersionInfo {
     }
 }
 
+#[cfg(feature = "napi")]
 /// Version information for all components.
 #[napi(object)]
 #[derive(Debug, Clone)]
@@ -320,7 +348,7 @@ pub struct JsVersionInfo {
     pub syntax: String,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "napi"))]
 mod tests {
     use super::*;
 
@@ -337,6 +365,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn get_supported_languages_returns_list() {
         let languages = get_supported_languages();
         assert!(!languages.is_empty());
@@ -344,6 +373,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn get_language_for_extension_works() {
         assert_eq!(
             get_language_for_extension("rs".to_string()),

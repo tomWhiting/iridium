@@ -2,31 +2,118 @@
 resolver = "2"
 members = [
     "crates/iridium-editor",
+    "crates/iridium-syntax",
+    # "crates/iridium-bindings",  # Temporarily excluded - API mismatch
 ]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
-license = "MIT"
-authors = ["Iridium Team"]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/iridium-editor/iridium"
+authors = ["Iridium Contributors"]
 
 [workspace.dependencies]
-# Core text handling
+# GPU rendering
+wgpu = "28.0.0"
+glyphon = "0.10.0"
+cosmic-text = "0.16.0"
+
+# Text buffer
 ropey = "1"
 
-# GPU rendering
-wgpu = "28"
-glyphon = "0.10"
+# Syntax highlighting
+tree-sitter = "0.26.3"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-sql = "0.0.2"
 
-# Async runtime
-tokio = { version = "1", features = ["full"] }
+# Bindings
+napi = { version = "3.8.2", features = [ "napi9", "async", "serde-json" ] }
+napi-derive = "3.5.1"
+
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 
 # Error handling
-thiserror = "2"
+thiserror = "2.0.17"
+
+# Async runtime (for bindings)
+tokio = { version = "1.49.0", features = ["rt", "rt-multi-thread", "sync"] }
+
+# Regex for search
+regex = "1.12.2"
 
 # Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 # Testing
-criterion = "0.5"
+criterion = { version = "0.8.1", features = ["html_reports"] }
+
+# Internal crates
+iridium-editor = { path = "crates/iridium-editor" }
+iridium-syntax = { path = "crates/iridium-syntax" }
+iridium-bindings = { path = "crates/iridium-bindings" }
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+# Correctness
+correctness = { level = "deny", priority = -1 }
+
+# Suspicious code
+suspicious = { level = "warn", priority = -1 }
+
+# Style
+style = { level = "warn", priority = -1 }
+
+# Complexity
+complexity = { level = "warn", priority = -1 }
+
+# Performance
+perf = { level = "warn", priority = -1 }
+
+# Pedantic (aggressive but helpful)
+pedantic = { level = "warn", priority = -1 }
+
+# Nursery (experimental but useful)
+nursery = { level = "warn", priority = -1 }
+
+# Specific overrides for pedantic rules that are too noisy
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+too_many_lines = "allow"
+
+# Specific denies for things we really care about
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+print_stderr = "warn"
+
+# Allow in tests
+if_not_else = "allow"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"
+debug = true

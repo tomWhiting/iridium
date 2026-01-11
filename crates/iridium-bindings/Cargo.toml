@@ -1,0 +1,43 @@
+[package]
+name = "iridium-bindings"
+description = "TypeScript/WASM bindings for Iridium editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core editor
+iridium-editor.workspace = true
+iridium-syntax.workspace = true
+
+# Bindings
+napi.workspace = true
+napi-derive.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Async
+tokio.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[build-dependencies]
+napi-build = "2"
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

@@ -1,0 +1,48 @@
+# Cargo configuration for Iridium workspace
+
+[alias]
+# Quick commands
+c = "check"
+b = "build"
+t = "test"
+r = "run"
+br = "build --release"
+tr = "test --release"
+
+# Lint commands
+lint = "clippy --workspace --all-targets --all-features"
+lint-fix = "clippy --workspace --all-targets --all-features --fix --allow-dirty"
+
+# Format commands
+fmt-check = "fmt --all -- --check"
+
+# Full check (what CI would run)
+ci = ["fmt-check", "lint", "test --workspace"]
+
+[build]
+# Use all available cores
+jobs = -1
+
+# Incremental compilation for faster dev builds
+incremental = true
+
+[target.'cfg(all())']
+# Recommended linker settings for faster builds
+# Uncomment the appropriate one for your platform:
+
+# macOS - use zld for faster linking (brew install zld)
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/bin/zld"]
+
+# Linux - use mold for faster linking
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[env]
+# Enable backtraces in development
+RUST_BACKTRACE = "1"
+
+[term]
+# Color output
+color = "auto"
+
+# Progress bar
+verbose = false

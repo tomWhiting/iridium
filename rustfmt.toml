@@ -1,0 +1,53 @@
+# Iridium rustfmt configuration
+# Aggressive but practical formatting standards
+
+# Stable options
+edition = "2024"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+
+# Import organization
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+# Formatting choices
+fn_params_layout = "Tall"
+brace_style = "SameLineWhere"
+control_brace_style = "AlwaysSameLine"
+trailing_comma = "Vertical"
+trailing_semicolon = true
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+force_multiline_blocks = false
+empty_item_single_line = true
+struct_lit_single_line = true
+fn_single_line = false
+where_single_line = false
+
+# Comments
+wrap_comments = false
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 80
+normalize_comments = false
+normalize_doc_attributes = true
+format_strings = false
+format_macro_matchers = true
+format_macro_bodies = true
+
+# Error handling
+error_on_line_overflow = false
+error_on_unformatted = false
+
+# Unstable features (nightly only - commented out for stable)
+# unstable_features = true
+# format_generated_files = false
+# imports_layout = "HorizontalVertical"
+# overflow_delimited_expr = true
+# reorder_impl_items = true
+# version = "Two"

@@ -1,0 +1,11 @@
+/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/757b-phase-4-us2-undo/target/debug/deps/str_indices-2d4d9ab7df300e56.d: /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lib.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/byte_chunk.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/chars.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_crlf.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_lf.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/utf16.rs
+
+/private/var/folders/87/tdf6vfls1fj_4ydz_y6sk3580000gn/T/vibe-kanban/worktrees/757b-phase-4-us2-undo/target/debug/deps/libstr_indices-2d4d9ab7df300e56.rmeta: /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lib.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/byte_chunk.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/chars.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_crlf.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_lf.rs /Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/utf16.rs
+
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lib.rs:
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/byte_chunk.rs:
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/chars.rs:
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines.rs:
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_crlf.rs:
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/lines_lf.rs:
+/Users/tom/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/str_indices-0.4.4/src/utf16.rs:

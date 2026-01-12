@@ -9,9 +9,10 @@ use web_sys::HtmlCanvasElement;
 
 use iridium_editor::{
     document::{CursorState, Selection},
-    editor::Editor,
+    editor::{Editor, FoldState},
     history::Command,
     render::{CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer, WebSurface},
+    syntax_stubs::Language,
     theme::Theme,
     EditorConfig, Position, Range,
 };
@@ -46,6 +47,12 @@ pub struct WebEditor {
     syntax_enabled: bool,
     /// Whether gutter (line numbers) is enabled
     gutter_enabled: bool,
+    /// Code folding state
+    fold_state: FoldState,
+    /// Vertical scroll offset in pixels
+    scroll_y: f32,
+    /// Cached character width (measured from actual font metrics)
+    cached_char_width: f32,
 }
 
 /// Log a message to the browser console.
@@ -123,6 +130,8 @@ pub async fn create_web_editor(
     let cursor_renderer = CursorRenderer::default();
     let gutter_renderer = GutterRenderer::new();
     let highlighter = SimpleHighlighter::new();
+    // Initialize fold state with the placeholder language (enables brace-based folding)
+    let fold_state = FoldState::for_language(Language::_Placeholder);
 
     log("[Iridium] WebEditor ready");
     Ok(WebEditor {
@@ -139,6 +148,9 @@ pub async fn create_web_editor(
         pixel_ratio,
         syntax_enabled: true,
         gutter_enabled: true,
+        fold_state,
+        scroll_y: 0.0,
+        cached_char_width: 14.0 * 0.6, // Default until font is loaded
     })
 }
 
@@ -156,7 +168,12 @@ impl WebEditor {
     pub fn load_font(&mut self, data: &[u8]) {
         log("[Iridium] Loading font...");
         self.text_renderer.load_font(data.to_vec());
-        log("[Iridium] Font loaded");
+        // Measure actual character width from the loaded font
+        self.cached_char_width = self.text_renderer.char_width();
+        log(&format!(
+            "[Iridium] Font loaded, char_width: {:.2}px",
+            self.cached_char_width
+        ));
         self.needs_redraw = true;
     }
 
@@ -164,6 +181,8 @@ impl WebEditor {
     #[wasm_bindgen(js_name = setContent)]
     pub fn set_content(&mut self, content: &str) {
         self.editor.set_content(content);
+        // Update fold regions for new content
+        self.fold_state.update_regions(content);
         self.needs_redraw = true;
     }
 
@@ -183,6 +202,9 @@ impl WebEditor {
         }
         self.editor.paste(text);
         self.cursor_renderer.reset_blink();
+        // Update fold regions after content change
+        let content = self.editor.content();
+        self.fold_state.update_regions(&content);
         self.needs_redraw = true;
     }
 
@@ -205,6 +227,10 @@ impl WebEditor {
 
         // Collapse selection to start position
         self.set_selection_internal(start, start);
+
+        // Update fold regions after content change
+        let content = self.editor.content();
+        self.fold_state.update_regions(&content);
         true
     }
 
@@ -240,6 +266,10 @@ impl WebEditor {
             self.editor.apply_command(cmd);
             // Move cursor to start of deleted range
             self.set_selection_internal(delete_from, delete_from);
+
+            // Update fold regions after content change
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
         }
     }
 
@@ -277,6 +307,10 @@ impl WebEditor {
             self.editor.apply_command(cmd);
             // Cursor stays in place for forward delete
             self.cursor_renderer.reset_blink();
+
+            // Update fold regions after content change
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
     }
@@ -291,6 +325,60 @@ impl WebEditor {
         self.cursor_quad_renderer
             .update_viewport(self.surface.queue(), width, height);
         self.needs_redraw = true;
+    }
+
+    /// Gets the current vertical scroll offset.
+    #[wasm_bindgen(js_name = getScrollY)]
+    pub fn get_scroll_y(&self) -> f32 {
+        self.scroll_y
+    }
+
+    /// Sets the vertical scroll offset.
+    #[wasm_bindgen(js_name = setScrollY)]
+    pub fn set_scroll_y(&mut self, y: f32) {
+        let max_scroll = self.max_scroll_y();
+        self.scroll_y = y.clamp(0.0, max_scroll);
+        self.needs_redraw = true;
+    }
+
+    /// Scrolls by a delta amount.
+    #[wasm_bindgen(js_name = scrollBy)]
+    pub fn scroll_by(&mut self, delta_y: f32) {
+        self.set_scroll_y(self.scroll_y + delta_y);
+    }
+
+    /// Returns the maximum scroll offset.
+    #[wasm_bindgen(js_name = getMaxScrollY)]
+    pub fn max_scroll_y(&self) -> f32 {
+        let line_height = self.text_renderer.line_height();
+        let visible_lines = self.fold_state.visible_line_count(self.editor.state().document.line_count());
+        let content_height = visible_lines as f32 * line_height;
+        let viewport_height = self.surface.height() as f32;
+        (content_height - viewport_height + 20.0).max(0.0) // 20px padding
+    }
+
+    /// Ensures the cursor is visible by scrolling if needed.
+    #[wasm_bindgen(js_name = ensureCursorVisible)]
+    pub fn ensure_cursor_visible(&mut self) {
+        let line_height = self.text_renderer.line_height();
+        let padding = 10.0;
+        let viewport_height = self.surface.height() as f32;
+
+        // Get cursor's visual line (accounting for folds)
+        let cursor_line = self.editor.cursor().line;
+        let visual_line = self.fold_state.document_to_visual_line(cursor_line).unwrap_or(0);
+        let cursor_y = padding + (visual_line as f32 * line_height);
+
+        // Scroll up if cursor is above viewport
+        if cursor_y < self.scroll_y + padding {
+            self.scroll_y = (cursor_y - padding).max(0.0);
+            self.needs_redraw = true;
+        }
+        // Scroll down if cursor is below viewport
+        else if cursor_y + line_height > self.scroll_y + viewport_height - padding {
+            self.scroll_y = cursor_y + line_height - viewport_height + padding;
+            self.needs_redraw = true;
+        }
     }
 
     /// Renders the editor to the canvas.
@@ -339,13 +427,64 @@ impl WebEditor {
             self.surface.height(),
         );
 
-        // Get the content to render
-        let content = self.editor.content();
+        // Get the content to render, handling folded lines
+        let doc = &self.editor.state().document;
+        let line_count = doc.line_count();
+
+        // Build visible content and line numbers, skipping hidden (folded) lines
+        let mut visible_content = String::new();
+        let mut visible_line_numbers = String::new();
+        let mut visual_line = 0;
+        let mut doc_to_visual: Vec<Option<usize>> = Vec::with_capacity(line_count);
+
+        for doc_line in 0..line_count {
+            if self.fold_state.is_line_hidden(doc_line) {
+                doc_to_visual.push(None);
+                continue;
+            }
+
+            // Add newline separator (except for first visible line)
+            if visual_line > 0 {
+                visible_content.push('\n');
+                visible_line_numbers.push('\n');
+            }
+
+            // Add line content
+            if let Some(line_text) = doc.line(doc_line) {
+                visible_content.push_str(&line_text);
+            }
+
+            // If this line is folded, also append the closing brace from the fold end
+            if self.fold_state.is_folded(doc_line) {
+                if let Some(region) = self.fold_state.region_at(doc_line) {
+                    // Get the end line and find the closing brace
+                    if let Some(end_line_text) = doc.line(region.end_line) {
+                        let trimmed = end_line_text.trim();
+                        // Append the closing portion (usually just "}")
+                        if !trimmed.is_empty() {
+                            visible_content.push_str(" ... ");
+                            visible_content.push_str(trimmed);
+                        }
+                    }
+                }
+            }
+
+            // Add line number (1-indexed)
+            let num_str = format!("{:>width$}", doc_line + 1, width = GutterRenderer::digit_columns(line_count));
+            visible_line_numbers.push_str(&num_str);
+
+            doc_to_visual.push(Some(visual_line));
+            visual_line += 1;
+        }
+
+        // Handle empty document
+        if line_count == 0 {
+            visible_line_numbers.push_str(" 1");
+        }
 
         // Calculate layout dimensions
         let line_height = self.text_renderer.line_height();
-        let char_width = self.text_renderer.font_size() * 0.6;
-        let line_count = self.editor.state().document.line_count();
+        let char_width = self.cached_char_width;
         let padding = 10.0_f32;
 
         // Calculate gutter width
@@ -359,26 +498,8 @@ impl WebEditor {
         // Create line numbers text if gutter is enabled
         let gutter_buffer = if self.gutter_enabled {
             let mut gutter_buf = self.text_renderer.create_buffer(gutter_width);
-
-            // Build line numbers string
             let line_number_color = self.theme.editor.line_number;
-            let current_line = self.editor.cursor().line;
-            let mut line_numbers = String::new();
-            for line_num in 1..=line_count {
-                if line_num > 1 {
-                    line_numbers.push('\n');
-                }
-                // Right-align line numbers
-                let num_str = format!("{:>width$}", line_num, width = GutterRenderer::digit_columns(line_count));
-                line_numbers.push_str(&num_str);
-            }
-
-            // If there's no content, show at least line 1
-            if line_count == 0 {
-                line_numbers.push_str(" 1");
-            }
-
-            self.text_renderer.set_text(&mut gutter_buf, &line_numbers, line_number_color);
+            self.text_renderer.set_text(&mut gutter_buf, &visible_line_numbers, line_number_color);
             self.text_renderer.shape_buffer(&mut gutter_buf);
             Some(gutter_buf)
         } else {
@@ -393,7 +514,7 @@ impl WebEditor {
         let foreground = self.theme.editor.foreground;
         if self.syntax_enabled {
             // Use syntax highlighting
-            let spans = self.highlighter.highlight_flat(&content);
+            let spans = self.highlighter.highlight_flat(&visible_content);
             let rich_spans: Vec<(&str, iridium_editor::theme::Color)> = spans
                 .iter()
                 .map(|span| (span.text.as_str(), span.color))
@@ -403,14 +524,18 @@ impl WebEditor {
         } else {
             // Plain text
             self.text_renderer
-                .set_text(&mut buffer, &content, foreground);
+                .set_text(&mut buffer, &visible_content, foreground);
         }
         self.text_renderer.shape_buffer(&mut buffer);
 
-        // Calculate cursor position (accounting for gutter offset)
+        // Calculate cursor position (accounting for gutter offset, folding, and scroll)
         let cursor_pos = self.editor.cursor();
+        let visual_cursor_line = doc_to_visual
+            .get(cursor_pos.line)
+            .and_then(|v| *v)
+            .unwrap_or(0);
         let cursor_x = content_offset_x + (cursor_pos.column as f32 * char_width);
-        let cursor_y = padding + (cursor_pos.line as f32 * line_height);
+        let cursor_y = padding + (visual_cursor_line as f32 * line_height) - self.scroll_y;
 
         // Update cursor blink state
         self.cursor_renderer.update(Instant::now());
@@ -437,17 +562,22 @@ impl WebEditor {
             let end = selection.end();
 
             // For each line in the selection, create a highlight quad
-            for line in start.line..=end.line {
-                let line_content = self.editor.state().document.line(line);
+            for doc_line in start.line..=end.line {
+                // Skip hidden lines
+                let Some(vis_line) = doc_to_visual.get(doc_line).and_then(|v| *v) else {
+                    continue;
+                };
+
+                let line_content = self.editor.state().document.line(doc_line);
                 let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
 
                 // Determine start and end columns for this line
-                let start_col = if line == start.line { start.column } else { 0 };
-                let end_col = if line == end.line { end.column } else { line_len };
+                let start_col = if doc_line == start.line { start.column } else { 0 };
+                let end_col = if doc_line == end.line { end.column } else { line_len };
 
                 // For lines that continue to next line, extend selection slightly
                 // to visualize the newline character selection
-                let extra_width = if line != end.line && end_col == line_len {
+                let extra_width = if doc_line != end.line && end_col == line_len {
                     char_width * 0.5 // Add half a char width for newline
                 } else {
                     0.0
@@ -455,10 +585,13 @@ impl WebEditor {
 
                 if start_col < end_col || (start_col == end_col && extra_width > 0.0) {
                     let x = content_offset_x + (start_col as f32 * char_width);
-                    let y = padding + (line as f32 * line_height);
+                    let y = padding + (vis_line as f32 * line_height) - self.scroll_y;
                     let width = (end_col - start_col) as f32 * char_width + extra_width;
 
-                    selection_quads.push(Quad::new(x, y, width, line_height, selection_color));
+                    // Only add quad if it's visible
+                    if y + line_height > 0.0 && y < self.surface.height() as f32 {
+                        selection_quads.push(Quad::new(x, y, width, line_height, selection_color));
+                    }
                 }
             }
         }
@@ -474,11 +607,11 @@ impl WebEditor {
         // Create text areas for rendering
         let mut text_areas = Vec::new();
 
-        // Main content text area
+        // Main content text area (with scroll offset)
         let text_area = TextArea {
             buffer: &buffer,
             left: content_offset_x,
-            top: padding,
+            top: padding - self.scroll_y,
             scale: 1.0,
             bounds: TextBounds {
                 left: 0,
@@ -496,13 +629,13 @@ impl WebEditor {
         };
         text_areas.push(text_area);
 
-        // Gutter text area (if enabled)
+        // Gutter text area (if enabled, with scroll offset)
         let line_number_color = self.theme.editor.line_number;
         if let Some(ref gutter_buf) = gutter_buffer {
             let gutter_text_area = TextArea {
                 buffer: gutter_buf,
                 left: 8.0, // Small padding from left edge
-                top: padding,
+                top: padding - self.scroll_y,
                 scale: 1.0,
                 bounds: TextBounds {
                     left: 0,
@@ -662,6 +795,9 @@ impl WebEditor {
     pub fn undo(&mut self) -> bool {
         let result = self.editor.undo();
         if result {
+            // Update fold regions after content change
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
         result
@@ -671,6 +807,9 @@ impl WebEditor {
     pub fn redo(&mut self) -> bool {
         let result = self.editor.redo();
         if result {
+            // Update fold regions after content change
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
         result
@@ -912,6 +1051,8 @@ impl WebEditor {
             self.editor.apply_command(cmd);
             self.editor.set_cursor(word_start);
             self.cursor_renderer.reset_blink();
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
     }
@@ -929,6 +1070,8 @@ impl WebEditor {
             };
             self.editor.apply_command(cmd);
             self.cursor_renderer.reset_blink();
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
     }
@@ -946,6 +1089,8 @@ impl WebEditor {
             self.editor.apply_command(cmd);
             self.editor.set_cursor(line_start);
             self.cursor_renderer.reset_blink();
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
     }
@@ -970,6 +1115,8 @@ impl WebEditor {
             };
             self.editor.apply_command(cmd);
             self.cursor_renderer.reset_blink();
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
     }
@@ -1277,13 +1424,13 @@ impl WebEditor {
     /// Gets the character width in pixels (for monospace).
     #[wasm_bindgen(js_name = getCharWidth)]
     pub fn get_char_width(&self) -> f32 {
-        self.text_renderer.font_size() * 0.6
+        self.cached_char_width
     }
 
     /// Calculates the current gutter width.
     fn current_gutter_width(&self) -> f32 {
         if self.gutter_enabled {
-            let char_width = self.text_renderer.font_size() * 0.6;
+            let char_width = self.cached_char_width;
             let line_count = self.editor.state().document.line_count();
             self.gutter_renderer.calculate_width(line_count, char_width)
         } else {
@@ -1317,21 +1464,22 @@ impl WebEditor {
     }
 
     /// Converts pixel coordinates to line/column position.
-    /// Returns [line, column].
+    /// Returns [line, column]. Accounts for folded lines and scroll.
     #[wasm_bindgen(js_name = pixelToPosition)]
     pub fn pixel_to_position(&self, x: f32, y: f32) -> Vec<u32> {
         let line_height = self.text_renderer.line_height();
-        let char_width = self.text_renderer.font_size() * 0.6;
+        let char_width = self.cached_char_width;
         let offset_x = self.current_gutter_width() + 10.0;
         let offset_y = 10.0;
 
-        // Calculate line number
-        let line = ((y - offset_y) / line_height).max(0.0) as usize;
+        // Calculate visual line number (what's rendered on screen, accounting for scroll)
+        let visual_line = ((y + self.scroll_y - offset_y) / line_height).max(0.0) as usize;
 
-        // Get line count to clamp
+        // Convert visual line to document line (accounting for folds)
         let doc = &self.editor.state().document;
         let line_count = doc.line_count();
-        let clamped_line = line.min(line_count.saturating_sub(1));
+        let doc_line = self.fold_state.visual_to_document_line(visual_line);
+        let clamped_line = doc_line.min(line_count.saturating_sub(1));
 
         // Calculate column (accounting for gutter)
         let line_content = doc.line(clamped_line);
@@ -1340,6 +1488,130 @@ impl WebEditor {
         let clamped_column = column.min(line_len);
 
         vec![clamped_line as u32, clamped_column as u32]
+    }
+
+    // ==========================================================================
+    // Code Folding Methods
+    // ==========================================================================
+
+    /// Updates fold regions based on current content.
+    /// Call this after any text changes if you want fold regions to update.
+    #[wasm_bindgen(js_name = updateFolds)]
+    pub fn update_folds(&mut self) {
+        let content = self.editor.content();
+        self.fold_state.update_regions(&content);
+        self.needs_redraw = true;
+    }
+
+    /// Returns all foldable line numbers (start lines of fold regions).
+    #[wasm_bindgen(js_name = getFoldableLines)]
+    pub fn get_foldable_lines(&self) -> Vec<u32> {
+        self.fold_state
+            .regions()
+            .iter()
+            .map(|r| r.start_line as u32)
+            .collect()
+    }
+
+    /// Returns true if the given line is in a foldable region.
+    #[wasm_bindgen(js_name = isFoldable)]
+    pub fn is_foldable(&self, line: u32) -> bool {
+        self.fold_state.is_in_foldable_region(line as usize)
+    }
+
+    /// Returns true if the given line is currently folded.
+    #[wasm_bindgen(js_name = isFolded)]
+    pub fn is_folded(&self, line: u32) -> bool {
+        self.fold_state.is_folded(line as usize)
+    }
+
+    /// Returns true if the given line is visible (not hidden by a fold).
+    #[wasm_bindgen(js_name = isLineVisible)]
+    pub fn is_line_visible(&self, line: u32) -> bool {
+        !self.fold_state.is_line_hidden(line as usize)
+    }
+
+    /// Toggles the fold state at or containing the given line.
+    /// If the line is inside a foldable region, toggles that region.
+    /// Returns true if the fold state was changed.
+    #[wasm_bindgen(js_name = toggleFold)]
+    pub fn toggle_fold(&mut self, line: u32) -> bool {
+        // First try to toggle a fold starting at this line
+        if self.fold_state.toggle_fold_at(line as usize) {
+            self.needs_redraw = true;
+            return true;
+        }
+        // Otherwise try to toggle the containing region
+        if self.fold_state.toggle_fold_containing(line as usize).is_some() {
+            self.needs_redraw = true;
+            return true;
+        }
+        false
+    }
+
+    /// Folds the region at the given line.
+    /// Returns true if the region was folded.
+    #[wasm_bindgen(js_name = foldAt)]
+    pub fn fold_at(&mut self, line: u32) -> bool {
+        let result = self.fold_state.fold_at(line as usize);
+        if result {
+            self.needs_redraw = true;
+        }
+        result
+    }
+
+    /// Unfolds the region at the given line.
+    /// Returns true if the region was unfolded.
+    #[wasm_bindgen(js_name = unfoldAt)]
+    pub fn unfold_at(&mut self, line: u32) -> bool {
+        let result = self.fold_state.unfold_at(line as usize);
+        if result {
+            self.needs_redraw = true;
+        }
+        result
+    }
+
+    /// Folds all foldable regions.
+    #[wasm_bindgen(js_name = foldAll)]
+    pub fn fold_all(&mut self) {
+        self.fold_state.fold_all();
+        self.needs_redraw = true;
+    }
+
+    /// Unfolds all folded regions.
+    #[wasm_bindgen(js_name = unfoldAll)]
+    pub fn unfold_all(&mut self) {
+        self.fold_state.unfold_all();
+        self.needs_redraw = true;
+    }
+
+    /// Returns all currently folded line numbers.
+    #[wasm_bindgen(js_name = getFoldedLines)]
+    pub fn get_folded_lines(&self) -> Vec<u32> {
+        self.fold_state.folded_lines().map(|l| l as u32).collect()
+    }
+
+    /// Returns the number of hidden lines due to folding.
+    #[wasm_bindgen(js_name = getHiddenLineCount)]
+    pub fn get_hidden_line_count(&self) -> u32 {
+        self.fold_state.hidden_line_count() as u32
+    }
+
+    /// Returns the number of visible lines (total minus hidden).
+    #[wasm_bindgen(js_name = getVisibleLineCount)]
+    pub fn get_visible_line_count(&self) -> u32 {
+        let total = self.editor.state().document.line_count();
+        self.fold_state.visible_line_count(total) as u32
+    }
+
+    /// Gets the end line of a fold region starting at the given line.
+    /// Returns None (as -1) if no fold region exists at that line.
+    #[wasm_bindgen(js_name = getFoldEndLine)]
+    pub fn get_fold_end_line(&self, start_line: u32) -> i32 {
+        self.fold_state
+            .region_at(start_line as usize)
+            .map(|r| r.end_line as i32)
+            .unwrap_or(-1)
     }
 }
 

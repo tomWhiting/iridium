@@ -151,6 +151,9 @@
             <button id="btn-theme" disabled>Toggle Theme</button>
             <button id="btn-syntax" disabled>Toggle Syntax</button>
             <button id="btn-gutter" disabled>Toggle Gutter</button>
+            <button id="btn-fold-all" disabled>Fold All</button>
+            <button id="btn-unfold-all" disabled>Unfold All</button>
+            <button id="btn-toggle-fold" disabled>Toggle Fold</button>
         </div>
         <div class="editor-container">
             <canvas id="editor-canvas" tabindex="0"></canvas>
@@ -186,6 +189,9 @@
         const btnTheme = document.getElementById('btn-theme');
         const btnSyntax = document.getElementById('btn-syntax');
         const btnGutter = document.getElementById('btn-gutter');
+        const btnFoldAll = document.getElementById('btn-fold-all');
+        const btnUnfoldAll = document.getElementById('btn-unfold-all');
+        const btnToggleFold = document.getElementById('btn-toggle-fold');
 
         // Info panel
         const infoPanel = document.getElementById('info');
@@ -201,7 +207,11 @@
             const lines = editor.getLineCount();
             const canUndo = editor.canUndo();
             const canRedo = editor.canRedo();
-            infoPanel.textContent = `Cursor: Line ${line}, Column ${col} | Lines: ${lines} | Undo: ${canUndo} | Redo: ${canRedo}`;
+            const foldableLines = editor.getFoldableLines();
+            const foldedLines = editor.getFoldedLines();
+            const hiddenCount = editor.getHiddenLineCount();
+            const isFoldable = editor.isFoldable(line);
+            infoPanel.textContent = `Cursor: Line ${line}, Col ${col} | Lines: ${lines} (${hiddenCount} hidden) | Foldable: ${foldableLines.length} | Folded: ${foldedLines.length} | Line foldable: ${isFoldable}`;
         }
 
         async function init() {
@@ -274,12 +284,31 @@
                 editor.loadFont(fontData);
                 log('Font loaded', 'success');
 
-                // Set initial content
+                // Set initial content - has multiple foldable regions
                 editor.setContent(`// Welcome to Iridium Editor!
 // This is a GPU-accelerated text editor built with Rust and WebGPU.
 
 fn main() {
     println!("Hello, Iridium!");
+
+    if true {
+        println!("Nested block!");
+    }
+}
+
+fn another_function() {
+    // This is another function
+    let x = 42;
+    let result = {
+        // Inner block
+        x * 2
+    };
+    println!("Result: {}", result);
+}
+
+struct Example {
+    field1: i32,
+    field2: String,
 }
 `);
                 log('Initial content set');
@@ -296,6 +325,9 @@ fn main() {
                 btnTheme.disabled = false;
                 btnSyntax.disabled = false;
                 btnGutter.disabled = false;
+                btnFoldAll.disabled = false;
+                btnUnfoldAll.disabled = false;
+                btnToggleFold.disabled = false;
 
                 // Set up button handlers
                 btnInsert.addEventListener('click', () => {
@@ -340,6 +372,33 @@ fn main() {
                     editor.setGutterEnabled(!enabled);
                     editor.forceRender();
                     log(`Gutter ${!enabled ? 'enabled' : 'disabled'}`);
+                });
+
+                btnFoldAll.addEventListener('click', () => {
+                    editor.foldAll();
+                    editor.forceRender();
+                    updateInfo();
+                    log('Folded all regions');
+                });
+
+                btnUnfoldAll.addEventListener('click', () => {
+                    editor.unfoldAll();
+                    editor.forceRender();
+                    updateInfo();
+                    log('Unfolded all regions');
+                });
+
+                btnToggleFold.addEventListener('click', () => {
+                    const line = editor.getCursorLine();
+                    const toggled = editor.toggleFold(line);
+                    editor.forceRender();
+                    updateInfo();
+                    if (toggled) {
+                        const isFolded = editor.isFolded(line);
+                        log(`Line ${line} ${isFolded ? 'folded' : 'unfolded'}`);
+                    } else {
+                        log(`Line ${line} is not foldable`);
+                    }
                 });
 
                 // Handle window resize
@@ -475,7 +534,23 @@ fn main() {
                             // Ctrl+Backspace on non-Mac: delete word backward
                             editor.deleteWordBackward();
                         } else {
-                            editor.backspace();
+                            // Check if we're deleting an opening bracket with matching closer
+                            const pairMap = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
+                            const content = editor.getContent();
+                            const lines = content.split('\n');
+                            const line = editor.getCursorLine();
+                            const col = editor.getCursorColumn();
+                            const currentLine = lines[line] || '';
+                            const charBefore = col > 0 ? currentLine[col - 1] : '';
+                            const charAfter = currentLine[col] || '';
+
+                            if (pairMap[charBefore] && charAfter === pairMap[charBefore]) {
+                                // Delete both the opener and closer
+                                editor.backspace();
+                                editor.delete_forward();
+                            } else {
+                                editor.backspace();
+                            }
                         }
                     } else if (e.key === 'Delete') {
                         if (e.altKey) {
@@ -497,22 +572,69 @@ fn main() {
                         // Ctrl+E on Mac: go to line end (Emacs-style)
                         selecting ? editor.extendSelectionLineEnd() : editor.moveCursorLineEnd();
                     } else if (e.key === 'Enter') {
-                        editor.insert('\n');
+                        const content = editor.getContent();
+                        const lines = content.split('\n');
+                        const line = editor.getCursorLine();
+                        const col = editor.getCursorColumn();
+                        const currentLine = lines[line] || '';
+                        const charBefore = col > 0 ? currentLine[col - 1] : '';
+                        const charAfter = currentLine[col] || '';
+                        const indent = currentLine.match(/^(\s*)/)?.[1] || '';
+                        const textBeforeCursor = currentLine.slice(0, col);
+
+                        // Check for triple backticks with optional language (```ts, ```rust, etc.)
+                        const codeBlockMatch = textBeforeCursor.match(/^(\s*)```(\w*)$/);
+                        if (codeBlockMatch) {
+                            const blockIndent = codeBlockMatch[1];
+                            // Insert newline, cursor line, newline, closing backticks
+                            editor.insert('\n' + blockIndent + '\n' + blockIndent + '```');
+                            editor.moveCursorUp();
+                            editor.moveCursorLineEnd();
+                        }
+                        // Check if we're between matching brackets/braces/parens
+                        else if ((charBefore === '{' && charAfter === '}') ||
+                                 (charBefore === '[' && charAfter === ']') ||
+                                 (charBefore === '(' && charAfter === ')')) {
+                            // Between brackets - insert newline, indent, newline, closing bracket
+                            editor.insert('\n' + indent + '    \n' + indent);
+                            editor.moveCursorUp();
+                            editor.moveCursorLineEnd();
+                        } else {
+                            // Regular enter - preserve current indentation
+                            // If the line ends with an opener, add extra indent
+                            const endsWithOpener = /[{(\[]$/.test(textBeforeCursor.trim());
+                            if (endsWithOpener) {
+                                editor.insert('\n' + indent + '    ');
+                            } else {
+                                editor.insert('\n' + indent);
+                            }
+                        }
                     } else if (e.key === 'Tab') {
                         editor.insert('    ');
                     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
                         // Handle regular character input
-                        // Auto-pairing for brackets and quotes
+                        // Auto-pairing for brackets and quotes (not backticks - used for code blocks)
                         const pairs = {
                             '(': ')',
                             '[': ']',
                             '{': '}',
                             '"': '"',
-                            "'": "'",
-                            '`': '`'
+                            "'": "'"
                         };
+                        const closers = [')', ']', '}', '"', "'"];
 
-                        if (pairs[e.key]) {
+                        // Get character after cursor to check for skip-over
+                        const content = editor.getContent();
+                        const lines = content.split('\n');
+                        const line = editor.getCursorLine();
+                        const col = editor.getCursorColumn();
+                        const currentLine = lines[line] || '';
+                        const charAfter = currentLine[col] || '';
+
+                        if (closers.includes(e.key) && charAfter === e.key) {
+                            // Skip over the auto-inserted closing char
+                            editor.moveCursorRight();
+                        } else if (pairs[e.key]) {
                             // Insert both characters and move cursor back
                             editor.insert(e.key + pairs[e.key]);
                             editor.moveCursorLeft();
@@ -529,6 +651,41 @@ fn main() {
                             }
                         } else if (e.key === 'y') {
                             editor.redo();
+                        } else if (e.key === 'c') {
+                            // Copy
+                            const text = editor.getSelectedText();
+                            if (text) {
+                                navigator.clipboard.writeText(text).then(() => {
+                                    log('Copied to clipboard');
+                                }).catch(err => {
+                                    log(`Copy failed: ${err}`, 'error');
+                                });
+                            }
+                        } else if (e.key === 'x') {
+                            // Cut
+                            const text = editor.getSelectedText();
+                            if (text) {
+                                navigator.clipboard.writeText(text).then(() => {
+                                    editor.backspace(); // Delete the selection
+                                    editor.forceRender();
+                                    updateInfo();
+                                    log('Cut to clipboard');
+                                }).catch(err => {
+                                    log(`Cut failed: ${err}`, 'error');
+                                });
+                            }
+                        } else if (e.key === 'v') {
+                            // Paste
+                            navigator.clipboard.readText().then(text => {
+                                if (text) {
+                                    editor.insert(text);
+                                    editor.forceRender();
+                                    updateInfo();
+                                    log('Pasted from clipboard');
+                                }
+                            }).catch(err => {
+                                log(`Paste failed: ${err}`, 'error');
+                            });
                         } else {
                             handled = false;
                         }
@@ -538,10 +695,18 @@ fn main() {
 
                     if (handled) {
                         e.preventDefault();
+                        editor.ensureCursorVisible();
                         editor.forceRender();
                         updateInfo();
                     }
                 });
+
+                // Handle mouse wheel scrolling
+                canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    editor.scrollBy(e.deltaY);
+                    editor.forceRender();
+                }, { passive: false });
 
                 // Animation loop for cursor blinking
                 let lastRenderTime = 0;

@@ -5,7 +5,9 @@
 //! provides frame budget management for adaptive rendering.
 
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 /// Target frame rate (120fps).
 pub const TARGET_FPS: u32 = 120;

@@ -1,7 +1,7 @@
 //! Tree-structured undo history.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use web_time::Instant;
 
 use serde::{Deserialize, Serialize};
 

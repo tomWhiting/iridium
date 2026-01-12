@@ -3,7 +3,9 @@
 //! This module handles rendering of the text cursor (caret) with configurable
 //! blinking behavior and styling.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use crate::document::Position;
 use crate::theme::Color;

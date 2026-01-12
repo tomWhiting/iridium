@@ -38,6 +38,9 @@ tracing.workspace = true
 pollster = "0.4.0"
 bytemuck = { version = "1.24.0", features = ["derive"] }
 
+# Cross-platform time (works on WASM)
+web-time.workspace = true
+
 # WASM/Browser (optional)
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }

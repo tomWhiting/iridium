@@ -286,6 +286,106 @@ impl TextRenderer {
         buffer.shape_until_scroll(&mut self.font_system, false);
     }
 
+    /// Calculates cursor visual position accounting for line wrapping.
+    ///
+    /// Returns (x, y) offset from the buffer origin, where y accounts for
+    /// wrapped lines that come before the cursor position.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - The shaped buffer containing the text
+    /// * `line` - The logical line number (0-indexed)
+    /// * `column` - The column within the line (0-indexed)
+    /// * `char_width` - The width of a single character
+    #[must_use]
+    pub fn cursor_position_in_buffer(
+        &self,
+        buffer: &Buffer,
+        line: usize,
+        column: usize,
+        char_width: f32,
+    ) -> (f32, f32) {
+        let line_height = self.line_height();
+        let mut visual_line: usize = 0;
+        let mut cursor_x = 0.0_f32;
+        let mut cursor_y = 0.0_f32;
+        let mut found = false;
+
+        // Track columns consumed within the current logical line for wrapping
+        for run in buffer.layout_runs() {
+            let run_line = run.line_i;
+
+            if run_line < line {
+                // This run is before our target line, just count it
+                visual_line += 1;
+            } else if run_line == line && !found {
+                // This run is on our target line
+                // Check if cursor column falls within this run's glyph range
+                let run_start_col = if run.glyphs.is_empty() {
+                    0
+                } else {
+                    run.glyphs.first().map(|g| g.start).unwrap_or(0)
+                };
+                let run_end_col = if run.glyphs.is_empty() {
+                    0
+                } else {
+                    run.glyphs.last().map(|g| g.end).unwrap_or(0)
+                };
+
+                if column <= run_end_col || run.glyphs.is_empty() {
+                    // Cursor is on this visual line
+                    cursor_y = visual_line as f32 * line_height;
+
+                    // Calculate X position within this run
+                    let col_in_run = column.saturating_sub(run_start_col);
+                    cursor_x = col_in_run as f32 * char_width;
+                    found = true;
+                }
+                visual_line += 1;
+            } else if run_line > line && !found {
+                // We've passed the target line (empty line before this run)
+                cursor_y = visual_line as f32 * line_height;
+                cursor_x = column as f32 * char_width;
+                found = true;
+            }
+        }
+
+        // Handle case where cursor is past all content (empty trailing line)
+        if !found {
+            cursor_y = visual_line as f32 * line_height;
+            cursor_x = column as f32 * char_width;
+        }
+
+        (cursor_x, cursor_y)
+    }
+
+    /// Counts how many visual lines each logical line produces after wrapping.
+    ///
+    /// Returns a vector where index i contains the number of visual lines
+    /// for logical line i. This accounts for line wrapping.
+    #[must_use]
+    pub fn visual_lines_per_logical_line(&self, buffer: &Buffer) -> Vec<usize> {
+        let mut counts: Vec<usize> = Vec::new();
+
+        for run in buffer.layout_runs() {
+            let line_i = run.line_i;
+            // Extend counts vector if needed
+            while counts.len() <= line_i {
+                counts.push(0);
+            }
+            counts[line_i] += 1;
+        }
+
+        // Ensure at least 1 visual line for empty lines that might not have runs
+        for count in &mut counts {
+            if *count == 0 {
+                *count = 1;
+            }
+        }
+
+        counts
+    }
+
     /// Updates the viewport resolution.
     ///
     /// This should be called when the window size changes.

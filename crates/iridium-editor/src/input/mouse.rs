@@ -7,7 +7,7 @@
 //! - Triple-click for line selection
 //! - Wheel scroll
 
-use std::time::Instant;
+use web_time::Instant;
 
 use serde::{Deserialize, Serialize};
 

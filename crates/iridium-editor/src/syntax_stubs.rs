@@ -68,33 +68,140 @@ impl FoldRegion {
     }
 }
 
-/// Stub FoldDetector - does nothing without syntax feature.
+/// Simple brace-based fold detector for when syntax feature is disabled.
+///
+/// This provides basic code folding by matching braces `{}` without
+/// requiring tree-sitter. It handles:
+/// - Nested braces
+/// - Skipping braces inside string literals (basic heuristic)
+/// - Multi-line blocks only (single-line braces are not foldable)
 #[derive(Debug)]
-pub struct FoldDetector;
+pub struct FoldDetector {
+    /// Cached fold regions
+    regions: Vec<FoldRegion>,
+}
 
 impl FoldDetector {
-    /// Creates a new fold detector (always None without syntax).
+    /// Creates a new brace-based fold detector.
     #[must_use]
     pub fn new(_language: Language) -> Option<Self> {
-        None
+        Some(Self {
+            regions: Vec::new(),
+        })
     }
 
-    /// Detects fold regions (always empty without syntax).
+    /// Detects fold regions based on brace matching.
     #[must_use]
-    pub fn detect(&mut self, _source: &str) -> Vec<FoldRegion> {
-        Vec::new()
+    pub fn detect(&mut self, source: &str) -> Vec<FoldRegion> {
+        self.regions = Self::detect_brace_folds(source);
+        self.regions.clone()
     }
 
-    /// Updates fold regions incrementally (always empty without syntax).
+    /// Updates fold regions (re-detects for simplicity).
     #[must_use]
     pub fn update(
         &mut self,
-        _source: &str,
+        source: &str,
         _start_byte: usize,
         _old_end_byte: usize,
         _new_end_byte: usize,
     ) -> Vec<FoldRegion> {
-        Vec::new()
+        self.detect(source)
+    }
+
+    /// Detects foldable regions by matching braces.
+    fn detect_brace_folds(source: &str) -> Vec<FoldRegion> {
+        let mut regions = Vec::new();
+        let mut brace_stack: Vec<(usize, usize)> = Vec::new(); // (line, char_index)
+        let mut in_string = false;
+        let mut string_char = '"';
+        let mut in_line_comment = false;
+        let mut in_block_comment = false;
+        let mut prev_char = '\0';
+
+        for (line_num, line) in source.lines().enumerate() {
+            in_line_comment = false; // Reset at start of each line
+
+            let chars: Vec<char> = line.chars().collect();
+            let mut i = 0;
+
+            while i < chars.len() {
+                let ch = chars[i];
+                let next_char = chars.get(i + 1).copied().unwrap_or('\0');
+
+                // Handle block comment start
+                if !in_string && !in_line_comment && !in_block_comment && ch == '/' && next_char == '*' {
+                    in_block_comment = true;
+                    i += 2;
+                    continue;
+                }
+
+                // Handle block comment end
+                if in_block_comment && ch == '*' && next_char == '/' {
+                    in_block_comment = false;
+                    i += 2;
+                    continue;
+                }
+
+                // Skip if in block comment
+                if in_block_comment {
+                    i += 1;
+                    continue;
+                }
+
+                // Handle line comment start
+                if !in_string && ch == '/' && next_char == '/' {
+                    in_line_comment = true;
+                    break; // Rest of line is comment
+                }
+
+                // Handle string literals (basic - doesn't handle all escape sequences)
+                if !in_line_comment && (ch == '"' || ch == '\'') {
+                    if !in_string {
+                        in_string = true;
+                        string_char = ch;
+                    } else if ch == string_char && prev_char != '\\' {
+                        in_string = false;
+                    }
+                    prev_char = ch;
+                    i += 1;
+                    continue;
+                }
+
+                // Skip if in string
+                if in_string {
+                    prev_char = ch;
+                    i += 1;
+                    continue;
+                }
+
+                // Handle opening brace
+                if ch == '{' {
+                    brace_stack.push((line_num, i));
+                }
+
+                // Handle closing brace
+                if ch == '}' {
+                    if let Some((start_line, _)) = brace_stack.pop() {
+                        // Only create fold region if it spans multiple lines
+                        if line_num > start_line {
+                            regions.push(FoldRegion {
+                                start_line,
+                                end_line: line_num,
+                                kind: FoldKind::Block,
+                            });
+                        }
+                    }
+                }
+
+                prev_char = ch;
+                i += 1;
+            }
+        }
+
+        // Sort by start line for consistent ordering
+        regions.sort_by_key(|r| r.start_line);
+        regions
     }
 }
 

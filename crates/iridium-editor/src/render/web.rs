@@ -28,7 +28,9 @@ pub struct WebRenderConfig {
 impl Default for WebRenderConfig {
     fn default() -> Self {
         Self {
-            format: TextureFormat::Bgra8UnormSrgb,
+            // Use non-sRGB format for WebGPU browser compatibility
+            // Browsers only support bgra8unorm and rgba8unorm for canvas
+            format: TextureFormat::Bgra8Unorm,
             present_mode: PresentMode::Fifo, // vsync by default
             alpha_mode: CompositeAlphaMode::Opaque,
         }
@@ -148,10 +150,27 @@ mod wasm {
             let device = Arc::new(device);
             let queue = Arc::new(queue);
 
+            // Query surface capabilities to get a supported format
+            let caps = surface.get_capabilities(&adapter);
+            let format = caps
+                .formats
+                .iter()
+                .copied()
+                // Prefer non-sRGB formats for WebGPU browser compatibility
+                .find(|f| {
+                    matches!(
+                        f,
+                        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
+                    )
+                })
+                // Fallback to first available or configured format
+                .or_else(|| caps.formats.first().copied())
+                .unwrap_or(render_config.format);
+
             // Configure the surface
             let config = SurfaceConfiguration {
                 usage: TextureUsages::RENDER_ATTACHMENT,
-                format: render_config.format,
+                format,
                 width,
                 height,
                 present_mode: render_config.present_mode,

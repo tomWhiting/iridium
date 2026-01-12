@@ -171,6 +171,41 @@ impl TextRenderer {
         self.config.font_size * self.config.line_height
     }
 
+    /// Returns the actual character width by measuring a rendered character.
+    ///
+    /// This measures the advance width of a character using the current font,
+    /// giving accurate cursor positioning regardless of resolution or font size.
+    #[must_use]
+    pub fn char_width(&mut self) -> f32 {
+        // Create a temporary buffer to measure a character
+        let metrics = Metrics::relative(self.config.font_size, self.config.line_height);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        buffer.set_size(&mut self.font_system, Some(100.0), None);
+
+        // Use a simple character to measure - 'M' is typically the widest
+        let attrs = Attrs::new().family(Family::Monospace);
+        buffer.set_text(&mut self.font_system, "MM", &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut self.font_system, false);
+
+        // Get the width from the layout
+        for run in buffer.layout_runs() {
+            // For monospace, each glyph should have the same advance
+            // Measure "MM" and divide by 2 for more accuracy
+            let mut total_width = 0.0;
+            let mut glyph_count = 0;
+            for glyph in run.glyphs.iter() {
+                total_width += glyph.w;
+                glyph_count += 1;
+            }
+            if glyph_count > 0 {
+                return total_width / glyph_count as f32;
+            }
+        }
+
+        // Fallback to approximation if measurement fails
+        self.config.font_size * 0.6
+    }
+
     /// Returns the metrics for the current font configuration.
     #[must_use]
     pub fn metrics(&self) -> Metrics {

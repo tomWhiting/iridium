@@ -175,10 +175,28 @@ impl FoldState {
         self.regions.iter().find(|r| r.start_line == line)
     }
 
+    /// Returns the innermost fold region containing the given line.
+    ///
+    /// This finds a region where `start_line <= line <= end_line`.
+    /// If multiple regions contain the line, returns the innermost (smallest) one.
+    #[must_use]
+    pub fn region_containing(&self, line: usize) -> Option<&FoldRegion> {
+        self.regions
+            .iter()
+            .filter(|r| r.start_line <= line && line <= r.end_line)
+            .min_by_key(|r| r.end_line - r.start_line)
+    }
+
     /// Returns true if the given line is the start of a foldable region.
     #[must_use]
     pub fn is_foldable(&self, line: usize) -> bool {
         self.regions.iter().any(|r| r.start_line == line)
+    }
+
+    /// Returns true if the given line is inside any foldable region.
+    #[must_use]
+    pub fn is_in_foldable_region(&self, line: usize) -> bool {
+        self.region_containing(line).is_some()
     }
 
     /// Returns true if the given line is the start of a currently folded region.
@@ -234,6 +252,20 @@ impl FoldState {
         } else {
             self.fold_at(line)
         }
+    }
+
+    /// Toggles the fold state of the region containing the given line.
+    ///
+    /// This finds the innermost region that contains the line and toggles it.
+    /// Returns the start line of the toggled region, or None if not in a foldable region.
+    pub fn toggle_fold_containing(&mut self, line: usize) -> Option<usize> {
+        let start_line = self.region_containing(line)?.start_line;
+        if self.is_folded(start_line) {
+            self.unfold_at(start_line);
+        } else {
+            self.fold_at(start_line);
+        }
+        Some(start_line)
     }
 
     /// Folds all foldable regions.

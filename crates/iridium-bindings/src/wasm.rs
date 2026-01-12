@@ -23,6 +23,17 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// A highlight span from tree-sitter (passed from JavaScript).
+#[derive(Debug, Clone)]
+pub struct JsHighlightSpan {
+    /// Start byte offset
+    pub start: usize,
+    /// End byte offset
+    pub end: usize,
+    /// Highlight type as string (e.g., "keyword", "string", "comment")
+    pub highlight_type: String,
+}
+
 /// WebEditor provides a complete browser-based editor experience.
 ///
 /// This wraps the Iridium editor with WebGPU rendering capabilities
@@ -53,6 +64,10 @@ pub struct WebEditor {
     scroll_y: f32,
     /// Cached character width (measured from actual font metrics)
     cached_char_width: f32,
+    /// Tree-sitter highlight spans from JavaScript (when available)
+    ts_highlights: Vec<JsHighlightSpan>,
+    /// Whether to use tree-sitter highlights from JS
+    use_ts_highlights: bool,
 }
 
 /// Log a message to the browser console.
@@ -151,6 +166,8 @@ pub async fn create_web_editor(
         fold_state,
         scroll_y: 0.0,
         cached_char_width: 14.0 * 0.6, // Default until font is loaded
+        ts_highlights: Vec::new(),
+        use_ts_highlights: false,
     })
 }
 
@@ -381,6 +398,215 @@ impl WebEditor {
         }
     }
 
+    /// Converts tree-sitter highlight spans to colored text spans for rendering.
+    ///
+    /// Maps tree-sitter capture names to theme colors and handles gaps between
+    /// highlighted regions with default foreground color.
+    ///
+    /// Takes a pre-cloned list of highlight spans to avoid borrowing self.
+    fn build_rich_spans_from_ts<'a>(
+        &self,
+        content: &'a str,
+        mut sorted_spans: Vec<JsHighlightSpan>,
+    ) -> Vec<(&'a str, iridium_editor::theme::Color)> {
+        let foreground = self.theme.editor.foreground;
+        let mut result = Vec::new();
+        let mut last_end = 0;
+
+        // Sort spans by start position
+        sorted_spans.sort_by_key(|s| s.start);
+
+        for span in &sorted_spans {
+            // Skip spans that are out of bounds
+            if span.start >= content.len() || span.end > content.len() {
+                continue;
+            }
+
+            // Add gap before this span if needed
+            if span.start > last_end {
+                let gap_text = &content[last_end..span.start];
+                if !gap_text.is_empty() {
+                    result.push((gap_text, foreground));
+                }
+            }
+
+            // Skip overlapping spans
+            if span.start < last_end {
+                continue;
+            }
+
+            // Get the color for this highlight type
+            let color = self.color_for_highlight_type(&span.highlight_type);
+
+            // Add the highlighted span
+            let text = &content[span.start..span.end];
+            if !text.is_empty() {
+                result.push((text, color));
+            }
+
+            last_end = span.end;
+        }
+
+        // Add remaining text after last span
+        if last_end < content.len() {
+            let remaining = &content[last_end..];
+            if !remaining.is_empty() {
+                result.push((remaining, foreground));
+            }
+        }
+
+        result
+    }
+
+    /// Maps a tree-sitter highlight type to a theme color.
+    fn color_for_highlight_type(&self, highlight_type: &str) -> iridium_editor::theme::Color {
+        use iridium_editor::theme::Color;
+
+        // Map tree-sitter capture names to theme colors
+        // These match the names from Zed's .scm query files
+        match highlight_type {
+            // Keywords
+            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier"
+            | "keyword.control" | "keyword.return" | "keyword.control.return" => {
+                // Blue for keywords
+                Color::rgb(0.506, 0.631, 0.757) // #81A1C1
+            }
+
+            // Strings
+            "string" | "string.literal" | "string.special" => {
+                // Green for strings
+                Color::rgb(0.639, 0.745, 0.549) // #A3BE8C
+            }
+
+            // Escape sequences
+            "string.escape" | "escape_sequence" | "escape" => {
+                // Orange for escapes
+                Color::rgb(0.847, 0.502, 0.337) // #D88055
+            }
+
+            // Numbers
+            "number" | "number.literal" | "integer" | "float" => {
+                // Purple for numbers
+                Color::rgb(0.702, 0.561, 0.678) // #B48EAD
+            }
+
+            // Booleans
+            "boolean" | "constant.builtin.boolean" => {
+                Color::rgb(0.702, 0.561, 0.678) // #B48EAD (same as numbers)
+            }
+
+            // Comments
+            "comment" | "comment.line" | "comment.block" => {
+                // Gray for comments
+                Color::rgb(0.396, 0.482, 0.514) // #657B83
+            }
+
+            // Doc comments
+            "comment.doc" | "comment.documentation" => {
+                Color::rgb(0.435, 0.545, 0.569) // Slightly brighter gray
+            }
+
+            // Functions
+            "function" | "function.call" | "function.builtin" => {
+                // Cyan for functions
+                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+            }
+
+            // Function definitions
+            "function.definition" | "function.name" => {
+                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+            }
+
+            // Methods
+            "function.method" | "method" | "method.call" => {
+                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+            }
+
+            // Macros
+            "function.special" | "function.macro" | "macro" | "function.special.definition" => {
+                // Teal for macros
+                Color::rgb(0.306, 0.718, 0.675) // #4EB7AC
+            }
+
+            // Types
+            "type" | "type.name" | "type.definition" | "constructor" => {
+                // Yellow for types
+                Color::rgb(0.922, 0.796, 0.545) // #EBCB8B
+            }
+
+            // Built-in types
+            "type.builtin" | "type.primitive" => {
+                Color::rgb(0.922, 0.796, 0.545) // #EBCB8B
+            }
+
+            // Variables
+            "variable" | "identifier" => {
+                // Default foreground for variables
+                self.theme.editor.foreground
+            }
+
+            // Parameters
+            "variable.parameter" | "parameter" => {
+                // Slightly different color for parameters
+                Color::rgb(0.847, 0.871, 0.914) // #D8DEE9
+            }
+
+            // Special variables (self, this)
+            "variable.special" | "variable.builtin" => {
+                // Orange-ish for special vars
+                Color::rgb(0.867, 0.545, 0.376) // #DD8B60
+            }
+
+            // Operators
+            "operator" | "keyword.operator" => {
+                Color::rgb(0.506, 0.631, 0.757) // #81A1C1 (like keywords)
+            }
+
+            // Punctuation
+            "punctuation.bracket" | "bracket" => {
+                Color::rgb(0.608, 0.639, 0.690) // #9BA0AB
+            }
+
+            "punctuation.delimiter" | "delimiter" | "punctuation" => {
+                Color::rgb(0.608, 0.639, 0.690) // #9BA0AB
+            }
+
+            // Properties/fields
+            "property" | "field" | "property.name" | "label" | "variable.member"
+            | "variable.field" => {
+                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+            }
+
+            // Constants
+            "constant" | "constant.builtin" => {
+                Color::rgb(0.702, 0.561, 0.678) // #B48EAD
+            }
+
+            // Lifetimes (Rust)
+            "lifetime" => {
+                Color::rgb(0.867, 0.545, 0.376) // #DD8B60
+            }
+
+            // Attributes
+            "attribute" | "decorator" | "annotation" => {
+                Color::rgb(0.639, 0.745, 0.549) // #A3BE8C (like strings)
+            }
+
+            // Tags (HTML/XML)
+            "tag" | "tag.name" => {
+                Color::rgb(0.506, 0.631, 0.757) // #81A1C1
+            }
+
+            // Errors
+            "error" => {
+                Color::rgb(0.749, 0.298, 0.298) // #BF4C4C
+            }
+
+            // Default fallback
+            _ => self.theme.editor.foreground,
+        }
+    }
+
     /// Renders the editor to the canvas.
     ///
     /// Returns true if something was rendered, false if no redraw was needed.
@@ -431,11 +657,12 @@ impl WebEditor {
         let doc = &self.editor.state().document;
         let line_count = doc.line_count();
 
-        // Build visible content and line numbers, skipping hidden (folded) lines
+        // Build visible content, skipping hidden (folded) lines
+        // Line numbers are built AFTER shaping to account for line wrapping
         let mut visible_content = String::new();
-        let mut visible_line_numbers = String::new();
         let mut visual_line = 0;
         let mut doc_to_visual: Vec<Option<usize>> = Vec::with_capacity(line_count);
+        let mut visible_doc_lines: Vec<usize> = Vec::new(); // Track which doc lines are visible
 
         for doc_line in 0..line_count {
             if self.fold_state.is_line_hidden(doc_line) {
@@ -446,7 +673,6 @@ impl WebEditor {
             // Add newline separator (except for first visible line)
             if visual_line > 0 {
                 visible_content.push('\n');
-                visible_line_numbers.push('\n');
             }
 
             // Add line content
@@ -469,17 +695,9 @@ impl WebEditor {
                 }
             }
 
-            // Add line number (1-indexed)
-            let num_str = format!("{:>width$}", doc_line + 1, width = GutterRenderer::digit_columns(line_count));
-            visible_line_numbers.push_str(&num_str);
-
+            visible_doc_lines.push(doc_line);
             doc_to_visual.push(Some(visual_line));
             visual_line += 1;
-        }
-
-        // Handle empty document
-        if line_count == 0 {
-            visible_line_numbers.push_str(" 1");
         }
 
         // Calculate layout dimensions
@@ -487,7 +705,7 @@ impl WebEditor {
         let char_width = self.cached_char_width;
         let padding = 10.0_f32;
 
-        // Calculate gutter width
+        // Calculate gutter width (based on digit count, before shaping)
         let gutter_width = if self.gutter_enabled {
             self.gutter_renderer.calculate_width(line_count, char_width)
         } else {
@@ -495,7 +713,69 @@ impl WebEditor {
         };
         let content_offset_x = gutter_width + padding;
 
-        // Create line numbers text if gutter is enabled
+        // Create and shape the main content buffer FIRST
+        let content_width = self.surface.width() as f32 - content_offset_x;
+        let mut buffer = self.text_renderer.create_buffer(content_width);
+
+        // Set the text with syntax highlighting if enabled
+        let foreground = self.theme.editor.foreground;
+        if self.syntax_enabled {
+            if self.use_ts_highlights && !self.ts_highlights.is_empty() {
+                // Use tree-sitter highlights from JavaScript
+                // Clone spans to avoid borrow checker issues with self
+                let spans = self.ts_highlights.clone();
+                let rich_spans = self.build_rich_spans_from_ts(&visible_content, spans);
+                self.text_renderer
+                    .set_rich_text(&mut buffer, rich_spans.into_iter());
+            } else {
+                // Fall back to simple keyword-based highlighting
+                let spans = self.highlighter.highlight_flat(&visible_content);
+                let rich_spans: Vec<(&str, iridium_editor::theme::Color)> = spans
+                    .iter()
+                    .map(|span| (span.text.as_str(), span.color))
+                    .collect();
+                self.text_renderer
+                    .set_rich_text(&mut buffer, rich_spans.into_iter());
+            }
+        } else {
+            // Plain text
+            self.text_renderer
+                .set_text(&mut buffer, &visible_content, foreground);
+        }
+        self.text_renderer.shape_buffer(&mut buffer);
+
+        // NOW build line numbers with proper spacing for wrapped lines
+        let visual_lines_per_line = self.text_renderer.visual_lines_per_logical_line(&buffer);
+        let mut visible_line_numbers = String::new();
+        let digit_width = GutterRenderer::digit_columns(line_count);
+
+        for (i, &doc_line) in visible_doc_lines.iter().enumerate() {
+            // Add newline separator (except for first visible line)
+            if i > 0 {
+                visible_line_numbers.push('\n');
+            }
+
+            // Add line number (1-indexed)
+            let num_str = format!("{:>width$}", doc_line + 1, width = digit_width);
+            visible_line_numbers.push_str(&num_str);
+
+            // Add blank lines for wrapped visual lines (continuation lines)
+            let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
+            for _ in 1..wrap_count {
+                visible_line_numbers.push('\n');
+                // Add blank spacing to maintain alignment
+                for _ in 0..digit_width {
+                    visible_line_numbers.push(' ');
+                }
+            }
+        }
+
+        // Handle empty document
+        if line_count == 0 {
+            visible_line_numbers.push_str(" 1");
+        }
+
+        // Create gutter buffer AFTER we know the wrapping
         let gutter_buffer = if self.gutter_enabled {
             let mut gutter_buf = self.text_renderer.create_buffer(gutter_width);
             let line_number_color = self.theme.editor.line_number;
@@ -506,36 +786,22 @@ impl WebEditor {
             None
         };
 
-        // Create a text buffer for main content
-        let content_width = self.surface.width() as f32 - content_offset_x;
-        let mut buffer = self.text_renderer.create_buffer(content_width);
-
-        // Set the text with syntax highlighting if enabled
-        let foreground = self.theme.editor.foreground;
-        if self.syntax_enabled {
-            // Use syntax highlighting
-            let spans = self.highlighter.highlight_flat(&visible_content);
-            let rich_spans: Vec<(&str, iridium_editor::theme::Color)> = spans
-                .iter()
-                .map(|span| (span.text.as_str(), span.color))
-                .collect();
-            self.text_renderer
-                .set_rich_text(&mut buffer, rich_spans.into_iter());
-        } else {
-            // Plain text
-            self.text_renderer
-                .set_text(&mut buffer, &visible_content, foreground);
-        }
-        self.text_renderer.shape_buffer(&mut buffer);
-
-        // Calculate cursor position (accounting for gutter offset, folding, and scroll)
+        // Calculate cursor position (accounting for gutter offset, folding, scroll, and line wrapping)
         let cursor_pos = self.editor.cursor();
         let visual_cursor_line = doc_to_visual
             .get(cursor_pos.line)
             .and_then(|v| *v)
             .unwrap_or(0);
-        let cursor_x = content_offset_x + (cursor_pos.column as f32 * char_width);
-        let cursor_y = padding + (visual_cursor_line as f32 * line_height) - self.scroll_y;
+
+        // Use buffer layout to get accurate position with line wrapping
+        let (wrap_x, wrap_y) = self.text_renderer.cursor_position_in_buffer(
+            &buffer,
+            visual_cursor_line,
+            cursor_pos.column,
+            char_width,
+        );
+        let cursor_x = content_offset_x + wrap_x;
+        let cursor_y = padding + wrap_y - self.scroll_y;
 
         // Update cursor blink state
         self.cursor_renderer.update(Instant::now());
@@ -761,6 +1027,59 @@ impl WebEditor {
         self.syntax_enabled
     }
 
+    /// Sets highlight spans from tree-sitter (called from JavaScript).
+    ///
+    /// The spans array should contain objects with: start (byte), end (byte), type (string).
+    /// This enables proper tree-sitter syntax highlighting in the WASM build.
+    #[wasm_bindgen(js_name = setTreeSitterHighlights)]
+    pub fn set_tree_sitter_highlights(&mut self, spans_js: &JsValue) -> Result<(), JsValue> {
+        use js_sys::{Array, Reflect};
+
+        let array = Array::from(spans_js);
+        let mut spans = Vec::with_capacity(array.length() as usize);
+
+        for i in 0..array.length() {
+            let obj = array.get(i);
+            let start = Reflect::get(&obj, &JsValue::from_str("start"))
+                .map_err(|_| JsValue::from_str("missing start"))?
+                .as_f64()
+                .ok_or_else(|| JsValue::from_str("start not a number"))? as usize;
+            let end = Reflect::get(&obj, &JsValue::from_str("end"))
+                .map_err(|_| JsValue::from_str("missing end"))?
+                .as_f64()
+                .ok_or_else(|| JsValue::from_str("end not a number"))? as usize;
+            let highlight_type = Reflect::get(&obj, &JsValue::from_str("type"))
+                .map_err(|_| JsValue::from_str("missing type"))?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("type not a string"))?;
+
+            spans.push(JsHighlightSpan {
+                start,
+                end,
+                highlight_type,
+            });
+        }
+
+        self.ts_highlights = spans;
+        self.use_ts_highlights = true;
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    /// Clears tree-sitter highlights and falls back to simple highlighting.
+    #[wasm_bindgen(js_name = clearTreeSitterHighlights)]
+    pub fn clear_tree_sitter_highlights(&mut self) {
+        self.ts_highlights.clear();
+        self.use_ts_highlights = false;
+        self.needs_redraw = true;
+    }
+
+    /// Returns whether tree-sitter highlighting is active.
+    #[wasm_bindgen(js_name = isTreeSitterActive)]
+    pub fn is_tree_sitter_active(&self) -> bool {
+        self.use_ts_highlights
+    }
+
     /// Gets the current cursor line (0-indexed).
     #[wasm_bindgen(js_name = getCursorLine)]
     pub fn get_cursor_line(&self) -> u32 {
@@ -963,6 +1282,18 @@ impl WebEditor {
         self.set_selection_internal(new_pos, new_pos);
     }
 
+    /// Categorizes a character for word boundary detection.
+    /// Returns: 0 = whitespace, 1 = word (alphanumeric/_), 2 = punctuation
+    fn char_class(c: &char) -> u8 {
+        if c.is_whitespace() {
+            0
+        } else if c.is_alphanumeric() || *c == '_' {
+            1
+        } else {
+            2 // punctuation and other symbols
+        }
+    }
+
     /// Helper function to find the previous word boundary.
     fn find_word_boundary_left(&self, pos: Position) -> Position {
         let doc = &self.editor.state().document;
@@ -994,8 +1325,16 @@ impl WebEditor {
             col -= 1;
         }
 
-        // Skip word characters going backwards
-        while col > 0 && chars.get(col - 1).map(|c| c.is_alphanumeric() || *c == '_').unwrap_or(false) {
+        // If we hit the start, we're done
+        if col == 0 {
+            return Position::new(pos.line, col);
+        }
+
+        // Determine the class of character we're about to skip
+        let target_class = chars.get(col - 1).map(Self::char_class).unwrap_or(0);
+
+        // Skip characters of the same class going backwards
+        while col > 0 && chars.get(col - 1).map(Self::char_class).unwrap_or(0) == target_class {
             col -= 1;
         }
 
@@ -1024,8 +1363,11 @@ impl WebEditor {
 
         let mut col = pos.column;
 
-        // Skip word characters going forwards
-        while col < chars.len() && chars.get(col).map(|c| c.is_alphanumeric() || *c == '_').unwrap_or(false) {
+        // Determine the class of the current character
+        let current_class = chars.get(col).map(Self::char_class).unwrap_or(0);
+
+        // Skip characters of the same class going forwards
+        while col < chars.len() && chars.get(col).map(Self::char_class).unwrap_or(0) == current_class {
             col += 1;
         }
 

@@ -9,11 +9,11 @@
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages,
-    ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState,
-    PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue, RenderPass, RenderPipeline,
-    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    TextureFormat, VertexAttribute, VertexBufferLayout, VertexState, VertexStepMode,
+    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, ColorTargetState,
+    ColorWrites, Device, FragmentState, MultisampleState, PipelineLayoutDescriptor, PrimitiveState,
+    PrimitiveTopology, Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureFormat, VertexAttribute,
+    VertexBufferLayout, VertexState, VertexStepMode,
 };
 
 use crate::theme::Color as ThemeColor;

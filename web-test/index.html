@@ -62,6 +62,9 @@
             overflow: hidden;
         }
         #editor-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             display: block;
@@ -76,7 +79,7 @@
             gap: 10px;
             margin-bottom: 12px;
         }
-        button {
+        button, select {
             background: #0e639c;
             color: white;
             border: none;
@@ -85,10 +88,10 @@
             cursor: pointer;
             font-size: 13px;
         }
-        button:hover {
+        button:hover, select:hover {
             background: #1177bb;
         }
-        button:disabled {
+        button:disabled, select:disabled {
             background: #3c3c3c;
             cursor: not-allowed;
         }
@@ -154,6 +157,18 @@
             <button id="btn-fold-all" disabled>Fold All</button>
             <button id="btn-unfold-all" disabled>Unfold All</button>
             <button id="btn-toggle-fold" disabled>Toggle Fold</button>
+            <select id="lang-select" disabled>
+                <option value="rust">Rust</option>
+                <option value="typescript">TypeScript</option>
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="go">Go</option>
+                <option value="json">JSON</option>
+                <option value="yaml">YAML</option>
+                <option value="toml">TOML</option>
+                <option value="bash">Bash</option>
+                <option value="css">CSS</option>
+            </select>
         </div>
         <div class="editor-container">
             <canvas id="editor-canvas" tabindex="0"></canvas>
@@ -163,6 +178,9 @@
         </div>
         <div id="log"></div>
     </main>
+
+    <!-- Load web-tree-sitter before module scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/web-tree-sitter@0.22.6/tree-sitter.js"></script>
 
     <script type="module">
         // Logging utility
@@ -175,6 +193,604 @@
             logEl.scrollTop = logEl.scrollHeight;
             console.log(`[${type}] ${message}`);
         }
+
+        // ============================================================
+        // Tree-sitter Syntax Highlighter
+        // ============================================================
+
+        // Highlight queries for each language (simplified for compatibility with older grammars)
+        const HIGHLIGHT_QUERIES = {
+            rust: `
+(identifier) @variable
+(metavariable) @variable
+(type_identifier) @type
+(fragment_specifier) @type
+(primitive_type) @type.builtin
+(self) @variable.special
+(field_identifier) @property
+(shorthand_field_identifier) @property
+
+(trait_item name: (type_identifier) @type.interface)
+(impl_item trait: (type_identifier) @type.interface)
+(abstract_type trait: (type_identifier) @type.interface)
+(dynamic_type trait: (type_identifier) @type.interface)
+(trait_bounds (type_identifier) @type.interface)
+
+(call_expression
+  function: [
+    (identifier) @function
+    (scoped_identifier
+      name: (identifier) @function)
+    (field_expression
+      field: (field_identifier) @function.method)
+  ])
+
+(generic_function
+  function: [
+    (identifier) @function
+    (scoped_identifier
+      name: (identifier) @function)
+    (field_expression
+      field: (field_identifier) @function.method)
+  ])
+
+(function_item name: (identifier) @function.definition)
+(function_signature_item name: (identifier) @function.definition)
+
+(macro_invocation
+  macro: [
+    (identifier) @function.special
+    (scoped_identifier
+      name: (identifier) @function.special)
+  ])
+
+(macro_invocation
+  "!" @function.special)
+
+(macro_definition
+  name: (identifier) @function.special.definition)
+
+; Identifier conventions
+
+; Assume uppercase names are types/enum-constructors
+((identifier) @type
+ (#match? @type "^[A-Z]"))
+
+; Assume all-caps names are constants
+((identifier) @constant
+ (#match? @constant "^_*[A-Z][A-Z\\\\d_]*$"))
+
+[
+  "("
+  ")"
+  "{"
+  "}"
+  "["
+  "]"
+] @punctuation.bracket
+
+[
+  "."
+  ";"
+  ","
+  "::"
+] @punctuation.delimiter
+
+[
+  "#"
+] @punctuation.special
+
+[
+  "as"
+  "async"
+  "const"
+  "default"
+  "dyn"
+  "enum"
+  "extern"
+  "fn"
+  "impl"
+  "let"
+  "macro_rules!"
+  "mod"
+  "move"
+  "pub"
+  "ref"
+  "static"
+  "struct"
+  "for"
+  "trait"
+  "type"
+  "union"
+  "unsafe"
+  "use"
+  "where"
+  (crate)
+  (mutable_specifier)
+  (super)
+] @keyword
+
+[
+  "await"
+  "break"
+  "continue"
+  "else"
+  "if"
+  "in"
+  "loop"
+  "match"
+  "return"
+  "while"
+  "yield"
+] @keyword.control
+
+[
+  (string_literal)
+  (raw_string_literal)
+  (char_literal)
+] @string
+
+(escape_sequence) @string.escape
+
+[
+  (integer_literal)
+  (float_literal)
+] @number
+
+(boolean_literal) @boolean
+
+[
+  (line_comment)
+  (block_comment)
+] @comment
+
+[
+  "!="
+  "%"
+  "%="
+  "&"
+  "&="
+  "&&"
+  "*"
+  "*="
+  "+"
+  "+="
+  "-"
+  "-="
+  "->"
+  ".."
+  "..="
+  "..."
+  "/="
+  ":"
+  "<<"
+  "<<="
+  "<"
+  "<="
+  "="
+  "=="
+  "=>"
+  ">"
+  ">="
+  ">>"
+  ">>="
+  "@"
+  "^"
+  "^="
+  "|"
+  "|="
+  "||"
+  "?"
+] @operator
+
+(unary_expression "!" @operator)
+
+(lifetime
+  "'" @lifetime
+  (identifier) @lifetime)
+
+(parameter (identifier) @variable.parameter)
+
+(attribute_item (attribute [
+  (identifier) @attribute
+  (scoped_identifier name: (identifier) @attribute)
+]))
+
+(inner_attribute_item (attribute [
+  (identifier) @attribute
+  (scoped_identifier name: (identifier) @attribute)
+]))
+`,
+
+            typescript: `
+; Variables and identifiers
+(identifier) @variable
+(type_identifier) @type
+(predefined_type) @type.builtin
+(property_identifier) @property
+
+; Function calls
+(call_expression function: (identifier) @function)
+(call_expression function: (member_expression property: (property_identifier) @function.method))
+
+; Function definitions
+(function_declaration name: (identifier) @function.definition)
+(method_definition name: (property_identifier) @function.method)
+(arrow_function) @function
+
+; Parameters
+(required_parameter (identifier) @variable.parameter)
+(optional_parameter (identifier) @variable.parameter)
+
+; Literals
+(this) @variable.special
+(super) @variable.special
+(null) @constant.builtin
+(undefined) @constant.builtin
+(true) @boolean
+(false) @boolean
+(comment) @comment
+(string) @string
+(template_string) @string
+(escape_sequence) @string.escape
+(number) @number
+
+; Punctuation
+[";" "." "," ":" "?"] @punctuation.delimiter
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+
+; Operators
+["+" "-" "*" "/" "%" "=" "==" "===" "!=" "!==" "<" ">" "<=" ">=" "&&" "||" "!" "=>" "??" "..." "++" "--"] @operator
+
+; Keywords
+["abstract" "as" "async" "await" "class" "const" "debugger" "declare" "default" "delete" "enum" "export" "extends" "from" "function" "get" "implements" "import" "in" "instanceof" "interface" "is" "keyof" "let" "module" "namespace" "new" "of" "override" "private" "protected" "public" "readonly" "set" "static" "type" "typeof" "var" "void" "with"] @keyword
+
+["break" "case" "catch" "continue" "do" "else" "finally" "for" "if" "return" "switch" "throw" "try" "while" "yield"] @keyword.control
+`,
+
+            python: `
+; Identifier naming
+(identifier) @variable
+(type (identifier) @type)
+(comment) @comment
+(string) @string
+(escape_sequence) @string.escape
+
+; Function calls
+(call function: (identifier) @function)
+(call function: (attribute attribute: (identifier) @function.method))
+
+; Function definitions
+(function_definition name: (identifier) @function.definition)
+
+; Parameters
+(parameters (identifier) @variable.parameter)
+(typed_parameter (identifier) @variable.parameter)
+(default_parameter name: (identifier) @variable.parameter)
+
+; Class definitions
+(class_definition name: (identifier) @type)
+
+; Literals
+(true) @boolean
+(false) @boolean
+(none) @constant.builtin
+(integer) @number
+(float) @number
+
+; Punctuation
+["." "," ":"] @punctuation.delimiter
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+
+; Operators
+["-" "*" "**" "/" "//" "%" "+" "<" ">" "<=" ">=" "==" "!=" "=" ":=" "&" "|" "^" "~" "<<" ">>"] @operator
+["and" "in" "is" "not" "or"] @keyword.operator
+
+; Keywords
+["as" "assert" "async" "await" "break" "class" "continue" "def" "del" "elif" "else" "except" "finally" "for" "from" "global" "if" "import" "lambda" "nonlocal" "pass" "raise" "return" "try" "while" "with" "yield" "match" "case"] @keyword
+`,
+
+            javascript: `
+(identifier) @variable
+(property_identifier) @property
+(call_expression function: (identifier) @function)
+(call_expression function: (member_expression property: (property_identifier) @function.method))
+(function_declaration name: (identifier) @function.definition)
+(method_definition name: (property_identifier) @function.method)
+(arrow_function) @function
+(formal_parameters (identifier) @variable.parameter)
+(this) @variable.special
+(super) @variable.special
+(null) @constant.builtin
+(undefined) @constant.builtin
+(true) @boolean
+(false) @boolean
+(comment) @comment
+(string) @string
+(template_string) @string
+(escape_sequence) @string.escape
+(number) @number
+(regex) @string.regex
+[";" "." "," ":" "?"] @punctuation.delimiter
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+["+" "-" "*" "/" "%" "=" "==" "===" "!=" "!==" "<" ">" "<=" ">=" "&&" "||" "!" "=>" "??" "..." "++" "--"] @operator
+["as" "async" "await" "class" "const" "debugger" "default" "delete" "export" "extends" "from" "function" "get" "import" "in" "instanceof" "let" "new" "of" "set" "static" "typeof" "var" "void" "with"] @keyword
+["break" "case" "catch" "continue" "do" "else" "finally" "for" "if" "return" "switch" "throw" "try" "while" "yield"] @keyword.control
+`,
+
+            json: `
+(string) @string
+(number) @number
+(null) @constant.builtin
+(true) @boolean
+(false) @boolean
+(pair key: (string) @property)
+["," ":"] @punctuation.delimiter
+["[" "]" "{" "}"] @punctuation.bracket
+`,
+
+            yaml: `
+(comment) @comment
+(double_quote_scalar) @string
+(single_quote_scalar) @string
+(integer_scalar) @number
+(float_scalar) @number
+(boolean_scalar) @boolean
+(null_scalar) @constant.builtin
+`,
+
+            bash: `
+(variable_name) @variable
+(command_name) @function
+(comment) @comment
+(string) @string
+(number) @number
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+[";" "&"] @punctuation.delimiter
+`,
+
+            css: `
+(comment) @comment
+(tag_name) @tag
+(class_name) @type
+(id_name) @constant
+(property_name) @property
+(plain_value) @string
+(string_value) @string
+(color_value) @number
+(integer_value) @number
+(float_value) @number
+["," ":" ";"] @punctuation.delimiter
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+`,
+
+            go: `
+(identifier) @variable
+(type_identifier) @type
+(field_identifier) @property
+(package_identifier) @variable
+(call_expression function: (identifier) @function)
+(call_expression function: (selector_expression field: (field_identifier) @function.method))
+(function_declaration name: (identifier) @function.definition)
+(method_declaration name: (field_identifier) @function.method)
+(parameter_declaration (identifier) @variable.parameter)
+(comment) @comment
+(interpreted_string_literal) @string
+(raw_string_literal) @string
+(rune_literal) @string
+(escape_sequence) @string.escape
+(int_literal) @number
+(float_literal) @number
+(imaginary_literal) @number
+(true) @boolean
+(false) @boolean
+(nil) @constant.builtin
+["." "," ":" ";"] @punctuation.delimiter
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+["+" "-" "*" "/" "%" "&" "|" "^" "<" ">" "=" "!" ":=" "+=" "-=" "*=" "/=" "==" "!=" "<=" ">=" "&&" "||" "<<" ">>" "&^" "<-"] @operator
+["break" "case" "chan" "const" "continue" "default" "defer" "else" "fallthrough" "for" "func" "go" "goto" "if" "import" "interface" "map" "package" "range" "return" "select" "struct" "switch" "type" "var"] @keyword
+`,
+
+            toml: `
+(comment) @comment
+(string) @string
+(integer) @number
+(float) @number
+(boolean) @boolean
+(bare_key) @property
+(quoted_key) @property
+["=" "." ","] @punctuation.delimiter
+["[" "]" "{" "}"] @punctuation.bracket
+`
+        };
+
+        // Grammar WASM URLs from Sourcegraph's pre-built package
+        const GRAMMAR_URLS = {
+            rust: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-rust.wasm',
+            typescript: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-typescript.wasm',
+            python: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-python.wasm',
+            javascript: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-javascript.wasm',
+            json: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-json.wasm',
+            yaml: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-yaml.wasm',
+            bash: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-bash.wasm',
+            css: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-css.wasm',
+            go: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-go.wasm',
+            toml: 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-toml.wasm'
+        };
+
+        /**
+         * SyntaxManager handles tree-sitter parsing and highlighting.
+         * It loads the tree-sitter library and grammar WASM files,
+         * then provides highlight spans for the Rust renderer.
+         */
+        class SyntaxManager {
+            constructor() {
+                this.Parser = null;
+                this.parser = null;
+                this.languages = {}; // { langName: { grammar, query } }
+                this.currentLang = 'rust';
+                this.tree = null;
+                this.ready = false;
+                this.parseErrors = {}; // Track grammars that have parse errors
+            }
+
+            async initialize(defaultLang = 'rust') {
+                try {
+                    log('Initializing tree-sitter...');
+
+                    // Initialize tree-sitter WASM
+                    await TreeSitter.init();
+                    this.Parser = TreeSitter;
+                    this.parser = new this.Parser();
+
+                    // Load the default language
+                    await this.loadLanguage(defaultLang);
+                    this.currentLang = defaultLang;
+
+                    this.ready = true;
+                    log(`Tree-sitter initialized with ${defaultLang} grammar`, 'success');
+                    return true;
+                } catch (e) {
+                    log(`Tree-sitter initialization failed: ${e.message}`, 'error');
+                    console.error('Tree-sitter init error:', e);
+                    this.ready = false;
+                    return false;
+                }
+            }
+
+            async loadLanguage(langName) {
+                if (this.languages[langName]) {
+                    return; // Already loaded
+                }
+
+                const url = GRAMMAR_URLS[langName];
+                const query = HIGHLIGHT_QUERIES[langName];
+
+                if (!url || !query) {
+                    throw new Error(`Unsupported language: ${langName}`);
+                }
+
+                log(`Loading ${langName} grammar...`);
+                const grammar = await this.Parser.Language.load(url);
+
+                log(`Compiling ${langName} highlight query...`);
+                const compiledQuery = grammar.query(query);
+
+                this.languages[langName] = { grammar, query: compiledQuery };
+            }
+
+            async setLanguage(langName) {
+                if (!this.ready) return;
+
+                try {
+                    await this.loadLanguage(langName);
+                    this.currentLang = langName;
+                    this.parser.setLanguage(this.languages[langName].grammar);
+                    this.tree = null; // Clear cached tree
+                    // Clear parse error flag - give it a fresh chance with new content
+                    delete this.parseErrors[langName];
+                    log(`Switched to ${langName}`, 'success');
+                } catch (e) {
+                    log(`Failed to switch language: ${e.message}`, 'error');
+                }
+            }
+
+            getCurrentLanguage() {
+                return this.currentLang;
+            }
+
+            getAvailableLanguages() {
+                return Object.keys(GRAMMAR_URLS);
+            }
+
+            /**
+             * Parse content and return highlight spans.
+             * Each span has: { start: number, end: number, type: string }
+             */
+            highlight(content) {
+                if (!this.ready || !this.languages[this.currentLang]) {
+                    return [];
+                }
+
+                // Skip if this grammar has known parse errors
+                if (this.parseErrors[this.currentLang]) {
+                    return [];
+                }
+
+                try {
+                    const langData = this.languages[this.currentLang];
+
+                    // Ensure parser has correct language set
+                    this.parser.setLanguage(langData.grammar);
+
+                    // Parse the content
+                    this.tree = this.parser.parse(content);
+
+                    // Run the highlight query
+                    const captures = langData.query.captures(this.tree.rootNode);
+
+                    // Convert captures to spans
+                    const spans = captures.map(capture => ({
+                        start: capture.node.startIndex,
+                        end: capture.node.endIndex,
+                        type: capture.name
+                    }));
+
+                    // Sort by start position and remove duplicates
+                    spans.sort((a, b) => a.start - b.start || a.end - b.end);
+
+                    return spans;
+                } catch (e) {
+                    // Only log once per grammar to avoid console spam
+                    if (!this.parseErrors[this.currentLang]) {
+                        console.warn(`[${this.currentLang}] Parser error (grammar may be incompatible):`, e.message);
+                        this.parseErrors[this.currentLang] = true;
+                    }
+                    return [];
+                }
+            }
+
+            /**
+             * Incremental update after an edit.
+             */
+            update(content, startByte, oldEndByte, newEndByte, startPoint, oldEndPoint, newEndPoint) {
+                if (!this.ready || !this.tree || !this.languages[this.currentLang]) {
+                    return this.highlight(content);
+                }
+
+                try {
+                    const langData = this.languages[this.currentLang];
+
+                    // Apply the edit to the existing tree
+                    this.tree.edit({
+                        startIndex: startByte,
+                        oldEndIndex: oldEndByte,
+                        newEndIndex: newEndByte,
+                        startPosition: startPoint,
+                        oldEndPosition: oldEndPoint,
+                        newEndPosition: newEndPoint
+                    });
+
+                    // Reparse with the edited tree
+                    this.tree = this.parser.parse(content, this.tree);
+
+                    // Run the highlight query
+                    const captures = langData.query.captures(this.tree.rootNode);
+
+                    return captures.map(capture => ({
+                        start: capture.node.startIndex,
+                        end: capture.node.endIndex,
+                        type: capture.name
+                    }));
+                } catch (e) {
+                    console.error('Incremental update error:', e);
+                    return this.highlight(content);
+                }
+            }
+        }
+
+        // Global syntax manager instance
+        const syntaxManager = new SyntaxManager();
 
         // Status indicators
         const webgpuStatus = document.getElementById('webgpu-status');
@@ -192,6 +808,7 @@
         const btnFoldAll = document.getElementById('btn-fold-all');
         const btnUnfoldAll = document.getElementById('btn-unfold-all');
         const btnToggleFold = document.getElementById('btn-toggle-fold');
+        const langSelect = document.getElementById('lang-select');
 
         // Info panel
         const infoPanel = document.getElementById('info');
@@ -211,7 +828,25 @@
             const foldedLines = editor.getFoldedLines();
             const hiddenCount = editor.getHiddenLineCount();
             const isFoldable = editor.isFoldable(line);
-            infoPanel.textContent = `Cursor: Line ${line}, Col ${col} | Lines: ${lines} (${hiddenCount} hidden) | Foldable: ${foldableLines.length} | Folded: ${foldedLines.length} | Line foldable: ${isFoldable}`;
+            const tsActive = editor.isTreeSitterActive ? editor.isTreeSitterActive() : false;
+            const lang = syntaxManager.getCurrentLanguage();
+            infoPanel.textContent = `Cursor: Line ${line}, Col ${col} | Lines: ${lines} (${hiddenCount} hidden) | Lang: ${lang} | TS: ${tsActive ? 'on' : 'off'}`;
+        }
+
+        /**
+         * Updates syntax highlighting using tree-sitter.
+         * Called after content changes.
+         */
+        function updateHighlights() {
+            if (!editor || !syntaxManager.ready) return;
+
+            try {
+                const content = editor.getContent();
+                const spans = syntaxManager.highlight(content);
+                editor.setTreeSitterHighlights(spans);
+            } catch (e) {
+                console.error('Failed to update highlights:', e);
+            }
         }
 
         async function init() {
@@ -284,6 +919,9 @@
                 editor.loadFont(fontData);
                 log('Font loaded', 'success');
 
+                // Initialize tree-sitter for proper syntax highlighting
+                await syntaxManager.initialize();
+
                 // Set initial content - has multiple foldable regions
                 editor.setContent(`// Welcome to Iridium Editor!
 // This is a GPU-accelerated text editor built with Rust and WebGPU.
@@ -313,6 +951,9 @@ struct Example {
 `);
                 log('Initial content set');
 
+                // Apply tree-sitter highlighting
+                updateHighlights();
+
                 // Initial render
                 editor.forceRender();
                 log('Initial render complete', 'success');
@@ -328,28 +969,41 @@ struct Example {
                 btnFoldAll.disabled = false;
                 btnUnfoldAll.disabled = false;
                 btnToggleFold.disabled = false;
+                langSelect.disabled = false;
+
+                // Set up language selector handler
+                langSelect.addEventListener('change', async (e) => {
+                    await syntaxManager.setLanguage(e.target.value);
+                    updateHighlights();
+                    editor.forceRender();
+                    updateInfo();
+                });
 
                 // Set up button handlers
                 btnInsert.addEventListener('click', () => {
                     editor.insert('\n// Inserted line');
+                    updateHighlights();
                     editor.forceRender();
                     updateInfo();
                 });
 
                 btnClear.addEventListener('click', () => {
                     editor.setContent('');
+                    updateHighlights();
                     editor.forceRender();
                     updateInfo();
                 });
 
                 btnUndo.addEventListener('click', () => {
                     editor.undo();
+                    updateHighlights();
                     editor.forceRender();
                     updateInfo();
                 });
 
                 btnRedo.addEventListener('click', () => {
                     editor.redo();
+                    updateHighlights();
                     editor.forceRender();
                     updateInfo();
                 });
@@ -667,6 +1321,7 @@ struct Example {
                             if (text) {
                                 navigator.clipboard.writeText(text).then(() => {
                                     editor.backspace(); // Delete the selection
+                                    updateHighlights();
                                     editor.forceRender();
                                     updateInfo();
                                     log('Cut to clipboard');
@@ -679,6 +1334,7 @@ struct Example {
                             navigator.clipboard.readText().then(text => {
                                 if (text) {
                                     editor.insert(text);
+                                    updateHighlights();
                                     editor.forceRender();
                                     updateInfo();
                                     log('Pasted from clipboard');
@@ -696,6 +1352,7 @@ struct Example {
                     if (handled) {
                         e.preventDefault();
                         editor.ensureCursorVisible();
+                        updateHighlights(); // Update tree-sitter highlighting
                         editor.forceRender();
                         updateInfo();
                     }

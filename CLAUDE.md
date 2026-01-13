@@ -63,4 +63,15 @@ cargo bench
 Shared dependencies are defined in root `Cargo.toml` under `[workspace.dependencies]`. Individual crates use `feature.workspace = true` to inherit them.
 
 <!-- MANUAL ADDITIONS START -->
+
+## BANNED PORTS - DO NOT USE
+
+**NEVER RUN SERVERS ON THESE PORTS:**
+- 3000
+- 3030
+- 8000
+- 8080
+
+These are always in use. Everything tries to use port 3000. Use obscure ports like 12223, 14567, etc.
+
 <!-- MANUAL ADDITIONS END -->

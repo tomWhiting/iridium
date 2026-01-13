@@ -7,6 +7,14 @@
   "types": "./pkg/iridium_bindings.d.ts",
   "exports": {
     ".": {
+      "types": "./ts/controller/index.ts",
+      "default": "./ts/controller/index.ts"
+    },
+    "./controller": {
+      "types": "./ts/controller/index.ts",
+      "default": "./ts/controller/index.ts"
+    },
+    "./wasm": {
       "types": "./pkg/iridium_bindings.d.ts",
       "default": "./pkg/iridium_bindings.js"
     },

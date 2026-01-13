@@ -61,7 +61,7 @@ export class SyntaxHighlighter {
       return false;
     }
 
-    const querySource = HIGHLIGHT_QUERIES[lang];
+    const querySource = HIGHLIGHT_QUERIES[lang]?.trim();
     if (!querySource) {
       console.error(`[Syntax] No highlight query for: ${lang}`);
       return false;

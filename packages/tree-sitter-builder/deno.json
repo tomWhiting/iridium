@@ -1,0 +1,10 @@
+{
+  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
+  "name": "@iridium/tree-sitter-builder",
+  "version": "0.1.0",
+  "tasks": {
+    "build": "deno run -A build.ts",
+    "build:quick": "deno run -A build.ts --quick",
+    "clean": "rm -rf .cache"
+  }
+}

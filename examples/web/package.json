@@ -5,21 +5,26 @@
   "description": "Example React application using the Iridium editor",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "dev": "vite --port 12223",
+    "build": "tsx scripts/inline-grammars.ts && tsc && vite build",
+    "preview": "vite preview --port 12223",
+    "typecheck": "tsc --noEmit",
+    "inline-grammars": "tsx scripts/inline-grammars.ts"
   },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "iridium-bindings": "file:../../crates/iridium-bindings"
+    "iridium-bindings": "file:../../crates/iridium-bindings",
+    "web-tree-sitter": "^0.24.3"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vite-plugin-static-copy": "^2.2.0"
   }
 }

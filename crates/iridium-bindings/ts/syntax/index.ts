@@ -1,13 +1,15 @@
 /**
- * Tree-sitter syntax highlighting with inlined grammars.
+ * Tree-sitter syntax highlighting with bundled grammars.
  *
  * Grammars are embedded as base64 at build time - no runtime HTTP requests.
+ * Uses tree-sitter-wasms@0.1.13 grammars for query compatibility.
  */
 
 import TreeSitter from "web-tree-sitter";
 import { decodeGrammar, AVAILABLE_LANGUAGES } from "./grammars.gen";
 import { HIGHLIGHT_QUERIES } from "./queries";
 
+export { AVAILABLE_LANGUAGES };
 export type Language = (typeof AVAILABLE_LANGUAGES)[number];
 
 export interface HighlightSpan {
@@ -22,7 +24,7 @@ interface LanguageData {
 }
 
 /**
- * Syntax highlighter using tree-sitter with inlined grammars.
+ * Syntax highlighter using tree-sitter.
  */
 export class SyntaxHighlighter {
   private parser: TreeSitter | null = null;
@@ -36,7 +38,6 @@ export class SyntaxHighlighter {
    */
   async initialize(defaultLanguage: string = "rust"): Promise<void> {
     // Initialize tree-sitter with CDN locator for the core WASM file
-    // (grammars are still loaded from our inlined base64 data)
     await TreeSitter.init({
       locateFile(scriptName: string) {
         return `https://cdn.jsdelivr.net/npm/web-tree-sitter@0.24.3/${scriptName}`;
@@ -48,7 +49,7 @@ export class SyntaxHighlighter {
   }
 
   /**
-   * Load a language grammar from inlined data.
+   * Load a language grammar from bundled data.
    */
   private async loadLanguage(lang: string): Promise<boolean> {
     if (this.languages.has(lang)) {
@@ -57,7 +58,7 @@ export class SyntaxHighlighter {
 
     const wasmBytes = decodeGrammar(lang);
     if (!wasmBytes) {
-      console.error(`[Syntax] No grammar data for: ${lang}`);
+      console.error(`[Syntax] No bundled grammar for: ${lang}`);
       return false;
     }
 
@@ -68,9 +69,11 @@ export class SyntaxHighlighter {
     }
 
     try {
+      console.log(`[Syntax] Loading ${lang} grammar from bundle...`);
       const grammar = await TreeSitter.Language.load(wasmBytes);
       const query = grammar.query(querySource);
       this.languages.set(lang, { grammar, query });
+      console.log(`[Syntax] ${lang} loaded successfully`);
       return true;
     } catch (e) {
       console.error(`[Syntax] Failed to load ${lang}:`, e);
@@ -159,5 +162,3 @@ export async function getSyntax(): Promise<SyntaxHighlighter> {
   }
   return instance;
 }
-
-export { AVAILABLE_LANGUAGES };

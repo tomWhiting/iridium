@@ -1,0 +1,9 @@
+{
+  "name": "iridium-web-component-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "deno run -A npm:vite --port 12224"
+  }
+}

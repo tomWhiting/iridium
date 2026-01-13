@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iridium Web Component Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #333;
+      background: #252525;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 16px;
+      border-bottom: 1px solid #333;
+      background: #252525;
+    }
+    button {
+      padding: 6px 12px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #333;
+      color: #e0e0e0;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #3a3a3a;
+    }
+    select {
+      padding: 6px 12px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #333;
+      color: #e0e0e0;
+      font-size: 0.875rem;
+    }
+    .editor-container {
+      flex: 1;
+      overflow: hidden;
+    }
+    iridium-editor {
+      width: 100%;
+      height: 100%;
+    }
+    footer {
+      padding: 6px 16px;
+      border-top: 1px solid #333;
+      background: #252525;
+      font-size: 0.75rem;
+      color: #888;
+      display: flex;
+      gap: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Iridium Web Component</h1>
+      <span id="status">Loading...</span>
+    </header>
+
+    <div class="toolbar">
+      <button id="toggleTheme">Toggle Theme</button>
+      <button id="foldAll">Fold All</button>
+      <button id="unfoldAll">Unfold All</button>
+      <select id="language">
+        <option value="rust">Rust</option>
+        <option value="typescript">TypeScript</option>
+        <option value="javascript">JavaScript</option>
+        <option value="python">Python</option>
+        <option value="go">Go</option>
+        <option value="json">JSON</option>
+      </select>
+    </div>
+
+    <div class="editor-container">
+      <iridium-editor
+        id="editor"
+        language="rust"
+        theme="dark"
+      ></iridium-editor>
+    </div>
+
+    <footer>
+      <span id="cursor">Ln 1, Col 1</span>
+      <span id="lines">0 lines</span>
+      <span id="lang">Rust</span>
+    </footer>
+  </div>
+
+  <script type="module">
+    // Import the web component
+    import 'iridium-bindings/element';
+
+    const editor = document.getElementById('editor');
+    const statusEl = document.getElementById('status');
+    const cursorEl = document.getElementById('cursor');
+    const linesEl = document.getElementById('lines');
+    const langEl = document.getElementById('lang');
+
+    // Set initial content
+    const SAMPLE_CODE = `// Iridium Editor Demo
+// A GPU-accelerated text editor built with Rust and WebGPU
+
+fn main() {
+    println!("Hello, Iridium!");
+
+    // Features:
+    // - 120fps rendering
+    // - Multi-cursor editing
+    // - Tree-sitter syntax highlighting
+    // - Code folding
+    // - Search & replace
+
+    let editor = Editor::new();
+    editor.set_content("Hello, World!");
+
+    loop {
+        editor.render();
+        editor.handle_input();
+    }
+}
+
+struct Editor {
+    content: String,
+    cursor: Position,
+    selection: Option<Selection>,
+}
+
+impl Editor {
+    fn new() -> Self {
+        Self {
+            content: String::new(),
+            cursor: Position::zero(),
+            selection: None,
+        }
+    }
+
+    fn render(&self) {
+        // GPU-accelerated rendering at 120fps
+    }
+
+    fn handle_input(&mut self) {
+        // Low-latency input handling
+    }
+}
+`;
+
+    // Wait for editor to be ready
+    editor.addEventListener('iridium-ready', () => {
+      statusEl.textContent = 'Ready';
+      editor.setContent(SAMPLE_CODE);
+      updateStatus();
+    });
+
+    // Update cursor position
+    editor.addEventListener('iridium-selection', (e) => {
+      cursorEl.textContent = `Ln ${e.detail.line + 1}, Col ${e.detail.column + 1}`;
+    });
+
+    // Update line count on change
+    editor.addEventListener('iridium-change', (e) => {
+      const lines = e.detail.content.split('\n').length;
+      linesEl.textContent = `${lines} lines`;
+    });
+
+    function updateStatus() {
+      const content = editor.getContent();
+      const lines = content.split('\n').length;
+      linesEl.textContent = `${lines} lines`;
+    }
+
+    // Toolbar handlers
+    let isDark = true;
+    document.getElementById('toggleTheme').addEventListener('click', () => {
+      isDark = !isDark;
+      editor.setTheme(isDark);
+    });
+
+    document.getElementById('foldAll').addEventListener('click', () => {
+      editor.foldAll();
+    });
+
+    document.getElementById('unfoldAll').addEventListener('click', () => {
+      editor.unfoldAll();
+    });
+
+    document.getElementById('language').addEventListener('change', async (e) => {
+      const lang = e.target.value;
+      await editor.setLanguage(lang);
+      langEl.textContent = e.target.options[e.target.selectedIndex].text;
+    });
+  </script>
+</body>
+</html>

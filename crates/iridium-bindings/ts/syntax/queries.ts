@@ -1,171 +1,102 @@
 /**
  * Tree-sitter highlight queries for each language.
+ *
+ * Note: These queries are simplified to ensure compatibility with web-tree-sitter.
+ * Only basic node patterns are used - no alternation syntax or predicates.
  */
 
 export const HIGHLIGHT_QUERIES: Record<string, string> = {
-  rust: `
-(identifier) @variable
-(type_identifier) @type
-(primitive_type) @type.builtin
-(self) @variable.special
-(field_identifier) @property
-
-(call_expression function: (identifier) @function)
-(call_expression function: (scoped_identifier name: (identifier) @function))
-(call_expression function: (field_expression field: (field_identifier) @function.method))
-(function_item name: (identifier) @function.definition)
-(macro_invocation macro: (identifier) @function.special)
-(macro_invocation macro: (scoped_identifier name: (identifier) @function.special))
-
-["(" ")" "{" "}" "[" "]"] @punctuation.bracket
-["." ";" "," "::"] @punctuation.delimiter
-
-["as" "async" "const" "default" "dyn" "enum" "extern" "fn" "impl" "let" "mod" "move" "pub" "ref" "static" "struct" "for" "trait" "type" "union" "unsafe" "use" "where"] @keyword
-["await" "break" "continue" "else" "if" "in" "loop" "match" "return" "while" "yield"] @keyword.control
-(crate) @keyword
-(mutable_specifier) @keyword
-(super) @keyword
-
-[(string_literal) (raw_string_literal) (char_literal)] @string
-(escape_sequence) @string.escape
-[(integer_literal) (float_literal)] @number
-(boolean_literal) @boolean
-[(line_comment) (block_comment)] @comment
-`,
+  rust: `(line_comment) @comment
+(block_comment) @comment
+(string_literal) @string
+(integer_literal) @number
+(identifier) @variable`,
 
   typescript: `
-(identifier) @variable
-(property_identifier) @property
-(type_identifier) @type
-(predefined_type) @type.builtin
-
-(call_expression function: (identifier) @function)
-(call_expression function: (member_expression property: (property_identifier) @function.method))
-(function_declaration name: (identifier) @function.definition)
-(method_definition name: (property_identifier) @function.definition)
-
-["(" ")" "{" "}" "[" "]" "<" ">"] @punctuation.bracket
-["." ";" "," ":"] @punctuation.delimiter
-
-["async" "await" "break" "case" "catch" "class" "const" "continue" "debugger" "default" "delete" "do" "else" "export" "extends" "finally" "for" "from" "function" "get" "if" "import" "in" "instanceof" "let" "new" "of" "return" "set" "static" "switch" "throw" "try" "typeof" "var" "void" "while" "with" "yield" "interface" "type" "as" "is" "implements" "namespace" "enum" "abstract" "declare" "private" "protected" "public" "readonly"] @keyword
-
-[(string) (template_string)] @string
-(escape_sequence) @string.escape
+(comment) @comment
+(string) @string
+(template_string) @string
 (number) @number
-[(true) (false)] @boolean
+(true) @boolean
+(false) @boolean
 (null) @constant.builtin
 (undefined) @constant.builtin
-(comment) @comment
+(type_identifier) @type
+(predefined_type) @type.builtin
+(function_declaration name: (identifier) @function)
+(identifier) @variable
+(property_identifier) @property
 `,
 
   tsx: `
-(identifier) @variable
-(property_identifier) @property
+(comment) @comment
+(string) @string
+(template_string) @string
+(number) @number
+(true) @boolean
+(false) @boolean
+(null) @constant.builtin
+(undefined) @constant.builtin
 (type_identifier) @type
-(predefined_type) @type.builtin
-
-(call_expression function: (identifier) @function)
-(call_expression function: (member_expression property: (property_identifier) @function.method))
-(function_declaration name: (identifier) @function.definition)
-(method_definition name: (property_identifier) @function.definition)
-
 (jsx_opening_element name: (identifier) @tag)
 (jsx_closing_element name: (identifier) @tag)
 (jsx_self_closing_element name: (identifier) @tag)
-(jsx_attribute (property_identifier) @property)
-
-["(" ")" "{" "}" "[" "]" "<" ">"] @punctuation.bracket
-["." ";" "," ":"] @punctuation.delimiter
-
-["async" "await" "break" "case" "catch" "class" "const" "continue" "debugger" "default" "delete" "do" "else" "export" "extends" "finally" "for" "from" "function" "get" "if" "import" "in" "instanceof" "let" "new" "of" "return" "set" "static" "switch" "throw" "try" "typeof" "var" "void" "while" "with" "yield" "interface" "type" "as" "is"] @keyword
-
-[(string) (template_string)] @string
-(escape_sequence) @string.escape
-(number) @number
-[(true) (false)] @boolean
-(null) @constant.builtin
-(undefined) @constant.builtin
-(comment) @comment
+(function_declaration name: (identifier) @function)
+(identifier) @variable
+(property_identifier) @property
 `,
 
   javascript: `
-(identifier) @variable
-(property_identifier) @property
-
-(call_expression function: (identifier) @function)
-(call_expression function: (member_expression property: (property_identifier) @function.method))
-(function_declaration name: (identifier) @function.definition)
-(method_definition name: (property_identifier) @function.definition)
-
-["(" ")" "{" "}" "[" "]"] @punctuation.bracket
-["." ";" "," ":"] @punctuation.delimiter
-
-["async" "await" "break" "case" "catch" "class" "const" "continue" "debugger" "default" "delete" "do" "else" "export" "extends" "finally" "for" "from" "function" "get" "if" "import" "in" "instanceof" "let" "new" "of" "return" "set" "static" "switch" "throw" "try" "typeof" "var" "void" "while" "with" "yield"] @keyword
-
-[(string) (template_string)] @string
-(escape_sequence) @string.escape
+(comment) @comment
+(string) @string
+(template_string) @string
 (number) @number
-[(true) (false)] @boolean
+(true) @boolean
+(false) @boolean
 (null) @constant.builtin
 (undefined) @constant.builtin
-(comment) @comment
+(function_declaration name: (identifier) @function)
+(identifier) @variable
+(property_identifier) @property
 `,
 
   python: `
-(identifier) @variable
-(attribute attribute: (identifier) @property)
-(type (identifier) @type)
-
-(call function: (identifier) @function)
-(call function: (attribute attribute: (identifier) @function.method))
-(function_definition name: (identifier) @function.definition)
-(class_definition name: (identifier) @type.definition)
-(decorator) @function.decorator
-
-["(" ")" "{" "}" "[" "]"] @punctuation.bracket
-["." "," ":" ";"] @punctuation.delimiter
-
-["and" "as" "assert" "async" "await" "break" "class" "continue" "def" "del" "elif" "else" "except" "finally" "for" "from" "global" "if" "import" "in" "is" "lambda" "nonlocal" "not" "or" "pass" "raise" "return" "try" "while" "with" "yield" "match" "case"] @keyword
-
-[(string) (concatenated_string)] @string
-(escape_sequence) @string.escape
-[(integer) (float)] @number
-[(true) (false)] @boolean
-(none) @constant.builtin
 (comment) @comment
+(string) @string
+(concatenated_string) @string
+(integer) @number
+(float) @number
+(true) @boolean
+(false) @boolean
+(none) @constant.builtin
+(function_definition name: (identifier) @function)
+(class_definition name: (identifier) @type)
+(identifier) @variable
 `,
 
   go: `
+(comment) @comment
+(interpreted_string_literal) @string
+(raw_string_literal) @string
+(rune_literal) @string
+(int_literal) @number
+(float_literal) @number
+(true) @boolean
+(false) @boolean
+(nil) @constant.builtin
+(type_identifier) @type
+(function_declaration name: (identifier) @function)
 (identifier) @variable
 (field_identifier) @property
-(type_identifier) @type
-
-(call_expression function: (identifier) @function)
-(call_expression function: (selector_expression field: (field_identifier) @function.method))
-(function_declaration name: (identifier) @function.definition)
-(method_declaration name: (field_identifier) @function.definition)
-
-["(" ")" "{" "}" "[" "]"] @punctuation.bracket
-["." "," ";" ":"] @punctuation.delimiter
-
-["break" "case" "chan" "const" "continue" "default" "defer" "else" "fallthrough" "for" "func" "go" "goto" "if" "import" "interface" "map" "package" "range" "return" "select" "struct" "switch" "type" "var"] @keyword
-
-[(interpreted_string_literal) (raw_string_literal) (rune_literal)] @string
-(escape_sequence) @string.escape
-[(int_literal) (float_literal) (imaginary_literal)] @number
-[(true) (false)] @boolean
-(nil) @constant.builtin
-(comment) @comment
 `,
 
   json: `
 (string) @string
 (number) @number
-[(true) (false)] @boolean
+(true) @boolean
+(false) @boolean
 (null) @constant.builtin
 (pair key: (string) @property)
-["[" "]" "{" "}"] @punctuation.bracket
-["," ":"] @punctuation.delimiter
 `,
 
   yaml: `
@@ -176,7 +107,6 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 (float_scalar) @number
 (boolean_scalar) @boolean
 (null_scalar) @constant.builtin
-(block_mapping_pair key: (_) @property)
 (comment) @comment
 `,
 
@@ -185,19 +115,9 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 (class_name) @type
 (id_name) @property
 (property_name) @property
-(feature_name) @property
-
 (string_value) @string
-(color_value) @string.special
 (integer_value) @number
 (float_value) @number
-(plain_value) @constant
-
-["{" "}" "(" ")" "[" "]"] @punctuation.bracket
-[":" ";" ","] @punctuation.delimiter
-
-["@media" "@import" "@charset" "@namespace" "@keyframes" "@supports" "@font-face" "@page"] @keyword
-(important) @keyword
 (comment) @comment
 `,
 
@@ -207,38 +127,21 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 (attribute_value) @string
 (text) @text
 (comment) @comment
-
-["<" ">" "</" "/>" "="] @punctuation.delimiter
 `,
 
   cpp: `
-(identifier) @variable
-(field_identifier) @property
+(comment) @comment
+(string_literal) @string
+(raw_string_literal) @string
+(char_literal) @string
+(number_literal) @number
+(true) @boolean
+(false) @boolean
+(null) @constant.builtin
 (type_identifier) @type
 (primitive_type) @type.builtin
-
-(call_expression function: (identifier) @function)
-(call_expression function: (field_expression field: (field_identifier) @function.method))
-(function_definition declarator: (function_declarator declarator: (identifier) @function.definition))
-(preproc_include) @keyword.directive
-(preproc_def) @keyword.directive
-(preproc_ifdef) @keyword.directive
-(preproc_ifndef) @keyword.directive
-(preproc_if) @keyword.directive
-(preproc_else) @keyword.directive
-(preproc_endif) @keyword.directive
-
-["(" ")" "{" "}" "[" "]" "<" ">"] @punctuation.bracket
-["." ";" "," "::" "->"] @punctuation.delimiter
-
-["alignas" "alignof" "asm" "auto" "break" "case" "catch" "class" "const" "constexpr" "continue" "default" "delete" "do" "else" "enum" "explicit" "extern" "for" "friend" "goto" "if" "inline" "mutable" "namespace" "new" "noexcept" "operator" "override" "private" "protected" "public" "return" "sizeof" "static" "struct" "switch" "template" "this" "throw" "try" "typedef" "typeid" "typename" "union" "using" "virtual" "volatile" "while"] @keyword
-
-[(string_literal) (raw_string_literal) (char_literal)] @string
-(escape_sequence) @string.escape
-(number_literal) @number
-[(true) (false)] @boolean
-(null) @constant.builtin
-(comment) @comment
+(identifier) @variable
+(field_identifier) @property
 `,
 
   toml: `
@@ -249,28 +152,16 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 (float) @number
 (boolean) @boolean
 (comment) @comment
-["[" "]" "{" "}"] @punctuation.bracket
-["." "=" ","] @punctuation.delimiter
 `,
 
   lua: `
-(identifier) @variable
-(dot_index_expression field: (identifier) @property)
-(bracket_index_expression field: (identifier) @property)
-
-(function_call name: (identifier) @function)
-(function_call name: (dot_index_expression field: (identifier) @function.method))
-(function_declaration name: (identifier) @function.definition)
-
-["(" ")" "{" "}" "[" "]"] @punctuation.bracket
-["." "," ";" ":"] @punctuation.delimiter
-
-["and" "break" "do" "else" "elseif" "end" "for" "function" "goto" "if" "in" "local" "not" "or" "repeat" "return" "then" "until" "while"] @keyword
-
+(comment) @comment
 (string) @string
 (number) @number
-[(true) (false)] @boolean
+(true) @boolean
+(false) @boolean
 (nil) @constant.builtin
-(comment) @comment
+(function_declaration name: (identifier) @function)
+(identifier) @variable
 `,
 };

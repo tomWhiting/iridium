@@ -21,6 +21,10 @@
     "./syntax": {
       "types": "./ts/syntax/index.ts",
       "default": "./ts/syntax/index.ts"
+    },
+    "./element": {
+      "types": "./ts/element/index.ts",
+      "default": "./ts/element/index.ts"
     }
   },
   "files": [

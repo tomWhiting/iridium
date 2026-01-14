@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "deno run -A npm:vite --port 12224"
+    "dev": "vite --port 12224",
+    "build": "vite build",
+    "preview": "vite preview --port 12224"
+  },
+  "dependencies": {
+    "web-tree-sitter": "0.25.6"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "typescript": "^5.7.0"
   }
 }

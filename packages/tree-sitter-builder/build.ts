@@ -10,13 +10,25 @@
  * - Emscripten OR Docker for WASM compilation
  *
  * Usage:
- *   deno task build        # Build all grammars
- *   deno task build:quick  # Build only core grammars (faster)
+ *   bun run build        # Build all grammars
+ *   bun run build:quick  # Build only core grammars (faster)
  */
 
-import { encodeBase64 } from "jsr:@std/encoding@1/base64";
-import { ensureDir } from "jsr:@std/fs@1/ensure-dir";
-import { exists } from "jsr:@std/fs@1/exists";
+import { spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  statSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Grammar definitions - repo URL and any special handling
 interface GrammarDef {
@@ -72,9 +84,11 @@ const QUICK_GRAMMARS = [
   "json",
 ];
 
-const SCRIPT_DIR = new URL(".", import.meta.url).pathname;
-const CACHE_DIR = `${SCRIPT_DIR}.cache`;
-const OUTPUT_DIR = `${SCRIPT_DIR}../../crates/iridium-bindings/ts/syntax`;
+const CACHE_DIR = join(__dirname, ".cache");
+const OUTPUT_DIR = join(__dirname, "../../crates/iridium-bindings/ts/syntax");
+
+// web-tree-sitter version - must match the version in package.json
+const WEB_TREE_SITTER_VERSION = "0.25.6";
 
 interface BuildResult {
   lang: string;
@@ -83,44 +97,49 @@ interface BuildResult {
   size: number;
 }
 
-async function run(
-  cmd: string[],
+function run(
+  cmd: string,
+  args: string[],
   cwd?: string
 ): Promise<{ success: boolean; output: string }> {
-  const command = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    cwd,
-    stdout: "piped",
-    stderr: "piped",
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      cwd,
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+
+    let output = "";
+    child.stdout?.on("data", (data) => {
+      output += data.toString();
+    });
+    child.stderr?.on("data", (data) => {
+      output += data.toString();
+    });
+
+    child.on("close", (code) => {
+      resolve({ success: code === 0, output });
+    });
+
+    child.on("error", (err) => {
+      resolve({ success: false, output: err.message });
+    });
   });
-  const result = await command.output();
-  const output =
-    new TextDecoder().decode(result.stdout) +
-    new TextDecoder().decode(result.stderr);
-  return { success: result.success, output };
 }
 
 async function cloneOrUpdate(name: string, repo: string): Promise<string> {
-  const repoDir = `${CACHE_DIR}/${name}`;
+  const repoDir = join(CACHE_DIR, name);
 
-  if (await exists(repoDir)) {
+  if (existsSync(repoDir)) {
     console.log(`  ♻️  Updating ${name}...`);
-    const result = await run(["git", "pull", "--ff-only"], repoDir);
+    const result = await run("git", ["pull", "--ff-only"], repoDir);
     if (!result.success) {
       // If pull fails, delete and re-clone
-      await Deno.remove(repoDir, { recursive: true });
+      rmSync(repoDir, { recursive: true });
       return cloneOrUpdate(name, repo);
     }
   } else {
     console.log(`  📥 Cloning ${name}...`);
-    const result = await run([
-      "git",
-      "clone",
-      "--depth",
-      "1",
-      repo,
-      repoDir,
-    ]);
+    const result = await run("git", ["clone", "--depth", "1", repo, repoDir]);
     if (!result.success) {
       throw new Error(`Failed to clone ${name}: ${result.output}`);
     }
@@ -134,12 +153,12 @@ async function buildWasm(
   repoDir: string,
   subPath?: string
 ): Promise<string> {
-  const buildDir = subPath ? `${repoDir}/${subPath}` : repoDir;
+  const buildDir = subPath ? join(repoDir, subPath) : repoDir;
   const wasmName = `tree-sitter-${lang}.wasm`;
 
   console.log(`  🔨 Building ${lang} WASM...`);
 
-  const result = await run(["tree-sitter", "build", "--wasm"], buildDir);
+  const result = await run("tree-sitter", ["build", "--wasm"], buildDir);
   if (!result.success) {
     throw new Error(`Failed to build ${lang}: ${result.output}`);
   }
@@ -148,20 +167,20 @@ async function buildWasm(
   const possibleNames = [
     wasmName,
     `tree-sitter-${subPath || lang}.wasm`,
-    // Handle special cases like tree-sitter-typescript.wasm in typescript subdir
   ];
 
   for (const name of possibleNames) {
-    const wasmPath = `${buildDir}/${name}`;
-    if (await exists(wasmPath)) {
+    const wasmPath = join(buildDir, name);
+    if (existsSync(wasmPath)) {
       return wasmPath;
     }
   }
 
   // Search for any .wasm file in the build dir
-  for await (const entry of Deno.readDir(buildDir)) {
-    if (entry.name.endsWith(".wasm")) {
-      return `${buildDir}/${entry.name}`;
+  const entries = readdirSync(buildDir);
+  for (const entry of entries) {
+    if (entry.endsWith(".wasm")) {
+      return join(buildDir, entry);
     }
   }
 
@@ -176,19 +195,16 @@ async function extractQuery(
   // Try multiple possible query locations
   const queryPaths = [
     def.queryFile,
-    def.subPath
-      ? `${repoDir}/${def.subPath}/queries/highlights.scm`
-      : undefined,
-    `${repoDir}/queries/highlights.scm`,
-    // Some repos put queries in different places
-    `${repoDir}/queries/nvim/highlights.scm`,
-    `${repoDir}/queries/helix/highlights.scm`,
+    def.subPath ? join(repoDir, def.subPath, "queries/highlights.scm") : undefined,
+    join(repoDir, "queries/highlights.scm"),
+    join(repoDir, "queries/nvim/highlights.scm"),
+    join(repoDir, "queries/helix/highlights.scm"),
   ].filter(Boolean) as string[];
 
   for (const queryPath of queryPaths) {
-    if (await exists(queryPath)) {
+    if (existsSync(queryPath)) {
       console.log(`  📄 Found query for ${lang}`);
-      return await Deno.readTextFile(queryPath);
+      return readFileSync(queryPath, "utf-8");
     }
   }
 
@@ -208,7 +224,7 @@ async function buildGrammar(
   const wasmPath = await buildWasm(lang, repoDir, def.subPath);
   const query = await extractQuery(lang, repoDir, def);
 
-  const stat = await Deno.stat(wasmPath);
+  const stat = statSync(wasmPath);
 
   return {
     lang,
@@ -216,6 +232,48 @@ async function buildGrammar(
     query,
     size: stat.size,
   };
+}
+
+async function downloadCoreWasm(): Promise<Uint8Array> {
+  const url = `https://cdn.jsdelivr.net/npm/web-tree-sitter@${WEB_TREE_SITTER_VERSION}/tree-sitter.wasm`;
+  console.log(`\n📥 Downloading tree-sitter core from ${url}...`);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download core WASM: ${response.status}`);
+  }
+
+  const data = new Uint8Array(await response.arrayBuffer());
+  console.log(`  ✅ Downloaded ${(data.length / 1024).toFixed(1)} KB`);
+  return data;
+}
+
+function generateCoreTs(coreWasm: Uint8Array): string {
+  const base64 = Buffer.from(coreWasm).toString("base64");
+
+  return `/**
+ * Auto-generated tree-sitter core WASM bundle.
+ * Generated by: packages/tree-sitter-builder
+ * Date: ${new Date().toISOString()}
+ * Version: web-tree-sitter@${WEB_TREE_SITTER_VERSION}
+ *
+ * DO NOT EDIT MANUALLY
+ */
+
+const CORE_WASM_BASE64 = "${base64}";
+
+/**
+ * Decode the tree-sitter core WASM from base64.
+ */
+export function decodeCoreWasm(): Uint8Array {
+  const binary = atob(CORE_WASM_BASE64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+`;
 }
 
 function generateGrammarsTs(results: BuildResult[]): string {
@@ -237,8 +295,8 @@ const GRAMMAR_DATA: Record<string, string> = {
 `;
 
   for (const result of results) {
-    const wasmData = Deno.readFileSync(result.wasmPath);
-    const base64 = encodeBase64(wasmData);
+    const wasmData = readFileSync(result.wasmPath);
+    const base64 = Buffer.from(wasmData).toString("base64");
     code += `  "${result.lang}": "${base64}",\n`;
   }
 
@@ -291,24 +349,24 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 }
 
 async function main() {
-  const args = Deno.args;
+  const args = process.argv.slice(2);
   const quickMode = args.includes("--quick");
 
   console.log("🌳 Tree-sitter Grammar Builder");
   console.log("==============================\n");
 
   // Check prerequisites
-  const treeSitterCheck = await run(["tree-sitter", "--version"]);
+  const treeSitterCheck = await run("tree-sitter", ["--version"]);
   if (!treeSitterCheck.success) {
     console.error("❌ tree-sitter CLI not found!");
     console.error("   Install with: cargo install tree-sitter-cli");
-    Deno.exit(1);
+    process.exit(1);
   }
   console.log(`✅ tree-sitter CLI: ${treeSitterCheck.output.trim()}`);
 
   // Setup directories
-  await ensureDir(CACHE_DIR);
-  await ensureDir(OUTPUT_DIR);
+  mkdirSync(CACHE_DIR, { recursive: true });
+  mkdirSync(OUTPUT_DIR, { recursive: true });
 
   // Select grammars to build
   const grammarsToBuild = quickMode
@@ -337,17 +395,22 @@ async function main() {
 
   if (results.length === 0) {
     console.error("\n❌ No grammars built successfully!");
-    Deno.exit(1);
+    process.exit(1);
   }
+
+  // Download core WASM
+  const coreWasm = await downloadCoreWasm();
 
   // Generate output files
   console.log("\n📝 Generating output files...");
 
+  const coreTs = generateCoreTs(coreWasm);
   const grammarsTs = generateGrammarsTs(results);
   const queriesTs = generateQueriesTs(results);
 
-  await Deno.writeTextFile(`${OUTPUT_DIR}/grammars.gen.ts`, grammarsTs);
-  await Deno.writeTextFile(`${OUTPUT_DIR}/queries.ts`, queriesTs);
+  writeFileSync(join(OUTPUT_DIR, "core.gen.ts"), coreTs);
+  writeFileSync(join(OUTPUT_DIR, "grammars.gen.ts"), grammarsTs);
+  writeFileSync(join(OUTPUT_DIR, "queries.ts"), queriesTs);
 
   // Summary
   console.log("\n✅ Build complete!");
@@ -361,7 +424,9 @@ async function main() {
     totalSize += result.size;
   }
 
-  console.log(`\n  Total WASM size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`\n  Total grammar WASM size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`  Core WASM size: ${(coreWasm.length / 1024).toFixed(1)} KB`);
+  console.log(`\n  Output: ${OUTPUT_DIR}/core.gen.ts`);
   console.log(`  Output: ${OUTPUT_DIR}/grammars.gen.ts`);
   console.log(`  Output: ${OUTPUT_DIR}/queries.ts`);
 
@@ -370,4 +435,4 @@ async function main() {
   }
 }
 
-await main();
+main();

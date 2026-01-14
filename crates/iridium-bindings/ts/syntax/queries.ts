@@ -170,29 +170,210 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 "'" @operator
 `,
 
-  "typescript": `; Types
+  "typescript": `; TypeScript = JavaScript base + TypeScript-specific patterns
 
+; === JavaScript base patterns ===
+
+; Variables
+(identifier) @variable
+
+; Properties
+(property_identifier) @property
+
+; Function and method definitions
+(function_expression
+  name: (identifier) @function)
+(function_declaration
+  name: (identifier) @function)
+(method_definition
+  name: (property_identifier) @function.method)
+
+(pair
+  key: (property_identifier) @function.method
+  value: [(function_expression) (arrow_function)])
+
+(assignment_expression
+  left: (member_expression
+    property: (property_identifier) @function.method)
+  right: [(function_expression) (arrow_function)])
+
+(variable_declarator
+  name: (identifier) @function
+  value: [(function_expression) (arrow_function)])
+
+(assignment_expression
+  left: (identifier) @function
+  right: [(function_expression) (arrow_function)])
+
+; Function and method calls
+(call_expression
+  function: (identifier) @function)
+
+(call_expression
+  function: (member_expression
+    property: (property_identifier) @function.method))
+
+; Special identifiers
+((identifier) @variable.builtin
+ (#match? @variable.builtin "^(arguments|module|console|window|document)$")
+ (#is-not? local))
+
+((identifier) @function.builtin
+ (#eq? @function.builtin "require")
+ (#is-not? local))
+
+; Literals
+(this) @variable.builtin
+(super) @variable.builtin
+
+[
+  (true)
+  (false)
+  (null)
+  (undefined)
+] @constant.builtin
+
+(comment) @comment
+
+[
+  (string)
+  (template_string)
+] @string
+
+(regex) @string.special
+(number) @number
+
+; Punctuation
+[
+  ";"
+  (optional_chain)
+  "."
+  ","
+] @punctuation.delimiter
+
+[
+  "-"
+  "--"
+  "-="
+  "+"
+  "++"
+  "+="
+  "*"
+  "*="
+  "**"
+  "**="
+  "/"
+  "/="
+  "%"
+  "%="
+  "<"
+  "<="
+  "<<"
+  "<<="
+  "="
+  "=="
+  "==="
+  "!"
+  "!="
+  "!=="
+  "=>"
+  ">"
+  ">="
+  ">>"
+  ">>="
+  ">>>"
+  ">>>="
+  "~"
+  "^"
+  "&"
+  "|"
+  "^="
+  "&="
+  "|="
+  "&&"
+  "||"
+  "??"
+  "&&="
+  "||="
+  "??="
+] @operator
+
+[
+  "("
+  ")"
+  "["
+  "]"
+  "{"
+  "}"
+]  @punctuation.bracket
+
+(template_substitution
+  "\${" @punctuation.special
+  "}" @punctuation.special) @embedded
+
+; Keywords (JS)
+[
+  "as"
+  "async"
+  "await"
+  "break"
+  "case"
+  "catch"
+  "class"
+  "const"
+  "continue"
+  "debugger"
+  "default"
+  "delete"
+  "do"
+  "else"
+  "export"
+  "extends"
+  "finally"
+  "for"
+  "from"
+  "function"
+  "get"
+  "if"
+  "import"
+  "in"
+  "instanceof"
+  "let"
+  "new"
+  "of"
+  "return"
+  "set"
+  "static"
+  "switch"
+  "target"
+  "throw"
+  "try"
+  "typeof"
+  "var"
+  "void"
+  "while"
+  "with"
+  "yield"
+] @keyword
+
+; === TypeScript-specific patterns ===
+
+; Types
 (type_identifier) @type
 (predefined_type) @type.builtin
-
-((identifier) @type
- (#match? @type "^[A-Z]"))
 
 (type_arguments
   "<" @punctuation.bracket
   ">" @punctuation.bracket)
 
-; Variables
-
+; Parameters
 (required_parameter (identifier) @variable.parameter)
 (optional_parameter (identifier) @variable.parameter)
 
-; Keywords
-
+; TypeScript keywords
 [ "abstract"
   "declare"
   "enum"
-  "export"
   "implements"
   "interface"
   "keyof"
@@ -207,29 +388,223 @@ export const HIGHLIGHT_QUERIES: Record<string, string> = {
 ] @keyword
 `,
 
-  "tsx": `; Types
+  "tsx": `; TSX = JavaScript/JSX base + TypeScript-specific patterns
 
+; === JavaScript base patterns ===
+
+; Variables
+(identifier) @variable
+
+; Properties
+(property_identifier) @property
+
+; Function and method definitions
+(function_expression
+  name: (identifier) @function)
+(function_declaration
+  name: (identifier) @function)
+(method_definition
+  name: (property_identifier) @function.method)
+
+(pair
+  key: (property_identifier) @function.method
+  value: [(function_expression) (arrow_function)])
+
+(assignment_expression
+  left: (member_expression
+    property: (property_identifier) @function.method)
+  right: [(function_expression) (arrow_function)])
+
+(variable_declarator
+  name: (identifier) @function
+  value: [(function_expression) (arrow_function)])
+
+(assignment_expression
+  left: (identifier) @function
+  right: [(function_expression) (arrow_function)])
+
+; Function and method calls
+(call_expression
+  function: (identifier) @function)
+
+(call_expression
+  function: (member_expression
+    property: (property_identifier) @function.method))
+
+; Special identifiers
+((identifier) @variable.builtin
+ (#match? @variable.builtin "^(arguments|module|console|window|document)$")
+ (#is-not? local))
+
+((identifier) @function.builtin
+ (#eq? @function.builtin "require")
+ (#is-not? local))
+
+; Literals
+(this) @variable.builtin
+(super) @variable.builtin
+
+[
+  (true)
+  (false)
+  (null)
+  (undefined)
+] @constant.builtin
+
+(comment) @comment
+
+[
+  (string)
+  (template_string)
+] @string
+
+(regex) @string.special
+(number) @number
+
+; Punctuation
+[
+  ";"
+  (optional_chain)
+  "."
+  ","
+] @punctuation.delimiter
+
+[
+  "-"
+  "--"
+  "-="
+  "+"
+  "++"
+  "+="
+  "*"
+  "*="
+  "**"
+  "**="
+  "/"
+  "/="
+  "%"
+  "%="
+  "<"
+  "<="
+  "<<"
+  "<<="
+  "="
+  "=="
+  "==="
+  "!"
+  "!="
+  "!=="
+  "=>"
+  ">"
+  ">="
+  ">>"
+  ">>="
+  ">>>"
+  ">>>="
+  "~"
+  "^"
+  "&"
+  "|"
+  "^="
+  "&="
+  "|="
+  "&&"
+  "||"
+  "??"
+  "&&="
+  "||="
+  "??="
+] @operator
+
+[
+  "("
+  ")"
+  "["
+  "]"
+  "{"
+  "}"
+]  @punctuation.bracket
+
+(template_substitution
+  "\${" @punctuation.special
+  "}" @punctuation.special) @embedded
+
+; Keywords (JS)
+[
+  "as"
+  "async"
+  "await"
+  "break"
+  "case"
+  "catch"
+  "class"
+  "const"
+  "continue"
+  "debugger"
+  "default"
+  "delete"
+  "do"
+  "else"
+  "export"
+  "extends"
+  "finally"
+  "for"
+  "from"
+  "function"
+  "get"
+  "if"
+  "import"
+  "in"
+  "instanceof"
+  "let"
+  "new"
+  "of"
+  "return"
+  "set"
+  "static"
+  "switch"
+  "target"
+  "throw"
+  "try"
+  "typeof"
+  "var"
+  "void"
+  "while"
+  "with"
+  "yield"
+] @keyword
+
+; === JSX patterns ===
+
+(jsx_element
+  open_tag: (jsx_opening_element
+    name: (identifier) @tag))
+(jsx_element
+  close_tag: (jsx_closing_element
+    name: (identifier) @tag))
+(jsx_self_closing_element
+  name: (identifier) @tag)
+(jsx_attribute
+  (property_identifier) @tag.attribute)
+
+; === TypeScript-specific patterns ===
+
+; Types
 (type_identifier) @type
 (predefined_type) @type.builtin
-
-((identifier) @type
- (#match? @type "^[A-Z]"))
 
 (type_arguments
   "<" @punctuation.bracket
   ">" @punctuation.bracket)
 
-; Variables
-
+; Parameters
 (required_parameter (identifier) @variable.parameter)
 (optional_parameter (identifier) @variable.parameter)
 
-; Keywords
-
+; TypeScript keywords
 [ "abstract"
   "declare"
   "enum"
-  "export"
   "implements"
   "interface"
   "keyof"

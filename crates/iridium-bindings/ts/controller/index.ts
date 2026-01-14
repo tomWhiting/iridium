@@ -142,6 +142,8 @@ export class IridiumEditor {
   private lastBlinkTime = 0;
   private eventCleanup: (() => void)[] = [];
   private destroyed = false;
+  private highlightTimeout: ReturnType<typeof setTimeout> | null = null;
+  private static readonly HIGHLIGHT_DEBOUNCE_MS = 50;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -601,6 +603,22 @@ export class IridiumEditor {
     }
   }
 
+  /**
+   * Schedule a debounced highlight update.
+   * Renders immediately, then updates syntax highlighting after a short delay.
+   * This keeps typing responsive while syntax catches up.
+   */
+  private scheduleHighlightUpdate(): void {
+    if (this.highlightTimeout) {
+      clearTimeout(this.highlightTimeout);
+    }
+    this.highlightTimeout = setTimeout(() => {
+      this.updateHighlights();
+      this.editor.forceRender();
+      this.highlightTimeout = null;
+    }, IridiumEditor.HIGHLIGHT_DEBOUNCE_MS);
+  }
+
   private notifyContentChange(): void {
     if (this.options.onChange) {
       this.options.onChange(this.editor.getContent());
@@ -739,6 +757,11 @@ export class IridiumEditor {
     // Stop render loop
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
+    }
+
+    // Cancel pending highlight update
+    if (this.highlightTimeout) {
+      clearTimeout(this.highlightTimeout);
     }
 
     // Remove event listeners

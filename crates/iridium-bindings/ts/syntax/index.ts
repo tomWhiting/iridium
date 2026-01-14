@@ -41,15 +41,10 @@ export class SyntaxHighlighter {
     // Decode the bundled core WASM
     const coreWasm = decodeCoreWasm();
 
-    // Initialize tree-sitter with the bundled WASM - no CDN needed
+    // Initialize tree-sitter with the bundled WASM binary - no CDN needed
+    // wasmBinary is an Emscripten option that provides pre-loaded WASM bytes
     await Parser.init({
-      instantiateWasm: async (
-        imports: WebAssembly.Imports,
-        callback: (instance: WebAssembly.Instance) => void
-      ) => {
-        const result = await WebAssembly.instantiate(coreWasm, imports);
-        callback(result.instance);
-      },
+      wasmBinary: coreWasm.buffer,
     });
 
     this.parser = new Parser();

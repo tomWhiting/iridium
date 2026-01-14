@@ -1,5 +1,5 @@
-import { defineConfig } from "npm:vite@^6.0.0";
-import react from "npm:@vitejs/plugin-react@^4.3.0";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -12,6 +12,8 @@ export default defineConfig({
     alias: {
       "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/ts/controller/index.ts"),
       "iridium-wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
+      // Resolve web-tree-sitter for files outside this directory
+      "web-tree-sitter": resolve(__dirname, "node_modules/web-tree-sitter"),
     },
   },
   optimizeDeps: {

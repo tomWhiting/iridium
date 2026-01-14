@@ -1,11 +1,12 @@
 /**
- * Tree-sitter syntax highlighting with bundled grammars.
+ * Tree-sitter syntax highlighting with fully bundled grammars.
  *
- * Grammars are embedded as base64 at build time - no runtime HTTP requests.
- * Uses tree-sitter-wasms@0.1.13 grammars for query compatibility.
+ * Everything is embedded as base64 at build time - no runtime HTTP requests.
+ * Core WASM, language grammars, and highlight queries are all bundled.
  */
 
-import TreeSitter from "web-tree-sitter";
+import { Parser, Language as TSLanguage, Query, Tree } from "web-tree-sitter";
+import { decodeCoreWasm } from "./core.gen";
 import { decodeGrammar, AVAILABLE_LANGUAGES } from "./grammars.gen";
 import { HIGHLIGHT_QUERIES } from "./queries";
 
@@ -19,16 +20,16 @@ export interface HighlightSpan {
 }
 
 interface LanguageData {
-  grammar: TreeSitter.Language;
-  query: TreeSitter.Query;
+  grammar: TSLanguage;
+  query: Query;
 }
 
 /**
  * Syntax highlighter using tree-sitter.
  */
 export class SyntaxHighlighter {
-  private parser: TreeSitter | null = null;
-  private tree: TreeSitter.Tree | null = null;
+  private parser: Parser | null = null;
+  private tree: Tree | null = null;
   private languages: Map<string, LanguageData> = new Map();
   private currentLanguage: string = "rust";
   private ready = false;
@@ -37,13 +38,21 @@ export class SyntaxHighlighter {
    * Initialize tree-sitter and load default language.
    */
   async initialize(defaultLanguage: string = "rust"): Promise<void> {
-    // Initialize tree-sitter with CDN locator for the core WASM file
-    await TreeSitter.init({
-      locateFile(scriptName: string) {
-        return `https://cdn.jsdelivr.net/npm/web-tree-sitter@0.24.3/${scriptName}`;
+    // Decode the bundled core WASM
+    const coreWasm = decodeCoreWasm();
+
+    // Initialize tree-sitter with the bundled WASM - no CDN needed
+    await Parser.init({
+      instantiateWasm: async (
+        imports: WebAssembly.Imports,
+        callback: (instance: WebAssembly.Instance) => void
+      ) => {
+        const result = await WebAssembly.instantiate(coreWasm, imports);
+        callback(result.instance);
       },
     });
-    this.parser = new TreeSitter();
+
+    this.parser = new Parser();
     await this.loadLanguage(defaultLanguage);
     this.ready = true;
   }
@@ -70,8 +79,8 @@ export class SyntaxHighlighter {
 
     try {
       console.log(`[Syntax] Loading ${lang} grammar from bundle...`);
-      const grammar = await TreeSitter.Language.load(wasmBytes);
-      const query = grammar.query(querySource);
+      const grammar = await TSLanguage.load(wasmBytes);
+      const query = new Query(grammar, querySource);
       this.languages.set(lang, { grammar, query });
       console.log(`[Syntax] ${lang} loaded successfully`);
       return true;

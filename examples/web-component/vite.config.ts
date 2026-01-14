@@ -1,4 +1,4 @@
-import { defineConfig } from "npm:vite@^6.0.0";
+import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -10,6 +10,8 @@ export default defineConfig({
     alias: {
       "iridium-bindings/element": resolve(__dirname, "../../crates/iridium-bindings/ts/element/index.ts"),
       "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/ts/controller/index.ts"),
+      // Resolve web-tree-sitter for files outside this directory
+      "web-tree-sitter": resolve(__dirname, "node_modules/web-tree-sitter"),
     },
   },
   optimizeDeps: {

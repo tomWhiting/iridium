@@ -58,7 +58,7 @@
     "universal": "napi universal"
   },
   "dependencies": {
-    "web-tree-sitter": "^0.24.3"
+    "web-tree-sitter": "0.25.6"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.0.0-alpha.68"

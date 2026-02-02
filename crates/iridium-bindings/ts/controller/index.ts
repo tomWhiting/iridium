@@ -289,6 +289,21 @@ export class IridiumEditor {
     this.canvas.addEventListener("keydown", handleKeyDown);
     this.eventCleanup.push(() => this.canvas.removeEventListener("keydown", handleKeyDown));
 
+    // Clipboard events - critical for Safari compatibility
+    // Safari requires direct paste event handling rather than intercepting Ctrl/Cmd+V
+    // The paste event provides secure, synchronous access to clipboard via clipboardData
+    const handlePaste = this.handlePaste.bind(this);
+    const handleCopy = this.handleCopy.bind(this);
+    const handleCut = this.handleCut.bind(this);
+    this.canvas.addEventListener("paste", handlePaste);
+    this.canvas.addEventListener("copy", handleCopy);
+    this.canvas.addEventListener("cut", handleCut);
+    this.eventCleanup.push(() => {
+      this.canvas.removeEventListener("paste", handlePaste);
+      this.canvas.removeEventListener("copy", handleCopy);
+      this.canvas.removeEventListener("cut", handleCut);
+    });
+
     // Mouse
     const handleMouseDown = this.handleMouseDown.bind(this);
     const handleMouseMove = this.handleMouseMove.bind(this);
@@ -636,49 +651,70 @@ export class IridiumEditor {
       this.editor.redo();
       this.notifyContentChange();
       return true;
-    } else if (e.key === "c") {
-      const text = this.editor.getSelectedText();
-      if (text) {
-        navigator.clipboard.writeText(text).catch(console.error);
-      }
-      return true;
-    } else if (e.key === "x") {
-      // Cut - track deletion (T029)
-      const text = this.editor.getSelectedText();
-      if (text) {
-        const startByte = this.getCursorByteOffset();
-        navigator.clipboard.writeText(text).then(() => {
-          this.editor.backspace();
-          // Track deletion of selection (T029)
-          this.trackEdit(startByte, startByte + text.length, startByte);
-          this.updateHighlights();
-          this.editor.forceRender();
-          this.notifyContentChange();
-        }).catch(console.error);
-      }
-      return true;
-    } else if (e.key === "v") {
-      // Paste - track insertion (T029)
-      const startByte = this.getCursorByteOffset();
-      const hasSelection = this.editor.hasSelection();
-      const selectedText = hasSelection ? this.editor.getSelectedText() : "";
-
-      navigator.clipboard.readText().then((text) => {
-        if (text) {
-          this.editor.insert(text);
-          // Track paste (replaces selection if any) (T029)
-          this.trackEdit(startByte, startByte + selectedText.length, startByte + text.length);
-          // CRITICAL: Ensure cursor is visible before highlighting
-          // Otherwise viewport spans won't match the visible area
-          this.editor.ensureCursorVisible();
-          this.updateHighlights();
-          this.editor.forceRender();
-          this.notifyContentChange();
-        }
-      }).catch(console.error);
-      return true;
+    } else if (e.key === "c" || e.key === "x" || e.key === "v") {
+      // Clipboard operations are handled by native paste/copy/cut events
+      // This is critical for Safari compatibility - Safari requires direct
+      // paste event handling rather than intercepting keyboard shortcuts.
+      // Return false to let the native event fire.
+      return false;
     }
     return false;
+  }
+
+  /**
+   * Handle native paste event - critical for Safari compatibility.
+   *
+   * Safari requires direct paste event handling rather than intercepting Ctrl/Cmd+V.
+   * The paste event provides secure, synchronous access to clipboard via clipboardData.
+   * This works across all browsers and handles both Ctrl+V and Cmd+V.
+   */
+  private handlePaste(e: ClipboardEvent): void {
+    e.preventDefault();
+
+    const text = e.clipboardData?.getData("text/plain");
+    if (!text) return;
+
+    const startByte = this.getCursorByteOffset();
+    const hasSelection = this.editor.hasSelection();
+    const selectedText = hasSelection ? this.editor.getSelectedText() : "";
+
+    this.editor.insert(text);
+    this.trackEdit(startByte, startByte + selectedText.length, startByte + text.length);
+    this.editor.ensureCursorVisible();
+    this.updateHighlights();
+    this.editor.forceRender();
+    this.notifyContentChange();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * Handle native copy event - provides consistent behavior across browsers.
+   */
+  private handleCopy(e: ClipboardEvent): void {
+    const text = this.editor.getSelectedText();
+    if (text && e.clipboardData) {
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", text);
+    }
+  }
+
+  /**
+   * Handle native cut event - provides consistent behavior across browsers.
+   */
+  private handleCut(e: ClipboardEvent): void {
+    const text = this.editor.getSelectedText();
+    if (text && e.clipboardData) {
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", text);
+
+      const startByte = this.getCursorByteOffset();
+      this.editor.backspace();
+      this.trackEdit(startByte, startByte + text.length, startByte);
+      this.updateHighlights();
+      this.editor.forceRender();
+      this.notifyContentChange();
+      this.notifySelectionChange();
+    }
   }
 
   /**

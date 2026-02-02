@@ -134,6 +134,18 @@ mod wasm {
                     message: format!("Failed to get WebGPU adapter: {e}"),
                 })?;
 
+            // Log GPU adapter info for debugging
+            let info = adapter.get_info();
+            web_sys::console::log_1(
+                &format!(
+                    "[Iridium] GPU: {} ({:?}) - Driver: {}",
+                    info.name,
+                    info.backend,
+                    info.driver_info
+                )
+                .into(),
+            );
+
             // Request device
             let (device, queue) = adapter
                 .request_device(&wgpu::DeviceDescriptor {

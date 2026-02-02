@@ -1,5 +1,21 @@
 # Iridium Development Guidelines
 
+## CRITICAL: CODING STANDARDS
+
+This codebase runs mission-critical infrastructure for financial, legal, and healthcare settings.
+
+**REQUIREMENTS:**
+- NO LAZY CODE: Every implementation must be complete and robust
+- NO SHORTCUTS: Handle all edge cases, no partial implementations
+- NO DEVIATING FROM PLAN: Follow agreed approach; raise concerns before changing direction
+- NO DEFERRED WORK: Set work is NOT optional, you must not defer tasks "for later"
+- PRODUCTION READY: All code deployable immediately
+- STABLE: All error cases handled, inputs validated
+- PERFORMANT: Consider memory, complexity, efficiency
+
+**Standard:** Would you trust this code with patient records, financial transactions, or legal documents? If not, it's not ready.
+
+
 GPU-accelerated text editor built with Rust and wgpu.
 
 ## Project Structure
@@ -75,3 +91,10 @@ Shared dependencies are defined in root `Cargo.toml` under `[workspace.dependenc
 These are always in use. Everything tries to use port 3000. Use obscure ports like 12223, 14567, etc.
 
 <!-- MANUAL ADDITIONS END -->
+
+## Active Technologies
+- Rust 1.85+ (edition 2024), TypeScript 5.7+ + wgpu 28.0, glyphon 0.10, ropey 2.0, tree-sitter 0.26, web-tree-sitter 0.25.6 (002-viewport-syntax-rendering)
+- N/A (in-memory data structures only) (002-viewport-syntax-rendering)
+
+## Recent Changes
+- 002-viewport-syntax-rendering: Added Rust 1.85+ (edition 2024), TypeScript 5.7+ + wgpu 28.0, glyphon 0.10, ropey 2.0, tree-sitter 0.26, web-tree-sitter 0.25.6

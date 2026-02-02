@@ -82,6 +82,9 @@ pub struct TextRenderer {
     config: TextRenderConfig,
     /// Texture format for rendering
     texture_format: TextureFormat,
+    /// Cached character width to avoid per-frame allocation and measurement.
+    /// Invalidated when font size or family changes.
+    cached_char_width: Option<f32>,
 }
 
 impl std::fmt::Debug for TextRenderer {
@@ -156,6 +159,7 @@ impl TextRenderer {
             viewport,
             config,
             texture_format,
+            cached_char_width: None, // Computed lazily on first call to char_width()
         })
     }
 
@@ -175,8 +179,26 @@ impl TextRenderer {
     ///
     /// This measures the advance width of a character using the current font,
     /// giving accurate cursor positioning regardless of resolution or font size.
+    ///
+    /// # Performance
+    ///
+    /// The result is cached to avoid per-frame buffer allocations and text shaping.
+    /// The cache is invalidated when font size or family changes.
     #[must_use]
     pub fn char_width(&mut self) -> f32 {
+        // Return cached value if available
+        if let Some(width) = self.cached_char_width {
+            return width;
+        }
+
+        // Compute and cache the char width
+        let width = self.measure_char_width();
+        self.cached_char_width = Some(width);
+        width
+    }
+
+    /// Internal method to measure character width. Called once and cached.
+    fn measure_char_width(&mut self) -> f32 {
         // Create a temporary buffer to measure a character
         let metrics = Metrics::relative(self.config.font_size, self.config.line_height);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
@@ -502,13 +524,15 @@ impl TextRenderer {
     /// Updates the font size at runtime (T149).
     ///
     /// This invalidates all existing text buffers, which should be
-    /// recreated with the new size.
+    /// recreated with the new size. Also invalidates the cached char width.
     ///
     /// # Arguments
     ///
     /// * `size` - New font size in pixels
     pub fn set_font_size(&mut self, size: f32) {
         self.config.font_size = size;
+        // Invalidate cached char width since it depends on font size
+        self.cached_char_width = None;
         // Clear the glyph cache since glyphs will be at a different size
         self.atlas.trim();
     }
@@ -526,12 +550,15 @@ impl TextRenderer {
     ///
     /// The family name should match a font already loaded in the system.
     /// Use `load_font` or `load_font_file` to add custom fonts first.
+    /// Also invalidates the cached char width.
     ///
     /// # Arguments
     ///
     /// * `family` - Font family name (e.g., "`JetBrains` Mono")
     pub fn set_font_family(&mut self, family: impl Into<String>) {
         self.config.font_family = family.into();
+        // Invalidate cached char width since it depends on font family
+        self.cached_char_width = None;
         // Clear the glyph cache since we'll be using different glyphs
         self.atlas.trim();
     }
@@ -539,7 +566,7 @@ impl TextRenderer {
     /// Updates the configuration from a theme's typography settings (T149).
     ///
     /// This is a convenience method for updating all text rendering settings
-    /// at once when the theme changes.
+    /// at once when the theme changes. Also invalidates the cached char width.
     ///
     /// # Arguments
     ///
@@ -548,6 +575,8 @@ impl TextRenderer {
         self.config.font_size = typography.font_size;
         self.config.line_height = typography.line_height;
         self.config.font_family.clone_from(&typography.font_family);
+        // Invalidate cached char width since font settings changed
+        self.cached_char_width = None;
         // Clear the glyph cache since settings changed
         self.atlas.trim();
     }

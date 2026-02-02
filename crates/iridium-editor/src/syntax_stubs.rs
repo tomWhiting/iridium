@@ -130,7 +130,12 @@ impl FoldDetector {
                 let next_char = chars.get(i + 1).copied().unwrap_or('\0');
 
                 // Handle block comment start
-                if !in_string && !in_line_comment && !in_block_comment && ch == '/' && next_char == '*' {
+                if !in_string
+                    && !in_line_comment
+                    && !in_block_comment
+                    && ch == '/'
+                    && next_char == '*'
+                {
                     in_block_comment = true;
                     i += 2;
                     continue;

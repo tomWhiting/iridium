@@ -1,0 +1,34 @@
+{
+  "name": "@iridium/syntax-worker",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Web Worker for tree-sitter syntax highlighting - moves parsing off the main thread",
+  "exports": {
+    ".": {
+      "types": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
+    "./worker": {
+      "types": "./src/worker.ts",
+      "default": "./src/worker.ts"
+    },
+    "./protocol": {
+      "types": "./src/protocol.ts",
+      "default": "./src/protocol.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "keywords": [
+    "syntax-highlighting",
+    "tree-sitter",
+    "web-worker",
+    "editor"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@iridium/core": "workspace:*",
+    "web-tree-sitter": "0.25.6"
+  }
+}

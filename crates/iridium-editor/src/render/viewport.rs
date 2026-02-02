@@ -1,9 +1,51 @@
 //! Viewport and scroll management.
 
+use ropey::Rope;
 use serde::{Deserialize, Serialize};
 
 use crate::document::Position;
 use crate::editor::FoldState;
+
+/// Configuration for viewport-aware rendering.
+///
+/// Controls how much content is pre-rendered beyond the visible viewport
+/// to enable smooth scrolling without visual artifacts.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ViewportConfig {
+    /// Overscan buffer as multiple of viewport height.
+    ///
+    /// A value of 2.0 means one full screen is pre-rendered above
+    /// and one full screen below the visible viewport.
+    ///
+    /// Default: 2.0
+    pub overscan_factor: f32,
+}
+
+impl Default for ViewportConfig {
+    fn default() -> Self {
+        Self {
+            overscan_factor: 2.0,
+        }
+    }
+}
+
+impl ViewportConfig {
+    /// Creates a new viewport config with the given overscan factor.
+    #[must_use]
+    pub const fn new(overscan_factor: f32) -> Self {
+        Self { overscan_factor }
+    }
+
+    /// Creates a config with no overscan (visible viewport only).
+    ///
+    /// Useful for testing or constrained memory environments.
+    #[must_use]
+    pub const fn no_overscan() -> Self {
+        Self {
+            overscan_factor: 0.0,
+        }
+    }
+}
 
 /// The visible region of the document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -218,6 +260,118 @@ impl Viewport {
         let available = total_visible.saturating_sub(self.first_line);
         available.min(self.visible_lines)
     }
+
+    // =========================================================================
+    // Byte range queries for viewport-aware syntax highlighting
+    // =========================================================================
+
+    /// Calculates the byte range to query for visible syntax spans.
+    ///
+    /// This method converts the current viewport (in visual lines) to a byte
+    /// range suitable for querying the span index. It includes an overscan
+    /// buffer to pre-render content for smooth scrolling.
+    ///
+    /// # Arguments
+    ///
+    /// * `rope` - Document rope for line-to-byte conversion
+    /// * `fold_state` - Fold state for visual-to-document line mapping
+    /// * `config` - Viewport configuration (overscan settings)
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(start_byte, end_byte)` defining the byte range to query.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (start, end) = viewport.query_byte_range(&rope, &fold_state, &config);
+    /// let spans = span_index.query(start, end);
+    /// ```
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    pub fn query_byte_range(
+        &self,
+        rope: &Rope,
+        fold_state: &FoldState,
+        config: &ViewportConfig,
+    ) -> (usize, usize) {
+        use ropey::LineType;
+
+        let total_doc_lines = rope.len_lines(LineType::LF_CR);
+        if total_doc_lines == 0 {
+            return (0, 0);
+        }
+
+        // Calculate overscan in lines
+        let overscan_lines =
+            (self.visible_lines as f32 * config.overscan_factor / 2.0).ceil() as usize;
+
+        // Calculate visual line range with overscan
+        let first_visual_line = self.first_line.saturating_sub(overscan_lines);
+        let last_visual_line = (self.first_line + self.visible_lines + overscan_lines)
+            .min(fold_state.visible_line_count(total_doc_lines));
+
+        // Convert visual lines to document lines
+        let first_doc_line = fold_state.visual_to_document_line(first_visual_line);
+        let last_doc_line = fold_state.visual_to_document_line(last_visual_line);
+
+        // Clamp to document bounds
+        let first_doc_line = first_doc_line.min(total_doc_lines.saturating_sub(1));
+        let last_doc_line = last_doc_line.min(total_doc_lines);
+
+        // Convert to byte offsets
+        let start_byte = rope.line_to_byte_idx(first_doc_line, LineType::LF_CR);
+        let end_byte = if last_doc_line >= total_doc_lines {
+            rope.len()
+        } else {
+            rope.line_to_byte_idx(last_doc_line, LineType::LF_CR)
+        };
+
+        (start_byte, end_byte)
+    }
+
+    /// Returns the visible document line range with overscan.
+    ///
+    /// This is useful for debugging and testing the byte range calculation.
+    ///
+    /// # Arguments
+    ///
+    /// * `fold_state` - Fold state for visual-to-document line mapping
+    /// * `config` - Viewport configuration
+    /// * `total_doc_lines` - Total lines in document
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(first_doc_line, last_doc_line)` inclusive range.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    pub fn visible_line_range(
+        &self,
+        fold_state: &FoldState,
+        config: &ViewportConfig,
+        total_doc_lines: usize,
+    ) -> (usize, usize) {
+        let overscan_lines =
+            (self.visible_lines as f32 * config.overscan_factor / 2.0).ceil() as usize;
+
+        let first_visual_line = self.first_line.saturating_sub(overscan_lines);
+        let last_visual_line = (self.first_line + self.visible_lines + overscan_lines)
+            .min(fold_state.visible_line_count(total_doc_lines));
+
+        let first_doc_line = fold_state.visual_to_document_line(first_visual_line);
+        let last_doc_line = fold_state.visual_to_document_line(last_visual_line);
+
+        (
+            first_doc_line.min(total_doc_lines.saturating_sub(1)),
+            last_doc_line.min(total_doc_lines),
+        )
+    }
 }
 
 /// Iterator over visible document lines, accounting for folds.
@@ -253,6 +407,7 @@ impl<'a> Iterator for VisibleLinesIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ropey::Rope;
 
     #[cfg(feature = "syntax")]
     use iridium_syntax::Language;
@@ -408,5 +563,133 @@ line 5"#;
         // With fold, we can show 3 visible lines (0, 1, 5)
         fold_state.fold_at(1);
         assert_eq!(viewport.visible_line_count_with_folds(&fold_state, 6), 3);
+    }
+
+    // =========================================================================
+    // Query byte range tests (T014)
+    // =========================================================================
+
+    #[test]
+    fn query_byte_range_simple() {
+        // Simple 5-line document, 10 chars per line
+        let content = "0123456789\n0123456789\n0123456789\n0123456789\n0123456789\n";
+        let rope = Rope::from_str(content);
+        let fold_state = FoldState::default();
+        let config = ViewportConfig::default();
+
+        let viewport = Viewport {
+            first_line: 0,
+            visible_lines: 2,
+            ..Viewport::default()
+        };
+
+        let (start, end) = viewport.query_byte_range(&rope, &fold_state, &config);
+
+        // With 2x overscan and 2 visible lines, we query 1 line above + 2 visible + 1 line below
+        // But since first_line is 0, there's nothing above
+        assert_eq!(start, 0);
+        // Should include some lines beyond visible (overscan)
+        assert!(end > 22); // More than just 2 lines
+    }
+
+    #[test]
+    fn query_byte_range_middle_viewport() {
+        // 10-line document
+        let content =
+            "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\n";
+        let rope = Rope::from_str(content);
+        let fold_state = FoldState::default();
+        let config = ViewportConfig::default();
+
+        let viewport = Viewport {
+            first_line: 4, // Middle of document
+            visible_lines: 2,
+            ..Viewport::default()
+        };
+
+        let (start, end) = viewport.query_byte_range(&rope, &fold_state, &config);
+
+        // Should start before line 4 (overscan)
+        assert!(start < 28); // Line 4 starts at byte 28
+        // Should end after line 5
+        assert!(end > 42); // Line 6 starts at byte 42
+    }
+
+    #[test]
+    fn query_byte_range_empty_document() {
+        let rope = Rope::from_str("");
+        let fold_state = FoldState::default();
+        let config = ViewportConfig::default();
+
+        let viewport = Viewport::default();
+
+        let (start, end) = viewport.query_byte_range(&rope, &fold_state, &config);
+
+        assert_eq!(start, 0);
+        assert_eq!(end, 0);
+    }
+
+    #[test]
+    fn query_byte_range_no_overscan() {
+        let content = "line 0\nline 1\nline 2\nline 3\nline 4\n";
+        let rope = Rope::from_str(content);
+        let fold_state = FoldState::default();
+        let config = ViewportConfig::no_overscan();
+
+        let viewport = Viewport {
+            first_line: 1,
+            visible_lines: 2,
+            ..Viewport::default()
+        };
+
+        let (start, end) = viewport.query_byte_range(&rope, &fold_state, &config);
+
+        // Line 1 starts at byte 7
+        assert_eq!(start, 7);
+        // Line 3 starts at byte 21 (end of visible range)
+        assert_eq!(end, 21);
+    }
+
+    #[test]
+    #[cfg(feature = "syntax")]
+    fn query_byte_range_with_folds() {
+        let content = "line 0\nfn foo() {\n  hidden\n}\nline 4\n";
+        let rope = Rope::from_str(content);
+        let mut fold_state = FoldState::for_language(Language::Rust);
+        fold_state.update_regions(content);
+        fold_state.fold_at(1); // Fold the function
+        let config = ViewportConfig::no_overscan();
+
+        let viewport = Viewport {
+            first_line: 0,
+            visible_lines: 3, // Can see: line 0, fn foo() { (folded), line 4
+            ..Viewport::default()
+        };
+
+        let (start, end) = viewport.query_byte_range(&rope, &fold_state, &config);
+
+        // Should start at beginning
+        assert_eq!(start, 0);
+        // Should include the folded content (for correct span queries)
+        assert!(end > 30);
+    }
+
+    #[test]
+    fn visible_line_range_basic() {
+        let fold_state = FoldState::default();
+        let config = ViewportConfig::default();
+
+        let viewport = Viewport {
+            first_line: 5,
+            visible_lines: 10,
+            ..Viewport::default()
+        };
+
+        let (first, last) = viewport.visible_line_range(&fold_state, &config, 100);
+
+        // With 2x overscan and 10 visible lines, overscan is 10 lines
+        // So range should be roughly [0, 20] (5-5=0 to 5+10+5=20)
+        assert!(first < 5);
+        assert!(last > 15);
     }
 }

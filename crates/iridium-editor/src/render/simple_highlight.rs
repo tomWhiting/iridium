@@ -62,13 +62,13 @@ impl SyntaxColors {
     #[must_use]
     pub fn dark() -> Self {
         Self {
-            text: Color::rgb(0.847, 0.871, 0.914),       // #D8DEE9
-            keyword: Color::rgb(0.506, 0.631, 0.757),   // #81A1C1 (blue)
-            string: Color::rgb(0.639, 0.745, 0.549),    // #A3BE8C (green)
-            number: Color::rgb(0.702, 0.561, 0.678),    // #B48EAD (purple)
-            comment: Color::rgb(0.396, 0.482, 0.514),   // #657B83 (gray)
-            type_name: Color::rgb(0.922, 0.796, 0.545), // #EBCB8B (yellow)
-            function: Color::rgb(0.533, 0.753, 0.816),  // #88C0D0 (cyan)
+            text: Color::rgb(0.847, 0.871, 0.914),        // #D8DEE9
+            keyword: Color::rgb(0.506, 0.631, 0.757),     // #81A1C1 (blue)
+            string: Color::rgb(0.639, 0.745, 0.549),      // #A3BE8C (green)
+            number: Color::rgb(0.702, 0.561, 0.678),      // #B48EAD (purple)
+            comment: Color::rgb(0.396, 0.482, 0.514),     // #657B83 (gray)
+            type_name: Color::rgb(0.922, 0.796, 0.545),   // #EBCB8B (yellow)
+            function: Color::rgb(0.533, 0.753, 0.816),    // #88C0D0 (cyan)
             punctuation: Color::rgb(0.608, 0.639, 0.690), // #9BA0AB (light gray)
         }
     }
@@ -77,13 +77,13 @@ impl SyntaxColors {
     #[must_use]
     pub fn light() -> Self {
         Self {
-            text: Color::rgb(0.231, 0.259, 0.322),      // #3B4252
-            keyword: Color::rgb(0.369, 0.506, 0.675),   // #5E81AC
-            string: Color::rgb(0.408, 0.616, 0.416),    // #689D6A
-            number: Color::rgb(0.694, 0.384, 0.525),    // #B16286
-            comment: Color::rgb(0.584, 0.647, 0.651),   // #93A1A1
-            type_name: Color::rgb(0.710, 0.537, 0.000), // #B58900
-            function: Color::rgb(0.149, 0.545, 0.824),  // #268BD2
+            text: Color::rgb(0.231, 0.259, 0.322),        // #3B4252
+            keyword: Color::rgb(0.369, 0.506, 0.675),     // #5E81AC
+            string: Color::rgb(0.408, 0.616, 0.416),      // #689D6A
+            number: Color::rgb(0.694, 0.384, 0.525),      // #B16286
+            comment: Color::rgb(0.584, 0.647, 0.651),     // #93A1A1
+            type_name: Color::rgb(0.710, 0.537, 0.000),   // #B58900
+            function: Color::rgb(0.149, 0.545, 0.824),    // #268BD2
             punctuation: Color::rgb(0.400, 0.451, 0.514), // #667380
         }
     }
@@ -222,7 +222,8 @@ impl SimpleHighlighter {
 
             // Check for numbers
             if ch.is_ascii_digit()
-                && (current_text.is_empty() || !current_text.chars().last().unwrap_or(' ').is_alphanumeric())
+                && (current_text.is_empty()
+                    || !current_text.chars().last().unwrap_or(' ').is_alphanumeric())
             {
                 // Flush current span
                 if !current_text.is_empty() {
@@ -234,8 +235,13 @@ impl SimpleHighlighter {
 
                 let mut number = String::from(ch);
                 while let Some(&(_, c)) = chars.peek() {
-                    if c.is_ascii_digit() || c == '.' || c == 'x' || c == 'b' || c == 'o'
-                        || c == '_' || c.is_ascii_hexdigit()
+                    if c.is_ascii_digit()
+                        || c == '.'
+                        || c == 'x'
+                        || c == 'b'
+                        || c == 'o'
+                        || c == '_'
+                        || c.is_ascii_hexdigit()
                     {
                         number.push(chars.next().unwrap().1);
                     } else {
@@ -398,8 +404,31 @@ fn is_type(word: &str) -> bool {
 fn is_punctuation(ch: char) -> bool {
     matches!(
         ch,
-        '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | ',' | '.' | ':' | ';' | '=' | '+'
-            | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '!' | '?' | '#' | '@' | '$'
+        '(' | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '<'
+            | '>'
+            | ','
+            | '.'
+            | ':'
+            | ';'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | '/'
+            | '%'
+            | '&'
+            | '|'
+            | '^'
+            | '!'
+            | '?'
+            | '#'
+            | '@'
+            | '$'
     )
 }
 

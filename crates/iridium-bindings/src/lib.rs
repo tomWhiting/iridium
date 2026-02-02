@@ -63,6 +63,8 @@ use napi_derive::napi;
 
 // WASM module (browser bindings)
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
+mod web_span_index;
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod wasm;
 
 #[cfg(all(feature = "web", target_arch = "wasm32"))]

@@ -783,6 +783,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "rust-lapper",
  "serde",
  "serde_json",
  "thiserror",
@@ -809,6 +810,7 @@ dependencies = [
  "pollster",
  "regex",
  "ropey",
+ "rust-lapper",
  "serde",
  "serde_json",
  "thiserror",
@@ -1415,6 +1417,15 @@ name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+[[package]]
+name = "rust-lapper"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2274b9cc4f205bc0945b7be3e4fc1a102b0b7119ba6482faaedb9c4f76dde5d1"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "rustc-hash"

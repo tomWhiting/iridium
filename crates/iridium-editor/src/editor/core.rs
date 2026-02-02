@@ -14,10 +14,10 @@ use crate::render::Viewport;
 use crate::search::{SearchOptions, SearchState, replace_all, replace_current};
 use crate::theme::Theme;
 
-#[cfg(feature = "syntax")]
-use iridium_syntax::{FoldKind, Language};
 #[cfg(not(feature = "syntax"))]
 use crate::syntax_stubs::{FoldKind, Language};
+#[cfg(feature = "syntax")]
+use iridium_syntax::{FoldKind, Language};
 
 /// Events emitted by the editor to the host application.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -436,8 +436,9 @@ impl Editor {
     fn scroll_by(&mut self, delta_x: f32, delta_y: f32) {
         self.state.scroll_x = (self.state.scroll_x + delta_x).max(0.0);
 
-        // Convert pixel delta to lines (assuming ~20px line height)
-        let line_delta = (delta_y / 20.0) as i32;
+        // Convert pixel delta to lines using configured line height
+        let line_height_px = self.state.config.font_size * self.state.config.line_height;
+        let line_delta = (delta_y / line_height_px) as i32;
         let new_line = if line_delta < 0 {
             self.state
                 .scroll_line

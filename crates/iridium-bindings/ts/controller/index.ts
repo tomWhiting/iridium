@@ -18,7 +18,7 @@
  * ```
  */
 
-import { getSyntax, type SyntaxHighlighter } from "../syntax/index.ts";
+import { getSyntax, type SyntaxHighlighter, type EditInfo } from "../syntax/index.ts";
 
 // Types for the low-level WASM editor
 interface WebEditor {
@@ -85,6 +85,8 @@ interface WebEditor {
   isGutterEnabled(): boolean;
   setGutterEnabled(enabled: boolean): void;
   isTreeSitterActive(): boolean;
+  getScrollY(): number;
+  getLineHeight(): number;
 }
 
 export interface IridiumEditorOptions {
@@ -142,8 +144,10 @@ export class IridiumEditor {
   private lastBlinkTime = 0;
   private eventCleanup: (() => void)[] = [];
   private destroyed = false;
-  private highlightTimeout: ReturnType<typeof setTimeout> | null = null;
-  private static readonly HIGHLIGHT_DEBOUNCE_MS = 50;
+  /** Pending edit info for incremental tree-sitter parsing (T027) */
+  private lastEditInfo: EditInfo | null = null;
+  /** Pending async highlight update */
+  private pendingHighlightUpdate: number | null = null;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -373,6 +377,9 @@ export class IridiumEditor {
   private handleWheel(e: WheelEvent): void {
     e.preventDefault();
     this.editor.scrollBy(e.deltaY);
+    // Don't update highlights on scroll - content hasn't changed.
+    // The existing spans (byte-indexed) remain valid.
+    // This allows scroll to hit 120fps even on large files.
     this.editor.forceRender();
   }
 
@@ -429,12 +436,23 @@ export class IridiumEditor {
     } else if (e.key === "Delete") {
       this.handleDelete(e, isMac);
     } else if (e.key === "k" && e.ctrlKey) {
+      // Delete to line end - track deletion (T029)
+      const startByte = this.getCursorByteOffset();
+      const content = this.editor.getContent();
+      const lines = content.split("\n");
+      const line = this.editor.getCursorLine();
+      const lineEnd = lines[line]?.length || 0;
+      const lineEndByte = this.positionToByteOffset(content, line, lineEnd);
       this.editor.deleteToLineEnd();
+      this.trackEdit(startByte, lineEndByte, startByte);
       this.notifyContentChange();
     } else if (e.key === "Enter") {
       this.handleEnter();
     } else if (e.key === "Tab") {
+      // Tab insertion - 4 spaces (T029)
+      const startByte = this.getCursorByteOffset();
       this.editor.insert("    ");
+      this.trackEdit(startByte, startByte, startByte + 4);
       this.notifyContentChange();
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
       this.handleCharacterInput(e.key);
@@ -447,17 +465,49 @@ export class IridiumEditor {
     if (handled) {
       e.preventDefault();
       this.editor.ensureCursorVisible();
-      this.updateHighlights();
+      // Render immediately for instant feedback - highlights update async
       this.editor.forceRender();
+      this.scheduleAsyncHighlightUpdate();
       this.notifySelectionChange();
     }
   }
 
+  /**
+   * Schedule highlight update for next frame.
+   * This decouples typing responsiveness from tree-sitter parse time.
+   */
+  private scheduleAsyncHighlightUpdate(): void {
+    // Cancel any pending update
+    if (this.pendingHighlightUpdate !== null) {
+      cancelAnimationFrame(this.pendingHighlightUpdate);
+    }
+    // Schedule highlight update for next frame
+    // This decouples typing responsiveness from tree-sitter parse time
+    this.pendingHighlightUpdate = requestAnimationFrame(() => {
+      this.pendingHighlightUpdate = null;
+      this.updateHighlights();
+      this.editor.forceRender();
+    });
+  }
+
   private handleBackspace(e: KeyboardEvent, isMac: boolean): void {
+    const startByte = this.getCursorByteOffset();
+
     if (e.metaKey && isMac) {
+      // Delete to line start - complex deletion (T029)
+      const content = this.editor.getContent();
+      const line = this.editor.getCursorLine();
+      const lineStart = this.positionToByteOffset(content, line, 0);
       this.editor.deleteToLineStart();
+      this.trackEdit(lineStart, startByte, lineStart);
     } else if (e.altKey || (e.ctrlKey && !isMac)) {
+      // Word deletion - track by measuring content change (T029)
+      const contentBefore = this.editor.getContent();
       this.editor.deleteWordBackward();
+      const contentAfter = this.editor.getContent();
+      const deletedLen = contentBefore.length - contentAfter.length;
+      const newStartByte = startByte - deletedLen;
+      this.trackEdit(newStartByte, startByte, newStartByte);
     } else {
       // Check for auto-pair deletion
       const content = this.editor.getContent();
@@ -469,20 +519,33 @@ export class IridiumEditor {
       const charAfter = currentLine[col] || "";
 
       if (PAIRS[charBefore] && charAfter === PAIRS[charBefore]) {
+        // Delete both characters of pair (T029)
         this.editor.backspace();
         this.editor.delete_forward();
+        this.trackEdit(startByte - 1, startByte + 1, startByte - 1);
       } else {
+        // Single character backspace (T029)
         this.editor.backspace();
+        this.trackEdit(startByte - 1, startByte, startByte - 1);
       }
     }
     this.notifyContentChange();
   }
 
   private handleDelete(e: KeyboardEvent, isMac: boolean): void {
+    const startByte = this.getCursorByteOffset();
+
     if (e.altKey || (e.ctrlKey && !isMac)) {
+      // Word deletion forward - track by measuring content change (T029)
+      const contentBefore = this.editor.getContent();
       this.editor.deleteWordForward();
+      const contentAfter = this.editor.getContent();
+      const deletedLen = contentBefore.length - contentAfter.length;
+      this.trackEdit(startByte, startByte + deletedLen, startByte);
     } else {
+      // Single character delete forward (T029)
       this.editor.delete_forward();
+      this.trackEdit(startByte, startByte + 1, startByte);
     }
     this.notifyContentChange();
   }
@@ -497,14 +560,18 @@ export class IridiumEditor {
     const charAfter = currentLine[col] || "";
     const indent = currentLine.match(/^(\s*)/)?.[1] || "";
     const textBeforeCursor = currentLine.slice(0, col);
+    const startByte = this.getCursorByteOffset();
 
     // Check for code block (triple backticks)
     const codeBlockMatch = textBeforeCursor.match(/^(\s*)```(\w*)$/);
     if (codeBlockMatch) {
       const blockIndent = codeBlockMatch[1];
-      this.editor.insert("\n" + blockIndent + "\n" + blockIndent + "```");
+      const insertedText = "\n" + blockIndent + "\n" + blockIndent + "```";
+      this.editor.insert(insertedText);
       this.editor.moveCursorUp();
       this.editor.moveCursorLineEnd();
+      // Track insertion (T029)
+      this.trackEdit(startByte, startByte, startByte + insertedText.length);
     }
     // Check for bracket pairs
     else if (
@@ -512,17 +579,19 @@ export class IridiumEditor {
       (charBefore === "[" && charAfter === "]") ||
       (charBefore === "(" && charAfter === ")")
     ) {
-      this.editor.insert("\n" + indent + "    \n" + indent);
+      const insertedText = "\n" + indent + "    \n" + indent;
+      this.editor.insert(insertedText);
       this.editor.moveCursorUp();
       this.editor.moveCursorLineEnd();
+      // Track insertion (T029)
+      this.trackEdit(startByte, startByte, startByte + insertedText.length);
     } else {
       // Regular enter with indent preservation
       const endsWithOpener = /[{(\[]$/.test(textBeforeCursor.trim());
-      if (endsWithOpener) {
-        this.editor.insert("\n" + indent + "    ");
-      } else {
-        this.editor.insert("\n" + indent);
-      }
+      const insertedText = endsWithOpener ? "\n" + indent + "    " : "\n" + indent;
+      this.editor.insert(insertedText);
+      // Track insertion (T029)
+      this.trackEdit(startByte, startByte, startByte + insertedText.length);
     }
     this.notifyContentChange();
   }
@@ -540,10 +609,16 @@ export class IridiumEditor {
       this.editor.moveCursorRight();
     } else if (PAIRS[char]) {
       // Insert pair and move cursor back
+      const startByte = this.getCursorByteOffset();
       this.editor.insert(char + PAIRS[char]);
       this.editor.moveCursorLeft();
+      // Track as 2-character insertion (T029)
+      this.trackEdit(startByte, startByte, startByte + 2);
     } else {
+      const startByte = this.getCursorByteOffset();
       this.editor.insert(char);
+      // Track single character insertion (T029)
+      this.trackEdit(startByte, startByte, startByte + char.length);
     }
     this.notifyContentChange();
   }
@@ -568,10 +643,14 @@ export class IridiumEditor {
       }
       return true;
     } else if (e.key === "x") {
+      // Cut - track deletion (T029)
       const text = this.editor.getSelectedText();
       if (text) {
+        const startByte = this.getCursorByteOffset();
         navigator.clipboard.writeText(text).then(() => {
           this.editor.backspace();
+          // Track deletion of selection (T029)
+          this.trackEdit(startByte, startByte + text.length, startByte);
           this.updateHighlights();
           this.editor.forceRender();
           this.notifyContentChange();
@@ -579,9 +658,19 @@ export class IridiumEditor {
       }
       return true;
     } else if (e.key === "v") {
+      // Paste - track insertion (T029)
+      const startByte = this.getCursorByteOffset();
+      const hasSelection = this.editor.hasSelection();
+      const selectedText = hasSelection ? this.editor.getSelectedText() : "";
+
       navigator.clipboard.readText().then((text) => {
         if (text) {
           this.editor.insert(text);
+          // Track paste (replaces selection if any) (T029)
+          this.trackEdit(startByte, startByte + selectedText.length, startByte + text.length);
+          // CRITICAL: Ensure cursor is visible before highlighting
+          // Otherwise viewport spans won't match the visible area
+          this.editor.ensureCursorVisible();
           this.updateHighlights();
           this.editor.forceRender();
           this.notifyContentChange();
@@ -592,11 +681,43 @@ export class IridiumEditor {
     return false;
   }
 
+  /**
+   * Update syntax highlights using incremental parsing when possible (T031).
+   *
+   * Uses highlightIncremental() when edit info is available for faster
+   * updates in large files, falling back to full parse otherwise.
+   */
   private updateHighlights(): void {
     if (!this.syntax) return;
     try {
       const content = this.editor.getContent();
-      const spans = this.syntax.highlight(content);
+      const editInfo = this.consumeEditInfo();
+      const lineCount = this.editor.getLineCount();
+
+      let spans: { start: number; end: number; type: string }[];
+      if (lineCount > 200) {
+        // Large file: only highlight visible viewport + buffer
+        // This reduces 11,000 spans to ~200-500 spans
+        const scrollY = this.editor.getScrollY();
+        const lineHeight = this.editor.getLineHeight();
+        const viewportHeight = this.canvas.height / (window.devicePixelRatio || 1);
+
+        // Calculate visible line range
+        const firstVisibleLine = Math.floor(scrollY / lineHeight);
+        const visibleLineCount = Math.ceil(viewportHeight / lineHeight);
+        const buffer = 50; // Extra lines for smooth scrolling
+
+        const startLine = Math.max(0, firstVisibleLine - buffer);
+        const endLine = Math.min(lineCount, firstVisibleLine + visibleLineCount + buffer);
+
+        spans = this.syntax.highlightRange(content, startLine, endLine, editInfo);
+      } else {
+        // Small file: highlight everything
+        spans = editInfo
+          ? this.syntax.highlightIncremental(content, editInfo)
+          : this.syntax.highlight(content);
+      }
+
       this.editor.setTreeSitterHighlights(spans);
     } catch (e) {
       console.error("[IridiumEditor] Failed to update highlights:", e);
@@ -604,19 +725,106 @@ export class IridiumEditor {
   }
 
   /**
-   * Schedule a debounced highlight update.
-   * Renders immediately, then updates syntax highlighting after a short delay.
-   * This keeps typing responsive while syntax catches up.
+   * Track edit for incremental parsing (T028).
+   *
+   * Captures the byte offsets and row/column positions for an edit.
+   * Called by mutation operations to enable efficient incremental parsing.
+   *
+   * @param startByte - Byte where edit began
+   * @param oldEndByte - Byte where old content ended
+   * @param newEndByte - Byte where new content ends
    */
-  private scheduleHighlightUpdate(): void {
-    if (this.highlightTimeout) {
-      clearTimeout(this.highlightTimeout);
+  private trackEdit(
+    startByte: number,
+    oldEndByte: number,
+    newEndByte: number
+  ): void {
+    const content = this.editor.getContent();
+
+    // Calculate row/column positions from byte offsets (T032)
+    const startPos = this.byteToPosition(content, startByte);
+    const oldEndPos = this.byteToPosition(content, oldEndByte);
+    const newEndPos = this.byteToPosition(content, newEndByte);
+
+    this.lastEditInfo = {
+      startIndex: startByte,
+      oldEndIndex: oldEndByte,
+      newEndIndex: newEndByte,
+      startPosition: startPos,
+      oldEndPosition: oldEndPos,
+      newEndPosition: newEndPos,
+    };
+  }
+
+  /**
+   * Get pending edit info and clear it (T030).
+   *
+   * Returns the accumulated edit information since the last call,
+   * or null if no edits have occurred.
+   */
+  private consumeEditInfo(): EditInfo | null {
+    const edit = this.lastEditInfo;
+    this.lastEditInfo = null;
+    return edit;
+  }
+
+  /**
+   * Convert byte offset to row/column position (T032).
+   *
+   * Tree-sitter requires both byte offsets and row/column positions
+   * for incremental parsing. This calculates position from content.
+   */
+  private byteToPosition(
+    content: string,
+    byteOffset: number
+  ): { row: number; column: number } {
+    // Handle out of bounds
+    if (byteOffset <= 0) {
+      return { row: 0, column: 0 };
     }
-    this.highlightTimeout = setTimeout(() => {
-      this.updateHighlights();
-      this.editor.forceRender();
-      this.highlightTimeout = null;
-    }, IridiumEditor.HIGHLIGHT_DEBOUNCE_MS);
+    if (byteOffset >= content.length) {
+      const lines = content.split("\n");
+      const lastLine = lines[lines.length - 1] || "";
+      return { row: lines.length - 1, column: lastLine.length };
+    }
+
+    // Count newlines up to byteOffset to get row
+    const prefix = content.slice(0, byteOffset);
+    const lines = prefix.split("\n");
+    const row = lines.length - 1;
+    const column = lines[row].length;
+
+    return { row, column };
+  }
+
+  /**
+   * Convert line/column position to byte offset.
+   *
+   * Used to capture cursor position before edits for incremental parsing.
+   */
+  private positionToByteOffset(content: string, line: number, column: number): number {
+    const lines = content.split("\n");
+    let offset = 0;
+
+    for (let i = 0; i < line && i < lines.length; i++) {
+      offset += lines[i].length + 1; // +1 for newline
+    }
+
+    if (line < lines.length) {
+      offset += Math.min(column, lines[line].length);
+    }
+
+    return Math.min(offset, content.length);
+  }
+
+  /**
+   * Get current cursor byte offset in the content.
+   */
+  private getCursorByteOffset(): number {
+    const content = this.editor.getContent();
+    const line = this.editor.getCursorLine();
+    const column = this.editor.getCursorColumn();
+    return this.positionToByteOffset(content, line, column);
   }
 
   private notifyContentChange(): void {
@@ -644,8 +852,17 @@ export class IridiumEditor {
     return this.editor.getContent();
   }
 
-  /** Set the content. */
+  /** Set the content. Logs a warning for files >50,000 lines (T039). */
   setContent(content: string): void {
+    // T039: Warn about very large files
+    const lineCount = (content.match(/\n/g) || []).length + 1;
+    if (lineCount > 50_000) {
+      console.warn(
+        `[IridiumEditor] Large file detected (${lineCount.toLocaleString()} lines). ` +
+        `Performance may be degraded. Consider enabling viewport virtualization.`
+      );
+    }
+
     this.editor.setContent(content);
     this.updateHighlights();
     this.editor.forceRender();
@@ -760,8 +977,8 @@ export class IridiumEditor {
     }
 
     // Cancel pending highlight update
-    if (this.highlightTimeout) {
-      clearTimeout(this.highlightTimeout);
+    if (this.pendingHighlightUpdate !== null) {
+      cancelAnimationFrame(this.pendingHighlightUpdate);
     }
 
     // Remove event listeners

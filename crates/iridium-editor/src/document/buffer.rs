@@ -152,6 +152,29 @@ impl Document {
         self.content.len()
     }
 
+    /// Returns a reference to the underlying rope structure.
+    ///
+    /// This is useful for efficient viewport-based operations that need
+    /// direct access to the rope's line indexing capabilities.
+    #[must_use]
+    pub const fn rope(&self) -> &Rope {
+        &self.content
+    }
+
+    /// Returns the byte offset of the start of a line.
+    ///
+    /// This is useful for viewport-based span queries where we need to
+    /// convert line numbers to byte offsets efficiently.
+    ///
+    /// Returns `None` if the line number is out of bounds.
+    #[must_use]
+    pub fn line_to_byte_offset(&self, line: usize) -> Option<usize> {
+        if line >= self.line_count() {
+            return None;
+        }
+        Some(self.content.line_to_byte_idx(line, LINE_TYPE))
+    }
+
     /// Returns the number of characters in the document.
     #[must_use]
     pub fn char_count(&self) -> usize {
@@ -179,6 +202,10 @@ impl Document {
 
     /// Converts a position (line, column) to a byte offset.
     ///
+    /// The column is interpreted as a character (code point) index within the line,
+    /// which is then converted to the appropriate byte offset. This ensures correct
+    /// handling of multi-byte UTF-8 characters.
+    ///
     /// Returns `None` if the position is out of bounds.
     #[must_use]
     pub fn position_to_offset(&self, position: Position) -> Option<usize> {
@@ -187,16 +214,23 @@ impl Document {
         }
 
         let line_start = self.content.line_to_byte_idx(position.line, LINE_TYPE);
-        let line_len = self.line_len(position.line).unwrap_or(0);
+        let line_slice = self.content.line(position.line, LINE_TYPE);
+        let line_char_len = line_slice.len_chars();
 
-        if position.column > line_len {
+        // Column is measured in characters (code points), not bytes
+        if position.column > line_char_len {
             return None;
         }
 
-        Some(line_start + position.column)
+        // Convert character offset within line to byte offset
+        let byte_offset_in_line = line_slice.char_to_byte_idx(position.column);
+        Some(line_start + byte_offset_in_line)
     }
 
     /// Converts a byte offset to a position (line, column).
+    ///
+    /// The resulting column is a character (code point) index within the line,
+    /// ensuring correct handling of multi-byte UTF-8 characters.
     ///
     /// Returns `None` if the offset is out of bounds.
     #[must_use]
@@ -207,7 +241,11 @@ impl Document {
 
         let line = self.content.byte_to_line_idx(offset, LINE_TYPE);
         let line_start = self.content.line_to_byte_idx(line, LINE_TYPE);
-        let column = offset - line_start;
+        let byte_offset_in_line = offset - line_start;
+
+        // Convert byte offset within line to character offset
+        let line_slice = self.content.line(line, LINE_TYPE);
+        let column = line_slice.byte_to_char_idx(byte_offset_in_line);
 
         Some(Position::new(line, column))
     }
@@ -363,5 +401,52 @@ mod tests {
         assert_eq!(LineEnding::detect("hello\r\nworld"), LineEnding::CrLf);
         assert_eq!(LineEnding::detect("hello\rworld"), LineEnding::Cr);
         assert_eq!(LineEnding::detect("hello"), LineEnding::Lf); // Default
+    }
+
+    #[test]
+    fn position_offset_conversion_utf8() {
+        // Test with multi-byte UTF-8 characters
+        // "日本語" = 3 characters, 9 bytes (3 bytes each)
+        let doc = Document::new("日本語\nHello");
+
+        // First line: "日本語" (3 chars, 9 bytes)
+        assert_eq!(doc.line_len(0), Some(3)); // 3 characters
+        assert_eq!(doc.position_to_offset(Position::new(0, 0)), Some(0)); // Start
+        assert_eq!(doc.position_to_offset(Position::new(0, 1)), Some(3)); // After 日
+        assert_eq!(doc.position_to_offset(Position::new(0, 2)), Some(6)); // After 日本
+        assert_eq!(doc.position_to_offset(Position::new(0, 3)), Some(9)); // After 日本語
+
+        // Second line: "Hello" starts at byte 10 (9 + newline)
+        assert_eq!(doc.position_to_offset(Position::new(1, 0)), Some(10));
+        assert_eq!(doc.position_to_offset(Position::new(1, 2)), Some(12)); // He|llo
+
+        // Reverse conversion
+        assert_eq!(doc.offset_to_position(0), Some(Position::new(0, 0)));
+        assert_eq!(doc.offset_to_position(3), Some(Position::new(0, 1))); // After 日
+        assert_eq!(doc.offset_to_position(6), Some(Position::new(0, 2))); // After 日本
+        assert_eq!(doc.offset_to_position(10), Some(Position::new(1, 0))); // Start of Hello
+    }
+
+    #[test]
+    fn insert_delete_utf8() {
+        let mut doc = Document::new("日本語");
+
+        // Insert after first character (column 1 = after 日)
+        doc.insert(Position::new(0, 1), "X").unwrap();
+        assert_eq!(doc.text(), "日X本語");
+
+        // Delete the X (at column 1, length 1)
+        let deleted = doc
+            .delete(Range::new(Position::new(0, 1), Position::new(0, 2)))
+            .unwrap();
+        assert_eq!(deleted, "X");
+        assert_eq!(doc.text(), "日本語");
+
+        // Delete a multi-byte character (本 at column 1)
+        let deleted = doc
+            .delete(Range::new(Position::new(0, 1), Position::new(0, 2)))
+            .unwrap();
+        assert_eq!(deleted, "本");
+        assert_eq!(doc.text(), "日語");
     }
 }

@@ -45,6 +45,10 @@ pub mod syntax_stubs;
 pub mod theme;
 pub mod view;
 
+/// Span indexing for efficient viewport-based syntax highlighting.
+#[cfg(feature = "syntax")]
+pub mod span_index;
+
 // Re-exports for convenient access
 pub use document::{CursorState, Document, Position, Range, Selection};
 pub use editor::{Editor, EditorConfig, EditorEvent, EditorState, IridiumError};

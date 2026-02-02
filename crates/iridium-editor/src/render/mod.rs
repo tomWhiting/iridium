@@ -37,10 +37,10 @@ pub use pipeline::{
 pub use quad::{Quad, QuadRenderer};
 pub use simple_highlight::{HighlightSpan, SimpleHighlighter, SyntaxColors, TokenType};
 pub use text::{TextRenderConfig, TextRenderer};
-pub use viewport::Viewport;
+pub use viewport::{Viewport, ViewportConfig};
 
 #[cfg(feature = "web")]
 pub use web::WebRenderConfig;
 
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
-pub use web::{performance_now, request_animation_frame, WebSurface};
+pub use web::{WebSurface, performance_now, request_animation_frame};

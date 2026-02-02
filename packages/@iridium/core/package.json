@@ -1,0 +1,46 @@
+{
+  "name": "@iridium/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Core TypeScript modules for Iridium GPU-accelerated text editor",
+  "exports": {
+    ".": {
+      "types": "./src/controller/index.ts",
+      "default": "./src/controller/index.ts"
+    },
+    "./controller": {
+      "types": "./src/controller/index.ts",
+      "default": "./src/controller/index.ts"
+    },
+    "./syntax": {
+      "types": "./src/syntax/index.ts",
+      "default": "./src/syntax/index.ts"
+    },
+    "./element": {
+      "types": "./src/element/index.ts",
+      "default": "./src/element/index.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "keywords": [
+    "editor",
+    "text-editor",
+    "gpu",
+    "webgpu",
+    "syntax-highlighting",
+    "tree-sitter"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/graphspace/iridium"
+  },
+  "peerDependencies": {
+    "iridium-bindings": ">=0.1.0"
+  },
+  "dependencies": {
+    "web-tree-sitter": "0.25.6"
+  }
+}

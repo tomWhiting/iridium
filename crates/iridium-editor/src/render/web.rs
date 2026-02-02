@@ -116,11 +116,11 @@ mod wasm {
 
             // Create surface from canvas
             let surface_target = SurfaceTarget::Canvas(canvas);
-            let surface = instance
-                .create_surface(surface_target)
-                .map_err(|e| IridiumError::GpuInitFailed {
+            let surface = instance.create_surface(surface_target).map_err(|e| {
+                IridiumError::GpuInitFailed {
                     message: format!("Failed to create surface from canvas: {e}"),
-                })?;
+                }
+            })?;
 
             // Request adapter compatible with the surface
             let adapter = instance
@@ -320,7 +320,7 @@ mod wasm {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{performance_now, request_animation_frame, WebSurface};
+pub use wasm::{WebSurface, performance_now, request_animation_frame};
 
 #[cfg(test)]
 mod tests {
@@ -329,7 +329,8 @@ mod tests {
     #[test]
     fn web_render_config_default() {
         let config = WebRenderConfig::default();
-        assert_eq!(config.format, TextureFormat::Bgra8UnormSrgb);
+        // Bgra8Unorm (not sRGB) is used for WebGPU browser compatibility
+        assert_eq!(config.format, TextureFormat::Bgra8Unorm);
         assert_eq!(config.present_mode, PresentMode::Fifo);
     }
 }

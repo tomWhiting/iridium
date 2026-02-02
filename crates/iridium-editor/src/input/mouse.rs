@@ -561,11 +561,11 @@ impl MouseHandler {
         // Clamp to document bounds
         let line = line.min(document.line_count().saturating_sub(1));
 
-        // Calculate column from x position
-        // Assume monospace font with fixed character width
-        // TODO: Use actual glyph metrics for accurate positioning
-        let char_width = viewport.line_height * 0.6; // Approximate monospace ratio
-        let column_f = (x + viewport.scroll_offset_x) / char_width;
+        // Calculate column from x position, accounting for gutter width.
+        // Uses 0.6 ratio approximation for monospace fonts (width:height).
+        let text_x = (x - self.gutter_config.gutter_width).max(0.0);
+        let char_width = viewport.line_height * 0.6;
+        let column_f = (text_x + viewport.scroll_offset_x) / char_width;
         let column = column_f.floor().max(0.0) as usize;
 
         // Clamp column to line length

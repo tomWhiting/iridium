@@ -120,12 +120,21 @@ const MAX_QUADS: usize = 1024;
 ///
 /// This provides efficient batched rendering of colored quads for
 /// cursors, selections, and other rectangular highlights.
+///
+/// # Performance
+///
+/// The renderer uses a pre-allocated CPU-side vertex buffer to avoid
+/// per-frame allocations. For 120fps rendering, this eliminates GC
+/// pressure and allocation overhead.
 pub struct QuadRenderer {
     pipeline: RenderPipeline,
     vertex_buffer: Buffer,
     uniform_buffer: Buffer,
     bind_group: BindGroup,
     viewport_size: [f32; 2],
+    /// Pre-allocated CPU-side vertex buffer to avoid per-frame allocations.
+    /// Capacity: MAX_QUADS * 6 vertices.
+    cpu_vertices: Vec<QuadVertex>,
 }
 
 impl QuadRenderer {
@@ -220,12 +229,16 @@ impl QuadRenderer {
             mapped_at_creation: false,
         });
 
+        // Pre-allocate CPU vertex buffer to avoid per-frame allocations
+        let cpu_vertices = Vec::with_capacity(MAX_QUADS * 6);
+
         Self {
             pipeline,
             vertex_buffer,
             uniform_buffer,
             bind_group,
             viewport_size: [1.0, 1.0],
+            cpu_vertices,
         }
     }
 
@@ -246,13 +259,24 @@ impl QuadRenderer {
     /// * `render_pass` - The render pass to draw into
     /// * `queue` - The GPU queue for uploading vertices
     /// * `quads` - The quads to render
-    pub fn render<'a>(&'a self, render_pass: &mut RenderPass<'a>, queue: &Queue, quads: &[Quad]) {
+    ///
+    /// # Performance
+    ///
+    /// Uses a pre-allocated CPU buffer to avoid per-frame allocations.
+    /// Only clears and refills the existing buffer.
+    pub fn render<'a>(
+        &'a mut self,
+        render_pass: &mut RenderPass<'a>,
+        queue: &Queue,
+        quads: &[Quad],
+    ) {
         if quads.is_empty() {
             return;
         }
 
-        // Build vertex data
-        let mut vertices = Vec::with_capacity(quads.len() * 6);
+        // Clear and reuse the pre-allocated vertex buffer (no allocation)
+        self.cpu_vertices.clear();
+
         for quad in quads.iter().take(MAX_QUADS) {
             let color = [quad.color.r, quad.color.g, quad.color.b, quad.color.a];
             let x0 = quad.x;
@@ -261,39 +285,43 @@ impl QuadRenderer {
             let y1 = quad.y + quad.height;
 
             // Two triangles for a quad
-            vertices.push(QuadVertex {
+            self.cpu_vertices.push(QuadVertex {
                 position: [x0, y0],
                 color,
             });
-            vertices.push(QuadVertex {
+            self.cpu_vertices.push(QuadVertex {
                 position: [x1, y0],
                 color,
             });
-            vertices.push(QuadVertex {
+            self.cpu_vertices.push(QuadVertex {
                 position: [x0, y1],
                 color,
             });
-            vertices.push(QuadVertex {
+            self.cpu_vertices.push(QuadVertex {
                 position: [x1, y0],
                 color,
             });
-            vertices.push(QuadVertex {
+            self.cpu_vertices.push(QuadVertex {
                 position: [x1, y1],
                 color,
             });
-            vertices.push(QuadVertex {
+            self.cpu_vertices.push(QuadVertex {
                 position: [x0, y1],
                 color,
             });
         }
 
         // Upload vertices
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        queue.write_buffer(
+            &self.vertex_buffer,
+            0,
+            bytemuck::cast_slice(&self.cpu_vertices),
+        );
 
         // Draw
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..vertices.len() as u32, 0..1);
+        render_pass.draw(0..self.cpu_vertices.len() as u32, 0..1);
     }
 }

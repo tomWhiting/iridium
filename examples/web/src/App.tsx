@@ -53,11 +53,17 @@ impl Editor {
 }
 `;
 
+const LANGUAGES = [
+  "rust", "typescript", "tsx", "javascript", "python", "go",
+  "html", "css", "json", "java", "cpp", "c", "ruby", "bash", "toml"
+];
+
 function App() {
   const editorRef = useRef<IridiumHandle>(null);
   const [content, setContent] = useState(SAMPLE_CODE);
   const [cursorInfo, setCursorInfo] = useState({ line: 0, column: 0 });
   const [isDark, setIsDark] = useState(true);
+  const [language, setLanguage] = useState("rust");
 
   const webgpu = useWebGPUSupport();
 
@@ -104,6 +110,19 @@ function App() {
 
       {/* Toolbar */}
       <div style={styles.toolbar}>
+        {/* Language Selector */}
+        <select
+          style={styles.select}
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang} value={lang}>
+              {lang}
+            </option>
+          ))}
+        </select>
+
         {/* Theme Toggle */}
         <button
           style={styles.button}
@@ -126,7 +145,7 @@ function App() {
         <Iridium
           ref={editorRef}
           content={content}
-          language="rust"
+          language={language}
           darkTheme={isDark}
           onChange={setContent}
           onSelectionChange={(sel) => {
@@ -144,7 +163,7 @@ function App() {
         <span>|</span>
         <span>{content.split("\n").length} lines</span>
         <span>|</span>
-        <span>Rust</span>
+        <span>{language}</span>
         <span>|</span>
         <span>UTF-8</span>
       </footer>
@@ -205,6 +224,15 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#252525",
   },
   button: {
+    padding: "0.375rem 0.75rem",
+    border: "1px solid #444",
+    borderRadius: "4px",
+    backgroundColor: "#333",
+    color: "#e0e0e0",
+    fontSize: "0.875rem",
+    cursor: "pointer",
+  },
+  select: {
     padding: "0.375rem 0.75rem",
     border: "1px solid #444",
     borderRadius: "4px",

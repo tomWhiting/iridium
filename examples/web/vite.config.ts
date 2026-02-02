@@ -10,14 +10,20 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      // New @iridium/core package (recommended)
+      "@iridium/core": resolve(__dirname, "../../packages/@iridium/core/src/controller/index.ts"),
+      "@iridium/core/syntax": resolve(__dirname, "../../packages/@iridium/core/src/syntax/index.ts"),
+      "@iridium/core/element": resolve(__dirname, "../../packages/@iridium/core/src/element/index.ts"),
+      // Legacy iridium-bindings (still supported)
       "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/ts/controller/index.ts"),
+      "iridium-bindings/wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
       "iridium-wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
       // Resolve web-tree-sitter for files outside this directory
       "web-tree-sitter": resolve(__dirname, "node_modules/web-tree-sitter"),
     },
   },
   optimizeDeps: {
-    exclude: ["iridium-bindings", "iridium-wasm"],
+    exclude: ["@iridium/core", "iridium-bindings", "iridium-bindings/wasm", "iridium-wasm"],
   },
   build: {
     target: "esnext",

@@ -14,7 +14,15 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@iridium/core": ["../../packages/@iridium/core/src/controller/index.ts"],
+      "@iridium/core/*": ["../../packages/@iridium/core/src/*"],
+      "iridium-bindings": ["../../crates/iridium-bindings/ts/controller/index.ts"],
+      "iridium-bindings/*": ["../../crates/iridium-bindings/ts/*"],
+      "web-tree-sitter": ["./node_modules/web-tree-sitter"]
+    }
   },
   "include": ["src"]
 }

@@ -8,14 +8,18 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use iridium_editor::{
+    EditorConfig, Position, Range,
     document::{CursorState, Selection},
     editor::{Editor, FoldState},
     history::Command,
-    render::{CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer, WebSurface},
+    render::{
+        CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
+        Viewport, ViewportConfig, WebSurface,
+    },
     syntax_stubs::Language,
     theme::Theme,
-    EditorConfig, Position, Range,
 };
+use crate::web_span_index::{WebSpan, WebSpanIndex};
 
 /// Initialize panic hook for better error messages in browser console.
 #[wasm_bindgen(start)]
@@ -33,6 +37,14 @@ pub struct JsHighlightSpan {
     /// Highlight type as string (e.g., "keyword", "string", "comment")
     pub highlight_type: String,
 }
+
+/// Maximum expected lines in viewport (for pre-allocation sizing).
+/// Typical: 50 lines visible + 20 overscan = 70 lines.
+const MAX_VIEWPORT_LINES: usize = 128;
+
+/// Maximum expected selection quads per frame.
+/// Typical: 1 quad per selected line, rarely more than viewport.
+const MAX_SELECTION_QUADS: usize = 128;
 
 /// WebEditor provides a complete browser-based editor experience.
 ///
@@ -68,6 +80,41 @@ pub struct WebEditor {
     ts_highlights: Vec<JsHighlightSpan>,
     /// Whether to use tree-sitter highlights from JS
     use_ts_highlights: bool,
+    /// Span index for efficient viewport-based queries (O(log n + k))
+    span_index: WebSpanIndex,
+    /// Viewport configuration for overscan buffer
+    viewport_config: ViewportConfig,
+    /// Cached viewport dimensions to avoid redundant GPU updates
+    cached_viewport_width: u32,
+    cached_viewport_height: u32,
+
+    // =========================================================================
+    // Pre-allocated buffers for render_frame() - eliminates per-frame allocations
+    // =========================================================================
+    /// Pre-allocated buffer for visible content string.
+    /// Capacity: ~10KB (typical viewport worth of text).
+    cpu_visible_content: String,
+    /// Pre-allocated buffer for document-to-visual line mapping.
+    /// Capacity: document line count (grows as needed).
+    cpu_doc_to_visual: Vec<Option<usize>>,
+    /// Pre-allocated buffer for visible document line indices.
+    /// Capacity: MAX_VIEWPORT_LINES.
+    cpu_visible_doc_lines: Vec<usize>,
+    /// Pre-allocated buffer for line numbers string.
+    /// Capacity: ~2KB (typical viewport worth of line numbers).
+    cpu_line_numbers: String,
+    /// Pre-allocated buffer for gutter background quads.
+    /// Capacity: 1-2 quads typically.
+    cpu_gutter_quads: Vec<Quad>,
+    /// Pre-allocated buffer for selection highlight quads.
+    /// Capacity: MAX_SELECTION_QUADS.
+    cpu_selection_quads: Vec<Quad>,
+    /// Pre-allocated buffer for cursor quads.
+    /// Capacity: 1-2 quads typically.
+    cpu_cursor_quads: Vec<Quad>,
+    /// Pre-allocated buffer for combined background quads.
+    /// Capacity: gutter + selection quads.
+    cpu_background_quads: Vec<Quad>,
 }
 
 /// Log a message to the browser console.
@@ -113,8 +160,8 @@ pub async fn create_web_editor(
 
     // Create the text renderer with scaled font size for HiDPI
     log("[Iridium] Creating TextRenderer...");
-    let mut text_renderer =
-        TextRenderer::new(surface.device(), surface.queue(), surface.format()).map_err(|e| {
+    let mut text_renderer = TextRenderer::new(surface.device(), surface.queue(), surface.format())
+        .map_err(|e| {
             let msg = format!("[Iridium] TextRenderer error: {}", e);
             log(&msg);
             JsValue::from_str(&msg)
@@ -168,6 +215,19 @@ pub async fn create_web_editor(
         cached_char_width: 14.0 * 0.6, // Default until font is loaded
         ts_highlights: Vec::new(),
         use_ts_highlights: false,
+        span_index: WebSpanIndex::empty(),
+        viewport_config: ViewportConfig::default(),
+        cached_viewport_width: width,
+        cached_viewport_height: height,
+        // Pre-allocated buffers to avoid per-frame allocations (120fps target)
+        cpu_visible_content: String::with_capacity(10 * 1024), // 10KB typical viewport
+        cpu_doc_to_visual: Vec::with_capacity(1024),           // 1K lines initial
+        cpu_visible_doc_lines: Vec::with_capacity(MAX_VIEWPORT_LINES),
+        cpu_line_numbers: String::with_capacity(2 * 1024), // 2KB line numbers
+        cpu_gutter_quads: Vec::with_capacity(2),
+        cpu_selection_quads: Vec::with_capacity(MAX_SELECTION_QUADS),
+        cpu_cursor_quads: Vec::with_capacity(2),
+        cpu_background_quads: Vec::with_capacity(MAX_SELECTION_QUADS + 2),
     })
 }
 
@@ -278,7 +338,11 @@ impl WebEditor {
 
             let cmd = Command::Delete {
                 range: Range::new(delete_from, cursor),
-                deleted_text: self.editor.state().document.slice(Range::new(delete_from, cursor)),
+                deleted_text: self
+                    .editor
+                    .state()
+                    .document
+                    .slice(Range::new(delete_from, cursor)),
             };
             self.editor.apply_command(cmd);
             // Move cursor to start of deleted range
@@ -319,7 +383,11 @@ impl WebEditor {
 
             let cmd = Command::Delete {
                 range: Range::new(cursor, delete_to),
-                deleted_text: self.editor.state().document.slice(Range::new(cursor, delete_to)),
+                deleted_text: self
+                    .editor
+                    .state()
+                    .document
+                    .slice(Range::new(cursor, delete_to)),
             };
             self.editor.apply_command(cmd);
             // Cursor stays in place for forward delete
@@ -341,6 +409,9 @@ impl WebEditor {
             .update_viewport(self.surface.queue(), width, height);
         self.cursor_quad_renderer
             .update_viewport(self.surface.queue(), width, height);
+        // Update cache to prevent redundant updates in render_frame
+        self.cached_viewport_width = width;
+        self.cached_viewport_height = height;
         self.needs_redraw = true;
     }
 
@@ -368,7 +439,9 @@ impl WebEditor {
     #[wasm_bindgen(js_name = getMaxScrollY)]
     pub fn max_scroll_y(&self) -> f32 {
         let line_height = self.text_renderer.line_height();
-        let visible_lines = self.fold_state.visible_line_count(self.editor.state().document.line_count());
+        let visible_lines = self
+            .fold_state
+            .visible_line_count(self.editor.state().document.line_count());
         let content_height = visible_lines as f32 * line_height;
         let viewport_height = self.surface.height() as f32;
         (content_height - viewport_height + 20.0).max(0.0) // 20px padding
@@ -383,7 +456,10 @@ impl WebEditor {
 
         // Get cursor's visual line (accounting for folds)
         let cursor_line = self.editor.cursor().line;
-        let visual_line = self.fold_state.document_to_visual_line(cursor_line).unwrap_or(0);
+        let visual_line = self
+            .fold_state
+            .document_to_visual_line(cursor_line)
+            .unwrap_or(0);
         let cursor_y = padding + (visual_line as f32 * line_height);
 
         // Scroll up if cursor is above viewport
@@ -398,12 +474,91 @@ impl WebEditor {
         }
     }
 
+    /// Converts highlight spans (from WebSpanIndex query) to colored text spans for rendering.
+    ///
+    /// This is the optimized version that works with WebSpan from the WebSpanIndex.
+    /// The spans are collected, sorted, and processed only for the visible viewport.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The visible content string
+    /// * `spans` - Iterator of WebSpan from WebSpanIndex::query()
+    /// * `content_start_byte` - The document byte offset where content begins
+    fn build_rich_spans_viewport<'a>(
+        &self,
+        content: &'a str,
+        spans: impl Iterator<Item = WebSpan>,
+        content_start_byte: usize,
+    ) -> Vec<(&'a str, iridium_editor::theme::Color)> {
+        let foreground = self.theme.editor.foreground;
+        let mut result = Vec::new();
+        let mut last_end = 0;
+        let content_end_byte = content_start_byte + content.len();
+
+        // Collect and sort spans by start position
+        let mut sorted_spans: Vec<WebSpan> = spans.collect();
+        sorted_spans.sort_by_key(|s| s.start);
+
+        for span in &sorted_spans {
+            // Calculate span positions relative to content
+            let span_start = span.start.saturating_sub(content_start_byte);
+            let span_end = span.end.saturating_sub(content_start_byte);
+
+            // Skip spans that are completely outside content
+            if span.end <= content_start_byte || span.start >= content_end_byte {
+                continue;
+            }
+
+            // Clamp to content bounds
+            let span_start = span_start.min(content.len());
+            let span_end = span_end.min(content.len());
+
+            // Skip empty or invalid spans
+            if span_start >= span_end {
+                continue;
+            }
+
+            // Add gap before this span if needed
+            if span_start > last_end {
+                let gap_text = &content[last_end..span_start];
+                if !gap_text.is_empty() {
+                    result.push((gap_text, foreground));
+                }
+            }
+
+            // Skip overlapping spans
+            if span_start < last_end {
+                continue;
+            }
+
+            // Get the color for this highlight type (using string-based lookup)
+            let color = self.color_for_highlight_type(&span.highlight_type);
+
+            // Add the highlighted span
+            let text = &content[span_start..span_end];
+            if !text.is_empty() {
+                result.push((text, color));
+            }
+
+            last_end = span_end;
+        }
+
+        // Add remaining text after last span
+        if last_end < content.len() {
+            let remaining = &content[last_end..];
+            if !remaining.is_empty() {
+                result.push((remaining, foreground));
+            }
+        }
+
+        result
+    }
+
     /// Converts tree-sitter highlight spans to colored text spans for rendering.
+    /// (Legacy version - kept for fallback when SpanIndex is empty)
     ///
     /// Maps tree-sitter capture names to theme colors and handles gaps between
     /// highlighted regions with default foreground color.
-    ///
-    /// Takes a pre-cloned list of highlight spans to avoid borrowing self.
     fn build_rich_spans_from_ts<'a>(
         &self,
         content: &'a str,
@@ -466,141 +621,146 @@ impl WebEditor {
         // These match the names from Zed's .scm query files
         match highlight_type {
             // Keywords
-            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier"
-            | "keyword.control" | "keyword.return" | "keyword.control.return" => {
+            "keyword"
+            | "keyword.function"
+            | "keyword.storage"
+            | "keyword.modifier"
+            | "keyword.control"
+            | "keyword.return"
+            | "keyword.control.return" => {
                 // Blue for keywords
                 Color::rgb(0.506, 0.631, 0.757) // #81A1C1
-            }
+            },
 
             // Strings
             "string" | "string.literal" | "string.special" => {
                 // Green for strings
                 Color::rgb(0.639, 0.745, 0.549) // #A3BE8C
-            }
+            },
 
             // Escape sequences
             "string.escape" | "escape_sequence" | "escape" => {
                 // Orange for escapes
                 Color::rgb(0.847, 0.502, 0.337) // #D88055
-            }
+            },
 
             // Numbers
             "number" | "number.literal" | "integer" | "float" => {
                 // Purple for numbers
                 Color::rgb(0.702, 0.561, 0.678) // #B48EAD
-            }
+            },
 
             // Booleans
             "boolean" | "constant.builtin.boolean" => {
                 Color::rgb(0.702, 0.561, 0.678) // #B48EAD (same as numbers)
-            }
+            },
 
             // Comments
             "comment" | "comment.line" | "comment.block" => {
                 // Gray for comments
                 Color::rgb(0.396, 0.482, 0.514) // #657B83
-            }
+            },
 
             // Doc comments
             "comment.doc" | "comment.documentation" => {
                 Color::rgb(0.435, 0.545, 0.569) // Slightly brighter gray
-            }
+            },
 
             // Functions
             "function" | "function.call" | "function.builtin" => {
                 // Cyan for functions
                 Color::rgb(0.533, 0.753, 0.816) // #88C0D0
-            }
+            },
 
             // Function definitions
             "function.definition" | "function.name" => {
                 Color::rgb(0.533, 0.753, 0.816) // #88C0D0
-            }
+            },
 
             // Methods
             "function.method" | "method" | "method.call" => {
                 Color::rgb(0.533, 0.753, 0.816) // #88C0D0
-            }
+            },
 
             // Macros
             "function.special" | "function.macro" | "macro" | "function.special.definition" => {
                 // Teal for macros
                 Color::rgb(0.306, 0.718, 0.675) // #4EB7AC
-            }
+            },
 
             // Types
             "type" | "type.name" | "type.definition" | "constructor" => {
                 // Yellow for types
                 Color::rgb(0.922, 0.796, 0.545) // #EBCB8B
-            }
+            },
 
             // Built-in types
             "type.builtin" | "type.primitive" => {
                 Color::rgb(0.922, 0.796, 0.545) // #EBCB8B
-            }
+            },
 
             // Variables
             "variable" | "identifier" => {
                 // Default foreground for variables
                 self.theme.editor.foreground
-            }
+            },
 
             // Parameters
             "variable.parameter" | "parameter" => {
                 // Slightly different color for parameters
                 Color::rgb(0.847, 0.871, 0.914) // #D8DEE9
-            }
+            },
 
             // Special variables (self, this)
             "variable.special" | "variable.builtin" => {
                 // Orange-ish for special vars
                 Color::rgb(0.867, 0.545, 0.376) // #DD8B60
-            }
+            },
 
             // Operators
             "operator" | "keyword.operator" => {
                 Color::rgb(0.506, 0.631, 0.757) // #81A1C1 (like keywords)
-            }
+            },
 
             // Punctuation
             "punctuation.bracket" | "bracket" => {
                 Color::rgb(0.608, 0.639, 0.690) // #9BA0AB
-            }
+            },
 
             "punctuation.delimiter" | "delimiter" | "punctuation" => {
                 Color::rgb(0.608, 0.639, 0.690) // #9BA0AB
-            }
+            },
 
             // Properties/fields
             "property" | "field" | "property.name" | "label" | "variable.member"
             | "variable.field" => {
                 Color::rgb(0.533, 0.753, 0.816) // #88C0D0
-            }
+            },
 
             // Constants
             "constant" | "constant.builtin" => {
                 Color::rgb(0.702, 0.561, 0.678) // #B48EAD
-            }
+            },
 
             // Lifetimes (Rust)
             "lifetime" => {
                 Color::rgb(0.867, 0.545, 0.376) // #DD8B60
-            }
+            },
 
             // Attributes
             "attribute" | "decorator" | "annotation" => {
                 Color::rgb(0.639, 0.745, 0.549) // #A3BE8C (like strings)
-            }
+            },
 
             // Tags (HTML/XML)
             "tag" | "tag.name" => {
                 Color::rgb(0.506, 0.631, 0.757) // #81A1C1
-            }
+            },
 
             // Errors
             "error" => {
                 Color::rgb(0.749, 0.298, 0.298) // #BF4C4C
-            }
+            },
 
             // Default fallback
             _ => self.theme.editor.foreground,
@@ -635,49 +795,91 @@ impl WebEditor {
             Color, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
         };
 
-        // Ensure viewport is updated with current surface dimensions
-        // This is critical - without it, glyphon won't render text correctly
-        self.text_renderer.update_viewport(
-            self.surface.queue(),
-            self.surface.width(),
-            self.surface.height(),
-        );
-        self.background_quad_renderer.update_viewport(
-            self.surface.queue(),
-            self.surface.width(),
-            self.surface.height(),
-        );
-        self.cursor_quad_renderer.update_viewport(
-            self.surface.queue(),
-            self.surface.width(),
-            self.surface.height(),
-        );
+        // T042: Track frame time for performance monitoring
+        let frame_start = Instant::now();
+
+        // PERF: Only update viewport uniforms when dimensions actually change
+        // Avoids 3 GPU buffer writes per frame when dimensions are unchanged
+        let current_width = self.surface.width();
+        let current_height = self.surface.height();
+        if current_width != self.cached_viewport_width
+            || current_height != self.cached_viewport_height
+        {
+            self.cached_viewport_width = current_width;
+            self.cached_viewport_height = current_height;
+            self.text_renderer.update_viewport(
+                self.surface.queue(),
+                current_width,
+                current_height,
+            );
+            self.background_quad_renderer.update_viewport(
+                self.surface.queue(),
+                current_width,
+                current_height,
+            );
+            self.cursor_quad_renderer.update_viewport(
+                self.surface.queue(),
+                current_width,
+                current_height,
+            );
+        }
 
         // Get the content to render, handling folded lines
         let doc = &self.editor.state().document;
         let line_count = doc.line_count();
 
-        // Build visible content, skipping hidden (folded) lines
-        // Line numbers are built AFTER shaping to account for line wrapping
-        let mut visible_content = String::new();
-        let mut visual_line = 0;
-        let mut doc_to_visual: Vec<Option<usize>> = Vec::with_capacity(line_count);
-        let mut visible_doc_lines: Vec<usize> = Vec::new(); // Track which doc lines are visible
+        // Calculate visible line range for viewport virtualization
+        let line_height = self.text_renderer.line_height();
+        let surface_height = self.surface.height() as f32;
+        let first_visible_line = (self.scroll_y / line_height).floor() as usize;
+        let visible_line_count = (surface_height / line_height).ceil() as usize + 2;
+        let overscan = 10; // Extra lines above/below for smooth scrolling
+        let viewport_start = first_visible_line.saturating_sub(overscan);
+        let viewport_end = (first_visible_line + visible_line_count + overscan).min(line_count);
 
-        for doc_line in 0..line_count {
+        // Calculate the byte offset where visible_content starts in the full document
+        // This is needed to correctly map span byte offsets to visible_content positions
+        let viewport_start_byte = doc.line_to_byte_offset(viewport_start).unwrap_or(0);
+
+        // Build visible content, only including lines in viewport
+        // Line numbers are built AFTER shaping to account for line wrapping
+        // PERF: Reuse pre-allocated buffers to avoid per-frame allocations
+        self.cpu_visible_content.clear();
+        self.cpu_visible_doc_lines.clear();
+
+        // Ensure doc_to_visual has capacity for all lines (grows if needed, never shrinks)
+        if self.cpu_doc_to_visual.capacity() < line_count {
+            self.cpu_doc_to_visual.reserve(line_count - self.cpu_doc_to_visual.capacity());
+        }
+        self.cpu_doc_to_visual.clear();
+
+        let mut visual_line = 0;
+
+        // Pre-fill doc_to_visual for lines before viewport
+        for doc_line in 0..viewport_start {
+            if !self.fold_state.is_line_hidden(doc_line) {
+                self.cpu_doc_to_visual.push(Some(visual_line));
+                visual_line += 1;
+            } else {
+                self.cpu_doc_to_visual.push(None);
+            }
+        }
+
+        // Only process lines in viewport range
+        for doc_line in viewport_start..viewport_end {
             if self.fold_state.is_line_hidden(doc_line) {
-                doc_to_visual.push(None);
+                self.cpu_doc_to_visual.push(None);
                 continue;
             }
 
-            // Add newline separator (except for first visible line)
-            if visual_line > 0 {
-                visible_content.push('\n');
+            // Add newline separator (except for first visible line in our buffer)
+            if !self.cpu_visible_doc_lines.is_empty() {
+                self.cpu_visible_content.push('\n');
             }
 
             // Add line content
             if let Some(line_text) = doc.line(doc_line) {
-                visible_content.push_str(&line_text);
+                self.cpu_visible_content.push_str(&line_text);
             }
 
             // If this line is folded, also append the closing brace from the fold end
@@ -688,16 +890,26 @@ impl WebEditor {
                         let trimmed = end_line_text.trim();
                         // Append the closing portion (usually just "}")
                         if !trimmed.is_empty() {
-                            visible_content.push_str(" ... ");
-                            visible_content.push_str(trimmed);
+                            self.cpu_visible_content.push_str(" ... ");
+                            self.cpu_visible_content.push_str(trimmed);
                         }
                     }
                 }
             }
 
-            visible_doc_lines.push(doc_line);
-            doc_to_visual.push(Some(visual_line));
+            self.cpu_visible_doc_lines.push(doc_line);
+            self.cpu_doc_to_visual.push(Some(visual_line));
             visual_line += 1;
+        }
+
+        // Fill remaining doc_to_visual for lines after viewport
+        for doc_line in viewport_end..line_count {
+            if !self.fold_state.is_line_hidden(doc_line) {
+                self.cpu_doc_to_visual.push(Some(visual_line));
+                visual_line += 1;
+            } else {
+                self.cpu_doc_to_visual.push(None);
+            }
         }
 
         // Calculate layout dimensions
@@ -720,66 +932,101 @@ impl WebEditor {
         // Set the text with syntax highlighting if enabled
         let foreground = self.theme.editor.foreground;
         if self.syntax_enabled {
-            if self.use_ts_highlights && !self.ts_highlights.is_empty() {
-                // Use tree-sitter highlights from JavaScript
-                // Clone spans to avoid borrow checker issues with self
+            if self.use_ts_highlights && !self.span_index.is_empty() {
+                // Calculate viewport for efficient span query (T020)
+                // Only query spans in the visible range instead of iterating all spans
+                let surface_height = self.surface.height() as f32;
+                let first_line = (self.scroll_y / line_height).floor() as usize;
+                let visible_lines = (surface_height / line_height).ceil() as usize + 1;
+
+                let viewport = Viewport {
+                    first_line,
+                    visible_lines,
+                    line_height,
+                    height: surface_height,
+                    width: content_width,
+                    ..Viewport::default()
+                };
+
+                // Query byte range with overscan buffer (T023)
+                let doc = &self.editor.state().document;
+                let (start_byte, end_byte) =
+                    viewport.query_byte_range(doc.rope(), &self.fold_state, &self.viewport_config);
+
+                // Query only viewport spans: O(log n + k) vs O(n) clone + sort (T021)
+                // This eliminates per-frame clone (T018) and sort (T019)
+                let rich_spans = self.build_rich_spans_viewport(
+                    &self.cpu_visible_content,
+                    self.span_index.query(start_byte, end_byte),
+                    viewport_start_byte, // Byte offset where visible_content starts
+                );
+                self.text_renderer
+                    .set_rich_text(&mut buffer, rich_spans.into_iter());
+            } else if !self.ts_highlights.is_empty() {
+                // Legacy fallback: use JsHighlightSpan when SpanIndex not available
+                // PERF: This path clones ts_highlights to sort them. This is acceptable because:
+                // 1. With WebSpanIndex, this path is rarely hit (only during transition)
+                // 2. The clone happens only when span_index.is_empty() returns true
+                // 3. Full optimization would require pre-sorted storage or sorted indices
                 let spans = self.ts_highlights.clone();
-                let rich_spans = self.build_rich_spans_from_ts(&visible_content, spans);
+                let rich_spans = self.build_rich_spans_from_ts(&self.cpu_visible_content, spans);
                 self.text_renderer
                     .set_rich_text(&mut buffer, rich_spans.into_iter());
             } else {
                 // Fall back to simple keyword-based highlighting
-                let spans = self.highlighter.highlight_flat(&visible_content);
-                let rich_spans: Vec<(&str, iridium_editor::theme::Color)> = spans
-                    .iter()
-                    .map(|span| (span.text.as_str(), span.color))
-                    .collect();
-                self.text_renderer
-                    .set_rich_text(&mut buffer, rich_spans.into_iter());
+                // PERF: Pass iterator directly instead of collecting into Vec
+                let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
+                self.text_renderer.set_rich_text(
+                    &mut buffer,
+                    spans.iter().map(|span| (span.text.as_str(), span.color)),
+                );
             }
         } else {
             // Plain text
             self.text_renderer
-                .set_text(&mut buffer, &visible_content, foreground);
+                .set_text(&mut buffer, &self.cpu_visible_content, foreground);
         }
         self.text_renderer.shape_buffer(&mut buffer);
 
         // NOW build line numbers with proper spacing for wrapped lines
+        // PERF: Reuse pre-allocated string buffer, use write!() to avoid format!() allocation
+        use std::fmt::Write;
         let visual_lines_per_line = self.text_renderer.visual_lines_per_logical_line(&buffer);
-        let mut visible_line_numbers = String::new();
+        self.cpu_line_numbers.clear();
         let digit_width = GutterRenderer::digit_columns(line_count);
 
-        for (i, &doc_line) in visible_doc_lines.iter().enumerate() {
+        for (i, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
             // Add newline separator (except for first visible line)
             if i > 0 {
-                visible_line_numbers.push('\n');
+                self.cpu_line_numbers.push('\n');
             }
 
-            // Add line number (1-indexed)
-            let num_str = format!("{:>width$}", doc_line + 1, width = digit_width);
-            visible_line_numbers.push_str(&num_str);
+            // Add line number (1-indexed) directly into buffer without allocation
+            // write!() into String never fails, so we can ignore the Result
+            let _ = write!(self.cpu_line_numbers, "{:>width$}", doc_line + 1, width = digit_width);
 
             // Add blank lines for wrapped visual lines (continuation lines)
             let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
             for _ in 1..wrap_count {
-                visible_line_numbers.push('\n');
+                self.cpu_line_numbers.push('\n');
                 // Add blank spacing to maintain alignment
                 for _ in 0..digit_width {
-                    visible_line_numbers.push(' ');
+                    self.cpu_line_numbers.push(' ');
                 }
             }
         }
 
         // Handle empty document
         if line_count == 0 {
-            visible_line_numbers.push_str(" 1");
+            self.cpu_line_numbers.push_str(" 1");
         }
 
         // Create gutter buffer AFTER we know the wrapping
         let gutter_buffer = if self.gutter_enabled {
             let mut gutter_buf = self.text_renderer.create_buffer(gutter_width);
             let line_number_color = self.theme.editor.line_number;
-            self.text_renderer.set_text(&mut gutter_buf, &visible_line_numbers, line_number_color);
+            self.text_renderer
+                .set_text(&mut gutter_buf, &self.cpu_line_numbers, line_number_color);
             self.text_renderer.shape_buffer(&mut gutter_buf);
             Some(gutter_buf)
         } else {
@@ -788,29 +1035,45 @@ impl WebEditor {
 
         // Calculate cursor position (accounting for gutter offset, folding, scroll, and line wrapping)
         let cursor_pos = self.editor.cursor();
-        let visual_cursor_line = doc_to_visual
+        let visual_cursor_line = self
+            .cpu_doc_to_visual
             .get(cursor_pos.line)
             .and_then(|v| *v)
             .unwrap_or(0);
 
+        // Calculate virtual scroll offset for viewport virtualization
+        // This must match the offset used for text rendering (uses viewport_start directly)
+        let virtual_scroll_offset = viewport_start as f32 * line_height;
+
+        // Calculate cursor's line index within the viewport buffer
+        // The buffer only contains lines from viewport_start, so we need relative positioning
+        let viewport_start_visual = self
+            .cpu_doc_to_visual
+            .get(viewport_start)
+            .and_then(|v| *v)
+            .unwrap_or(0);
+        let cursor_line_in_buffer = visual_cursor_line.saturating_sub(viewport_start_visual);
+
         // Use buffer layout to get accurate position with line wrapping
         let (wrap_x, wrap_y) = self.text_renderer.cursor_position_in_buffer(
             &buffer,
-            visual_cursor_line,
+            cursor_line_in_buffer,
             cursor_pos.column,
             char_width,
         );
         let cursor_x = content_offset_x + wrap_x;
-        let cursor_y = padding + wrap_y - self.scroll_y;
+        // Apply virtual scroll offset to match text positioning
+        let cursor_y = padding + wrap_y + virtual_scroll_offset - self.scroll_y;
 
         // Update cursor blink state
         self.cursor_renderer.update(Instant::now());
 
+        // PERF: Reuse pre-allocated quad buffers
         // Create gutter background quad
-        let mut gutter_quads: Vec<Quad> = Vec::new();
+        self.cpu_gutter_quads.clear();
         if self.gutter_enabled {
             let gutter_bg_color = self.theme.editor.gutter;
-            gutter_quads.push(Quad::new(
+            self.cpu_gutter_quads.push(Quad::new(
                 0.0,
                 0.0,
                 gutter_width,
@@ -821,7 +1084,7 @@ impl WebEditor {
 
         // Create selection highlight quads (render before text)
         let selection = &self.editor.state().cursor.primary;
-        let mut selection_quads: Vec<Quad> = Vec::new();
+        self.cpu_selection_quads.clear();
         if !selection.is_collapsed() {
             let selection_color = self.theme.editor.selection;
             let start = selection.start();
@@ -830,7 +1093,7 @@ impl WebEditor {
             // For each line in the selection, create a highlight quad
             for doc_line in start.line..=end.line {
                 // Skip hidden lines
-                let Some(vis_line) = doc_to_visual.get(doc_line).and_then(|v| *v) else {
+                let Some(vis_line) = self.cpu_doc_to_visual.get(doc_line).and_then(|v| *v) else {
                     continue;
                 };
 
@@ -838,8 +1101,16 @@ impl WebEditor {
                 let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
 
                 // Determine start and end columns for this line
-                let start_col = if doc_line == start.line { start.column } else { 0 };
-                let end_col = if doc_line == end.line { end.column } else { line_len };
+                let start_col = if doc_line == start.line {
+                    start.column
+                } else {
+                    0
+                };
+                let end_col = if doc_line == end.line {
+                    end.column
+                } else {
+                    line_len
+                };
 
                 // For lines that continue to next line, extend selection slightly
                 // to visualize the newline character selection
@@ -856,7 +1127,8 @@ impl WebEditor {
 
                     // Only add quad if it's visible
                     if y + line_height > 0.0 && y < self.surface.height() as f32 {
-                        selection_quads.push(Quad::new(x, y, width, line_height, selection_color));
+                        self.cpu_selection_quads
+                            .push(Quad::new(x, y, width, line_height, selection_color));
                     }
                 }
             }
@@ -864,20 +1136,28 @@ impl WebEditor {
 
         // Create cursor quad (2px wide line cursor)
         let cursor_color = self.theme.editor.cursor;
-        let cursor_quads: Vec<Quad> = if self.cursor_renderer.is_visible() {
-            vec![Quad::new(cursor_x, cursor_y, 2.0, line_height, cursor_color)]
-        } else {
-            vec![]
-        };
+        self.cpu_cursor_quads.clear();
+        if self.cursor_renderer.is_visible() {
+            self.cpu_cursor_quads.push(Quad::new(
+                cursor_x,
+                cursor_y,
+                2.0,
+                line_height,
+                cursor_color,
+            ));
+        }
 
-        // Create text areas for rendering
-        let mut text_areas = Vec::new();
+        // PERF: Use stack-allocated array instead of Vec for text areas
+        // We know there are at most 2 text areas (main content + gutter)
+        // Calculate virtual scroll offset for viewport virtualization
+        let virtual_scroll_offset = viewport_start as f32 * line_height;
+        let adjusted_scroll_y = self.scroll_y - virtual_scroll_offset;
 
-        // Main content text area (with scroll offset)
-        let text_area = TextArea {
+        // Main content text area
+        let main_text_area = TextArea {
             buffer: &buffer,
             left: content_offset_x,
-            top: padding - self.scroll_y,
+            top: padding - adjusted_scroll_y,
             scale: 1.0,
             bounds: TextBounds {
                 left: 0,
@@ -893,15 +1173,15 @@ impl WebEditor {
             ),
             custom_glyphs: &[],
         };
-        text_areas.push(text_area);
 
-        // Gutter text area (if enabled, with scroll offset)
+        // Prepare text for rendering - use iterator to avoid Vec allocation
         let line_number_color = self.theme.editor.line_number;
         if let Some(ref gutter_buf) = gutter_buffer {
+            // Both main content and gutter
             let gutter_text_area = TextArea {
                 buffer: gutter_buf,
                 left: 8.0, // Small padding from left edge
-                top: padding - self.scroll_y,
+                top: padding - adjusted_scroll_y,
                 scale: 1.0,
                 bounds: TextBounds {
                     left: 0,
@@ -917,13 +1197,23 @@ impl WebEditor {
                 ),
                 custom_glyphs: &[],
             };
-            text_areas.push(gutter_text_area);
+            self.text_renderer
+                .prepare(
+                    self.surface.device(),
+                    self.surface.queue(),
+                    [main_text_area, gutter_text_area],
+                )
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        } else {
+            // Main content only
+            self.text_renderer
+                .prepare(
+                    self.surface.device(),
+                    self.surface.queue(),
+                    [main_text_area],
+                )
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
         }
-
-        // Prepare text for rendering
-        self.text_renderer
-            .prepare(self.surface.device(), self.surface.queue(), text_areas)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         // Get background color from theme
         let bg = self.theme.editor.background;
@@ -934,27 +1224,28 @@ impl WebEditor {
             a: f64::from(bg.a),
         };
 
-        // Batch all background quads (gutter + selection) together
-        let mut background_quads: Vec<Quad> = Vec::with_capacity(
-            gutter_quads.len() + selection_quads.len()
-        );
-        background_quads.extend(gutter_quads);
-        background_quads.extend(selection_quads);
+        // PERF: Batch all background quads (gutter + selection) using pre-allocated buffer
+        self.cpu_background_quads.clear();
+        self.cpu_background_quads
+            .extend(self.cpu_gutter_quads.iter().copied());
+        self.cpu_background_quads
+            .extend(self.cpu_selection_quads.iter().copied());
 
         // Render frame using SEPARATE quad renderers for background and cursor
         // This is critical: queue.write_buffer() to the same buffer multiple times within
         // a frame causes only the last write to be visible. Using separate QuadRenderers
         // with separate vertex buffers avoids this GPU synchronization issue.
         let text_renderer = &self.text_renderer;
-        let background_quad_renderer = &self.background_quad_renderer;
-        let cursor_quad_renderer = &self.cursor_quad_renderer;
+        let background_quad_renderer = &mut self.background_quad_renderer;
+        let cursor_quad_renderer = &mut self.cursor_quad_renderer;
+        let background_quads = &self.cpu_background_quads;
+        let cursor_quads = &self.cpu_cursor_quads;
         let queue = self.surface.queue_arc();
         self.surface
             .render_frame(|view, device, q| {
-                let mut encoder =
-                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Iridium Frame Encoder"),
-                    });
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Iridium Frame Encoder"),
+                });
 
                 {
                     let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -976,18 +1267,18 @@ impl WebEditor {
 
                     // Render gutter background and selection highlights (behind text)
                     // Uses background_quad_renderer with its own vertex buffer
-                    background_quad_renderer.render(&mut pass, &queue, &background_quads);
+                    background_quad_renderer.render(&mut pass, &queue, background_quads);
 
                     // Render text (main content and gutter line numbers)
-                    text_renderer
-                        .render(&mut pass)
-                        .map_err(|e| iridium_editor::editor::IridiumError::GpuInitFailed {
+                    text_renderer.render(&mut pass).map_err(|e| {
+                        iridium_editor::editor::IridiumError::GpuInitFailed {
                             message: e.to_string(),
-                        })?;
+                        }
+                    })?;
 
                     // Render cursor on top - uses cursor_quad_renderer with its own vertex buffer
                     // This avoids the GPU buffer overwrite issue that caused selection blinking
-                    cursor_quad_renderer.render(&mut pass, &queue, &cursor_quads);
+                    cursor_quad_renderer.render(&mut pass, &queue, cursor_quads);
                 }
 
                 q.submit(std::iter::once(encoder.finish()));
@@ -997,6 +1288,15 @@ impl WebEditor {
 
         // Trim glyph cache periodically
         self.text_renderer.trim_cache();
+
+        // T042: Log performance warning if frame exceeds 16ms budget
+        let frame_time = frame_start.elapsed();
+        if frame_time.as_millis() > 16 {
+            log(&format!(
+                "[Iridium] Slow frame: {}ms (target: 16ms)",
+                frame_time.as_millis()
+            ));
+        }
 
         Ok(())
     }
@@ -1031,36 +1331,53 @@ impl WebEditor {
     ///
     /// The spans array should contain objects with: start (byte), end (byte), type (string).
     /// This enables proper tree-sitter syntax highlighting in the WASM build.
+    ///
+    /// Internally builds a WebSpanIndex for O(log n + k) viewport queries.
     #[wasm_bindgen(js_name = setTreeSitterHighlights)]
     pub fn set_tree_sitter_highlights(&mut self, spans_js: &JsValue) -> Result<(), JsValue> {
         use js_sys::{Array, Reflect};
 
         let array = Array::from(spans_js);
-        let mut spans = Vec::with_capacity(array.length() as usize);
+        let mut js_spans = Vec::with_capacity(array.length() as usize);
+        let mut web_spans = Vec::with_capacity(array.length() as usize);
 
         for i in 0..array.length() {
             let obj = array.get(i);
             let start = Reflect::get(&obj, &JsValue::from_str("start"))
                 .map_err(|_| JsValue::from_str("missing start"))?
                 .as_f64()
-                .ok_or_else(|| JsValue::from_str("start not a number"))? as usize;
+                .ok_or_else(|| JsValue::from_str("start not a number"))?
+                as usize;
             let end = Reflect::get(&obj, &JsValue::from_str("end"))
                 .map_err(|_| JsValue::from_str("missing end"))?
                 .as_f64()
-                .ok_or_else(|| JsValue::from_str("end not a number"))? as usize;
-            let highlight_type = Reflect::get(&obj, &JsValue::from_str("type"))
+                .ok_or_else(|| JsValue::from_str("end not a number"))?
+                as usize;
+            let type_str = Reflect::get(&obj, &JsValue::from_str("type"))
                 .map_err(|_| JsValue::from_str("missing type"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("type not a string"))?;
 
-            spans.push(JsHighlightSpan {
+            // Keep the string-based span for legacy color lookup
+            js_spans.push(JsHighlightSpan {
                 start,
                 end,
-                highlight_type,
+                highlight_type: type_str.clone(),
+            });
+
+            // Build WebSpan for WebSpanIndex
+            web_spans.push(WebSpan {
+                start,
+                end,
+                highlight_type: type_str,
             });
         }
 
-        self.ts_highlights = spans;
+        // Build the WebSpanIndex for efficient viewport queries (O(n log n) once)
+        self.span_index = WebSpanIndex::new(web_spans);
+
+        // Keep legacy spans for fallback (will be removed in future)
+        self.ts_highlights = js_spans;
         self.use_ts_highlights = true;
         self.needs_redraw = true;
         Ok(())
@@ -1301,7 +1618,10 @@ impl WebEditor {
         // If at start of line, go to end of previous line
         if pos.column == 0 {
             if pos.line > 0 {
-                let prev_line_len = doc.line(pos.line - 1).map(|l| l.chars().count()).unwrap_or(0);
+                let prev_line_len = doc
+                    .line(pos.line - 1)
+                    .map(|l| l.chars().count())
+                    .unwrap_or(0);
                 return Position::new(pos.line - 1, prev_line_len);
             }
             return pos;
@@ -1321,7 +1641,12 @@ impl WebEditor {
         let mut col = pos.column;
 
         // Skip whitespace going backwards
-        while col > 0 && chars.get(col - 1).map(|c| c.is_whitespace()).unwrap_or(false) {
+        while col > 0
+            && chars
+                .get(col - 1)
+                .map(|c| c.is_whitespace())
+                .unwrap_or(false)
+        {
             col -= 1;
         }
 
@@ -1367,7 +1692,9 @@ impl WebEditor {
         let current_class = chars.get(col).map(Self::char_class).unwrap_or(0);
 
         // Skip characters of the same class going forwards
-        while col < chars.len() && chars.get(col).map(Self::char_class).unwrap_or(0) == current_class {
+        while col < chars.len()
+            && chars.get(col).map(Self::char_class).unwrap_or(0) == current_class
+        {
             col += 1;
         }
 
@@ -1388,7 +1715,11 @@ impl WebEditor {
         if word_start != cursor {
             let cmd = Command::Delete {
                 range: Range::new(word_start, cursor),
-                deleted_text: self.editor.state().document.slice(Range::new(word_start, cursor)),
+                deleted_text: self
+                    .editor
+                    .state()
+                    .document
+                    .slice(Range::new(word_start, cursor)),
             };
             self.editor.apply_command(cmd);
             self.editor.set_cursor(word_start);
@@ -1408,7 +1739,11 @@ impl WebEditor {
         if word_end != cursor {
             let cmd = Command::Delete {
                 range: Range::new(cursor, word_end),
-                deleted_text: self.editor.state().document.slice(Range::new(cursor, word_end)),
+                deleted_text: self
+                    .editor
+                    .state()
+                    .document
+                    .slice(Range::new(cursor, word_end)),
             };
             self.editor.apply_command(cmd);
             self.cursor_renderer.reset_blink();
@@ -1426,7 +1761,11 @@ impl WebEditor {
             let line_start = Position::new(cursor.line, 0);
             let cmd = Command::Delete {
                 range: Range::new(line_start, cursor),
-                deleted_text: self.editor.state().document.slice(Range::new(line_start, cursor)),
+                deleted_text: self
+                    .editor
+                    .state()
+                    .document
+                    .slice(Range::new(line_start, cursor)),
             };
             self.editor.apply_command(cmd);
             self.editor.set_cursor(line_start);
@@ -1453,7 +1792,11 @@ impl WebEditor {
             let line_end = Position::new(cursor.line, line_len);
             let cmd = Command::Delete {
                 range: Range::new(cursor, line_end),
-                deleted_text: self.editor.state().document.slice(Range::new(cursor, line_end)),
+                deleted_text: self
+                    .editor
+                    .state()
+                    .document
+                    .slice(Range::new(cursor, line_end)),
             };
             self.editor.apply_command(cmd);
             self.cursor_renderer.reset_blink();
@@ -1884,7 +2227,11 @@ impl WebEditor {
             return true;
         }
         // Otherwise try to toggle the containing region
-        if self.fold_state.toggle_fold_containing(line as usize).is_some() {
+        if self
+            .fold_state
+            .toggle_fold_containing(line as usize)
+            .is_some()
+        {
             self.needs_redraw = true;
             return true;
         }

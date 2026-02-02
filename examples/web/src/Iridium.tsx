@@ -13,7 +13,8 @@ import React, {
   useState,
 } from "react";
 
-import { IridiumEditor, type EditorState } from "iridium-bindings";
+// Import from the new @iridium/core package
+import { IridiumEditor, type EditorState } from "@iridium/core";
 
 // ============================================================================
 // Types

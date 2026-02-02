@@ -100,10 +100,9 @@ export interface IridiumEditorOptions {
   /** Font URL to load (default: FiraCode from CDN) */
   fontUrl?: string;
   /**
-   * Enable syntax highlighting via web-tree-sitter worker (default: false).
+   * Enable syntax highlighting via web-tree-sitter worker (default: true on standalone branch).
    * WARNING: This can cause 1-3 second delays on large files.
-   * Set to true only if you need client-side syntax highlighting.
-   * For Meridian integration, leave disabled and use server-provided spans.
+   * Set to false if integrating with Meridian server-provided spans.
    */
   enableSyntaxWorker?: boolean;
   /** Callback when content changes */
@@ -167,7 +166,7 @@ export class IridiumEditor {
       language: options.language ?? "rust",
       darkTheme: options.darkTheme ?? true,
       fontUrl: options.fontUrl ?? "https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/ttf/FiraCode-Regular.ttf",
-      enableSyntaxWorker: options.enableSyntaxWorker ?? false,
+      enableSyntaxWorker: options.enableSyntaxWorker ?? true,
       onChange: options.onChange,
       onSelectionChange: options.onSelectionChange,
     };

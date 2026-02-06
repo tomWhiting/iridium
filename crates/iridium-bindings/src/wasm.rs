@@ -145,6 +145,26 @@ pub struct WebEditor {
     /// Map of capture name → color, populated via setSyntaxTheme from JS.
     /// When non-empty, used by color_for_highlight_type with hierarchical fallback.
     syntax_theme: HashMap<String, iridium_editor::theme::Color>,
+
+    // =========================================================================
+    // Git integration: read-only, line backgrounds, gutter changes, blame
+    // =========================================================================
+    /// When true, all content-mutating operations (insert, delete, etc.) are no-ops.
+    read_only: bool,
+    /// Per-line background colors (doc_line → color). Used for diff highlighting.
+    line_backgrounds: HashMap<usize, iridium_editor::theme::Color>,
+    /// Pre-allocated buffer for line background quads.
+    cpu_line_bg_quads: Vec<Quad>,
+    /// Per-line gutter change bar colors (doc_line → color). Used for change indicators.
+    gutter_changes: HashMap<usize, iridium_editor::theme::Color>,
+    /// Pre-allocated buffer for gutter change bar quads.
+    cpu_gutter_change_quads: Vec<Quad>,
+    /// Custom gutter text lines (replaces auto line numbers when Some).
+    custom_gutter_lines: Option<Vec<String>>,
+    /// Per-line blame text (doc_line → formatted blame string). Shown at end of cursor line.
+    blame_data: HashMap<usize, String>,
+    /// Pre-allocated buffer for blame text rendering.
+    cpu_blame_content: String,
 }
 
 /// Log a message to the browser console.
@@ -268,6 +288,15 @@ pub async fn create_web_editor(
         cached_cursor_doc_line: 0,
         // Externalized syntax theme
         syntax_theme: HashMap::new(),
+        // Git integration fields
+        read_only: false,
+        line_backgrounds: HashMap::new(),
+        cpu_line_bg_quads: Vec::with_capacity(MAX_VIEWPORT_LINES),
+        gutter_changes: HashMap::new(),
+        cpu_gutter_change_quads: Vec::with_capacity(MAX_VIEWPORT_LINES),
+        custom_gutter_lines: None,
+        blame_data: HashMap::new(),
+        cpu_blame_content: String::with_capacity(256),
     })
 }
 
@@ -309,9 +338,188 @@ impl WebEditor {
         self.editor.content()
     }
 
+    // =========================================================================
+    // Read-only mode
+    // =========================================================================
+
+    /// Sets the editor to read-only mode.
+    /// When read-only, all content-mutating operations are silently ignored.
+    #[wasm_bindgen(js_name = setReadOnly)]
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
+        self.needs_redraw = true;
+    }
+
+    /// Returns whether the editor is in read-only mode.
+    #[wasm_bindgen(js_name = isReadOnly)]
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    // =========================================================================
+    // Line backgrounds (diff highlighting)
+    // =========================================================================
+
+    /// Sets per-line background colors for diff highlighting.
+    /// Accepts a JS array of `{line: number, color: string}` objects.
+    /// Line numbers are 0-indexed document lines. Colors are hex strings.
+    #[wasm_bindgen(js_name = setLineBackgrounds)]
+    pub fn set_line_backgrounds(&mut self, backgrounds: &JsValue) -> Result<(), JsValue> {
+        use iridium_editor::theme::Color;
+        use js_sys::{Array, Reflect};
+
+        self.line_backgrounds.clear();
+
+        let arr = Array::from(backgrounds);
+        for i in 0..arr.length() {
+            let entry = arr.get(i);
+            let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+                .as_f64()
+                .ok_or_else(|| JsValue::from_str("line must be a number"))?
+                as usize;
+            let color_hex = Reflect::get(&entry, &JsValue::from_str("color"))?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("color must be a hex string"))?;
+            let color = Color::from_hex(&color_hex).ok_or_else(|| {
+                JsValue::from_str(&format!("invalid hex color: {}", color_hex))
+            })?;
+            self.line_backgrounds.insert(line, color);
+        }
+
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    /// Clears all per-line background colors.
+    #[wasm_bindgen(js_name = clearLineBackgrounds)]
+    pub fn clear_line_backgrounds(&mut self) {
+        self.line_backgrounds.clear();
+        self.needs_redraw = true;
+    }
+
+    // =========================================================================
+    // Gutter change indicators
+    // =========================================================================
+
+    /// Sets gutter change indicators (thin colored bars in the gutter).
+    /// Accepts a JS array of `{line: number, kind: string}` objects.
+    /// Kind must be "added", "modified", or "deleted". Line numbers are 0-indexed.
+    #[wasm_bindgen(js_name = setGutterChanges)]
+    pub fn set_gutter_changes(&mut self, changes: &JsValue) -> Result<(), JsValue> {
+        use js_sys::{Array, Reflect};
+
+        self.gutter_changes.clear();
+
+        let arr = Array::from(changes);
+        for i in 0..arr.length() {
+            let entry = arr.get(i);
+            let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+                .as_f64()
+                .ok_or_else(|| JsValue::from_str("line must be a number"))?
+                as usize;
+            let kind = Reflect::get(&entry, &JsValue::from_str("kind"))?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("kind must be a string"))?;
+            let color = match kind.as_str() {
+                "added" => self.theme.editor.change_added,
+                "modified" => self.theme.editor.change_modified,
+                "deleted" => self.theme.editor.change_deleted,
+                _ => {
+                    return Err(JsValue::from_str(&format!(
+                        "unknown change kind: {} (expected added/modified/deleted)",
+                        kind
+                    )));
+                }
+            };
+            self.gutter_changes.insert(line, color);
+        }
+
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    /// Clears all gutter change indicators.
+    #[wasm_bindgen(js_name = clearGutterChanges)]
+    pub fn clear_gutter_changes(&mut self) {
+        self.gutter_changes.clear();
+        self.needs_redraw = true;
+    }
+
+    // =========================================================================
+    // Custom gutter text
+    // =========================================================================
+
+    /// Sets custom gutter text, replacing automatic line numbers.
+    /// Accepts a JS array of strings (one per document line) or null to restore auto numbering.
+    /// Use this for diff views to show dual line numbers + markers (e.g., "  5 | + ").
+    #[wasm_bindgen(js_name = setCustomGutterText)]
+    pub fn set_custom_gutter_text(&mut self, lines: &JsValue) -> Result<(), JsValue> {
+        use js_sys::Array;
+
+        if lines.is_null() || lines.is_undefined() {
+            self.custom_gutter_lines = None;
+        } else {
+            let arr = Array::from(lines);
+            let mut result = Vec::with_capacity(arr.length() as usize);
+            for i in 0..arr.length() {
+                let val = arr.get(i);
+                let s = val
+                    .as_string()
+                    .ok_or_else(|| JsValue::from_str("gutter text entry must be a string"))?;
+                result.push(s);
+            }
+            self.custom_gutter_lines = Some(result);
+        }
+
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Inline blame
+    // =========================================================================
+
+    /// Sets per-line blame data for inline blame ghost text.
+    /// Accepts a JS array of `{line: number, text: string}` objects.
+    /// Line numbers are 0-indexed. Text is pre-formatted (e.g., "Author · 3d ago · Summary").
+    /// Only the blame for the current cursor line is rendered (as ghost text after the line content).
+    #[wasm_bindgen(js_name = setBlameData)]
+    pub fn set_blame_data(&mut self, data: &JsValue) -> Result<(), JsValue> {
+        use js_sys::{Array, Reflect};
+
+        self.blame_data.clear();
+
+        let arr = Array::from(data);
+        for i in 0..arr.length() {
+            let entry = arr.get(i);
+            let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+                .as_f64()
+                .ok_or_else(|| JsValue::from_str("line must be a number"))?
+                as usize;
+            let text = Reflect::get(&entry, &JsValue::from_str("text"))?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("text must be a string"))?;
+            self.blame_data.insert(line, text);
+        }
+
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    /// Clears all blame data.
+    #[wasm_bindgen(js_name = clearBlameData)]
+    pub fn clear_blame_data(&mut self) {
+        self.blame_data.clear();
+        self.needs_redraw = true;
+    }
+
     /// Inserts text at the current cursor position.
     /// If there's a selection, replaces the selected text.
+    /// No-op in read-only mode.
     pub fn insert(&mut self, text: &str) {
+        if self.read_only {
+            return;
+        }
         // If there's a selection, delete it first
         let selection = &self.editor.state().cursor.primary;
         if !selection.is_collapsed() {
@@ -354,6 +562,9 @@ impl WebEditor {
     /// Deletes the character before the cursor (backspace).
     /// If there's a selection, deletes the selected text instead.
     pub fn backspace(&mut self) {
+        if self.read_only {
+            return;
+        }
         // If there's a selection, delete it
         if self.delete_selection() {
             return;
@@ -396,7 +607,11 @@ impl WebEditor {
 
     /// Deletes the character after the cursor (delete).
     /// If there's a selection, deletes the selected text instead.
+    /// No-op in read-only mode.
     pub fn delete_forward(&mut self) {
+        if self.read_only {
+            return;
+        }
         // If there's a selection, delete it
         if self.delete_selection() {
             return;
@@ -844,9 +1059,16 @@ impl WebEditor {
         let char_width = self.cached_char_width;
         let padding = 10.0_f32;
 
-        // Calculate gutter width (based on digit count, before shaping)
+        // Calculate gutter width (based on digit count or custom text width, before shaping)
         let gutter_width = if self.gutter_enabled {
-            self.gutter_renderer.calculate_width(line_count, char_width)
+            if let Some(ref custom_lines) = self.custom_gutter_lines {
+                // Width from longest custom gutter line
+                let max_chars = custom_lines.iter().map(|s| s.len()).max().unwrap_or(1);
+                // Same padding formula as GutterRenderer::calculate_width
+                (max_chars as f32 * char_width) + (char_width * 2.0)
+            } else {
+                self.gutter_renderer.calculate_width(line_count, char_width)
+            }
         } else {
             0.0
         };
@@ -944,32 +1166,70 @@ impl WebEditor {
         use std::fmt::Write;
         let visual_lines_per_line = self.text_renderer.visual_lines_per_logical_line(&buffer);
         self.cpu_line_numbers.clear();
-        let digit_width = GutterRenderer::digit_columns(line_count);
 
-        for (i, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
-            // Add newline separator (except for first visible line)
-            if i > 0 {
-                self.cpu_line_numbers.push('\n');
-            }
+        if let Some(ref custom_lines) = self.custom_gutter_lines {
+            // Custom gutter text: use provided strings instead of auto line numbers.
+            // This is used for diff views with dual line numbers + markers.
+            for (i, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
+                if i > 0 {
+                    self.cpu_line_numbers.push('\n');
+                }
 
-            // Add line number (1-indexed) directly into buffer without allocation
-            // write!() into String never fails, so we can ignore the Result
-            let _ = write!(self.cpu_line_numbers, "{:>width$}", doc_line + 1, width = digit_width);
+                // Use custom text for this doc_line, or empty string if out of range
+                let text = custom_lines
+                    .get(doc_line)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+                self.cpu_line_numbers.push_str(text);
 
-            // Add blank lines for wrapped visual lines (continuation lines)
-            let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
-            for _ in 1..wrap_count {
-                self.cpu_line_numbers.push('\n');
-                // Add blank spacing to maintain alignment
-                for _ in 0..digit_width {
-                    self.cpu_line_numbers.push(' ');
+                // Add blank lines for wrapped visual lines
+                let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
+                let text_len = text.len();
+                for _ in 1..wrap_count {
+                    self.cpu_line_numbers.push('\n');
+                    for _ in 0..text_len {
+                        self.cpu_line_numbers.push(' ');
+                    }
                 }
             }
-        }
 
-        // Handle empty document
-        if line_count == 0 {
-            self.cpu_line_numbers.push_str(" 1");
+            if self.cpu_visible_doc_lines.is_empty() {
+                self.cpu_line_numbers.push(' ');
+            }
+        } else {
+            // Standard auto line numbers
+            let digit_width = GutterRenderer::digit_columns(line_count);
+
+            for (i, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
+                // Add newline separator (except for first visible line)
+                if i > 0 {
+                    self.cpu_line_numbers.push('\n');
+                }
+
+                // Add line number (1-indexed) directly into buffer without allocation
+                // write!() into String never fails, so we can ignore the Result
+                let _ = write!(
+                    self.cpu_line_numbers,
+                    "{:>width$}",
+                    doc_line + 1,
+                    width = digit_width,
+                );
+
+                // Add blank lines for wrapped visual lines (continuation lines)
+                let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
+                for _ in 1..wrap_count {
+                    self.cpu_line_numbers.push('\n');
+                    // Add blank spacing to maintain alignment
+                    for _ in 0..digit_width {
+                        self.cpu_line_numbers.push(' ');
+                    }
+                }
+            }
+
+            // Handle empty document
+            if line_count == 0 {
+                self.cpu_line_numbers.push_str(" 1");
+            }
         }
 
         // Create gutter buffer AFTER we know the wrapping
@@ -1037,6 +1297,132 @@ impl WebEditor {
                 self.surface.height() as f32,
                 gutter_bg_color,
             ));
+        }
+
+        // Create line background quads for diff highlighting
+        // These render behind selection highlights so diffs are visible even when selected.
+        self.cpu_line_bg_quads.clear();
+        if !self.line_backgrounds.is_empty() {
+            let surface_height = self.surface.height() as f32;
+            let viewport_width = self.surface.width() as f32;
+            for (vi, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
+                if let Some(&bg_color) = self.line_backgrounds.get(&doc_line) {
+                    // Walk the visual line map to find which visual rows correspond
+                    // to this logical line (accounts for wrapping).
+                    let buffer_line = self
+                        .cpu_doc_to_visual
+                        .get(doc_line)
+                        .and_then(|v| *v)
+                        .unwrap_or(0)
+                        .saturating_sub(
+                            self.cpu_doc_to_visual
+                                .get(viewport_start)
+                                .and_then(|v| *v)
+                                .unwrap_or(0),
+                        );
+
+                    let mut emitted = false;
+                    for (vline_idx, &(buf_idx, _)) in
+                        self.cached_visual_line_map.iter().enumerate()
+                    {
+                        if buf_idx != buffer_line {
+                            continue;
+                        }
+                        let y = padding
+                            + (vline_idx as f32 * line_height)
+                            + virtual_scroll_offset
+                            - self.scroll_y;
+                        if y + line_height > 0.0 && y < surface_height {
+                            self.cpu_line_bg_quads.push(Quad::new(
+                                content_offset_x,
+                                y,
+                                viewport_width - content_offset_x,
+                                line_height,
+                                bg_color,
+                            ));
+                        }
+                        emitted = true;
+                    }
+
+                    // Fallback: if visual line map wasn't built yet, use simple position
+                    if !emitted {
+                        let y = padding
+                            + (vi as f32 * line_height)
+                            + virtual_scroll_offset
+                            - self.scroll_y;
+                        if y + line_height > 0.0 && y < surface_height {
+                            self.cpu_line_bg_quads.push(Quad::new(
+                                content_offset_x,
+                                y,
+                                viewport_width - content_offset_x,
+                                line_height,
+                                bg_color,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create gutter change indicator quads (thin colored bars at left edge)
+        self.cpu_gutter_change_quads.clear();
+        if !self.gutter_changes.is_empty() && self.gutter_enabled {
+            let surface_height = self.surface.height() as f32;
+            for (vi, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
+                if let Some(&bar_color) = self.gutter_changes.get(&doc_line) {
+                    let buffer_line = self
+                        .cpu_doc_to_visual
+                        .get(doc_line)
+                        .and_then(|v| *v)
+                        .unwrap_or(0)
+                        .saturating_sub(
+                            self.cpu_doc_to_visual
+                                .get(viewport_start)
+                                .and_then(|v| *v)
+                                .unwrap_or(0),
+                        );
+
+                    let mut emitted = false;
+                    for (vline_idx, &(buf_idx, _)) in
+                        self.cached_visual_line_map.iter().enumerate()
+                    {
+                        if buf_idx != buffer_line {
+                            continue;
+                        }
+                        let y = padding
+                            + (vline_idx as f32 * line_height)
+                            + virtual_scroll_offset
+                            - self.scroll_y;
+                        if y + line_height > 0.0 && y < surface_height {
+                            // 3px wide bar at left gutter edge
+                            self.cpu_gutter_change_quads.push(Quad::new(
+                                2.0,
+                                y,
+                                3.0,
+                                line_height,
+                                bar_color,
+                            ));
+                        }
+                        emitted = true;
+                    }
+
+                    if !emitted {
+                        let y = padding
+                            + (vi as f32 * line_height)
+                            + virtual_scroll_offset
+                            - self.scroll_y;
+                        if y + line_height > 0.0 && y < surface_height {
+                            self.cpu_gutter_change_quads.push(Quad::new(
+                                2.0,
+                                y,
+                                3.0,
+                                line_height,
+                                bar_color,
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         // Create selection highlight quads (render before text)
@@ -1187,11 +1573,52 @@ impl WebEditor {
             custom_glyphs: &[],
         };
 
-        // Prepare text for rendering - use iterator to avoid Vec allocation
+        // Build blame buffer if blame data exists for the cursor line.
+        // This creates a third TextArea rendered as ghost text after the line content.
+        let blame_fg = self.theme.editor.blame_foreground;
+        let blame_buffer = if !self.blame_data.is_empty() {
+            let cursor_doc_line = self.editor.cursor().line;
+            if let Some(blame_text) = self.blame_data.get(&cursor_doc_line) {
+                self.cpu_blame_content.clear();
+                // Pad with spaces to separate from line content
+                self.cpu_blame_content.push_str("  ");
+                self.cpu_blame_content.push_str(blame_text);
+                let mut blame_buf = self.text_renderer.create_buffer(None);
+                self.text_renderer
+                    .set_text(&mut blame_buf, &self.cpu_blame_content, blame_fg);
+                self.text_renderer.shape_buffer(&mut blame_buf);
+                Some(blame_buf)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Calculate blame text area position: after the end of the cursor line content
+        let blame_left = if blame_buffer.is_some() {
+            let cursor_doc_line = self.editor.cursor().line;
+            let line_len = self
+                .editor
+                .state()
+                .document
+                .line(cursor_doc_line)
+                .map(|l| l.chars().count())
+                .unwrap_or(0);
+            content_offset_x + (line_len as f32 * char_width)
+        } else {
+            0.0
+        };
+
+        // Prepare text for rendering - use Vec for dynamic text area count
         let line_number_color = self.theme.editor.line_number;
+
+        // Build text areas list dynamically based on what's enabled
+        let mut text_areas: Vec<TextArea> = Vec::with_capacity(3);
+        text_areas.push(main_text_area);
+
         if let Some(ref gutter_buf) = gutter_buffer {
-            // Both main content and gutter
-            let gutter_text_area = TextArea {
+            text_areas.push(TextArea {
                 buffer: gutter_buf,
                 left: 8.0, // Small padding from left edge
                 top: padding - adjusted_scroll_y,
@@ -1209,24 +1636,38 @@ impl WebEditor {
                     (line_number_color.a * 255.0) as u8,
                 ),
                 custom_glyphs: &[],
-            };
-            self.text_renderer
-                .prepare(
-                    self.surface.device(),
-                    self.surface.queue(),
-                    [main_text_area, gutter_text_area],
-                )
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        } else {
-            // Main content only
-            self.text_renderer
-                .prepare(
-                    self.surface.device(),
-                    self.surface.queue(),
-                    [main_text_area],
-                )
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            });
         }
+
+        if let Some(ref blame_buf) = blame_buffer {
+            text_areas.push(TextArea {
+                buffer: blame_buf,
+                left: blame_left,
+                top: cursor_y,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: blame_left as i32,
+                    top: 0,
+                    right: self.surface.width() as i32,
+                    bottom: self.surface.height() as i32,
+                },
+                default_color: glyphon::Color::rgba(
+                    (blame_fg.r * 255.0) as u8,
+                    (blame_fg.g * 255.0) as u8,
+                    (blame_fg.b * 255.0) as u8,
+                    (blame_fg.a * 255.0) as u8,
+                ),
+                custom_glyphs: &[],
+            });
+        }
+
+        self.text_renderer
+            .prepare(
+                self.surface.device(),
+                self.surface.queue(),
+                text_areas,
+            )
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         // Get background color from theme
         let bg = self.theme.editor.background;
@@ -1237,10 +1678,15 @@ impl WebEditor {
             a: f64::from(bg.a),
         };
 
-        // PERF: Batch all background quads (gutter + selection) using pre-allocated buffer
+        // PERF: Batch all background quads using pre-allocated buffer.
+        // Render order (back to front): gutter bg → line backgrounds → gutter change bars → selection
         self.cpu_background_quads.clear();
         self.cpu_background_quads
             .extend(self.cpu_gutter_quads.iter().copied());
+        self.cpu_background_quads
+            .extend(self.cpu_line_bg_quads.iter().copied());
+        self.cpu_background_quads
+            .extend(self.cpu_gutter_change_quads.iter().copied());
         self.cpu_background_quads
             .extend(self.cpu_selection_quads.iter().copied());
 
@@ -1478,8 +1924,11 @@ impl WebEditor {
         self.editor.state().history.can_redo()
     }
 
-    /// Performs undo.
+    /// Performs undo. No-op in read-only mode.
     pub fn undo(&mut self) -> bool {
+        if self.read_only {
+            return false;
+        }
         let result = self.editor.undo();
         if result {
             // Update fold regions after content change
@@ -1490,8 +1939,11 @@ impl WebEditor {
         result
     }
 
-    /// Performs redo.
+    /// Performs redo. No-op in read-only mode.
     pub fn redo(&mut self) -> bool {
+        if self.read_only {
+            return false;
+        }
         let result = self.editor.redo();
         if result {
             // Update fold regions after content change
@@ -1758,8 +2210,12 @@ impl WebEditor {
     }
 
     /// Deletes the word before the cursor (Option+Backspace on Mac).
+    /// No-op in read-only mode.
     #[wasm_bindgen(js_name = deleteWordBackward)]
     pub fn delete_word_backward(&mut self) {
+        if self.read_only {
+            return;
+        }
         let cursor = self.editor.cursor();
         let word_start = self.find_word_boundary_left(cursor);
 
@@ -1782,8 +2238,12 @@ impl WebEditor {
     }
 
     /// Deletes the word after the cursor (Option+Delete on Mac).
+    /// No-op in read-only mode.
     #[wasm_bindgen(js_name = deleteWordForward)]
     pub fn delete_word_forward(&mut self) {
+        if self.read_only {
+            return;
+        }
         let cursor = self.editor.cursor();
         let word_end = self.find_word_boundary_right(cursor);
 
@@ -1805,8 +2265,12 @@ impl WebEditor {
     }
 
     /// Deletes from cursor to start of line (Cmd+Backspace on Mac).
+    /// No-op in read-only mode.
     #[wasm_bindgen(js_name = deleteToLineStart)]
     pub fn delete_to_line_start(&mut self) {
+        if self.read_only {
+            return;
+        }
         let cursor = self.editor.cursor();
         if cursor.column > 0 {
             let line_start = Position::new(cursor.line, 0);
@@ -1828,8 +2292,12 @@ impl WebEditor {
     }
 
     /// Deletes from cursor to end of line (Cmd+Delete / Ctrl+K on Mac).
+    /// No-op in read-only mode.
     #[wasm_bindgen(js_name = deleteToLineEnd)]
     pub fn delete_to_line_end(&mut self) {
+        if self.read_only {
+            return;
+        }
         let cursor = self.editor.cursor();
         let line_len = self
             .editor

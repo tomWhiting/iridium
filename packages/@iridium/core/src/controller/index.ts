@@ -83,6 +83,7 @@ interface WebEditor {
   getHiddenLineCount(): number;
   isSyntaxEnabled(): boolean;
   setSyntaxEnabled(enabled: boolean): void;
+  setSyntaxTheme(theme: Record<string, string>): void;
   isGutterEnabled(): boolean;
   setGutterEnabled(enabled: boolean): void;
   isTreeSitterActive(): boolean;
@@ -1030,6 +1031,19 @@ export class IridiumEditor {
   /** Enable or disable syntax highlighting. */
   setSyntaxEnabled(enabled: boolean): void {
     this.editor.setSyntaxEnabled(enabled);
+    this.editor.forceRender();
+  }
+
+  /**
+   * Set the syntax color theme.
+   *
+   * Accepts a mapping of capture names to hex colors. The editor uses
+   * hierarchical lookup, so `keyword` covers `keyword.control`, etc.
+   *
+   * @param theme Record mapping capture names to hex colors (e.g., `{ keyword: "#81A1C1" }`)
+   */
+  setSyntaxTheme(theme: Record<string, string>): void {
+    this.editor.setSyntaxTheme(theme);
     this.editor.forceRender();
   }
 

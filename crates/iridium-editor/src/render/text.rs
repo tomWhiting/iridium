@@ -64,7 +64,7 @@ impl Default for TextRenderConfig {
 /// )?;
 ///
 /// // Create a text buffer and render it
-/// let mut buffer = text_renderer.create_buffer(800.0);
+/// let mut buffer = text_renderer.create_buffer(Some(800.0));
 /// text_renderer.set_text(&mut buffer, "Hello, world!");
 /// ```
 pub struct TextRenderer {
@@ -244,15 +244,15 @@ impl TextRenderer {
     /// Creates a new text buffer for rendering.
     ///
     /// The buffer is initialized with the current font metrics and
-    /// the specified width.
+    /// the specified width. Pass `None` for unconstrained width (no wrapping).
     ///
     /// # Arguments
     ///
-    /// * `width` - The width of the text area in pixels
-    pub fn create_buffer(&mut self, width: f32) -> Buffer {
+    /// * `width` - The width of the text area in pixels, or `None` for no width constraint
+    pub fn create_buffer(&mut self, width: Option<f32>) -> Buffer {
         let metrics = self.metrics();
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, Some(width), None);
+        buffer.set_size(&mut self.font_system, width, None);
         buffer
     }
 

@@ -100,16 +100,16 @@ impl EditorColors {
     #[must_use]
     pub fn dark() -> Self {
         Self {
-            background: Color::from_hex("1e1e1e").unwrap_or_default(),
+            background: Color::new(0.0, 0.0, 0.0, 0.0),
             foreground: Color::from_hex("d4d4d4").unwrap_or_default(),
             selection: Color::new(0.26, 0.42, 0.56, 0.5),
             selection_inactive: Color::new(0.26, 0.42, 0.56, 0.3),
             cursor: Color::from_hex("aeafad").unwrap_or_default(),
             line_number: Color::from_hex("858585").unwrap_or_default(),
             line_number_active: Color::from_hex("c6c6c6").unwrap_or_default(),
-            current_line: Color::new(0.15, 0.15, 0.15, 1.0),
-            gutter: Color::from_hex("1e1e1e").unwrap_or_default(),
-            minimap_background: Color::from_hex("1e1e1e").unwrap_or_default(),
+            current_line: Color::new(0.15, 0.15, 0.15, 0.3),
+            gutter: Color::new(0.0, 0.0, 0.0, 0.0),
+            minimap_background: Color::new(0.0, 0.0, 0.0, 0.0),
             search_match: Color::new(0.52, 0.37, 0.13, 0.6),
             search_match_current: Color::new(0.82, 0.67, 0.33, 0.8),
         }

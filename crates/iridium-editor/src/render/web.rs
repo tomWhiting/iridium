@@ -32,7 +32,7 @@ impl Default for WebRenderConfig {
             // Browsers only support bgra8unorm and rgba8unorm for canvas
             format: TextureFormat::Bgra8Unorm,
             present_mode: PresentMode::Fifo, // vsync by default
-            alpha_mode: CompositeAlphaMode::Opaque,
+            alpha_mode: CompositeAlphaMode::PreMultiplied,
         }
     }
 }

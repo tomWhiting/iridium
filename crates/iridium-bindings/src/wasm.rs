@@ -115,6 +115,17 @@ pub struct WebEditor {
     /// Pre-allocated buffer for combined background quads.
     /// Capacity: gutter + selection quads.
     cpu_background_quads: Vec<Quad>,
+
+    // =========================================================================
+    // Cached layout info for pixel-to-position mapping with word wrap
+    // =========================================================================
+    /// Cached visual line mapping built during render_frame.
+    /// Each entry maps a visual line to (buffer_line_index, start_column_in_line).
+    cached_visual_line_map: Vec<(usize, usize)>,
+    /// The viewport_start value when cached_visual_line_map was built.
+    cached_map_viewport_start: usize,
+    /// Content offset X when the map was built.
+    cached_content_offset_x: f32,
 }
 
 /// Log a message to the browser console.
@@ -228,6 +239,10 @@ pub async fn create_web_editor(
         cpu_selection_quads: Vec::with_capacity(MAX_SELECTION_QUADS),
         cpu_cursor_quads: Vec::with_capacity(2),
         cpu_background_quads: Vec::with_capacity(MAX_SELECTION_QUADS + 2),
+        // Cached layout info for pixel-to-position mapping with word wrap
+        cached_visual_line_map: Vec::with_capacity(MAX_VIEWPORT_LINES),
+        cached_map_viewport_start: 0,
+        cached_content_offset_x: 0.0,
     })
 }
 
@@ -614,13 +629,31 @@ impl WebEditor {
     }
 
     /// Maps a tree-sitter highlight type to a theme color.
+    ///
+    /// Uses hierarchical resolution: for a capture name like `punctuation.list_marker.markup`,
+    /// tries the full name first, then walks up the dot-separated hierarchy
+    /// (`punctuation.list_marker`, then `punctuation`) until a match is found.
+    /// This follows the tree-sitter convention used by Neovim, Helix, and Zed.
     fn color_for_highlight_type(&self, highlight_type: &str) -> iridium_editor::theme::Color {
+        let mut name = highlight_type;
+        loop {
+            if let Some(color) = self.match_highlight_type(name) {
+                return color;
+            }
+            match name.rsplit_once('.') {
+                Some((parent, _)) => name = parent,
+                None => return self.theme.editor.foreground,
+            }
+        }
+    }
+
+    /// Exact-match lookup for a highlight type name.
+    /// Returns `None` if the name is not in the table.
+    fn match_highlight_type(&self, name: &str) -> Option<iridium_editor::theme::Color> {
         use iridium_editor::theme::Color;
 
-        // Map tree-sitter capture names to theme colors
-        // These match the names from Zed's .scm query files
-        match highlight_type {
-            // Keywords
+        let color = match name {
+            // Keywords — blue (#81A1C1)
             "keyword"
             | "keyword.function"
             | "keyword.storage"
@@ -628,143 +661,150 @@ impl WebEditor {
             | "keyword.control"
             | "keyword.return"
             | "keyword.control.return" => {
-                // Blue for keywords
-                Color::rgb(0.506, 0.631, 0.757) // #81A1C1
+                Color::rgb(0.506, 0.631, 0.757)
             },
 
-            // Strings
+            // Strings — green (#A3BE8C)
             "string" | "string.literal" | "string.special" => {
-                // Green for strings
-                Color::rgb(0.639, 0.745, 0.549) // #A3BE8C
+                Color::rgb(0.639, 0.745, 0.549)
             },
 
-            // Escape sequences
+            // Escape sequences — orange (#D88055)
             "string.escape" | "escape_sequence" | "escape" => {
-                // Orange for escapes
-                Color::rgb(0.847, 0.502, 0.337) // #D88055
+                Color::rgb(0.847, 0.502, 0.337)
             },
 
-            // Numbers
+            // Numbers — purple (#B48EAD)
             "number" | "number.literal" | "integer" | "float" => {
-                // Purple for numbers
-                Color::rgb(0.702, 0.561, 0.678) // #B48EAD
+                Color::rgb(0.702, 0.561, 0.678)
             },
 
-            // Booleans
+            // Booleans — purple (#B48EAD)
             "boolean" | "constant.builtin.boolean" => {
-                Color::rgb(0.702, 0.561, 0.678) // #B48EAD (same as numbers)
+                Color::rgb(0.702, 0.561, 0.678)
             },
 
-            // Comments
+            // Comments — gray (#657B83)
             "comment" | "comment.line" | "comment.block" => {
-                // Gray for comments
-                Color::rgb(0.396, 0.482, 0.514) // #657B83
+                Color::rgb(0.396, 0.482, 0.514)
             },
 
-            // Doc comments
+            // Doc comments — lighter gray (#6FA08E)
             "comment.doc" | "comment.documentation" => {
-                Color::rgb(0.435, 0.545, 0.569) // Slightly brighter gray
+                Color::rgb(0.435, 0.545, 0.569)
             },
 
-            // Functions
+            // Functions — cyan (#88C0D0)
             "function" | "function.call" | "function.builtin" => {
-                // Cyan for functions
-                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+                Color::rgb(0.533, 0.753, 0.816)
             },
 
-            // Function definitions
+            // Function definitions — cyan (#88C0D0)
             "function.definition" | "function.name" => {
-                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+                Color::rgb(0.533, 0.753, 0.816)
             },
 
-            // Methods
+            // Methods — cyan (#88C0D0)
             "function.method" | "method" | "method.call" => {
-                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+                Color::rgb(0.533, 0.753, 0.816)
             },
 
-            // Macros
+            // Macros — teal (#4EB7AC)
             "function.special" | "function.macro" | "macro" | "function.special.definition" => {
-                // Teal for macros
-                Color::rgb(0.306, 0.718, 0.675) // #4EB7AC
+                Color::rgb(0.306, 0.718, 0.675)
             },
 
-            // Types
+            // Types — yellow (#EBCB8B)
             "type" | "type.name" | "type.definition" | "constructor" => {
-                // Yellow for types
-                Color::rgb(0.922, 0.796, 0.545) // #EBCB8B
+                Color::rgb(0.922, 0.796, 0.545)
             },
 
-            // Built-in types
+            // Built-in types — yellow (#EBCB8B)
             "type.builtin" | "type.primitive" => {
-                Color::rgb(0.922, 0.796, 0.545) // #EBCB8B
+                Color::rgb(0.922, 0.796, 0.545)
             },
 
-            // Variables
+            // Variables — default foreground
             "variable" | "identifier" => {
-                // Default foreground for variables
                 self.theme.editor.foreground
             },
 
-            // Parameters
+            // Parameters — light gray (#D8DEE9)
             "variable.parameter" | "parameter" => {
-                // Slightly different color for parameters
-                Color::rgb(0.847, 0.871, 0.914) // #D8DEE9
+                Color::rgb(0.847, 0.871, 0.914)
             },
 
-            // Special variables (self, this)
+            // Special variables (self, this) — orange (#DD8B60)
             "variable.special" | "variable.builtin" => {
-                // Orange-ish for special vars
-                Color::rgb(0.867, 0.545, 0.376) // #DD8B60
+                Color::rgb(0.867, 0.545, 0.376)
             },
 
-            // Operators
+            // Operators — blue (#81A1C1)
             "operator" | "keyword.operator" => {
-                Color::rgb(0.506, 0.631, 0.757) // #81A1C1 (like keywords)
+                Color::rgb(0.506, 0.631, 0.757)
             },
 
-            // Punctuation
-            "punctuation.bracket" | "bracket" => {
-                Color::rgb(0.608, 0.639, 0.690) // #9BA0AB
+            // Punctuation — gray (#9BA0AB)
+            "punctuation" | "punctuation.bracket" | "bracket"
+            | "punctuation.delimiter" | "delimiter" => {
+                Color::rgb(0.608, 0.639, 0.690)
             },
 
-            "punctuation.delimiter" | "delimiter" | "punctuation" => {
-                Color::rgb(0.608, 0.639, 0.690) // #9BA0AB
-            },
-
-            // Properties/fields
+            // Properties/fields — cyan (#88C0D0)
             "property" | "field" | "property.name" | "label" | "variable.member"
             | "variable.field" => {
-                Color::rgb(0.533, 0.753, 0.816) // #88C0D0
+                Color::rgb(0.533, 0.753, 0.816)
             },
 
-            // Constants
+            // Constants — purple (#B48EAD)
             "constant" | "constant.builtin" => {
-                Color::rgb(0.702, 0.561, 0.678) // #B48EAD
+                Color::rgb(0.702, 0.561, 0.678)
             },
 
-            // Lifetimes (Rust)
+            // Lifetimes (Rust) — orange (#DD8B60)
             "lifetime" => {
-                Color::rgb(0.867, 0.545, 0.376) // #DD8B60
+                Color::rgb(0.867, 0.545, 0.376)
             },
 
-            // Attributes
+            // Attributes — green (#A3BE8C)
             "attribute" | "decorator" | "annotation" => {
-                Color::rgb(0.639, 0.745, 0.549) // #A3BE8C (like strings)
+                Color::rgb(0.639, 0.745, 0.549)
             },
 
-            // Tags (HTML/XML)
+            // Tags (HTML/XML) — blue (#81A1C1)
             "tag" | "tag.name" => {
-                Color::rgb(0.506, 0.631, 0.757) // #81A1C1
+                Color::rgb(0.506, 0.631, 0.757)
             },
 
-            // Errors
+            // Markup headings — yellow (#EBCB8B)
+            "title" | "heading" => {
+                Color::rgb(0.922, 0.796, 0.545)
+            },
+
+            // Markup emphasis — italic cyan (#88C0D0)
+            "emphasis" | "text.emphasis" => {
+                Color::rgb(0.533, 0.753, 0.816)
+            },
+
+            // Markup strong — bold orange (#D08770)
+            "strong" | "text.strong" => {
+                Color::rgb(0.816, 0.529, 0.439)
+            },
+
+            // Links — blue (#5E81AC)
+            "link" | "link_uri" | "link_text" | "text.uri" | "markup.link" => {
+                Color::rgb(0.369, 0.506, 0.675)
+            },
+
+            // Errors — red (#BF4C4C)
             "error" => {
-                Color::rgb(0.749, 0.298, 0.298) // #BF4C4C
+                Color::rgb(0.749, 0.298, 0.298)
             },
 
-            // Default fallback
-            _ => self.theme.editor.foreground,
-        }
+            _ => return None,
+        };
+
+        Some(color)
     }
 
     /// Renders the editor to the canvas.
@@ -927,7 +967,7 @@ impl WebEditor {
 
         // Create and shape the main content buffer FIRST
         let content_width = self.surface.width() as f32 - content_offset_x;
-        let mut buffer = self.text_renderer.create_buffer(content_width);
+        let mut buffer = self.text_renderer.create_buffer(Some(content_width));
 
         // Set the text with syntax highlighting if enabled
         let foreground = self.theme.editor.foreground;
@@ -988,6 +1028,21 @@ impl WebEditor {
         }
         self.text_renderer.shape_buffer(&mut buffer);
 
+        // Build cached visual line map from layout_runs() for pixel_to_position.
+        // Each entry maps a visual line (within the buffer) to (buffer_line_index, run_start_column).
+        // This allows pixel_to_position to correctly resolve clicks on wrapped lines.
+        self.cached_visual_line_map.clear();
+        self.cached_map_viewport_start = viewport_start;
+        self.cached_content_offset_x = content_offset_x;
+        for run in buffer.layout_runs() {
+            let run_start_col = if run.glyphs.is_empty() {
+                0
+            } else {
+                run.glyphs.first().map(|g| g.start).unwrap_or(0)
+            };
+            self.cached_visual_line_map.push((run.line_i, run_start_col));
+        }
+
         // NOW build line numbers with proper spacing for wrapped lines
         // PERF: Reuse pre-allocated string buffer, use write!() to avoid format!() allocation
         use std::fmt::Write;
@@ -1023,7 +1078,7 @@ impl WebEditor {
 
         // Create gutter buffer AFTER we know the wrapping
         let gutter_buffer = if self.gutter_enabled {
-            let mut gutter_buf = self.text_renderer.create_buffer(gutter_width);
+            let mut gutter_buf = self.text_renderer.create_buffer(Some(gutter_width));
             let line_number_color = self.theme.editor.line_number;
             self.text_renderer
                 .set_text(&mut gutter_buf, &self.cpu_line_numbers, line_number_color);
@@ -2149,30 +2204,76 @@ impl WebEditor {
     }
 
     /// Converts pixel coordinates to line/column position.
-    /// Returns [line, column]. Accounts for folded lines and scroll.
+    /// Returns [line, column]. Accounts for folded lines, scroll, and line wrapping.
+    ///
+    /// Uses the cached visual line map built during `render_frame` to correctly
+    /// resolve clicks on wrapped lines. Each visual line in the buffer maps to
+    /// a (buffer_line_index, run_start_column) pair, allowing accurate column
+    /// calculation even when a single document line spans multiple visual rows.
     #[wasm_bindgen(js_name = pixelToPosition)]
     pub fn pixel_to_position(&self, x: f32, y: f32) -> Vec<u32> {
         let line_height = self.text_renderer.line_height();
         let char_width = self.cached_char_width;
-        let offset_x = self.current_gutter_width() + 10.0;
-        let offset_y = 10.0;
+        let padding = 10.0_f32;
 
-        // Calculate visual line number (what's rendered on screen, accounting for scroll)
-        let visual_line = ((y + self.scroll_y - offset_y) / line_height).max(0.0) as usize;
+        // Calculate the text area top offset (must match render_frame positioning)
+        let virtual_scroll_offset = self.cached_map_viewport_start as f32 * line_height;
+        let adjusted_scroll_y = self.scroll_y - virtual_scroll_offset;
+        let text_area_top = padding - adjusted_scroll_y;
 
-        // Convert visual line to document line (accounting for folds)
+        // Calculate which visual line in the buffer was clicked
+        let y_in_buffer = y - text_area_top;
+        let visual_line_in_buffer = (y_in_buffer / line_height).floor().max(0.0) as usize;
+
         let doc = &self.editor.state().document;
         let line_count = doc.line_count();
-        let doc_line = self.fold_state.visual_to_document_line(visual_line);
-        let clamped_line = doc_line.min(line_count.saturating_sub(1));
 
-        // Calculate column (accounting for gutter)
-        let line_content = doc.line(clamped_line);
-        let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
-        let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
-        let clamped_column = column.min(line_len);
+        // Use the cached visual line map to resolve the click position
+        if !self.cached_visual_line_map.is_empty() {
+            // Clamp to last visual line in the map
+            let clamped_visual =
+                visual_line_in_buffer.min(self.cached_visual_line_map.len().saturating_sub(1));
+            let (buffer_line_idx, run_start_col) = self.cached_visual_line_map[clamped_visual];
 
-        vec![clamped_line as u32, clamped_column as u32]
+            // Map buffer line index to document line
+            let doc_line = self
+                .cpu_visible_doc_lines
+                .get(buffer_line_idx)
+                .copied()
+                .unwrap_or(0)
+                .min(line_count.saturating_sub(1));
+
+            // Calculate column within this wrap segment
+            let col_in_run =
+                ((x - self.cached_content_offset_x) / char_width + 0.5).max(0.0) as usize;
+            let column = run_start_col + col_in_run;
+
+            // Clamp to actual line length
+            let line_len = doc
+                .line(doc_line)
+                .map(|l| l.chars().count())
+                .unwrap_or(0);
+            let clamped_column = column.min(line_len);
+
+            vec![doc_line as u32, clamped_column as u32]
+        } else {
+            // Fallback: no cached map (before first render), use simple calculation
+            let visual_line = ((y + self.scroll_y - padding) / line_height).max(0.0) as usize;
+            let doc_line = self
+                .fold_state
+                .visual_to_document_line(visual_line)
+                .min(line_count.saturating_sub(1));
+
+            let offset_x = self.current_gutter_width() + padding;
+            let line_len = doc
+                .line(doc_line)
+                .map(|l| l.chars().count())
+                .unwrap_or(0);
+            let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
+            let clamped_column = column.min(line_len);
+
+            vec![doc_line as u32, clamped_column as u32]
+        }
     }
 
     // ==========================================================================

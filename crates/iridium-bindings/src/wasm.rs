@@ -4,6 +4,8 @@
 //! via WebAssembly. It wraps the editor and rendering functionality in
 //! wasm-bindgen exports.
 
+use std::collections::HashMap;
+
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
@@ -126,6 +128,23 @@ pub struct WebEditor {
     cached_map_viewport_start: usize,
     /// Content offset X when the map was built.
     cached_content_offset_x: f32,
+
+    // =========================================================================
+    // Cached scroll data for word-wrap-aware scrolling
+    // =========================================================================
+    /// Total visual lines including wrapped sub-lines, updated each render_frame.
+    cached_total_visual_lines: usize,
+    /// Absolute cursor Y position (document space) from last render_frame.
+    cached_cursor_abs_y: f32,
+    /// The cursor doc line when cached_cursor_abs_y was computed.
+    cached_cursor_doc_line: usize,
+
+    // =========================================================================
+    // Externalized syntax theme — colors provided by host application
+    // =========================================================================
+    /// Map of capture name → color, populated via setSyntaxTheme from JS.
+    /// When non-empty, used by color_for_highlight_type with hierarchical fallback.
+    syntax_theme: HashMap<String, iridium_editor::theme::Color>,
 }
 
 /// Log a message to the browser console.
@@ -243,6 +262,12 @@ pub async fn create_web_editor(
         cached_visual_line_map: Vec::with_capacity(MAX_VIEWPORT_LINES),
         cached_map_viewport_start: 0,
         cached_content_offset_x: 0.0,
+        // Cached scroll data for word-wrap-aware scrolling
+        cached_total_visual_lines: 0,
+        cached_cursor_abs_y: 0.0,
+        cached_cursor_doc_line: 0,
+        // Externalized syntax theme
+        syntax_theme: HashMap::new(),
     })
 }
 
@@ -451,31 +476,50 @@ impl WebEditor {
     }
 
     /// Returns the maximum scroll offset.
+    ///
+    /// Uses `cached_total_visual_lines` from the last render_frame to account
+    /// for word-wrapped lines that occupy multiple visual rows.
     #[wasm_bindgen(js_name = getMaxScrollY)]
     pub fn max_scroll_y(&self) -> f32 {
         let line_height = self.text_renderer.line_height();
-        let visible_lines = self
-            .fold_state
-            .visible_line_count(self.editor.state().document.line_count());
-        let content_height = visible_lines as f32 * line_height;
+        let total_visual = if self.cached_total_visual_lines > 0 {
+            self.cached_total_visual_lines
+        } else {
+            // Before first render, fall back to fold-aware count (no wrapping info)
+            self.fold_state
+                .visible_line_count(self.editor.state().document.line_count())
+        };
+        let content_height = total_visual as f32 * line_height;
         let viewport_height = self.surface.height() as f32;
         (content_height - viewport_height + 20.0).max(0.0) // 20px padding
     }
 
     /// Ensures the cursor is visible by scrolling if needed.
+    ///
+    /// Uses the cached cursor absolute Y from the last render_frame when the
+    /// cursor line hasn't changed (common case: typing on the same line).
+    /// Falls back to fold-only estimation when the cursor has moved to a new line.
     #[wasm_bindgen(js_name = ensureCursorVisible)]
     pub fn ensure_cursor_visible(&mut self) {
         let line_height = self.text_renderer.line_height();
         let padding = 10.0;
         let viewport_height = self.surface.height() as f32;
 
-        // Get cursor's visual line (accounting for folds)
         let cursor_line = self.editor.cursor().line;
-        let visual_line = self
-            .fold_state
-            .document_to_visual_line(cursor_line)
-            .unwrap_or(0);
-        let cursor_y = padding + (visual_line as f32 * line_height);
+        let cursor_y = if cursor_line == self.cached_cursor_doc_line
+            && self.cached_cursor_abs_y > 0.0
+        {
+            // Cursor on the same line as last render — use cached position
+            // (accounts for wrapping within this line)
+            self.cached_cursor_abs_y
+        } else {
+            // Cursor moved to a different line — approximate using fold mapping
+            let visual_line = self
+                .fold_state
+                .document_to_visual_line(cursor_line)
+                .unwrap_or(0);
+            padding + (visual_line as f32 * line_height)
+        };
 
         // Scroll up if cursor is above viewport
         if cursor_y < self.scroll_y + padding {
@@ -630,181 +674,24 @@ impl WebEditor {
 
     /// Maps a tree-sitter highlight type to a theme color.
     ///
-    /// Uses hierarchical resolution: for a capture name like `punctuation.list_marker.markup`,
-    /// tries the full name first, then walks up the dot-separated hierarchy
-    /// (`punctuation.list_marker`, then `punctuation`) until a match is found.
-    /// This follows the tree-sitter convention used by Neovim, Helix, and Zed.
+    /// Looks up the `syntax_theme` HashMap with hierarchical resolution:
+    /// for a capture name like `punctuation.list_marker.markup`, tries the full name
+    /// first, then walks up the dot-separated hierarchy (`punctuation.list_marker`,
+    /// then `punctuation`) until a match is found. Falls back to editor foreground.
+    ///
+    /// Colors are provided by the host application via `setSyntaxTheme()`,
+    /// making the editor fully theme-agnostic.
     fn color_for_highlight_type(&self, highlight_type: &str) -> iridium_editor::theme::Color {
         let mut name = highlight_type;
         loop {
-            if let Some(color) = self.match_highlight_type(name) {
-                return color;
+            if let Some(color) = self.syntax_theme.get(name) {
+                return *color;
             }
             match name.rsplit_once('.') {
                 Some((parent, _)) => name = parent,
                 None => return self.theme.editor.foreground,
             }
         }
-    }
-
-    /// Exact-match lookup for a highlight type name.
-    /// Returns `None` if the name is not in the table.
-    fn match_highlight_type(&self, name: &str) -> Option<iridium_editor::theme::Color> {
-        use iridium_editor::theme::Color;
-
-        let color = match name {
-            // Keywords — blue (#81A1C1)
-            "keyword"
-            | "keyword.function"
-            | "keyword.storage"
-            | "keyword.modifier"
-            | "keyword.control"
-            | "keyword.return"
-            | "keyword.control.return" => {
-                Color::rgb(0.506, 0.631, 0.757)
-            },
-
-            // Strings — green (#A3BE8C)
-            "string" | "string.literal" | "string.special" => {
-                Color::rgb(0.639, 0.745, 0.549)
-            },
-
-            // Escape sequences — orange (#D88055)
-            "string.escape" | "escape_sequence" | "escape" => {
-                Color::rgb(0.847, 0.502, 0.337)
-            },
-
-            // Numbers — purple (#B48EAD)
-            "number" | "number.literal" | "integer" | "float" => {
-                Color::rgb(0.702, 0.561, 0.678)
-            },
-
-            // Booleans — purple (#B48EAD)
-            "boolean" | "constant.builtin.boolean" => {
-                Color::rgb(0.702, 0.561, 0.678)
-            },
-
-            // Comments — gray (#657B83)
-            "comment" | "comment.line" | "comment.block" => {
-                Color::rgb(0.396, 0.482, 0.514)
-            },
-
-            // Doc comments — lighter gray (#6FA08E)
-            "comment.doc" | "comment.documentation" => {
-                Color::rgb(0.435, 0.545, 0.569)
-            },
-
-            // Functions — cyan (#88C0D0)
-            "function" | "function.call" | "function.builtin" => {
-                Color::rgb(0.533, 0.753, 0.816)
-            },
-
-            // Function definitions — cyan (#88C0D0)
-            "function.definition" | "function.name" => {
-                Color::rgb(0.533, 0.753, 0.816)
-            },
-
-            // Methods — cyan (#88C0D0)
-            "function.method" | "method" | "method.call" => {
-                Color::rgb(0.533, 0.753, 0.816)
-            },
-
-            // Macros — teal (#4EB7AC)
-            "function.special" | "function.macro" | "macro" | "function.special.definition" => {
-                Color::rgb(0.306, 0.718, 0.675)
-            },
-
-            // Types — yellow (#EBCB8B)
-            "type" | "type.name" | "type.definition" | "constructor" => {
-                Color::rgb(0.922, 0.796, 0.545)
-            },
-
-            // Built-in types — yellow (#EBCB8B)
-            "type.builtin" | "type.primitive" => {
-                Color::rgb(0.922, 0.796, 0.545)
-            },
-
-            // Variables — default foreground
-            "variable" | "identifier" => {
-                self.theme.editor.foreground
-            },
-
-            // Parameters — light gray (#D8DEE9)
-            "variable.parameter" | "parameter" => {
-                Color::rgb(0.847, 0.871, 0.914)
-            },
-
-            // Special variables (self, this) — orange (#DD8B60)
-            "variable.special" | "variable.builtin" => {
-                Color::rgb(0.867, 0.545, 0.376)
-            },
-
-            // Operators — blue (#81A1C1)
-            "operator" | "keyword.operator" => {
-                Color::rgb(0.506, 0.631, 0.757)
-            },
-
-            // Punctuation — gray (#9BA0AB)
-            "punctuation" | "punctuation.bracket" | "bracket"
-            | "punctuation.delimiter" | "delimiter" => {
-                Color::rgb(0.608, 0.639, 0.690)
-            },
-
-            // Properties/fields — cyan (#88C0D0)
-            "property" | "field" | "property.name" | "label" | "variable.member"
-            | "variable.field" => {
-                Color::rgb(0.533, 0.753, 0.816)
-            },
-
-            // Constants — purple (#B48EAD)
-            "constant" | "constant.builtin" => {
-                Color::rgb(0.702, 0.561, 0.678)
-            },
-
-            // Lifetimes (Rust) — orange (#DD8B60)
-            "lifetime" => {
-                Color::rgb(0.867, 0.545, 0.376)
-            },
-
-            // Attributes — green (#A3BE8C)
-            "attribute" | "decorator" | "annotation" => {
-                Color::rgb(0.639, 0.745, 0.549)
-            },
-
-            // Tags (HTML/XML) — blue (#81A1C1)
-            "tag" | "tag.name" => {
-                Color::rgb(0.506, 0.631, 0.757)
-            },
-
-            // Markup headings — yellow (#EBCB8B)
-            "title" | "heading" => {
-                Color::rgb(0.922, 0.796, 0.545)
-            },
-
-            // Markup emphasis — italic cyan (#88C0D0)
-            "emphasis" | "text.emphasis" => {
-                Color::rgb(0.533, 0.753, 0.816)
-            },
-
-            // Markup strong — bold orange (#D08770)
-            "strong" | "text.strong" => {
-                Color::rgb(0.816, 0.529, 0.439)
-            },
-
-            // Links — blue (#5E81AC)
-            "link" | "link_uri" | "link_text" | "text.uri" | "markup.link" => {
-                Color::rgb(0.369, 0.506, 0.675)
-            },
-
-            // Errors — red (#BF4C4C)
-            "error" => {
-                Color::rgb(0.749, 0.298, 0.298)
-            },
-
-            _ => return None,
-        };
-
-        Some(color)
     }
 
     /// Renders the editor to the canvas.
@@ -1043,6 +930,15 @@ impl WebEditor {
             self.cached_visual_line_map.push((run.line_i, run_start_col));
         }
 
+        // Cache total visual lines for max_scroll_y.
+        // visual_line (from the doc_to_visual loop above) counts all visible doc lines as 1 each.
+        // The actual buffer visual lines (from layout_runs) may be more due to wrapping.
+        // Extra wrapped lines = buffer_visual_lines - buffer_logical_lines.
+        let buffer_visual_lines = self.cached_visual_line_map.len();
+        let buffer_logical_lines = self.cpu_visible_doc_lines.len();
+        let extra_wrap_lines = buffer_visual_lines.saturating_sub(buffer_logical_lines);
+        self.cached_total_visual_lines = visual_line + extra_wrap_lines;
+
         // NOW build line numbers with proper spacing for wrapped lines
         // PERF: Reuse pre-allocated string buffer, use write!() to avoid format!() allocation
         use std::fmt::Write;
@@ -1117,8 +1013,14 @@ impl WebEditor {
             char_width,
         );
         let cursor_x = content_offset_x + wrap_x;
-        // Apply virtual scroll offset to match text positioning
-        let cursor_y = padding + wrap_y + virtual_scroll_offset - self.scroll_y;
+        // Absolute cursor Y in document space (for ensure_cursor_visible)
+        let cursor_abs_y = padding + wrap_y + virtual_scroll_offset;
+        // Viewport-relative cursor Y for rendering
+        let cursor_y = cursor_abs_y - self.scroll_y;
+
+        // Cache cursor position for ensure_cursor_visible
+        self.cached_cursor_abs_y = cursor_abs_y;
+        self.cached_cursor_doc_line = cursor_pos.line;
 
         // Update cursor blink state
         self.cursor_renderer.update(Instant::now());
@@ -1434,6 +1336,44 @@ impl WebEditor {
         // Keep legacy spans for fallback (will be removed in future)
         self.ts_highlights = js_spans;
         self.use_ts_highlights = true;
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    /// Sets the syntax color theme from a JS object.
+    ///
+    /// Accepts a `Record<string, string>` mapping capture names to hex colors.
+    /// Example: `{ keyword: "#81A1C1", string: "#A3BE8C", comment: "#657B83" }`
+    ///
+    /// The editor uses hierarchical lookup: a capture like `keyword.control.return`
+    /// will match `keyword.control.return`, then `keyword.control`, then `keyword`.
+    /// This allows broad categories (e.g., `keyword`) to cover all sub-types while
+    /// still allowing specific overrides (e.g., `keyword.control.return`).
+    #[wasm_bindgen(js_name = setSyntaxTheme)]
+    pub fn set_syntax_theme(&mut self, theme_js: &JsValue) -> Result<(), JsValue> {
+        use iridium_editor::theme::Color;
+        use js_sys::{Object, Reflect};
+
+        self.syntax_theme.clear();
+
+        let obj = Object::from(theme_js.clone());
+        let keys = Object::keys(&obj);
+
+        for i in 0..keys.length() {
+            let key = keys.get(i);
+            let key_str = key
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("theme key not a string"))?;
+            let value = Reflect::get(&obj, &key)?;
+            let hex = value
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("theme value not a hex color string"))?;
+            let color = Color::from_hex(&hex).ok_or_else(|| {
+                JsValue::from_str(&format!("invalid hex color for '{}': {}", key_str, hex))
+            })?;
+            self.syntax_theme.insert(key_str, color);
+        }
+
         self.needs_redraw = true;
         Ok(())
     }

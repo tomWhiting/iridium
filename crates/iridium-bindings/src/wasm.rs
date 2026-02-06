@@ -1040,16 +1040,18 @@ impl WebEditor {
         }
 
         // Create selection highlight quads (render before text)
+        // Uses cursor_position_in_buffer for wrap-aware positioning so that
+        // selection highlights align with text even when lines wrap.
         let selection = &self.editor.state().cursor.primary;
         self.cpu_selection_quads.clear();
         if !selection.is_collapsed() {
             let selection_color = self.theme.editor.selection;
-            let start = selection.start();
-            let end = selection.end();
+            let sel_start = selection.start();
+            let sel_end = selection.end();
+            let surface_height = self.surface.height() as f32;
 
-            // For each line in the selection, create a highlight quad
-            for doc_line in start.line..=end.line {
-                // Skip hidden lines
+            for doc_line in sel_start.line..=sel_end.line {
+                // Skip hidden/folded lines
                 let Some(vis_line) = self.cpu_doc_to_visual.get(doc_line).and_then(|v| *v) else {
                     continue;
                 };
@@ -1057,33 +1059,87 @@ impl WebEditor {
                 let line_content = self.editor.state().document.line(doc_line);
                 let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
 
-                // Determine start and end columns for this line
-                let start_col = if doc_line == start.line {
-                    start.column
+                // Determine selection columns for this line
+                let sel_col_start = if doc_line == sel_start.line {
+                    sel_start.column
                 } else {
                     0
                 };
-                let end_col = if doc_line == end.line {
-                    end.column
+                let sel_col_end = if doc_line == sel_end.line {
+                    sel_end.column
                 } else {
                     line_len
                 };
 
-                // For lines that continue to next line, extend selection slightly
-                // to visualize the newline character selection
-                let extra_width = if doc_line != end.line && end_col == line_len {
-                    char_width * 0.5 // Add half a char width for newline
+                // Extra width for newline visualization on non-final lines
+                let newline_extra = if doc_line != sel_end.line && sel_col_end == line_len {
+                    char_width * 0.5
                 } else {
                     0.0
                 };
 
-                if start_col < end_col || (start_col == end_col && extra_width > 0.0) {
-                    let x = content_offset_x + (start_col as f32 * char_width);
-                    let y = padding + (vis_line as f32 * line_height) - self.scroll_y;
-                    let width = (end_col - start_col) as f32 * char_width + extra_width;
+                if sel_col_start >= sel_col_end && newline_extra == 0.0 {
+                    continue;
+                }
 
-                    // Only add quad if it's visible
-                    if y + line_height > 0.0 && y < self.surface.height() as f32 {
+                // Get buffer-relative line index for this doc line
+                let buffer_line = vis_line.saturating_sub(viewport_start_visual);
+
+                // Walk the visual line map to find which visual rows this buffer line
+                // spans and emit a quad for each wrapped segment that overlaps the selection.
+                let mut handled = false;
+                for (vi, &(buf_idx, run_start_col)) in
+                    self.cached_visual_line_map.iter().enumerate()
+                {
+                    if buf_idx != buffer_line {
+                        continue;
+                    }
+
+                    // Determine the end column of this visual segment
+                    let run_end_col = self
+                        .cached_visual_line_map
+                        .get(vi + 1)
+                        .filter(|(next_buf, _)| *next_buf == buffer_line)
+                        .map(|(_, next_start)| *next_start)
+                        .unwrap_or(line_len);
+
+                    // Intersect this segment with the selection range
+                    let seg_start = sel_col_start.max(run_start_col);
+                    let seg_end = sel_col_end.min(run_end_col);
+
+                    // Extra width only applies on the last segment of the line
+                    let seg_extra = if run_end_col >= line_len { newline_extra } else { 0.0 };
+
+                    if seg_start < seg_end || (seg_start == seg_end && seg_extra > 0.0) {
+                        let x = content_offset_x
+                            + ((seg_start - run_start_col) as f32 * char_width);
+                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
+                            - self.scroll_y;
+                        let width =
+                            (seg_end - seg_start) as f32 * char_width + seg_extra;
+
+                        if y + line_height > 0.0 && y < surface_height {
+                            self.cpu_selection_quads
+                                .push(Quad::new(x, y, width, line_height, selection_color));
+                        }
+                        handled = true;
+                    }
+                }
+
+                // Fallback for lines not in the visual map (shouldn't happen, but safe)
+                if !handled {
+                    let (sx, sy) = self.text_renderer.cursor_position_in_buffer(
+                        &buffer,
+                        buffer_line,
+                        sel_col_start,
+                        char_width,
+                    );
+                    let x = content_offset_x + sx;
+                    let y = padding + sy + virtual_scroll_offset - self.scroll_y;
+                    let width =
+                        (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
+
+                    if y + line_height > 0.0 && y < surface_height {
                         self.cpu_selection_quads
                             .push(Quad::new(x, y, width, line_height, selection_color));
                     }

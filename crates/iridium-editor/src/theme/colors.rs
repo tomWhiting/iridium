@@ -93,6 +93,22 @@ pub struct EditorColors {
     pub search_match: Color,
     /// Current search match highlight
     pub search_match_current: Color,
+    /// Background tint for added lines in diff view
+    pub diff_added_bg: Color,
+    /// Background tint for deleted lines in diff view
+    pub diff_deleted_bg: Color,
+    /// Gutter color for added lines in diff view (+)
+    pub diff_added_gutter: Color,
+    /// Gutter color for deleted lines in diff view (-)
+    pub diff_deleted_gutter: Color,
+    /// Gutter bar color for added lines (change indicators)
+    pub change_added: Color,
+    /// Gutter bar color for modified lines (change indicators)
+    pub change_modified: Color,
+    /// Gutter bar color for deleted lines (change indicators)
+    pub change_deleted: Color,
+    /// Foreground color for inline blame ghost text
+    pub blame_foreground: Color,
 }
 
 impl EditorColors {
@@ -112,6 +128,14 @@ impl EditorColors {
             minimap_background: Color::new(0.0, 0.0, 0.0, 0.0),
             search_match: Color::new(0.52, 0.37, 0.13, 0.6),
             search_match_current: Color::new(0.82, 0.67, 0.33, 0.8),
+            diff_added_bg: Color::new(0.14, 0.40, 0.22, 0.25),
+            diff_deleted_bg: Color::new(0.50, 0.15, 0.15, 0.25),
+            diff_added_gutter: Color::new(0.30, 0.70, 0.40, 1.0),
+            diff_deleted_gutter: Color::new(0.80, 0.30, 0.30, 1.0),
+            change_added: Color::new(0.30, 0.70, 0.40, 1.0),
+            change_modified: Color::new(0.80, 0.65, 0.20, 1.0),
+            change_deleted: Color::new(0.80, 0.30, 0.30, 1.0),
+            blame_foreground: Color::new(0.45, 0.45, 0.50, 0.6),
         }
     }
 
@@ -131,6 +155,14 @@ impl EditorColors {
             minimap_background: Color::from_hex("f5f5f5").unwrap_or_default(),
             search_match: Color::new(1.0, 0.92, 0.55, 0.6),
             search_match_current: Color::new(1.0, 0.72, 0.25, 0.8),
+            diff_added_bg: Color::new(0.20, 0.60, 0.30, 0.15),
+            diff_deleted_bg: Color::new(0.70, 0.20, 0.20, 0.15),
+            diff_added_gutter: Color::new(0.15, 0.55, 0.25, 1.0),
+            diff_deleted_gutter: Color::new(0.70, 0.20, 0.20, 1.0),
+            change_added: Color::new(0.15, 0.55, 0.25, 1.0),
+            change_modified: Color::new(0.70, 0.55, 0.10, 1.0),
+            change_deleted: Color::new(0.70, 0.20, 0.20, 1.0),
+            blame_foreground: Color::new(0.50, 0.50, 0.55, 0.5),
         }
     }
 }

@@ -89,6 +89,16 @@ interface WebEditor {
   isTreeSitterActive(): boolean;
   getScrollY(): number;
   getLineHeight(): number;
+  // Git integration: read-only, line backgrounds, gutter changes, blame
+  setReadOnly(readOnly: boolean): void;
+  isReadOnly(): boolean;
+  setLineBackgrounds(backgrounds: Array<{ line: number; color: string }>): void;
+  clearLineBackgrounds(): void;
+  setGutterChanges(changes: Array<{ line: number; kind: string }>): void;
+  clearGutterChanges(): void;
+  setCustomGutterText(lines: string[] | null): void;
+  setBlameData(data: Array<{ line: number; text: string }>): void;
+  clearBlameData(): void;
 }
 
 export interface IridiumEditorOptions {
@@ -428,6 +438,7 @@ export class IridiumEditor {
     let handled = true;
     const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const selecting = e.shiftKey;
+    const isReadOnly = this.editor.isReadOnly();
 
     // Arrow keys with modifiers
     if (e.key === "ArrowLeft") {
@@ -473,30 +484,34 @@ export class IridiumEditor {
     } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
       this.editor.selectAll();
     } else if (e.key === "Backspace") {
-      this.handleBackspace(e, isMac);
+      if (!isReadOnly) this.handleBackspace(e, isMac); else handled = false;
     } else if (e.key === "Delete") {
-      this.handleDelete(e, isMac);
+      if (!isReadOnly) this.handleDelete(e, isMac); else handled = false;
     } else if (e.key === "k" && e.ctrlKey) {
-      // Delete to line end - track deletion (T029)
-      const startByte = this.getCursorByteOffset();
-      const content = this.editor.getContent();
-      const lines = content.split("\n");
-      const line = this.editor.getCursorLine();
-      const lineEnd = lines[line]?.length || 0;
-      const lineEndByte = this.positionToByteOffset(content, line, lineEnd);
-      this.editor.deleteToLineEnd();
-      this.trackEdit(startByte, lineEndByte, startByte);
-      this.notifyContentChange();
+      if (!isReadOnly) {
+        // Delete to line end - track deletion (T029)
+        const startByte = this.getCursorByteOffset();
+        const content = this.editor.getContent();
+        const lines = content.split("\n");
+        const line = this.editor.getCursorLine();
+        const lineEnd = lines[line]?.length || 0;
+        const lineEndByte = this.positionToByteOffset(content, line, lineEnd);
+        this.editor.deleteToLineEnd();
+        this.trackEdit(startByte, lineEndByte, startByte);
+        this.notifyContentChange();
+      } else { handled = false; }
     } else if (e.key === "Enter") {
-      this.handleEnter();
+      if (!isReadOnly) this.handleEnter(); else handled = false;
     } else if (e.key === "Tab") {
-      // Tab insertion - 4 spaces (T029)
-      const startByte = this.getCursorByteOffset();
-      this.editor.insert("    ");
-      this.trackEdit(startByte, startByte, startByte + 4);
-      this.notifyContentChange();
+      if (!isReadOnly) {
+        // Tab insertion - 4 spaces (T029)
+        const startByte = this.getCursorByteOffset();
+        this.editor.insert("    ");
+        this.trackEdit(startByte, startByte, startByte + 4);
+        this.notifyContentChange();
+      } else { handled = false; }
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      this.handleCharacterInput(e.key);
+      if (!isReadOnly) this.handleCharacterInput(e.key); else handled = false;
     } else if (e.metaKey || e.ctrlKey) {
       handled = this.handleShortcut(e);
     } else {
@@ -680,6 +695,7 @@ export class IridiumEditor {
    */
   private handlePaste(e: ClipboardEvent): void {
     e.preventDefault();
+    if (this.editor.isReadOnly()) return;
 
     const text = e.clipboardData?.getData("text/plain");
     if (!text) return;
@@ -712,6 +728,16 @@ export class IridiumEditor {
    * Handle native cut event - provides consistent behavior across browsers.
    */
   private handleCut(e: ClipboardEvent): void {
+    if (this.editor.isReadOnly()) {
+      // In read-only mode, cut behaves like copy
+      const text = this.editor.getSelectedText();
+      if (text && e.clipboardData) {
+        e.preventDefault();
+        e.clipboardData.setData("text/plain", text);
+      }
+      return;
+    }
+
     const text = this.editor.getSelectedText();
     if (text && e.clipboardData) {
       e.preventDefault();
@@ -1063,6 +1089,76 @@ export class IridiumEditor {
   /** Focus the editor canvas. */
   focus(): void {
     this.canvas.focus();
+  }
+
+  // ============================================================================
+  // Git integration: read-only, line backgrounds, gutter changes, blame
+  // ============================================================================
+
+  /** Set read-only mode. When read-only, all mutations are silently ignored. */
+  setReadOnly(readOnly: boolean): void {
+    this.editor.setReadOnly(readOnly);
+    this.editor.forceRender();
+  }
+
+  /** Returns whether the editor is in read-only mode. */
+  isReadOnly(): boolean {
+    return this.editor.isReadOnly();
+  }
+
+  /**
+   * Set per-line background colors (for diff highlighting).
+   * Each entry: `{line: 0-indexed doc line, color: hex string}`.
+   */
+  setLineBackgrounds(backgrounds: Array<{ line: number; color: string }>): void {
+    this.editor.setLineBackgrounds(backgrounds);
+    this.editor.forceRender();
+  }
+
+  /** Clear all per-line background colors. */
+  clearLineBackgrounds(): void {
+    this.editor.clearLineBackgrounds();
+    this.editor.forceRender();
+  }
+
+  /**
+   * Set gutter change indicators (thin colored bars).
+   * Each entry: `{line: 0-indexed doc line, kind: "added"|"modified"|"deleted"}`.
+   */
+  setGutterChanges(changes: Array<{ line: number; kind: string }>): void {
+    this.editor.setGutterChanges(changes);
+    this.editor.forceRender();
+  }
+
+  /** Clear all gutter change indicators. */
+  clearGutterChanges(): void {
+    this.editor.clearGutterChanges();
+    this.editor.forceRender();
+  }
+
+  /**
+   * Set custom gutter text, replacing automatic line numbers.
+   * Pass an array of strings (one per doc line) or null to restore auto numbering.
+   */
+  setCustomGutterText(lines: string[] | null): void {
+    this.editor.setCustomGutterText(lines);
+    this.editor.forceRender();
+  }
+
+  /**
+   * Set per-line blame data for inline ghost text.
+   * Only the cursor line's blame text is rendered (after line content).
+   * Each entry: `{line: 0-indexed doc line, text: "Author · 3d ago · Summary"}`.
+   */
+  setBlameData(data: Array<{ line: number; text: string }>): void {
+    this.editor.setBlameData(data);
+    this.editor.forceRender();
+  }
+
+  /** Clear all blame data. */
+  clearBlameData(): void {
+    this.editor.clearBlameData();
+    this.editor.forceRender();
   }
 
   /** Destroy the editor and clean up resources. */

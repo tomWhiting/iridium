@@ -9,6 +9,10 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+use crate::{
+    web_delta::{TextReplacement, map_offset},
+    web_span_index::{WebSpan, WebSpanIndex},
+};
 use iridium_editor::{
     EditorConfig, Position, Range,
     document::{CursorState, Selection},
@@ -21,7 +25,6 @@ use iridium_editor::{
     syntax_stubs::Language,
     theme::Theme,
 };
-use crate::web_span_index::{WebSpan, WebSpanIndex};
 
 /// Initialize panic hook for better error messages in browser console.
 #[wasm_bindgen(start)]
@@ -38,6 +41,13 @@ pub struct JsHighlightSpan {
     pub end: usize,
     /// Highlight type as string (e.g., "keyword", "string", "comment")
     pub highlight_type: String,
+}
+
+#[derive(Debug, Clone)]
+struct UnderlineDecoration {
+    start: usize,
+    end: usize,
+    color_class: String,
 }
 
 /// Maximum expected lines in viewport (for pre-allocation sizing).
@@ -165,6 +175,12 @@ pub struct WebEditor {
     blame_data: HashMap<usize, String>,
     /// Pre-allocated buffer for blame text rendering.
     cpu_blame_content: String,
+    /// Byte-range underline decorations supplied by the host.
+    underline_decorations: Vec<UnderlineDecoration>,
+    /// Host-defined underline color classes.
+    underline_colors: HashMap<String, iridium_editor::theme::Color>,
+    /// Pre-allocated foreground geometry for underlines.
+    cpu_underline_quads: Vec<Quad>,
 }
 
 /// Log a message to the browser console.
@@ -297,6 +313,9 @@ pub async fn create_web_editor(
         custom_gutter_lines: None,
         blame_data: HashMap::new(),
         cpu_blame_content: String::with_capacity(256),
+        underline_decorations: Vec::new(),
+        underline_colors: HashMap::new(),
+        cpu_underline_quads: Vec::with_capacity(MAX_VIEWPORT_LINES),
     })
 }
 
@@ -336,6 +355,175 @@ impl WebEditor {
     #[wasm_bindgen(js_name = getContent)]
     pub fn get_content(&self) -> String {
         self.editor.content()
+    }
+
+    /// Applies non-overlapping byte-range replacements as one undoable edit.
+    /// Selection endpoints are mapped through the replacements and scroll is unchanged.
+    #[wasm_bindgen(js_name = applyTextDelta)]
+    pub fn apply_text_delta(&mut self, replacements: &JsValue) -> Result<(), JsValue> {
+        use js_sys::{Array, Reflect};
+
+        if self.read_only {
+            return Err(JsValue::from_str(
+                "cannot apply text delta in read-only mode",
+            ));
+        }
+        let array = Array::from(replacements);
+        let mut edits = Vec::with_capacity(array.length() as usize);
+        for index in 0..array.length() {
+            let entry = array.get(index);
+            edits.push(TextReplacement {
+                start: Self::js_usize(&entry, "start")?,
+                end: Self::js_usize(&entry, "end")?,
+                text: Reflect::get(&entry, &JsValue::from_str("text"))?
+                    .as_string()
+                    .ok_or_else(|| JsValue::from_str("text must be a string"))?,
+            });
+        }
+        edits.sort_unstable_by_key(|edit| edit.start);
+
+        let content = self.editor.content();
+        let mut previous_end = 0;
+        for (index, edit) in edits.iter().enumerate() {
+            if edit.start > edit.end || edit.end > content.len() {
+                return Err(JsValue::from_str("replacement range is out of bounds"));
+            }
+            if !content.is_char_boundary(edit.start) || !content.is_char_boundary(edit.end) {
+                return Err(JsValue::from_str(
+                    "replacement range must use UTF-8 byte boundaries",
+                ));
+            }
+            if index > 0 && edit.start < previous_end {
+                return Err(JsValue::from_str("replacement ranges must not overlap"));
+            }
+            previous_end = edit.end;
+        }
+        if edits.is_empty() {
+            return Ok(());
+        }
+
+        let document = &self.editor.state().document;
+        let old_cursor = self.editor.state().cursor.clone();
+        let anchor_offset = document
+            .position_to_offset(old_cursor.primary.anchor)
+            .ok_or_else(|| JsValue::from_str("selection anchor is invalid"))?;
+        let head_offset = document
+            .position_to_offset(old_cursor.primary.head)
+            .ok_or_else(|| JsValue::from_str("selection head is invalid"))?;
+        let mapped_anchor = map_offset(anchor_offset, &edits);
+        let mapped_head = map_offset(head_offset, &edits);
+
+        let mut commands = Vec::with_capacity(edits.len() + 1);
+        for edit in edits.iter().rev() {
+            let start = document
+                .offset_to_position(edit.start)
+                .ok_or_else(|| JsValue::from_str("replacement start is invalid"))?;
+            let end = document
+                .offset_to_position(edit.end)
+                .ok_or_else(|| JsValue::from_str("replacement end is invalid"))?;
+            commands.push(Command::Replace {
+                range: Range::new(start, end),
+                old_text: content[edit.start..edit.end].to_owned(),
+                new_text: edit.text.clone(),
+            });
+        }
+
+        let mut resulting_content = content;
+        for edit in edits.iter().rev() {
+            resulting_content.replace_range(edit.start..edit.end, &edit.text);
+        }
+        let resulting_document = iridium_editor::document::Document::new(&resulting_content);
+        let anchor = resulting_document
+            .offset_to_position(mapped_anchor)
+            .ok_or_else(|| JsValue::from_str("mapped selection anchor is invalid"))?;
+        let head = resulting_document
+            .offset_to_position(mapped_head)
+            .ok_or_else(|| JsValue::from_str("mapped selection head is invalid"))?;
+        let new_cursor = CursorState {
+            primary: Selection::new(anchor, head),
+            secondary: old_cursor.secondary.clone(),
+        };
+        commands.push(Command::SetSelection {
+            old_state: old_cursor,
+            new_state: new_cursor,
+        });
+        self.editor.apply_command(Command::Compound { commands });
+        self.fold_state.update_regions(&resulting_content);
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    fn js_usize(entry: &JsValue, property: &str) -> Result<usize, JsValue> {
+        use js_sys::Reflect;
+        let value = Reflect::get(entry, &JsValue::from_str(property))?
+            .as_f64()
+            .ok_or_else(|| JsValue::from_str(&format!("{property} must be a number")))?;
+        if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > usize::MAX as f64 {
+            return Err(JsValue::from_str(&format!(
+                "{property} must be a non-negative integer"
+            )));
+        }
+        Ok(value as usize)
+    }
+
+    /// Sets named colors used by underline decoration classes.
+    #[wasm_bindgen(js_name = setUnderlineTheme)]
+    pub fn set_underline_theme(&mut self, theme: &JsValue) -> Result<(), JsValue> {
+        use iridium_editor::theme::Color;
+        use js_sys::{Object, Reflect};
+        self.underline_colors.clear();
+        for key in Object::keys(&Object::from(theme.clone())) {
+            let class = key
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("invalid color class"))?;
+            let hex = Reflect::get(theme, &key)?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("underline color must be a hex string"))?;
+            let color = Color::from_hex(&hex)
+                .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {hex}")))?;
+            self.underline_colors.insert(class, color);
+        }
+        self.needs_redraw = true;
+        Ok(())
+    }
+
+    /// Replaces underline decorations. Ranges are UTF-8 byte offsets.
+    #[wasm_bindgen(js_name = setUnderlineDecorations)]
+    pub fn set_underline_decorations(&mut self, decorations: &JsValue) -> Result<(), JsValue> {
+        use js_sys::{Array, Reflect};
+        let array = Array::from(decorations);
+        let mut parsed = Vec::with_capacity(array.length() as usize);
+        let content = self.editor.content();
+        for index in 0..array.length() {
+            let entry = array.get(index);
+            let start = Self::js_usize(&entry, "start")?;
+            let end = Self::js_usize(&entry, "end")?;
+            let color_class = Reflect::get(&entry, &JsValue::from_str("colorClass"))?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("colorClass must be a string"))?;
+            if start >= end
+                || end > content.len()
+                || !content.is_char_boundary(start)
+                || !content.is_char_boundary(end)
+            {
+                return Err(JsValue::from_str(
+                    "underline must be a non-empty valid byte range",
+                ));
+            }
+            if !self.underline_colors.contains_key(&color_class) {
+                return Err(JsValue::from_str(&format!(
+                    "unknown underline color class: {color_class}"
+                )));
+            }
+            parsed.push(UnderlineDecoration {
+                start,
+                end,
+                color_class,
+            });
+        }
+        self.underline_decorations = parsed;
+        self.needs_redraw = true;
+        Ok(())
     }
 
     // =========================================================================
@@ -380,9 +568,8 @@ impl WebEditor {
             let color_hex = Reflect::get(&entry, &JsValue::from_str("color"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("color must be a hex string"))?;
-            let color = Color::from_hex(&color_hex).ok_or_else(|| {
-                JsValue::from_str(&format!("invalid hex color: {}", color_hex))
-            })?;
+            let color = Color::from_hex(&color_hex)
+                .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {}", color_hex)))?;
             self.line_backgrounds.insert(line, color);
         }
 
@@ -429,7 +616,7 @@ impl WebEditor {
                         "unknown change kind: {} (expected added/modified/deleted)",
                         kind
                     )));
-                }
+                },
             };
             self.gutter_changes.insert(line, color);
         }
@@ -721,20 +908,19 @@ impl WebEditor {
         let viewport_height = self.surface.height() as f32;
 
         let cursor_line = self.editor.cursor().line;
-        let cursor_y = if cursor_line == self.cached_cursor_doc_line
-            && self.cached_cursor_abs_y > 0.0
-        {
-            // Cursor on the same line as last render — use cached position
-            // (accounts for wrapping within this line)
-            self.cached_cursor_abs_y
-        } else {
-            // Cursor moved to a different line — approximate using fold mapping
-            let visual_line = self
-                .fold_state
-                .document_to_visual_line(cursor_line)
-                .unwrap_or(0);
-            padding + (visual_line as f32 * line_height)
-        };
+        let cursor_y =
+            if cursor_line == self.cached_cursor_doc_line && self.cached_cursor_abs_y > 0.0 {
+                // Cursor on the same line as last render — use cached position
+                // (accounts for wrapping within this line)
+                self.cached_cursor_abs_y
+            } else {
+                // Cursor moved to a different line — approximate using fold mapping
+                let visual_line = self
+                    .fold_state
+                    .document_to_visual_line(cursor_line)
+                    .unwrap_or(0);
+                padding + (visual_line as f32 * line_height)
+            };
 
         // Scroll up if cursor is above viewport
         if cursor_y < self.scroll_y + padding {
@@ -949,11 +1135,8 @@ impl WebEditor {
         {
             self.cached_viewport_width = current_width;
             self.cached_viewport_height = current_height;
-            self.text_renderer.update_viewport(
-                self.surface.queue(),
-                current_width,
-                current_height,
-            );
+            self.text_renderer
+                .update_viewport(self.surface.queue(), current_width, current_height);
             self.background_quad_renderer.update_viewport(
                 self.surface.queue(),
                 current_width,
@@ -991,7 +1174,8 @@ impl WebEditor {
 
         // Ensure doc_to_visual has capacity for all lines (grows if needed, never shrinks)
         if self.cpu_doc_to_visual.capacity() < line_count {
-            self.cpu_doc_to_visual.reserve(line_count - self.cpu_doc_to_visual.capacity());
+            self.cpu_doc_to_visual
+                .reserve(line_count - self.cpu_doc_to_visual.capacity());
         }
         self.cpu_doc_to_visual.clear();
 
@@ -1149,7 +1333,8 @@ impl WebEditor {
             } else {
                 run.glyphs.first().map(|g| g.start).unwrap_or(0)
             };
-            self.cached_visual_line_map.push((run.line_i, run_start_col));
+            self.cached_visual_line_map
+                .push((run.line_i, run_start_col));
         }
 
         // Cache total visual lines for max_scroll_y.
@@ -1176,10 +1361,7 @@ impl WebEditor {
                 }
 
                 // Use custom text for this doc_line, or empty string if out of range
-                let text = custom_lines
-                    .get(doc_line)
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
+                let text = custom_lines.get(doc_line).map(|s| s.as_str()).unwrap_or("");
                 self.cpu_line_numbers.push_str(text);
 
                 // Add blank lines for wrapped visual lines
@@ -1322,15 +1504,12 @@ impl WebEditor {
                         );
 
                     let mut emitted = false;
-                    for (vline_idx, &(buf_idx, _)) in
-                        self.cached_visual_line_map.iter().enumerate()
+                    for (vline_idx, &(buf_idx, _)) in self.cached_visual_line_map.iter().enumerate()
                     {
                         if buf_idx != buffer_line {
                             continue;
                         }
-                        let y = padding
-                            + (vline_idx as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             self.cpu_line_bg_quads.push(Quad::new(
@@ -1346,9 +1525,7 @@ impl WebEditor {
 
                     // Fallback: if visual line map wasn't built yet, use simple position
                     if !emitted {
-                        let y = padding
-                            + (vi as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             self.cpu_line_bg_quads.push(Quad::new(
@@ -1383,15 +1560,12 @@ impl WebEditor {
                         );
 
                     let mut emitted = false;
-                    for (vline_idx, &(buf_idx, _)) in
-                        self.cached_visual_line_map.iter().enumerate()
+                    for (vline_idx, &(buf_idx, _)) in self.cached_visual_line_map.iter().enumerate()
                     {
                         if buf_idx != buffer_line {
                             continue;
                         }
-                        let y = padding
-                            + (vline_idx as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             // 3px wide bar at left gutter edge
@@ -1407,9 +1581,7 @@ impl WebEditor {
                     }
 
                     if !emitted {
-                        let y = padding
-                            + (vi as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             self.cpu_gutter_change_quads.push(Quad::new(
@@ -1494,19 +1666,27 @@ impl WebEditor {
                     let seg_end = sel_col_end.min(run_end_col);
 
                     // Extra width only applies on the last segment of the line
-                    let seg_extra = if run_end_col >= line_len { newline_extra } else { 0.0 };
+                    let seg_extra = if run_end_col >= line_len {
+                        newline_extra
+                    } else {
+                        0.0
+                    };
 
                     if seg_start < seg_end || (seg_start == seg_end && seg_extra > 0.0) {
-                        let x = content_offset_x
-                            + ((seg_start - run_start_col) as f32 * char_width);
+                        let x =
+                            content_offset_x + ((seg_start - run_start_col) as f32 * char_width);
                         let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
-                        let width =
-                            (seg_end - seg_start) as f32 * char_width + seg_extra;
+                        let width = (seg_end - seg_start) as f32 * char_width + seg_extra;
 
                         if y + line_height > 0.0 && y < surface_height {
-                            self.cpu_selection_quads
-                                .push(Quad::new(x, y, width, line_height, selection_color));
+                            self.cpu_selection_quads.push(Quad::new(
+                                x,
+                                y,
+                                width,
+                                line_height,
+                                selection_color,
+                            ));
                         }
                         handled = true;
                     }
@@ -1522,12 +1702,100 @@ impl WebEditor {
                     );
                     let x = content_offset_x + sx;
                     let y = padding + sy + virtual_scroll_offset - self.scroll_y;
-                    let width =
-                        (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
+                    let width = (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
 
                     if y + line_height > 0.0 && y < surface_height {
-                        self.cpu_selection_quads
-                            .push(Quad::new(x, y, width, line_height, selection_color));
+                        self.cpu_selection_quads.push(Quad::new(
+                            x,
+                            y,
+                            width,
+                            line_height,
+                            selection_color,
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Create wrap-aware underline quads in a thin foreground strip.
+        self.cpu_underline_quads.clear();
+        let surface_height = self.surface.height() as f32;
+        for decoration in &self.underline_decorations {
+            let Some(color) = self.underline_colors.get(&decoration.color_class).copied() else {
+                continue;
+            };
+            let Some(start) = self
+                .editor
+                .state()
+                .document
+                .offset_to_position(decoration.start)
+            else {
+                continue;
+            };
+            let Some(end) = self
+                .editor
+                .state()
+                .document
+                .offset_to_position(decoration.end)
+            else {
+                continue;
+            };
+            for doc_line in start.line..=end.line {
+                let Some(vis_line) = self
+                    .cpu_doc_to_visual
+                    .get(doc_line)
+                    .and_then(|value| *value)
+                else {
+                    continue;
+                };
+                let line_len = self
+                    .editor
+                    .state()
+                    .document
+                    .line(doc_line)
+                    .map(|line| line.chars().count())
+                    .unwrap_or(0);
+                let range_start = if doc_line == start.line {
+                    start.column
+                } else {
+                    0
+                };
+                let range_end = if doc_line == end.line {
+                    end.column
+                } else {
+                    line_len
+                };
+                let buffer_line = vis_line.saturating_sub(viewport_start_visual);
+                for (visual_index, &(mapped_line, run_start)) in
+                    self.cached_visual_line_map.iter().enumerate()
+                {
+                    if mapped_line != buffer_line {
+                        continue;
+                    }
+                    let run_end = self
+                        .cached_visual_line_map
+                        .get(visual_index + 1)
+                        .filter(|(next_line, _)| *next_line == buffer_line)
+                        .map_or(line_len, |(_, next_start)| *next_start);
+                    let segment_start = range_start.max(run_start);
+                    let segment_end = range_end.min(run_end);
+                    if segment_start >= segment_end {
+                        continue;
+                    }
+                    let x = content_offset_x
+                        + (segment_start.saturating_sub(run_start) as f32 * char_width);
+                    let y =
+                        padding + ((visual_index + 1) as f32 * line_height) + virtual_scroll_offset
+                            - self.scroll_y
+                            - 2.0;
+                    if y >= 0.0 && y < surface_height {
+                        self.cpu_underline_quads.push(Quad::new(
+                            x,
+                            y,
+                            (segment_end - segment_start) as f32 * char_width,
+                            2.0,
+                            color,
+                        ));
                     }
                 }
             }
@@ -1536,6 +1804,8 @@ impl WebEditor {
         // Create cursor quad (2px wide line cursor)
         let cursor_color = self.theme.editor.cursor;
         self.cpu_cursor_quads.clear();
+        self.cpu_cursor_quads
+            .extend(self.cpu_underline_quads.iter().copied());
         if self.cursor_renderer.is_visible() {
             self.cpu_cursor_quads.push(Quad::new(
                 cursor_x,
@@ -1662,11 +1932,7 @@ impl WebEditor {
         }
 
         self.text_renderer
-            .prepare(
-                self.surface.device(),
-                self.surface.queue(),
-                text_areas,
-            )
+            .prepare(self.surface.device(), self.surface.queue(), text_areas)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         // Get background color from theme
@@ -2713,10 +2979,7 @@ impl WebEditor {
             let column = run_start_col + col_in_run;
 
             // Clamp to actual line length
-            let line_len = doc
-                .line(doc_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+            let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
             let clamped_column = column.min(line_len);
 
             vec![doc_line as u32, clamped_column as u32]
@@ -2729,10 +2992,7 @@ impl WebEditor {
                 .min(line_count.saturating_sub(1));
 
             let offset_x = self.current_gutter_width() + padding;
-            let line_len = doc
-                .line(doc_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+            let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
             let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
             let clamped_column = column.min(line_len);
 

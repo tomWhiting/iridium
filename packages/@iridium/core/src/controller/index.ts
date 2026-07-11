@@ -25,6 +25,7 @@ import { SyntaxHighlightClient, type EditInfo } from "../../../syntax-worker/src
 interface WebEditor {
   loadFont(data: Uint8Array): void;
   setContent(content: string): void;
+  applyTextDelta(replacements: TextReplacement[]): void;
   getContent(): string;
   setDarkTheme(dark: boolean): void;
   forceRender(): void;
@@ -99,6 +100,25 @@ interface WebEditor {
   setCustomGutterText(lines: string[] | null): void;
   setBlameData(data: Array<{ line: number; text: string }>): void;
   clearBlameData(): void;
+  setUnderlineTheme(theme: Record<string, string>): void;
+  setUnderlineDecorations(decorations: UnderlineDecoration[]): void;
+}
+
+export interface TextReplacement {
+  /** Inclusive UTF-8 byte offset in the pre-edit document. */
+  start: number;
+  /** Exclusive UTF-8 byte offset in the pre-edit document. */
+  end: number;
+  text: string;
+}
+
+export interface UnderlineDecoration {
+  /** Inclusive UTF-8 byte offset. */
+  start: number;
+  /** Exclusive UTF-8 byte offset. */
+  end: number;
+  /** Name previously configured with setUnderlineTheme. */
+  colorClass: string;
 }
 
 export interface IridiumEditorOptions {
@@ -972,6 +992,19 @@ export class IridiumEditor {
     this.editor.forceRender();
   }
 
+  /**
+   * Apply non-overlapping byte-range replacements as one undo unit.
+   * Ranges refer to the content before the edit. Selection is mapped through
+   * the replacements and the pixel scroll offset is preserved.
+   */
+  applyTextDelta(replacements: TextReplacement[]): void {
+    this.editor.applyTextDelta(replacements);
+    this.updateHighlights();
+    this.editor.forceRender();
+    this.notifyContentChange();
+    this.notifySelectionChange();
+  }
+
   /** Get the current editor state. */
   getState(): EditorState {
     return {
@@ -1083,6 +1116,27 @@ export class IridiumEditor {
    */
   setHighlightSpans(spans: { start: number; end: number; type: string }[]): void {
     this.editor.setTreeSitterHighlights(spans);
+    this.editor.forceRender();
+  }
+
+  /** Configure host-defined color classes used by underline decorations. */
+  setUnderlineTheme(theme: Record<string, string>): void {
+    this.editor.setUnderlineTheme(theme);
+    this.editor.forceRender();
+  }
+
+  /**
+   * Replace all underline decorations. Byte ranges refer to current content.
+   * Every colorClass must exist in the underline theme.
+   */
+  setUnderlineDecorations(decorations: UnderlineDecoration[]): void {
+    this.editor.setUnderlineDecorations(decorations);
+    this.editor.forceRender();
+  }
+
+  /** Clear all underline decorations. */
+  clearUnderlineDecorations(): void {
+    this.editor.setUnderlineDecorations([]);
     this.editor.forceRender();
   }
 

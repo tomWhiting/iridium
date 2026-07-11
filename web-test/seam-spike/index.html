@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Iridium editor-seam spike</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #16181d; color: #d8dee9; }
+    header { padding: 14px 20px; border-bottom: 1px solid #343a46; }
+    h1 { margin: 0 0 6px; font-size: 18px; }
+    p { margin: 4px 0; color: #9da7b8; }
+    main { padding: 16px 20px; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+    button { padding: 7px 12px; color: white; background: #3867d6; border: 0; border-radius: 4px; }
+    button:disabled { background: #454b57; }
+    #stage { height: 650px; border: 1px solid #343a46; position: relative; }
+    canvas { width: 100%; height: 100%; display: block; outline: none; }
+    #status { font: 12px ui-monospace, monospace; margin-top: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Iridium × Aion editor-seam spike</h1>
+    <p>Real <code>awl_exam.awl</code>; 138 offline captures from tree-sitter-awl fa1afb22.</p>
+    <p>The scripted edit inserts a header and renames the workflow in one undo unit. The selected
+      <code>reported</code> label and scroll position are mapped/preserved. Two ranges are underlined.</p>
+  </header>
+  <main>
+    <div class="toolbar">
+      <button id="apply" disabled>Apply scripted multi-range delta</button>
+      <button id="undo" disabled>Undo once</button>
+    </div>
+    <div id="stage"><canvas id="editor" tabindex="0"></canvas></div>
+    <div id="status">loading…</div>
+  </main>
+  <script type="module">
+    import init, { createWebEditor } from '../pkg/iridium_bindings.js';
+
+    const canvas = document.querySelector('#editor');
+    const status = document.querySelector('#status');
+    const applyButton = document.querySelector('#apply');
+    const undoButton = document.querySelector('#undo');
+    const encoder = new TextEncoder();
+    let editor;
+    let source;
+    let originalSpans;
+    let applied = false;
+
+    const byteOffset = (text, characterOffset) => encoder.encode(text.slice(0, characterOffset)).length;
+    const namedRange = (text, needle, from = 0) => {
+      const index = text.indexOf(needle, from);
+      if (index < 0) throw new Error(`fixture does not contain ${needle}`);
+      return { start: byteOffset(text, index), end: byteOffset(text, index + needle.length) };
+    };
+
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(rect.width * ratio);
+      canvas.height = Math.round(rect.height * ratio);
+      editor?.resize(canvas.width, canvas.height);
+    }
+
+    function installSpans(spans) {
+      editor.setTreeSitterHighlights(spans);
+      editor.setUnderlineTheme({ diagnostic: '#ff6b81', reference: '#4dd0e1' });
+      const content = editor.getContent();
+      const input = namedRange(content, 'pack_revision');
+      const route = namedRange(content, 'success', content.indexOf('outcome'));
+      editor.setUnderlineDecorations([
+        { ...input, colorClass: 'reference' },
+        { ...route, colorClass: 'diagnostic' },
+      ]);
+    }
+
+    function mapSpans(spans, edits) {
+      return spans.map(span => {
+        let shift = 0;
+        for (const edit of edits) {
+          if (span.end <= edit.start) break;
+          if (span.start >= edit.end) shift += encoder.encode(edit.text).length - (edit.end - edit.start);
+        }
+        return { ...span, start: span.start + shift, end: span.end + shift };
+      });
+    }
+
+    function applyDelta() {
+      if (applied) return;
+      const name = namedRange(source, 'awl_exam');
+      const header = '// seam-spike: atomic host edit\n';
+      const edits = [{ start: 0, end: 0, text: header }, { ...name, text: 'awl_demo' }];
+      const beforeScroll = editor.getScrollY();
+      editor.applyTextDelta(edits);
+      installSpans(mapSpans(originalSpans, edits));
+      editor.forceRender();
+      applied = true;
+      applyButton.disabled = true;
+      undoButton.disabled = false;
+      status.textContent = `delta applied; scroll ${beforeScroll.toFixed(1)} → ${editor.getScrollY().toFixed(1)} px; one undo available: ${editor.canUndo()}`;
+    }
+
+    async function main() {
+      if (!navigator.gpu) throw new Error('WebGPU is unavailable');
+      await init();
+      resize();
+      editor = await createWebEditor(canvas, window.devicePixelRatio || 1);
+      const [font, documentResponse, spansResponse] = await Promise.all([
+        fetch('https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/ttf/FiraCode-Regular.ttf').then(r => r.arrayBuffer()),
+        fetch('./awl_exam.awl'),
+        fetch('./awl_exam.highlights.json'),
+      ]);
+      source = await documentResponse.text();
+      originalSpans = await spansResponse.json();
+      editor.loadFont(new Uint8Array(font));
+      editor.setContent(source);
+      editor.setSyntaxTheme({ keyword: '#c792ea', function: '#82aaff', type: '#ffcb6b', variable: '#f8f8f2', comment: '#697098', string: '#c3e88d', label: '#89ddff' });
+      installSpans(originalSpans);
+      editor.setCursorFromClick(8, 10);
+      editor.extendSelectionToPosition(8, 18);
+      editor.setScrollY(72);
+      editor.forceRender();
+      canvas.focus();
+      applyButton.disabled = false;
+      status.textContent = 'ready; select the scripted delta button (selection is on “reported”)';
+    }
+
+    applyButton.addEventListener('click', applyDelta);
+    undoButton.addEventListener('click', () => {
+      const undone = editor.undo();
+      installSpans(originalSpans);
+      editor.forceRender();
+      applied = false;
+      applyButton.disabled = false;
+      undoButton.disabled = true;
+      status.textContent = `single undo restored both replacements: ${undone}`;
+    });
+    new ResizeObserver(resize).observe(document.querySelector('#stage'));
+    main().catch(error => { status.textContent = error.stack || String(error); console.error(error); });
+  </script>
+</body>
+</html>

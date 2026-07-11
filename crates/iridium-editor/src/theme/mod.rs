@@ -143,7 +143,15 @@ impl Theme {
     ///         "gutter": {"r": 0.1, "g": 0.1, "b": 0.1, "a": 1.0},
     ///         "minimap_background": {"r": 0.1, "g": 0.1, "b": 0.1, "a": 1.0},
     ///         "search_match": {"r": 0.5, "g": 0.4, "b": 0.1, "a": 0.6},
-    ///         "search_match_current": {"r": 0.8, "g": 0.6, "b": 0.2, "a": 0.8}
+    ///         "search_match_current": {"r": 0.8, "g": 0.6, "b": 0.2, "a": 0.8},
+    ///         "diff_added_bg": {"r": 0.1, "g": 0.4, "b": 0.2, "a": 0.25},
+    ///         "diff_deleted_bg": {"r": 0.5, "g": 0.1, "b": 0.1, "a": 0.25},
+    ///         "diff_added_gutter": {"r": 0.3, "g": 0.7, "b": 0.4, "a": 1.0},
+    ///         "diff_deleted_gutter": {"r": 0.8, "g": 0.3, "b": 0.3, "a": 1.0},
+    ///         "change_added": {"r": 0.3, "g": 0.7, "b": 0.4, "a": 1.0},
+    ///         "change_modified": {"r": 0.8, "g": 0.65, "b": 0.2, "a": 1.0},
+    ///         "change_deleted": {"r": 0.8, "g": 0.3, "b": 0.3, "a": 1.0},
+    ///         "blame_foreground": {"r": 0.45, "g": 0.45, "b": 0.5, "a": 0.6}
     ///     },
     ///     "syntax": {
     ///         "keyword": {"r": 0.34, "g": 0.61, "b": 0.84, "a": 1.0},

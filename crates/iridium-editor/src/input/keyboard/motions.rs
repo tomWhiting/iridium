@@ -12,6 +12,16 @@
 
 use crate::document::{CursorState, Document, Position, Selection};
 
+/// Returns true for characters that belong to a word (alphanumeric or `_`).
+///
+/// This is the single word-character definition shared by word motions,
+/// word-wise deletion, and the auto-pair quote suppression in
+/// [`super::behaviors`].
+#[must_use]
+pub fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 /// Direction for vertical cursor movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerticalDirection {
@@ -108,7 +118,6 @@ pub fn word_left(document: &Document, pos: Position) -> Position {
     }
 
     // Skip word characters
-    let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
     if col > 0
         && chars
             .get(col.saturating_sub(1))
@@ -150,7 +159,6 @@ pub fn word_right(document: &Document, pos: Position) -> Position {
     }
 
     let mut col = pos.column;
-    let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
 
     // Skip current word or punctuation
     if chars.get(col).is_some_and(|c| is_word_char(*c)) {
@@ -277,7 +285,6 @@ pub fn select_word_at(document: &Document, position: Position) -> Selection {
     }
 
     let col = position.column.min(chars.len().saturating_sub(1));
-    let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
 
     // Check if we're on a word character
     if !chars.get(col).is_some_and(|c| is_word_char(*c)) {

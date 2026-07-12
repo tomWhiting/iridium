@@ -364,6 +364,7 @@ impl Editor {
                 &self.state.document,
                 &self.state.cursor,
                 &self.state.history,
+                &self.state.config,
             );
 
             match result {
@@ -393,6 +394,7 @@ impl Editor {
             &self.state.document,
             &self.state.cursor,
             &self.state.history,
+            &self.state.config,
         );
 
         match result {

@@ -451,21 +451,7 @@ pub fn replace_in_selection(
 
 /// Computes the cursor position after a replacement.
 fn compute_position_after_replace(start: Position, replacement: &str) -> Position {
-    let mut line = start.line;
-    let mut column = start.column;
-
-    for ch in replacement.chars() {
-        if ch == '\n' {
-            line += 1;
-            column = 0;
-        } else if ch == '\r' {
-            // Skip CR in CRLF
-        } else {
-            column += 1;
-        }
-    }
-
-    Position::new(line, column)
+    start.advanced_through(replacement)
 }
 
 #[cfg(test)]

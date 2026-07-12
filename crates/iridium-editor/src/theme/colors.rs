@@ -67,7 +67,12 @@ impl Default for Color {
 }
 
 /// Editor chrome colors.
+///
+/// Deserialization is forgiving: fields absent from a theme JSON fall back to
+/// the dark preset via [`Default`], so adding new colors never breaks
+/// existing theme files.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EditorColors {
     /// Main editor background
     pub background: Color,
@@ -109,6 +114,14 @@ pub struct EditorColors {
     pub change_deleted: Color,
     /// Foreground color for inline blame ghost text
     pub blame_foreground: Color,
+    /// Gutter marker color for error diagnostics
+    pub diagnostic_error: Color,
+    /// Gutter marker color for warning diagnostics
+    pub diagnostic_warning: Color,
+    /// Gutter marker color for info diagnostics
+    pub diagnostic_info: Color,
+    /// Gutter marker color for hint diagnostics
+    pub diagnostic_hint: Color,
 }
 
 impl EditorColors {
@@ -136,6 +149,10 @@ impl EditorColors {
             change_modified: Color::new(0.80, 0.65, 0.20, 1.0),
             change_deleted: Color::new(0.80, 0.30, 0.30, 1.0),
             blame_foreground: Color::new(0.45, 0.45, 0.50, 0.6),
+            diagnostic_error: Color::new(0.80, 0.30, 0.30, 1.0),
+            diagnostic_warning: Color::new(0.80, 0.65, 0.20, 1.0),
+            diagnostic_info: Color::new(0.30, 0.55, 0.80, 1.0),
+            diagnostic_hint: Color::new(0.55, 0.55, 0.60, 1.0),
         }
     }
 
@@ -163,12 +180,29 @@ impl EditorColors {
             change_modified: Color::new(0.70, 0.55, 0.10, 1.0),
             change_deleted: Color::new(0.70, 0.20, 0.20, 1.0),
             blame_foreground: Color::new(0.50, 0.50, 0.55, 0.5),
+            diagnostic_error: Color::new(0.70, 0.20, 0.20, 1.0),
+            diagnostic_warning: Color::new(0.70, 0.55, 0.10, 1.0),
+            diagnostic_info: Color::new(0.20, 0.40, 0.70, 1.0),
+            diagnostic_hint: Color::new(0.45, 0.45, 0.50, 1.0),
         }
     }
 }
 
+impl Default for EditorColors {
+    /// The dark preset. Serves as the per-field fallback for theme JSON that
+    /// omits fields (see the container-level `#[serde(default)]`).
+    fn default() -> Self {
+        Self::dark()
+    }
+}
+
 /// Syntax highlighting colors.
+///
+/// Deserialization is forgiving: fields absent from a theme JSON fall back to
+/// the dark preset via [`Default`], so adding new token colors never breaks
+/// existing theme files.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SyntaxColors {
     /// Keywords (if, else, fn, etc.)
     pub keyword: Color,
@@ -244,6 +278,14 @@ impl SyntaxColors {
     }
 }
 
+impl Default for SyntaxColors {
+    /// The dark preset. Serves as the per-field fallback for theme JSON that
+    /// omits fields (see the container-level `#[serde(default)]`).
+    fn default() -> Self {
+        Self::dark()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +302,29 @@ mod tests {
     fn color_from_hex_with_alpha() {
         let color = Color::from_hex("FF550080").unwrap();
         assert!((color.a - 0.502).abs() < 0.01);
+    }
+
+    #[test]
+    fn editor_colors_parse_with_missing_fields() {
+        // Theme JSON written before newer fields existed must keep parsing,
+        // with absent fields falling back to the dark preset.
+        let partial = r#"{
+            "background": {"r": 0.1, "g": 0.1, "b": 0.1, "a": 1.0},
+            "foreground": {"r": 0.9, "g": 0.9, "b": 0.9, "a": 1.0}
+        }"#;
+        let colors: EditorColors = serde_json::from_str(partial).unwrap();
+        assert!((colors.background.r - 0.1).abs() < f32::EPSILON);
+        assert_eq!(colors.diagnostic_error, EditorColors::dark().diagnostic_error);
+        assert_eq!(colors.diff_added_bg, EditorColors::dark().diff_added_bg);
+    }
+
+    #[test]
+    fn syntax_colors_parse_with_missing_fields() {
+        let partial = r#"{
+            "keyword": {"r": 0.3, "g": 0.6, "b": 0.8, "a": 1.0}
+        }"#;
+        let colors: SyntaxColors = serde_json::from_str(partial).unwrap();
+        assert!((colors.keyword.r - 0.3).abs() < f32::EPSILON);
+        assert_eq!(colors.string, SyntaxColors::dark().string);
     }
 }

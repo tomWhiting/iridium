@@ -329,7 +329,7 @@ impl SearchState {
     }
 
     /// Checks if a match is at a word boundary.
-    fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
+    pub(super) fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
         let bytes = text.as_bytes();
 
         // Check character before start

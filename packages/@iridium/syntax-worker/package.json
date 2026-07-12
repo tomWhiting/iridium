@@ -1,5 +1,5 @@
 {
-  "name": "@iridium/syntax-worker",
+  "name": "@iridium-editor/syntax-worker",
   "version": "0.1.0",
   "type": "module",
   "description": "Web Worker for tree-sitter syntax highlighting - moves parsing off the main thread",
@@ -27,8 +27,14 @@
     "editor"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tomWhiting/iridium"
+  },
+  "peerDependencies": {
+    "@iridium-editor/core": "^0.1.0"
+  },
   "dependencies": {
-    "@iridium/core": "workspace:*",
     "web-tree-sitter": "0.25.6"
   }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "@iridium-editor/syntax-worker",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/client.ts",
+    "./worker": "./src/worker.ts",
+    "./protocol": "./src/protocol.ts"
+  },
+  "compilerOptions": {
+    "lib": ["esnext", "webworker"]
+  }
+}

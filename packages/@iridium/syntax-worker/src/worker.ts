@@ -6,13 +6,10 @@
  */
 
 import { Parser, Language as TSLanguage, Query, Tree } from "web-tree-sitter";
-import type { WorkerRequest, WorkerResponse, HighlightSpan, EditInfo } from "./protocol";
+import type { WorkerRequest, WorkerResponse, HighlightSpan, EditInfo } from "./protocol.ts";
 
 // Import bundled grammars from @iridium/core
-// These will be resolved by the bundler
-import { decodeCoreWasm } from "../../core/src/syntax/core.gen";
-import { decodeGrammar, AVAILABLE_LANGUAGES } from "../../core/src/syntax/grammars.gen";
-import { HIGHLIGHT_QUERIES } from "../../core/src/syntax/queries";
+import { decodeCoreWasm, decodeGrammar, AVAILABLE_LANGUAGES, HIGHLIGHT_QUERIES } from "@iridium-editor/core/syntax";
 
 interface LanguageData {
   grammar: TSLanguage;
@@ -27,7 +24,7 @@ class SyntaxWorker {
   private lastContentHash: number = 0;
 
   async initialize(defaultLanguage: string = "rust"): Promise<void> {
-    const coreWasm = decodeCoreWasm();
+    const coreWasm = await decodeCoreWasm();
 
     await Parser.init({
       wasmBinary: coreWasm.buffer,
@@ -48,7 +45,7 @@ class SyntaxWorker {
       return true;
     }
 
-    const wasmBytes = decodeGrammar(lang);
+    const wasmBytes = await decodeGrammar(lang);
     if (!wasmBytes) {
       console.error(`[SyntaxWorker] No bundled grammar for: ${lang}`);
       return false;

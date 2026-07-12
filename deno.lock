@@ -1,0 +1,35 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:typescript@^5.9.3": "5.9.3",
+    "npm:web-tree-sitter@0.25.6": "0.25.6"
+  },
+  "npm": {
+    "typescript@5.9.3": {
+      "integrity": "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
+      "bin": true
+    },
+    "web-tree-sitter@0.25.6": {
+      "integrity": "sha512-WG+/YGbxw8r+rLlzzhV+OvgiOJCWdIpOucG3qBf3RCBFMkGDb1CanUi2BxCxjnkpzU3/hLWPT8VO5EKsMk9Fxg=="
+    }
+  },
+  "workspace": {
+    "members": {
+      "packages/@iridium/core": {
+        "packageJson": {
+          "dependencies": [
+            "npm:typescript@^5.9.3",
+            "npm:web-tree-sitter@0.25.6"
+          ]
+        }
+      },
+      "packages/@iridium/syntax-worker": {
+        "packageJson": {
+          "dependencies": [
+            "npm:web-tree-sitter@0.25.6"
+          ]
+        }
+      }
+    }
+  }
+}

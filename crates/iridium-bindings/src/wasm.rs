@@ -9,12 +9,16 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+use crate::edit_tracking::{EditSpan, PendingEdit, byte_point, compose_pending, compute_edit_span};
+use crate::key_map::key_code_from_dom_key;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
     EditorConfig, Position, Range,
-    document::{CursorState, Selection},
     editor::{Editor, FoldState},
     history::Command,
+    input::{
+        ClipboardOperation, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers, SearchAction,
+    },
     render::{
         CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
         Viewport, ViewportConfig, WebSurface,
@@ -38,6 +42,87 @@ pub struct JsHighlightSpan {
     pub end: usize,
     /// Highlight type as string (e.g., "keyword", "string", "comment")
     pub highlight_type: String,
+}
+
+/// Byte-accurate description of a document edit, for incremental
+/// tree-sitter parsing on the JavaScript side.
+///
+/// All byte offsets and points are computed from the rope (see
+/// [`WebEditor::take_last_edit`]), never from JavaScript strings. Rows are
+/// 0-indexed document lines; columns are byte offsets within the row
+/// (tree-sitter's `Point` convention).
+#[wasm_bindgen]
+#[derive(Debug, Clone, Copy)]
+pub struct JsEditInfo {
+    start_byte: usize,
+    old_end_byte: usize,
+    new_end_byte: usize,
+    start_row: usize,
+    start_column: usize,
+    old_end_row: usize,
+    old_end_column: usize,
+    new_end_row: usize,
+    new_end_column: usize,
+}
+
+// wasm-bindgen cannot export `const fn`, so the trivial getters below
+// stay non-const by necessity.
+#[allow(clippy::missing_const_for_fn)]
+#[wasm_bindgen]
+impl JsEditInfo {
+    /// Byte offset where the edit begins (pre- and post-edit documents agree).
+    #[wasm_bindgen(getter, js_name = startByte)]
+    pub fn start_byte(&self) -> usize {
+        self.start_byte
+    }
+
+    /// Byte offset where the replaced text ended in the pre-edit document.
+    #[wasm_bindgen(getter, js_name = oldEndByte)]
+    pub fn old_end_byte(&self) -> usize {
+        self.old_end_byte
+    }
+
+    /// Byte offset where the new text ends in the post-edit document.
+    #[wasm_bindgen(getter, js_name = newEndByte)]
+    pub fn new_end_byte(&self) -> usize {
+        self.new_end_byte
+    }
+
+    /// Row of the edit start.
+    #[wasm_bindgen(getter, js_name = startRow)]
+    pub fn start_row(&self) -> usize {
+        self.start_row
+    }
+
+    /// Byte column of the edit start within its row.
+    #[wasm_bindgen(getter, js_name = startColumn)]
+    pub fn start_column(&self) -> usize {
+        self.start_column
+    }
+
+    /// Row of the old end position (pre-edit document).
+    #[wasm_bindgen(getter, js_name = oldEndRow)]
+    pub fn old_end_row(&self) -> usize {
+        self.old_end_row
+    }
+
+    /// Byte column of the old end position within its row (pre-edit document).
+    #[wasm_bindgen(getter, js_name = oldEndColumn)]
+    pub fn old_end_column(&self) -> usize {
+        self.old_end_column
+    }
+
+    /// Row of the new end position (post-edit document).
+    #[wasm_bindgen(getter, js_name = newEndRow)]
+    pub fn new_end_row(&self) -> usize {
+        self.new_end_row
+    }
+
+    /// Byte column of the new end position within its row (post-edit document).
+    #[wasm_bindgen(getter, js_name = newEndColumn)]
+    pub fn new_end_column(&self) -> usize {
+        self.new_end_column
+    }
 }
 
 /// Maximum expected lines in viewport (for pre-allocation sizing).
@@ -165,6 +250,32 @@ pub struct WebEditor {
     blame_data: HashMap<usize, String>,
     /// Pre-allocated buffer for blame text rendering.
     cpu_blame_content: String,
+
+    // =========================================================================
+    // Raw key event handling (the Rust core owns all editing behavior)
+    // =========================================================================
+    /// Keyboard handler driving the editor core from raw DOM key events.
+    ///
+    /// `WebEditor` drives the handler directly (instead of calling
+    /// `Editor::handle_key`) because the binding needs the produced
+    /// [`Command`] to record byte-accurate edit spans before application,
+    /// and needs to distinguish consumed keys from ignored ones —
+    /// `Editor::handle_key` exposes neither. The dispatch in
+    /// [`WebEditor::handle_key_event`] mirrors `Editor::handle_key` exactly
+    /// (read-only gating included) and applies commands through the same
+    /// `Editor::apply_command` path.
+    ///
+    /// The handler carries per-cursor sticky columns for vertical movement;
+    /// every `WebEditor` path that moves the cursor or edits content outside
+    /// [`WebEditor::handle_key_event`] must call
+    /// [`KeyboardHandler::reset_vertical_state`] on it.
+    keyboard_handler: KeyboardHandler,
+    /// Clipboard text stashed by the last `copy`/`cut` key result, consumed
+    /// by `getPendingClipboardText` (the text never rides in the
+    /// `handleKeyEvent` return value).
+    pending_clipboard_text: Option<String>,
+    /// Edit accumulated since the last `takeLastEdit` call.
+    pending_edit: PendingEdit,
 }
 
 /// Log a message to the browser console.
@@ -297,6 +408,10 @@ pub async fn create_web_editor(
         custom_gutter_lines: None,
         blame_data: HashMap::new(),
         cpu_blame_content: String::with_capacity(256),
+        // Raw key event handling
+        keyboard_handler: KeyboardHandler::new(),
+        pending_clipboard_text: None,
+        pending_edit: PendingEdit::None,
     })
 }
 
@@ -327,6 +442,11 @@ impl WebEditor {
     #[wasm_bindgen(js_name = setContent)]
     pub fn set_content(&mut self, content: &str) {
         self.editor.set_content(content);
+        // The cursor was reset outside handle_key; drop sticky columns.
+        self.keyboard_handler.reset_vertical_state();
+        // A full content replacement invalidates any pending incremental
+        // edit; consumers do a full parse of the new content.
+        self.pending_edit = PendingEdit::None;
         // Update fold regions for new content
         self.fold_state.update_regions(content);
         self.needs_redraw = true;
@@ -339,14 +459,411 @@ impl WebEditor {
     }
 
     // =========================================================================
+    // Raw key event handling
+    // =========================================================================
+
+    /// Handles a raw DOM keyboard event through the Rust editing core.
+    ///
+    /// The host forwards `KeyboardEvent.key` plus the (already platform-mapped)
+    /// modifier state; the Rust core owns all editing behavior — multi-cursor
+    /// edits, Tab/indent/outdent, Enter auto-indent with bracket-block and
+    /// code-fence expansion, auto-pairs, per-cursor sticky columns.
+    ///
+    /// Returns an action tag the host switches on:
+    ///
+    /// - `"handled"` — the key was consumed; no content change.
+    /// - `"handled:edit"` — the key was consumed and the document changed
+    ///   (fetch the edit span via `takeLastEdit`).
+    /// - `"copy"` — copy requested; fetch the text via
+    ///   `getPendingClipboardText` and write it to the system clipboard.
+    /// - `"cut"` — cut performed (document changed); fetch the removed text
+    ///   via `getPendingClipboardText`.
+    /// - `"search:open"` / `"search:next"` / `"search:prev"` /
+    ///   `"search:close"` — search UI actions (next/prev/close have already
+    ///   been applied to the editor's search state).
+    /// - `"ignored"` — the editor does not handle this key; leave the event
+    ///   to the browser (do not call `preventDefault`).
+    ///
+    /// Undo (Ctrl+Z) and redo (Ctrl+Y, Ctrl+Shift+Z) are routed here as
+    /// well: the core keyboard handler acknowledges them but documents that
+    /// execution happens at the editor level, so this method executes them
+    /// through the same paths as the legacy `undo()`/`redo()` methods.
+    ///
+    /// Read-only mode mirrors `Editor::handle_key`: only selection changes,
+    /// copy, and search actions are honored; every other consumed key is a
+    /// no-op that still reports `"handled"`.
+    // The four bools mirror the DOM KeyboardEvent modifier flags 1:1; a
+    // struct would not survive the wasm-bindgen boundary as ergonomically.
+    #[allow(clippy::fn_params_excessive_bools)]
+    #[wasm_bindgen(js_name = handleKeyEvent)]
+    pub fn handle_key_event(
+        &mut self,
+        key: &str,
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+        meta: bool,
+    ) -> String {
+        let Some(key_code) = key_code_from_dom_key(key) else {
+            // Unknown key: never reaches the Rust core.
+            return "ignored".to_string();
+        };
+
+        // Undo/redo routing (see method docs). Matches the host convention
+        // (Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo) and the core
+        // handler's dispatch, where `ctrl` takes precedence over alt/meta
+        // for character keys.
+        if let KeyCode::Char(c) = key_code {
+            if ctrl {
+                match c.to_ascii_lowercase() {
+                    'z' => {
+                        let changed = if shift { self.redo() } else { self.undo() };
+                        return if changed { "handled:edit" } else { "handled" }.to_string();
+                    },
+                    'y' => {
+                        let changed = self.redo();
+                        return if changed { "handled:edit" } else { "handled" }.to_string();
+                    },
+                    _ => {},
+                }
+            }
+        }
+
+        let event = KeyEvent {
+            key: key_code,
+            modifiers: Modifiers {
+                shift,
+                ctrl,
+                alt,
+                meta,
+            },
+            is_repeat: false,
+        };
+
+        // `keyboard_handler` and `editor` are disjoint fields, so the
+        // mutable handler borrow coexists with the immutable state borrows.
+        let state = self.editor.state();
+        let result = self.keyboard_handler.handle_key(
+            &event,
+            &state.document,
+            &state.cursor,
+            &state.history,
+            &state.config,
+        );
+
+        match result {
+            KeyResult::Ignored => "ignored".to_string(),
+            KeyResult::Handled => {
+                // Consumed without producing a command (e.g. Escape with a
+                // single collapsed cursor).
+                self.cursor_renderer.reset_blink();
+                self.needs_redraw = true;
+                "handled".to_string()
+            },
+            KeyResult::Command(cmd) => self.apply_key_command(cmd),
+            KeyResult::Clipboard(operation) => self.apply_clipboard_result(operation),
+            KeyResult::Search(action) => self.apply_search_result(&action),
+        }
+    }
+
+    /// Consumes the edit recorded by the most recent content mutation.
+    ///
+    /// The span is computed from the rope (byte offsets and byte-column
+    /// points), never from JavaScript strings. Sequential edits between two
+    /// calls are composed exactly where possible (e.g. consecutive typing);
+    /// when exact composition is impossible the method returns `None` and
+    /// the consumer must fall back to a full reparse. Take semantics: the
+    /// pending edit is cleared by this call.
+    #[wasm_bindgen(js_name = takeLastEdit)]
+    pub fn take_last_edit(&mut self) -> Option<JsEditInfo> {
+        match std::mem::take(&mut self.pending_edit) {
+            PendingEdit::None | PendingEdit::Degraded => None,
+            PendingEdit::Exact(pending) => {
+                let span = pending.span;
+                let document = &self.editor.state().document;
+                // Bytes before the start are untouched, so the start point is
+                // identical in the pre- and post-edit documents; the new end
+                // point was captured against the current document when the
+                // span was recorded (no edit has happened since, or it would
+                // have been recomposed).
+                let (start_row, start_column) = byte_point(document, span.start_byte)?;
+                Some(JsEditInfo {
+                    start_byte: span.start_byte,
+                    old_end_byte: span.old_end_byte,
+                    new_end_byte: span.new_end_byte,
+                    start_row,
+                    start_column,
+                    old_end_row: span.old_end_row,
+                    old_end_column: span.old_end_column,
+                    new_end_row: pending.new_end_row,
+                    new_end_column: pending.new_end_column,
+                })
+            },
+        }
+    }
+
+    /// Consumes the clipboard text stashed by the last `"copy"`/`"cut"` key
+    /// result. Take semantics: returns `None` until the next clipboard key.
+    // wasm-bindgen cannot export `const fn`.
+    #[allow(clippy::missing_const_for_fn)]
+    #[wasm_bindgen(js_name = getPendingClipboardText)]
+    pub fn get_pending_clipboard_text(&mut self) -> Option<String> {
+        self.pending_clipboard_text.take()
+    }
+
+    /// Returns the clipboard text for a host-driven copy (the native `copy`
+    /// event), without mutating the document.
+    ///
+    /// Drives the exact `KeyboardHandler` copy path that `handleKeyEvent`
+    /// uses (the canonical copy chord is synthesized so both entry points
+    /// share one implementation): selections from every cursor are joined
+    /// with the document line ending, and with only collapsed cursors each
+    /// cursor's whole line is copied. Copy is honored in read-only mode,
+    /// matching the keyboard path. Returns `None` only if the core no
+    /// longer maps the chord to a copy operation.
+    #[wasm_bindgen(js_name = copyText)]
+    pub fn copy_text(&mut self) -> Option<String> {
+        let event = KeyEvent {
+            key: KeyCode::Char('c'),
+            modifiers: Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: false,
+                meta: false,
+            },
+            is_repeat: false,
+        };
+        let state = self.editor.state();
+        let result = self.keyboard_handler.handle_key(
+            &event,
+            &state.document,
+            &state.cursor,
+            &state.history,
+            &state.config,
+        );
+        match result {
+            KeyResult::Clipboard(ClipboardOperation::Copy(text)) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// Performs a host-driven cut (the native `cut` event): returns the
+    /// clipboard text and applies the multi-cursor cut command through the
+    /// same path as `handleKeyEvent` (edit tracking for `takeLastEdit`,
+    /// history, fold refresh).
+    ///
+    /// Drives the exact `KeyboardHandler` cut path (the canonical cut chord
+    /// is synthesized so both entry points share one implementation).
+    /// Returns `None` in read-only mode: the cut is swallowed entirely —
+    /// not even the copy half happens — matching the keyboard path's
+    /// `apply_clipboard_result`. When nothing can be removed (e.g. an empty
+    /// document) the clipboard text is still returned with no document
+    /// change, exactly like the keyboard cut path.
+    #[wasm_bindgen(js_name = cutText)]
+    pub fn cut_text(&mut self) -> Option<String> {
+        if self.read_only {
+            return None;
+        }
+        let event = KeyEvent {
+            key: KeyCode::Char('x'),
+            modifiers: Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: false,
+                meta: false,
+            },
+            is_repeat: false,
+        };
+        let state = self.editor.state();
+        let result = self.keyboard_handler.handle_key(
+            &event,
+            &state.document,
+            &state.cursor,
+            &state.history,
+            &state.config,
+        );
+        match result {
+            KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) => {
+                if command.modifies_content() {
+                    self.track_and_apply(command);
+                    self.ensure_cursor_visible();
+                }
+                Some(text)
+            },
+            _ => None,
+        }
+    }
+
+    /// Applies a command produced by the keyboard handler, mirroring
+    /// `Editor::handle_key` (including its read-only gating).
+    fn apply_key_command(&mut self, command: Command) -> String {
+        if self.read_only {
+            // Read-only: only selection changes apply (mirrors
+            // `Editor::handle_key`); the key is still consumed.
+            if matches!(command, Command::SetSelection { .. }) {
+                self.editor.apply_command(command);
+                self.cursor_renderer.reset_blink();
+                self.needs_redraw = true;
+                self.ensure_cursor_visible();
+            }
+            return "handled".to_string();
+        }
+
+        let edited = self.track_and_apply(command);
+        self.ensure_cursor_visible();
+        if edited { "handled:edit" } else { "handled" }.to_string()
+    }
+
+    /// Handles a clipboard result from the keyboard handler.
+    ///
+    /// `Editor::handle_key` returns cut results to the host *without*
+    /// applying the deletion, so the binding applies the cut command through
+    /// the normal `apply_command` path (with edit tracking and history).
+    fn apply_clipboard_result(&mut self, operation: ClipboardOperation) -> String {
+        match operation {
+            ClipboardOperation::Copy(text) => {
+                self.pending_clipboard_text = Some(text);
+                "copy".to_string()
+            },
+            ClipboardOperation::Cut { text, command } => {
+                if self.read_only {
+                    // Mirrors `Editor::handle_key`: cut is swallowed entirely
+                    // in read-only mode (not even the copy half happens).
+                    return "handled".to_string();
+                }
+                self.pending_clipboard_text = Some(text);
+                if command.modifies_content() {
+                    self.track_and_apply(command);
+                    self.ensure_cursor_visible();
+                    "cut".to_string()
+                } else {
+                    // Nothing to remove (e.g. empty document): the clipboard
+                    // is still updated, exactly like copy.
+                    "copy".to_string()
+                }
+            },
+            // A paste key reaching the core (the host normally lets the
+            // browser fire the native paste event instead): report ignored
+            // so the native `paste` event still fires and feeds `insert()`.
+            ClipboardOperation::Paste => "ignored".to_string(),
+        }
+    }
+
+    /// Handles a search action from the keyboard handler, mirroring
+    /// `Editor::handle_search_action`.
+    fn apply_search_result(&mut self, action: &SearchAction) -> String {
+        match action {
+            SearchAction::OpenSearch => "search:open".to_string(),
+            SearchAction::NextMatch => {
+                // goto_next_match moves the cursor outside handle_key.
+                self.keyboard_handler.reset_vertical_state();
+                self.editor.goto_next_match();
+                self.cursor_renderer.reset_blink();
+                self.needs_redraw = true;
+                self.ensure_cursor_visible();
+                "search:next".to_string()
+            },
+            SearchAction::PreviousMatch => {
+                self.keyboard_handler.reset_vertical_state();
+                self.editor.goto_previous_match();
+                self.cursor_renderer.reset_blink();
+                self.needs_redraw = true;
+                self.ensure_cursor_visible();
+                "search:prev".to_string()
+            },
+            SearchAction::CloseSearch => {
+                self.editor.close_search();
+                self.needs_redraw = true;
+                "search:close".to_string()
+            },
+        }
+    }
+
+    /// Records the edit span of a command against the pre-edit document,
+    /// applies it through `Editor::apply_command`, and refreshes fold
+    /// regions. Returns whether the command modifies content.
+    ///
+    /// The span is computed before application (all command coordinates are
+    /// valid in the pre-edit document) and recorded afterwards. Recording
+    /// assumes application succeeds; a failing command is an editor-core
+    /// invariant violation that `apply_command` already reports through an
+    /// error event.
+    fn track_and_apply(&mut self, command: Command) -> bool {
+        let modifies_content = command.modifies_content();
+        let span = if modifies_content {
+            compute_edit_span(&self.editor.state().document, &command)
+        } else {
+            Ok(None)
+        };
+
+        self.editor.apply_command(command);
+
+        if modifies_content {
+            match span {
+                Ok(Some(span)) => self.record_edit(span),
+                // Never report a wrong span: unresolvable positions degrade
+                // the pending edit to a full reparse.
+                Ok(None) | Err(()) => self.pending_edit = PendingEdit::Degraded,
+            }
+            let content = self.editor.content();
+            self.fold_state.update_regions(&content);
+        }
+
+        self.cursor_renderer.reset_blink();
+        self.needs_redraw = true;
+        modifies_content
+    }
+
+    /// Merges a new edit span into the pending edit (see
+    /// [`compose_pending`] for the composition rules). Must be called after
+    /// the edit has been applied: composition captures the new-end point
+    /// against the post-edit document.
+    fn record_edit(&mut self, span: EditSpan) {
+        let pending = std::mem::take(&mut self.pending_edit);
+        self.pending_edit = compose_pending(&self.editor.state().document, pending, span);
+    }
+
+    /// Records a conservative whole-document edit (used by undo/redo, where
+    /// the replayed command's coordinates refer to a document state the
+    /// binding never observed).
+    ///
+    /// `pre_len`, `pre_end_row`, and `pre_end_column` describe the end of
+    /// the document *before* the operation; the new end is read from the
+    /// current document. An unconsumed pending edit is composed exactly:
+    /// the whole-document span's replaced range extends past the pending
+    /// new text, which [`compose_pending`] back-maps to base coordinates.
+    fn record_whole_document_edit(
+        &mut self,
+        pre_len: usize,
+        pre_end_row: usize,
+        pre_end_column: usize,
+    ) {
+        let document = &self.editor.state().document;
+        let span = EditSpan {
+            start_byte: 0,
+            old_end_byte: pre_len,
+            new_end_byte: document.byte_count(),
+            old_end_row: pre_end_row,
+            old_end_column: pre_end_column,
+        };
+        self.record_edit(span);
+    }
+
+    // =========================================================================
     // Read-only mode
     // =========================================================================
 
     /// Sets the editor to read-only mode.
     /// When read-only, all content-mutating operations are silently ignored.
+    // wasm-bindgen cannot export `const fn`.
+    #[allow(clippy::missing_const_for_fn)]
     #[wasm_bindgen(js_name = setReadOnly)]
     pub fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
+        // Keep the core editor's flag in sync so its own gates
+        // (`Editor::handle_key`, `Editor::paste`, replace operations)
+        // agree with the binding-level gates.
+        self.editor.state_mut().read_only = read_only;
         self.needs_redraw = true;
     }
 
@@ -517,24 +1034,26 @@ impl WebEditor {
         self.needs_redraw = true;
     }
 
-    /// Inserts text at the current cursor position.
-    /// If there's a selection, replaces the selected text.
+    /// Inserts text at every cursor, replacing any selections.
     /// No-op in read-only mode.
+    ///
+    /// The insertion is one reversible command built by the core's paste
+    /// path, so selection replacement, multi-cursor accounting, and undo all
+    /// behave exactly like keyboard input, and the edit span is recorded for
+    /// `takeLastEdit`.
     pub fn insert(&mut self, text: &str) {
-        if self.read_only {
+        if self.read_only || text.is_empty() {
             return;
         }
-        // If there's a selection, delete it first
-        let selection = &self.editor.state().cursor.primary;
-        if !selection.is_collapsed() {
-            self.delete_selection();
+        // Paste-style insertion moves the cursor outside handle_key.
+        self.keyboard_handler.reset_vertical_state();
+        let state = self.editor.state();
+        let result = self
+            .keyboard_handler
+            .handle_paste(text, &state.document, &state.cursor);
+        if let KeyResult::Command(cmd) = result {
+            self.track_and_apply(cmd);
         }
-        self.editor.paste(text);
-        self.cursor_renderer.reset_blink();
-        // Update fold regions after content change
-        let content = self.editor.content();
-        self.fold_state.update_regions(&content);
-        self.needs_redraw = true;
     }
 
     /// Deletes the current selection and returns true, or returns false if no selection.
@@ -552,14 +1071,12 @@ impl WebEditor {
             range,
             deleted_text: self.editor.state().document.slice(range),
         };
-        self.editor.apply_command(cmd);
+        // track_and_apply records the edit span for takeLastEdit and
+        // refreshes fold regions.
+        self.track_and_apply(cmd);
 
         // Collapse selection to start position
         self.set_selection_internal(start, start);
-
-        // Update fold regions after content change
-        let content = self.editor.content();
-        self.fold_state.update_regions(&content);
         true
     }
 
@@ -599,13 +1116,10 @@ impl WebEditor {
                     .document
                     .slice(Range::new(delete_from, cursor)),
             };
-            self.editor.apply_command(cmd);
+            // track_and_apply records the edit span and refreshes folds.
+            self.track_and_apply(cmd);
             // Move cursor to start of deleted range
             self.set_selection_internal(delete_from, delete_from);
-
-            // Update fold regions after content change
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
         }
     }
 
@@ -648,14 +1162,10 @@ impl WebEditor {
                     .document
                     .slice(Range::new(cursor, delete_to)),
             };
-            self.editor.apply_command(cmd);
-            // Cursor stays in place for forward delete
-            self.cursor_renderer.reset_blink();
-
-            // Update fold regions after content change
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
-            self.needs_redraw = true;
+            // Cursor stays in place for forward delete; track_and_apply
+            // records the edit span, refreshes folds, and resets blink.
+            self.keyboard_handler.reset_vertical_state();
+            self.track_and_apply(cmd);
         }
     }
 
@@ -1922,12 +2432,25 @@ impl WebEditor {
     }
 
     /// Performs undo. No-op in read-only mode.
+    ///
+    /// Records a conservative whole-document edit for `takeLastEdit` (the
+    /// replayed command refers to a document state the binding never
+    /// tracked), so incremental highlight consumers stay correct.
     pub fn undo(&mut self) -> bool {
         if self.read_only {
             return false;
         }
+        let pre_end = self.document_end_point();
         let result = self.editor.undo();
         if result {
+            // The cursor moved outside handle_key; drop sticky columns.
+            self.keyboard_handler.reset_vertical_state();
+            match pre_end {
+                Some((pre_len, pre_row, pre_column)) => {
+                    self.record_whole_document_edit(pre_len, pre_row, pre_column);
+                },
+                None => self.pending_edit = PendingEdit::Degraded,
+            }
             // Update fold regions after content change
             let content = self.editor.content();
             self.fold_state.update_regions(&content);
@@ -1937,18 +2460,40 @@ impl WebEditor {
     }
 
     /// Performs redo. No-op in read-only mode.
+    ///
+    /// Edit tracking behaves like [`Self::undo`]: a conservative
+    /// whole-document edit is recorded for `takeLastEdit`.
     pub fn redo(&mut self) -> bool {
         if self.read_only {
             return false;
         }
+        let pre_end = self.document_end_point();
         let result = self.editor.redo();
         if result {
+            // The cursor moved outside handle_key; drop sticky columns.
+            self.keyboard_handler.reset_vertical_state();
+            match pre_end {
+                Some((pre_len, pre_row, pre_column)) => {
+                    self.record_whole_document_edit(pre_len, pre_row, pre_column);
+                },
+                None => self.pending_edit = PendingEdit::Degraded,
+            }
             // Update fold regions after content change
             let content = self.editor.content();
             self.fold_state.update_regions(&content);
             self.needs_redraw = true;
         }
         result
+    }
+
+    /// Returns `(byte_len, end_row, end_byte_column)` of the current
+    /// document, used to capture the pre-operation document end for
+    /// whole-document edit records.
+    fn document_end_point(&self) -> Option<(usize, usize, usize)> {
+        let document = &self.editor.state().document;
+        let len = document.byte_count();
+        let (row, column) = byte_point(document, len)?;
+        Some((len, row, column))
     }
 
     /// Moves cursor left (collapses any selection).
@@ -2225,12 +2770,12 @@ impl WebEditor {
                     .document
                     .slice(Range::new(word_start, cursor)),
             };
-            self.editor.apply_command(cmd);
+            // track_and_apply records the edit span, refreshes folds, and
+            // resets blink; set_cursor resets the core's sticky columns and
+            // ours must follow.
+            self.track_and_apply(cmd);
+            self.keyboard_handler.reset_vertical_state();
             self.editor.set_cursor(word_start);
-            self.cursor_renderer.reset_blink();
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
-            self.needs_redraw = true;
         }
     }
 
@@ -2253,47 +2798,53 @@ impl WebEditor {
                     .document
                     .slice(Range::new(cursor, word_end)),
             };
-            self.editor.apply_command(cmd);
-            self.cursor_renderer.reset_blink();
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
-            self.needs_redraw = true;
+            // track_and_apply records the edit span, refreshes folds, and
+            // resets blink; the edit invalidates sticky columns.
+            self.keyboard_handler.reset_vertical_state();
+            self.track_and_apply(cmd);
         }
     }
 
-    /// Deletes from cursor to start of line (Cmd+Backspace on Mac).
-    /// No-op in read-only mode.
+    /// Deletes from the primary cursor to the start of its line
+    /// (Cmd+Backspace on Mac). Acts on the primary cursor only.
+    ///
+    /// Returns whether content changed: `false` in read-only mode or when
+    /// the cursor is already at the line start.
     #[wasm_bindgen(js_name = deleteToLineStart)]
-    pub fn delete_to_line_start(&mut self) {
+    pub fn delete_to_line_start(&mut self) -> bool {
         if self.read_only {
-            return;
+            return false;
         }
         let cursor = self.editor.cursor();
-        if cursor.column > 0 {
-            let line_start = Position::new(cursor.line, 0);
-            let cmd = Command::Delete {
-                range: Range::new(line_start, cursor),
-                deleted_text: self
-                    .editor
-                    .state()
-                    .document
-                    .slice(Range::new(line_start, cursor)),
-            };
-            self.editor.apply_command(cmd);
-            self.editor.set_cursor(line_start);
-            self.cursor_renderer.reset_blink();
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
-            self.needs_redraw = true;
+        if cursor.column == 0 {
+            return false;
         }
+        let line_start = Position::new(cursor.line, 0);
+        let cmd = Command::Delete {
+            range: Range::new(line_start, cursor),
+            deleted_text: self
+                .editor
+                .state()
+                .document
+                .slice(Range::new(line_start, cursor)),
+        };
+        // track_and_apply records the edit span, refreshes folds, and
+        // resets blink; set_cursor moves the caret outside handle_key.
+        self.track_and_apply(cmd);
+        self.keyboard_handler.reset_vertical_state();
+        self.editor.set_cursor(line_start);
+        true
     }
 
-    /// Deletes from cursor to end of line (Cmd+Delete / Ctrl+K on Mac).
-    /// No-op in read-only mode.
+    /// Deletes from the primary cursor to the end of its line (Cmd+Delete /
+    /// Ctrl+K on Mac). Acts on the primary cursor only.
+    ///
+    /// Returns whether content changed: `false` in read-only mode or when
+    /// the cursor is already at the line end.
     #[wasm_bindgen(js_name = deleteToLineEnd)]
-    pub fn delete_to_line_end(&mut self) {
+    pub fn delete_to_line_end(&mut self) -> bool {
         if self.read_only {
-            return;
+            return false;
         }
         let cursor = self.editor.cursor();
         let line_len = self
@@ -2301,25 +2852,25 @@ impl WebEditor {
             .state()
             .document
             .line(cursor.line)
-            .map(|l| l.chars().count())
-            .unwrap_or(0);
+            .map_or(0, |l| l.chars().count());
 
-        if cursor.column < line_len {
-            let line_end = Position::new(cursor.line, line_len);
-            let cmd = Command::Delete {
-                range: Range::new(cursor, line_end),
-                deleted_text: self
-                    .editor
-                    .state()
-                    .document
-                    .slice(Range::new(cursor, line_end)),
-            };
-            self.editor.apply_command(cmd);
-            self.cursor_renderer.reset_blink();
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
-            self.needs_redraw = true;
+        if cursor.column >= line_len {
+            return false;
         }
+        let line_end = Position::new(cursor.line, line_len);
+        let cmd = Command::Delete {
+            range: Range::new(cursor, line_end),
+            deleted_text: self
+                .editor
+                .state()
+                .document
+                .slice(Range::new(cursor, line_end)),
+        };
+        // track_and_apply records the edit span, refreshes folds, and
+        // resets blink; the edit invalidates sticky columns.
+        self.keyboard_handler.reset_vertical_state();
+        self.track_and_apply(cmd);
+        true
     }
 
     // ==========================================================================
@@ -2376,8 +2927,11 @@ impl WebEditor {
 
     /// Sets the selection (for internal use).
     fn set_selection_internal(&mut self, anchor: Position, head: Position) {
-        // Editor::set_selection clamps both endpoints and resets the keyboard
-        // handler's sticky vertical column (this path bypasses handle_key).
+        // Editor::set_selection clamps both endpoints and resets the core's
+        // keyboard handler; the binding's handler (which drives
+        // handleKeyEvent) bypasses handle_key here too, so its sticky
+        // vertical columns must be dropped as well.
+        self.keyboard_handler.reset_vertical_state();
         self.editor.set_selection(anchor, head);
         self.cursor_renderer.reset_blink();
         self.needs_redraw = true;

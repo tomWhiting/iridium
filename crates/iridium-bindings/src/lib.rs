@@ -41,6 +41,11 @@
 
 #![doc(html_root_url = "https://docs.rs/iridium-bindings/0.1.0")]
 
+// Shared, target-independent modules (used by the WASM surface,
+// unit-tested natively).
+pub mod edit_tracking;
+pub mod key_map;
+
 // Napi modules (Node.js bindings)
 #[cfg(feature = "napi")]
 mod editor;

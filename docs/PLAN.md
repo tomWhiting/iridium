@@ -185,6 +185,12 @@ document-state assertions that would have caught every bug above.
     ~50ms eased glide (feel, not decoration — decision D6 if contested).
 - Duplicate TS tree (`crates/iridium-bindings/ts/`) deleted; single
   `@iridium-editor/core` package; worker shims resolved.
+- Web IME [proposed relocation 2026-07-13, awaiting Tom]: hidden-editable
+  element + composition-event plumbing driving the core's existing (and
+  currently unfed) `input/ime.rs` state machine, plus preedit rendering.
+  Discovered in wave 3b review: no composition path has ever existed on
+  web — the canvas is not an editable element, so CJK/dead-key IME never
+  engages. Wave 3b ships the `insertText()` seam this layer will use.
 - 500-line cap lands on everything touched (which is most of the worst
   offenders: `wasm.rs`, `keyboard.rs`, `core.rs`, `pipeline.rs`).
 

@@ -21,8 +21,55 @@
 // Import syntax worker client
 import { SyntaxHighlightClient, type EditInfo } from "../worker/client.ts";
 
+/**
+ * Rust-computed edit span for incremental tree-sitter parsing.
+ *
+ * Mirrors the `JsEditInfo` wasm-bindgen class: byte offsets and byte-column
+ * points computed from the rope, never from JavaScript strings.
+ */
+interface WasmEditInfo {
+  readonly startByte: number;
+  readonly oldEndByte: number;
+  readonly newEndByte: number;
+  readonly startRow: number;
+  readonly startColumn: number;
+  readonly oldEndRow: number;
+  readonly oldEndColumn: number;
+  readonly newEndRow: number;
+  readonly newEndColumn: number;
+  free(): void;
+}
+
+/**
+ * Action tags returned by `WebEditor.handleKeyEvent`.
+ *
+ * - `handled`      — key consumed, no content change
+ * - `handled:edit` — key consumed, document changed (fetch `takeLastEdit`)
+ * - `copy` / `cut` — clipboard text pending in `getPendingClipboardText`
+ * - `search:*`     — search UI actions requested by the core
+ * - `ignored`      — leave the event to the browser
+ */
+type KeyEventAction =
+  | "handled"
+  | "handled:edit"
+  | "copy"
+  | "cut"
+  | "search:open"
+  | "search:next"
+  | "search:prev"
+  | "search:close"
+  | "ignored";
+
+/** Search UI actions surfaced through {@link IridiumEditorOptions.onSearchAction}. */
+export type SearchAction = "open" | "next" | "prev" | "close";
+
 // Types for the low-level WASM editor
 interface WebEditor {
+  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean): KeyEventAction;
+  takeLastEdit(): WasmEditInfo | undefined;
+  getPendingClipboardText(): string | undefined;
+  copyText(): string | undefined;
+  cutText(): string | undefined;
   loadFont(data: Uint8Array): void;
   setContent(content: string): void;
   getContent(): string;
@@ -63,8 +110,8 @@ interface WebEditor {
   hasSelection(): boolean;
   deleteWordBackward(): void;
   deleteWordForward(): void;
-  deleteToLineStart(): void;
-  deleteToLineEnd(): void;
+  deleteToLineStart(): boolean;
+  deleteToLineEnd(): boolean;
   setCursorFromClick(line: number, column: number): void;
   pixelToPosition(x: number, y: number): number[];
   ensureCursorVisible(): void;
@@ -131,6 +178,12 @@ export interface IridiumEditorOptions {
   onScroll?: () => void;
   /** Intercept keydown before editor processes it. Return true to consume the event. */
   onBeforeKeyDown?: (e: KeyboardEvent) => boolean;
+  /**
+   * Callback for search UI actions requested by the editor core
+   * (Ctrl/Cmd+F opens, F3/Shift+F3 navigate matches — navigation is already
+   * applied to the editor's search state when this fires).
+   */
+  onSearchAction?: (action: SearchAction) => void;
 }
 
 export interface EditorState {
@@ -145,16 +198,6 @@ export interface EditorState {
   hiddenLineCount: number;
 }
 
-// Auto-pair mappings
-const PAIRS: Record<string, string> = {
-  "(": ")",
-  "[": "]",
-  "{": "}",
-  '"': '"',
-  "'": "'",
-};
-const CLOSERS = [")", "]", "}", '"', "'"];
-
 // Track canvases that are being initialized to prevent double-init from React StrictMode
 const pendingInitializations = new Map<HTMLCanvasElement, Promise<IridiumEditor>>();
 const initializedCanvases = new WeakMap<HTMLCanvasElement, IridiumEditor>();
@@ -166,18 +209,23 @@ export class IridiumEditor {
   private canvas: HTMLCanvasElement;
   private editor: WebEditor;
   private syntaxWorker: SyntaxHighlightClient | null = null;
-  private options: Required<Omit<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown">> & Pick<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown">;
+  private options: Required<Omit<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown" | "onSearchAction">> & Pick<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown" | "onSearchAction">;
   private currentLanguage: string;
   private isDragging = false;
   private animationFrameId = 0;
   private lastBlinkTime = 0;
   private eventCleanup: (() => void)[] = [];
   private destroyed = false;
-  /** Pending edit info for incremental tree-sitter parsing (T027) */
-  private lastEditInfo: EditInfo | null = null;
   private hoverTimer: ReturnType<typeof setTimeout> | null = null;
   private lastHoverLine = -1;
   private lastHoverColumn = -1;
+  /**
+   * macOS/iOS detection for the keyboard translation layer (see
+   * {@link translateKeyEvent}). User-agent sniffing is the established
+   * mechanism here; `navigator.userAgentData` is not yet universal.
+   */
+  private readonly isMacPlatform: boolean =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -197,6 +245,7 @@ export class IridiumEditor {
       onMouseHover: options.onMouseHover,
       onScroll: options.onScroll,
       onBeforeKeyDown: options.onBeforeKeyDown,
+      onSearchAction: options.onSearchAction,
     };
     this.currentLanguage = this.options.language;
   }
@@ -486,263 +535,215 @@ export class IridiumEditor {
     this.options.onScroll?.();
   }
 
+  /**
+   * Keyboard entry point: forwards raw key events to the Rust core, which
+   * owns all editing behavior (multi-cursor edits, Tab/indent/outdent,
+   * Enter auto-indent with bracket-block and code-fence expansion,
+   * auto-pairs, sticky columns, undo/redo, search keys).
+   *
+   * The controller keeps four responsibilities here:
+   * 1. the `onBeforeKeyDown` interception hook,
+   * 2. native clipboard passthrough (Cmd/Ctrl+C/X/V must not be
+   *    preventDefaulted so the browser fires copy/cut/paste events —
+   *    required for Safari; the copy/cut *semantics* still come from the
+   *    Rust core inside those event handlers),
+   * 3. the IME composition guard, and
+   * 4. platform key translation (see {@link translateKeyEvent}).
+   */
   private handleKeyDown(e: KeyboardEvent): void {
+    // (a) Host interception hook.
     if (this.options.onBeforeKeyDown?.(e)) {
       e.preventDefault();
       return;
     }
-    // Cancel hover on any keypress
+    // Cancel hover on any keypress.
     this.resetHoverTimer();
-    let handled = true;
-    const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const selecting = e.shiftKey;
-    const isReadOnly = this.editor.isReadOnly();
 
-    // Arrow keys with modifiers
-    if (e.key === "ArrowLeft") {
-      if (e.metaKey && isMac) {
-        selecting ? this.editor.extendSelectionLineStart() : this.editor.moveCursorLineStart();
-      } else if (e.altKey || (e.ctrlKey && !isMac)) {
-        selecting ? this.editor.extendSelectionWordLeft() : this.editor.moveCursorWordLeft();
-      } else {
-        selecting ? this.editor.extendSelectionLeft() : this.editor.moveCursorLeft();
+    // (b) Native clipboard passthrough: return WITHOUT preventDefault so the
+    // browser fires the native copy/cut/paste events, which the handlers
+    // below (handleCopy/handleCut/handlePaste) service. Safari only exposes
+    // clipboard data through those events. The handlers drive the Rust
+    // multi-cursor clipboard paths (copyText/cutText/insert), so behavior
+    // is identical to the keyboard path — only the trigger is native.
+    const primaryModifier = e.metaKey || e.ctrlKey;
+    if (primaryModifier && !e.altKey) {
+      const k = e.key.toLowerCase();
+      if (k === "c" || k === "x" || k === "v") {
+        return;
       }
-    } else if (e.key === "ArrowRight") {
-      if (e.metaKey && isMac) {
-        selecting ? this.editor.extendSelectionLineEnd() : this.editor.moveCursorLineEnd();
-      } else if (e.altKey || (e.ctrlKey && !isMac)) {
-        selecting ? this.editor.extendSelectionWordRight() : this.editor.moveCursorWordRight();
-      } else {
-        selecting ? this.editor.extendSelectionRight() : this.editor.moveCursorRight();
-      }
-    } else if (e.key === "ArrowUp") {
-      if (e.metaKey && isMac) {
-        selecting ? this.editor.extendSelectionDocStart() : this.editor.moveCursorDocStart();
-      } else {
-        selecting ? this.editor.extendSelectionUp() : this.editor.moveCursorUp();
-      }
-    } else if (e.key === "ArrowDown") {
-      if (e.metaKey && isMac) {
-        selecting ? this.editor.extendSelectionDocEnd() : this.editor.moveCursorDocEnd();
-      } else {
-        selecting ? this.editor.extendSelectionDown() : this.editor.moveCursorDown();
-      }
-    } else if (e.key === "Home") {
-      if (e.metaKey || e.ctrlKey) {
-        selecting ? this.editor.extendSelectionDocStart() : this.editor.moveCursorDocStart();
-      } else {
-        selecting ? this.editor.extendSelectionLineStart() : this.editor.moveCursorLineStart();
-      }
-    } else if (e.key === "End") {
-      if (e.metaKey || e.ctrlKey) {
-        selecting ? this.editor.extendSelectionDocEnd() : this.editor.moveCursorDocEnd();
-      } else {
-        selecting ? this.editor.extendSelectionLineEnd() : this.editor.moveCursorLineEnd();
-      }
-    } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
-      this.editor.selectAll();
-    } else if (e.key === "Backspace") {
-      if (!isReadOnly) this.handleBackspace(e, isMac); else handled = false;
-    } else if (e.key === "Delete") {
-      if (!isReadOnly) this.handleDelete(e, isMac); else handled = false;
-    } else if (e.key === "k" && e.ctrlKey) {
-      if (!isReadOnly) {
-        // Delete to line end - track deletion (T029)
-        const startByte = this.getCursorByteOffset();
-        const content = this.editor.getContent();
-        const lines = content.split("\n");
-        const line = this.editor.getCursorLine();
-        const lineEnd = lines[line]?.length || 0;
-        const lineEndByte = this.positionToByteOffset(content, line, lineEnd);
-        this.editor.deleteToLineEnd();
-        this.trackEdit(startByte, lineEndByte, startByte);
-        this.notifyContentChange();
-      } else { handled = false; }
-    } else if (e.key === "Enter") {
-      if (!isReadOnly) this.handleEnter(); else handled = false;
-    } else if (e.key === "Tab") {
-      if (!isReadOnly) {
-        // Tab insertion - 4 spaces (T029)
-        const startByte = this.getCursorByteOffset();
-        this.editor.insert("    ");
-        this.trackEdit(startByte, startByte, startByte + 4);
-        this.notifyContentChange();
-      } else { handled = false; }
-    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      if (!isReadOnly) this.handleCharacterInput(e.key); else handled = false;
-    } else if (e.metaKey || e.ctrlKey) {
-      handled = this.handleShortcut(e);
-    } else {
-      handled = false;
     }
 
-    if (handled) {
+    // (c) IME composition guard: while composing, the IME owns the key
+    // stream. NOTE: full web IME does not work yet — the canvas is not an
+    // editable element, so browsers never run an IME against it and no
+    // composition/beforeinput/input events fire. Supporting IME requires
+    // the hidden-editable-element pattern, which is tracked in
+    // docs/PLAN.md. This guard is kept so that, if a host embeds the
+    // editor behind such an element, in-flight compositions are never
+    // double-handled; committed text can be fed through
+    // {@link insertText}.
+    if (e.isComposing) {
+      return;
+    }
+
+    // (d) macOS Cmd+Backspace/Delete map to delete-to-line-start/end,
+    // which the Rust keyboard handler has no key for; they go through the
+    // discrete WASM methods (track_and_apply inside: edit tracking,
+    // history, read-only gating all hold). See the mapping table in
+    // translateKeyEvent.
+    if (this.isMacPlatform && e.metaKey && !e.ctrlKey && !e.altKey &&
+        (e.key === "Backspace" || e.key === "Delete")) {
       e.preventDefault();
+      const changed = e.key === "Backspace"
+        ? this.editor.deleteToLineStart()
+        : this.editor.deleteToLineEnd();
       this.editor.ensureCursorVisible();
-      // Render immediately for responsive typing feedback
       this.editor.forceRender();
-      // Fire async worker request - will re-render with updated highlights when ready
-      this.updateHighlights();
+      if (changed) {
+        this.updateHighlights(this.takeEditInfo());
+        this.notifyContentChange();
+      }
       this.notifySelectionChange();
       this.options.onScroll?.();
+      return;
     }
+
+    // (e) Translate the DOM event into the Rust core's key vocabulary and
+    // forward it (see the mapping table in translateKeyEvent).
+    const t = this.translateKeyEvent(e);
+    const action = this.editor.handleKeyEvent(t.key, t.ctrl, t.shift, t.alt, t.meta);
+
+    if (action === "ignored") {
+      // The editor does not handle this key; leave it to the browser.
+      return;
+    }
+
+    e.preventDefault();
+
+    if (action === "copy" || action === "cut") {
+      // Defensive path for synthesized key events: real Cmd/Ctrl+C/X went
+      // through the native clipboard passthrough above.
+      const text = this.editor.getPendingClipboardText();
+      if (text) {
+        void this.writeClipboardText(text);
+      }
+    } else if (action.startsWith("search:")) {
+      this.options.onSearchAction?.(action.slice("search:".length) as SearchAction);
+    }
+
+    const contentChanged = action === "handled:edit" || action === "cut";
+    this.editor.ensureCursorVisible();
+    // Render immediately for responsive typing feedback
+    this.editor.forceRender();
+    // Fire async worker request - will re-render with updated highlights
+    // when ready. The edit span comes from Rust (takeLastEdit), not from
+    // JS byte math.
+    this.updateHighlights(contentChanged ? this.takeEditInfo() : null);
+    if (contentChanged) {
+      this.notifyContentChange();
+    }
+    this.notifySelectionChange();
+    this.options.onScroll?.();
   }
 
+  /**
+   * Translates a DOM keyboard event into the Rust core's key vocabulary.
+   *
+   * The Rust handler is platform-agnostic: its `ctrl` modifier means
+   * "word motion / editor shortcut" (word-left on Ctrl+Arrow, word delete
+   * on Ctrl+Backspace, shortcuts on Ctrl+letter, document start/end on
+   * Ctrl+Home/End). macOS distributes those semantics across Option and
+   * Command, so on macOS this layer translates *semantically* before
+   * forwarding. The proper home for platform keymaps is the future keymap
+   * layer (decision D1 in docs/PLAN.md §7); this is the binding-level
+   * translation until that lands.
+   *
+   * macOS mapping table (shift is always preserved):
+   *
+   * | DOM chord                  | Forwarded to Rust        | Semantics            |
+   * |----------------------------|--------------------------|----------------------|
+   * | Option+ArrowLeft/Right     | ctrl+ArrowLeft/Right     | word left/right      |
+   * | Option+Backspace/Delete    | ctrl+Backspace/Delete    | word delete          |
+   * | Option+ArrowUp/Down        | alt+ArrowUp/Down (as-is) | move line up/down    |
+   * | Cmd+ArrowLeft/Right        | Home/End                 | line start/end       |
+   * | Cmd+ArrowUp/Down           | ctrl+Home/End            | document start/end   |
+   * | Cmd+Backspace/Delete       | (handled in handleKeyDown via the discrete |
+   * |                            | deleteToLineStart/End WASM methods)         |
+   * | Cmd+A/Z/Shift+Z/C/X/V/D/F/L| ctrl+letter              | editor shortcuts     |
+   * | plain Ctrl+key             | ctrl+key (as-is)         | see note below       |
+   * | anything else              | Cmd→ctrl, meta dropped   | legacy default       |
+   *
+   * Notes:
+   * - Plain Control-key combos on macOS (terminal-style Ctrl+A etc.) are
+   *   deliberately NOT translated to macOS emacs-style bindings; they
+   *   forward with `ctrl` set and hit the Rust editor shortcuts. Remapping
+   *   them is keymap-layer work (D1).
+   * - Compound chords (Cmd+Option+…, Cmd+Ctrl+…) are not translated; they
+   *   forward through the default mapping, where the Rust core ignores
+   *   Ctrl+Alt/Ctrl+Meta character chords (AltGr safety).
+   * - `meta` is never forwarded on macOS, so unbound Cmd combos fall
+   *   through to the browser instead of self-inserting.
+   *
+   * On all other platforms the four DOM modifier flags map 1:1.
+   */
+  private translateKeyEvent(
+    e: KeyboardEvent
+  ): { key: string; ctrl: boolean; shift: boolean; alt: boolean; meta: boolean } {
+    if (!this.isMacPlatform) {
+      return { key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey };
+    }
 
-  private handleBackspace(e: KeyboardEvent, isMac: boolean): void {
-    const startByte = this.getCursorByteOffset();
-
-    if (e.metaKey && isMac) {
-      // Delete to line start - complex deletion (T029)
-      const content = this.editor.getContent();
-      const line = this.editor.getCursorLine();
-      const lineStart = this.positionToByteOffset(content, line, 0);
-      this.editor.deleteToLineStart();
-      this.trackEdit(lineStart, startByte, lineStart);
-    } else if (e.altKey || (e.ctrlKey && !isMac)) {
-      // Word deletion - track by measuring content change (T029)
-      const contentBefore = this.editor.getContent();
-      this.editor.deleteWordBackward();
-      const contentAfter = this.editor.getContent();
-      const deletedLen = contentBefore.length - contentAfter.length;
-      const newStartByte = startByte - deletedLen;
-      this.trackEdit(newStartByte, startByte, newStartByte);
-    } else {
-      // Check for auto-pair deletion
-      const content = this.editor.getContent();
-      const lines = content.split("\n");
-      const line = this.editor.getCursorLine();
-      const col = this.editor.getCursorColumn();
-      const currentLine = lines[line] || "";
-      const charBefore = col > 0 ? currentLine[col - 1] : "";
-      const charAfter = currentLine[col] || "";
-
-      if (PAIRS[charBefore] && charAfter === PAIRS[charBefore]) {
-        // Delete both characters of pair (T029)
-        this.editor.backspace();
-        this.editor.delete_forward();
-        this.trackEdit(startByte - 1, startByte + 1, startByte - 1);
-      } else {
-        // Single character backspace (T029)
-        this.editor.backspace();
-        this.trackEdit(startByte - 1, startByte, startByte - 1);
+    // Option-only chords: word motions and word deletes.
+    if (e.altKey && !e.metaKey && !e.ctrlKey) {
+      switch (e.key) {
+        case "ArrowLeft":
+        case "ArrowRight":
+        case "Backspace":
+        case "Delete":
+          return { key: e.key, ctrl: true, shift: e.shiftKey, alt: false, meta: false };
+        default:
+          break;
       }
     }
-    this.notifyContentChange();
-  }
 
-  private handleDelete(e: KeyboardEvent, isMac: boolean): void {
-    const startByte = this.getCursorByteOffset();
-
-    if (e.altKey || (e.ctrlKey && !isMac)) {
-      // Word deletion forward - track by measuring content change (T029)
-      const contentBefore = this.editor.getContent();
-      this.editor.deleteWordForward();
-      const contentAfter = this.editor.getContent();
-      const deletedLen = contentBefore.length - contentAfter.length;
-      this.trackEdit(startByte, startByte + deletedLen, startByte);
-    } else {
-      // Single character delete forward (T029)
-      this.editor.delete_forward();
-      this.trackEdit(startByte, startByte + 1, startByte);
-    }
-    this.notifyContentChange();
-  }
-
-  private handleEnter(): void {
-    const content = this.editor.getContent();
-    const lines = content.split("\n");
-    const line = this.editor.getCursorLine();
-    const col = this.editor.getCursorColumn();
-    const currentLine = lines[line] || "";
-    const charBefore = col > 0 ? currentLine[col - 1] : "";
-    const charAfter = currentLine[col] || "";
-    const indent = currentLine.match(/^(\s*)/)?.[1] || "";
-    const textBeforeCursor = currentLine.slice(0, col);
-    const startByte = this.getCursorByteOffset();
-
-    // Check for code block (triple backticks)
-    const codeBlockMatch = textBeforeCursor.match(/^(\s*)```(\w*)$/);
-    if (codeBlockMatch) {
-      const blockIndent = codeBlockMatch[1];
-      const insertedText = "\n" + blockIndent + "\n" + blockIndent + "```";
-      this.editor.insert(insertedText);
-      this.editor.moveCursorUp();
-      this.editor.moveCursorLineEnd();
-      // Track insertion (T029)
-      this.trackEdit(startByte, startByte, startByte + insertedText.length);
-    }
-    // Check for bracket pairs
-    else if (
-      (charBefore === "{" && charAfter === "}") ||
-      (charBefore === "[" && charAfter === "]") ||
-      (charBefore === "(" && charAfter === ")")
-    ) {
-      const insertedText = "\n" + indent + "    \n" + indent;
-      this.editor.insert(insertedText);
-      this.editor.moveCursorUp();
-      this.editor.moveCursorLineEnd();
-      // Track insertion (T029)
-      this.trackEdit(startByte, startByte, startByte + insertedText.length);
-    } else {
-      // Regular enter with indent preservation
-      const endsWithOpener = /[{(\[]$/.test(textBeforeCursor.trim());
-      const insertedText = endsWithOpener ? "\n" + indent + "    " : "\n" + indent;
-      this.editor.insert(insertedText);
-      // Track insertion (T029)
-      this.trackEdit(startByte, startByte, startByte + insertedText.length);
-    }
-    this.notifyContentChange();
-  }
-
-  private handleCharacterInput(char: string): void {
-    const content = this.editor.getContent();
-    const lines = content.split("\n");
-    const line = this.editor.getCursorLine();
-    const col = this.editor.getCursorColumn();
-    const currentLine = lines[line] || "";
-    const charAfter = currentLine[col] || "";
-
-    if (CLOSERS.includes(char) && charAfter === char) {
-      // Skip over auto-inserted closing char
-      this.editor.moveCursorRight();
-    } else if (PAIRS[char]) {
-      // Insert pair and move cursor back
-      const startByte = this.getCursorByteOffset();
-      this.editor.insert(char + PAIRS[char]);
-      this.editor.moveCursorLeft();
-      // Track as 2-character insertion (T029)
-      this.trackEdit(startByte, startByte, startByte + 2);
-    } else {
-      const startByte = this.getCursorByteOffset();
-      this.editor.insert(char);
-      // Track single character insertion (T029)
-      this.trackEdit(startByte, startByte, startByte + char.length);
-    }
-    this.notifyContentChange();
-  }
-
-  private handleShortcut(e: KeyboardEvent): boolean {
-    if (e.key === "z") {
-      if (e.shiftKey) {
-        this.editor.redo();
-      } else {
-        this.editor.undo();
+    // Command-only chords: line/document motions.
+    if (e.metaKey && !e.altKey && !e.ctrlKey) {
+      switch (e.key) {
+        case "ArrowLeft":
+          return { key: "Home", ctrl: false, shift: e.shiftKey, alt: false, meta: false };
+        case "ArrowRight":
+          return { key: "End", ctrl: false, shift: e.shiftKey, alt: false, meta: false };
+        case "ArrowUp":
+          return { key: "Home", ctrl: true, shift: e.shiftKey, alt: false, meta: false };
+        case "ArrowDown":
+          return { key: "End", ctrl: true, shift: e.shiftKey, alt: false, meta: false };
+        default:
+          break;
       }
-      this.notifyContentChange();
-      return true;
-    } else if (e.key === "y") {
-      this.editor.redo();
-      this.notifyContentChange();
-      return true;
-    } else if (e.key === "c" || e.key === "x" || e.key === "v") {
-      // Clipboard operations are handled by native paste/copy/cut events
-      // This is critical for Safari compatibility - Safari requires direct
-      // paste event handling rather than intercepting keyboard shortcuts.
-      // Return false to let the native event fire.
-      return false;
     }
-    return false;
+
+    // Default macOS mapping: Cmd and Ctrl both forward as the Rust `ctrl`
+    // (editor shortcuts), `meta` is never forwarded.
+    return {
+      key: e.key,
+      ctrl: e.metaKey || e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: false,
+    };
+  }
+
+  /**
+   * Write text to the system clipboard (used only for the defensive
+   * `copy`/`cut` key-result path; real clipboard shortcuts go through the
+   * native events).
+   */
+  private async writeClipboardText(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.warn("[IridiumEditor] Clipboard write failed:", err);
+    }
   }
 
   /**
@@ -759,66 +760,76 @@ export class IridiumEditor {
     const text = e.clipboardData?.getData("text/plain");
     if (!text) return;
 
-    const startByte = this.getCursorByteOffset();
-    const hasSelection = this.editor.hasSelection();
-    const selectedText = hasSelection ? this.editor.getSelectedText() : "";
-
+    // insert() replaces any selection and records the edit span in Rust.
     this.editor.insert(text);
-    this.trackEdit(startByte, startByte + selectedText.length, startByte + text.length);
     this.editor.ensureCursorVisible();
-    this.updateHighlights();
+    this.updateHighlights(this.takeEditInfo());
     this.editor.forceRender();
     this.notifyContentChange();
     this.notifySelectionChange();
   }
 
   /**
-   * Handle native copy event - provides consistent behavior across browsers.
+   * Handle native copy event (the trigger stays native for Safari, which
+   * only exposes clipboard writes through this event).
+   *
+   * The text comes from the Rust core's multi-cursor copy path
+   * (`copyText`), so native copy is identical to the keyboard path: all
+   * cursors' selections joined with the document line ending, and with
+   * only collapsed cursors each cursor's whole line. Copy never mutates.
    */
   private handleCopy(e: ClipboardEvent): void {
-    const text = this.editor.getSelectedText();
-    if (text && e.clipboardData) {
-      e.preventDefault();
-      e.clipboardData.setData("text/plain", text);
+    if (!e.clipboardData) {
+      // No synchronous clipboard access — nothing this handler can do.
+      return;
     }
+    const text = this.editor.copyText();
+    if (text === undefined) {
+      return;
+    }
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", text);
   }
 
   /**
-   * Handle native cut event - provides consistent behavior across browsers.
+   * Handle native cut event (the trigger stays native for Safari; see
+   * {@link handleCopy}).
+   *
+   * `cutText()` drives the Rust core's multi-cursor cut: it returns the
+   * clipboard text and applies the deletion through the tracked command
+   * path (edit span for incremental parsing, history, fold refresh). In
+   * read-only mode it returns undefined and the cut is swallowed entirely
+   * — matching the keyboard path, where read-only cut does not even copy.
    */
   private handleCut(e: ClipboardEvent): void {
-    if (this.editor.isReadOnly()) {
-      // In read-only mode, cut behaves like copy
-      const text = this.editor.getSelectedText();
-      if (text && e.clipboardData) {
-        e.preventDefault();
-        e.clipboardData.setData("text/plain", text);
-      }
+    // The semantics come from Rust in every case (including the read-only
+    // swallow), so the browser default never runs.
+    e.preventDefault();
+    if (!e.clipboardData) {
+      // No synchronous clipboard access: do NOT mutate the document, or
+      // the cut text would be lost.
       return;
     }
-
-    const text = this.editor.getSelectedText();
-    if (text && e.clipboardData) {
-      e.preventDefault();
-      e.clipboardData.setData("text/plain", text);
-
-      const startByte = this.getCursorByteOffset();
-      this.editor.backspace();
-      this.trackEdit(startByte, startByte + text.length, startByte);
-      this.updateHighlights();
-      this.editor.forceRender();
-      this.notifyContentChange();
-      this.notifySelectionChange();
+    const text = this.editor.cutText();
+    if (text === undefined) {
+      // Read-only: swallowed.
+      return;
     }
+    e.clipboardData.setData("text/plain", text);
+    this.editor.forceRender();
+    this.updateHighlights(this.takeEditInfo());
+    this.notifyContentChange();
+    this.notifySelectionChange();
   }
 
   /**
    * Update syntax highlights via Web Worker (T031).
    *
    * Sends content to worker for parsing off the main thread.
-   * Uses incremental parsing when edit info is available.
+   * Uses incremental parsing when Rust-provided edit info is available
+   * (see {@link takeEditInfo}).
    */
-  private updateHighlights(): void {
+  private updateHighlights(editInfo: EditInfo | null = null): void {
     if (!this.syntaxWorker) return;
 
     // Cancel any in-flight requests to prevent stale results
@@ -826,7 +837,6 @@ export class IridiumEditor {
 
     const t0 = performance.now();
     const content = this.editor.getContent();
-    const editInfo = this.consumeEditInfo();
     const lineCount = this.editor.getLineCount();
 
     // Fire off worker request (non-blocking)
@@ -888,106 +898,28 @@ export class IridiumEditor {
   }
 
   /**
-   * Track edit for incremental parsing (T028).
+   * Consume the Rust-recorded edit span for incremental parsing.
    *
-   * Captures the byte offsets and row/column positions for an edit.
-   * Called by mutation operations to enable efficient incremental parsing.
-   *
-   * @param startByte - Byte where edit began
-   * @param oldEndByte - Byte where old content ended
-   * @param newEndByte - Byte where new content ends
+   * The span is computed from the rope inside the WASM editor (byte
+   * offsets and byte-column points) — the controller no longer derives
+   * byte offsets from UTF-16 JavaScript strings. Returns null when no
+   * content changed since the last call, or when the accumulated edits
+   * cannot be described exactly (the worker then does a full parse).
    */
-  private trackEdit(
-    startByte: number,
-    oldEndByte: number,
-    newEndByte: number
-  ): void {
-    const content = this.editor.getContent();
-
-    // Calculate row/column positions from byte offsets (T032)
-    const startPos = this.byteToPosition(content, startByte);
-    const oldEndPos = this.byteToPosition(content, oldEndByte);
-    const newEndPos = this.byteToPosition(content, newEndByte);
-
-    this.lastEditInfo = {
-      startIndex: startByte,
-      oldEndIndex: oldEndByte,
-      newEndIndex: newEndByte,
-      startPosition: startPos,
-      oldEndPosition: oldEndPos,
-      newEndPosition: newEndPos,
+  private takeEditInfo(): EditInfo | null {
+    const info = this.editor.takeLastEdit();
+    if (!info) return null;
+    const edit: EditInfo = {
+      startIndex: info.startByte,
+      oldEndIndex: info.oldEndByte,
+      newEndIndex: info.newEndByte,
+      startPosition: { row: info.startRow, column: info.startColumn },
+      oldEndPosition: { row: info.oldEndRow, column: info.oldEndColumn },
+      newEndPosition: { row: info.newEndRow, column: info.newEndColumn },
     };
-  }
-
-  /**
-   * Get pending edit info and clear it (T030).
-   *
-   * Returns the accumulated edit information since the last call,
-   * or null if no edits have occurred.
-   */
-  private consumeEditInfo(): EditInfo | null {
-    const edit = this.lastEditInfo;
-    this.lastEditInfo = null;
+    // JsEditInfo is a wasm-bindgen object; free it deterministically.
+    info.free();
     return edit;
-  }
-
-  /**
-   * Convert byte offset to row/column position (T032).
-   *
-   * Tree-sitter requires both byte offsets and row/column positions
-   * for incremental parsing. This calculates position from content.
-   */
-  private byteToPosition(
-    content: string,
-    byteOffset: number
-  ): { row: number; column: number } {
-    // Handle out of bounds
-    if (byteOffset <= 0) {
-      return { row: 0, column: 0 };
-    }
-    if (byteOffset >= content.length) {
-      const lines = content.split("\n");
-      const lastLine = lines[lines.length - 1] || "";
-      return { row: lines.length - 1, column: lastLine.length };
-    }
-
-    // Count newlines up to byteOffset to get row
-    const prefix = content.slice(0, byteOffset);
-    const lines = prefix.split("\n");
-    const row = lines.length - 1;
-    const column = lines[row].length;
-
-    return { row, column };
-  }
-
-  /**
-   * Convert line/column position to byte offset.
-   *
-   * Used to capture cursor position before edits for incremental parsing.
-   */
-  private positionToByteOffset(content: string, line: number, column: number): number {
-    const lines = content.split("\n");
-    let offset = 0;
-
-    for (let i = 0; i < line && i < lines.length; i++) {
-      offset += lines[i].length + 1; // +1 for newline
-    }
-
-    if (line < lines.length) {
-      offset += Math.min(column, lines[line].length);
-    }
-
-    return Math.min(offset, content.length);
-  }
-
-  /**
-   * Get current cursor byte offset in the content.
-   */
-  private getCursorByteOffset(): number {
-    const content = this.editor.getContent();
-    const line = this.editor.getCursorLine();
-    const column = this.editor.getCursorColumn();
-    return this.positionToByteOffset(content, line, column);
   }
 
   private notifyContentChange(): void {
@@ -1070,7 +1002,7 @@ export class IridiumEditor {
   /** Undo the last change. */
   undo(): boolean {
     const result = this.editor.undo();
-    this.updateHighlights();
+    this.updateHighlights(result ? this.takeEditInfo() : null);
     this.editor.forceRender();
     return result;
   }
@@ -1078,7 +1010,7 @@ export class IridiumEditor {
   /** Redo the last undone change. */
   redo(): boolean {
     const result = this.editor.redo();
-    this.updateHighlights();
+    this.updateHighlights(result ? this.takeEditInfo() : null);
     this.editor.forceRender();
     return result;
   }
@@ -1247,42 +1179,64 @@ export class IridiumEditor {
   }
 
   /**
-   * Apply a completion: delete N characters before cursor, then insert text.
-   * Preserves undo history by using individual operations.
-   * Tracks the combined edit for incremental parsing using pre-edit content
-   * for oldEndPosition (required for correct tree-sitter row/column coords).
+   * Insert text at every cursor, replacing any selections.
+   *
+   * Public seam for hosts and the future IME layer (composition commits;
+   * see docs/PLAN.md): the insertion goes through the Rust core's
+   * multi-cursor paste path as one reversible command, with the edit span
+   * recorded for incremental parsing.
+   *
+   * No-op (no callbacks fired) for empty text or in read-only mode.
+   */
+  insertText(text: string): void {
+    if (text.length === 0 || this.editor.isReadOnly()) return;
+
+    this.editor.insert(text);
+    this.editor.ensureCursorVisible();
+    this.editor.forceRender();
+    this.updateHighlights(this.takeEditInfo());
+    this.notifyContentChange();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * Apply a completion: delete N characters before the (collapsed) cursor,
+   * then insert text.
+   *
+   * The N characters are selected and replaced: with non-empty text via a
+   * single `insert()` (one reversible command), with empty text via the
+   * selection-delete path — both record the edit span in Rust (consumed
+   * via `takeLastEdit` for incremental parsing).
+   *
+   * Callbacks fire only when content actually changes: an entirely empty
+   * completion, a read-only editor, or an empty-text completion with
+   * nothing deletable (cursor at document start) return without firing.
    */
   applyCompletion(deleteCount: number, text: string): void {
-    const contentBefore = this.editor.getContent();
-    const cursorByte = this.getCursorByteOffset();
-    const editStart = cursorByte - deleteCount;
-    const oldEndByte = cursorByte;
+    if (this.editor.isReadOnly()) return;
+    if (deleteCount <= 0 && text.length === 0) return;
 
+    // Select the characters to replace.
     for (let i = 0; i < deleteCount; i++) {
-      this.editor.backspace();
+      this.editor.extendSelectionLeft();
     }
-    this.editor.insert(text);
 
-    const contentAfter = this.editor.getContent();
-    const newEndByte = editStart + text.length;
-
-    // Compute positions: startPos and newEndPos use post-edit content,
-    // oldEndPos uses pre-edit content for correct row/column mapping.
-    const startPos = this.byteToPosition(contentAfter, editStart);
-    const oldEndPos = this.byteToPosition(contentBefore, oldEndByte);
-    const newEndPos = this.byteToPosition(contentAfter, newEndByte);
-
-    this.lastEditInfo = {
-      startIndex: editStart,
-      oldEndIndex: oldEndByte,
-      newEndIndex: newEndByte,
-      startPosition: startPos,
-      oldEndPosition: oldEndPos,
-      newEndPosition: newEndPos,
-    };
+    if (text.length > 0) {
+      // insert() replaces the selection (and is a content change even when
+      // nothing was selected).
+      this.editor.insert(text);
+    } else if (this.editor.hasSelection()) {
+      // Empty text: delete the selection through the tracked delete path.
+      this.editor.backspace();
+    } else {
+      // Empty text and nothing became selected (cursor at document start):
+      // no content change, no callbacks. The no-op selection extension
+      // left no state behind.
+      return;
+    }
 
     this.editor.ensureCursorVisible();
-    this.updateHighlights();
+    this.updateHighlights(this.takeEditInfo());
     this.editor.forceRender();
     this.notifyContentChange();
     this.notifySelectionChange();

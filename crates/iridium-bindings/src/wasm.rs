@@ -2376,13 +2376,9 @@ impl WebEditor {
 
     /// Sets the selection (for internal use).
     fn set_selection_internal(&mut self, anchor: Position, head: Position) {
-        let doc = &self.editor.state().document;
-        let anchor = doc.clamp_position(anchor);
-        let head = doc.clamp_position(head);
-        // We need to directly manipulate the cursor state
-        // Since Editor doesn't expose set_selection, we'll use a workaround
-        let selection = Selection::new(anchor, head);
-        self.editor.state_mut().cursor = CursorState::new(selection);
+        // Editor::set_selection clamps both endpoints and resets the keyboard
+        // handler's sticky vertical column (this path bypasses handle_key).
+        self.editor.set_selection(anchor, head);
         self.cursor_renderer.reset_blink();
         self.needs_redraw = true;
     }

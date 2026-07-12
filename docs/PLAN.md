@@ -139,9 +139,16 @@ Correctness:
 - Undo: cursor position restored on undo/redo of plain edits; compound
   grouping flattened (currently quadratic clone-and-nest per grouped
   keystroke); the two divergent paste implementations unified.
-- Regex replace: `$1`/`$name` capture-group expansion.
+- Regex replace: `$1`/`$name` capture-group expansion. [DONE, wave 1 —
+  with verify-or-skip semantics for stale matches after Norn review]
 - Case-insensitive literal search: byte-length desync on Unicode fixed.
-- `SpanIndex::count` overreport fixed.
+  [DONE, wave 1]
+- `SpanIndex::count` overreport fixed. [DONE, wave 1]
+- Search-state invalidation on document mutation (root cause behind the
+  stale-match hazards found in wave 1's Norn review: `Editor::apply_command`
+  never invalidates or refreshes `SearchState`, so any edit leaves recorded
+  match ranges pointing at the wrong text — the literal-mode replace path
+  still trusts them). Invalidate or re-run the active search on edit.
 - UTF-16-as-bytes eliminated: all byte-offset math moves to the Rust side;
   TS asks the editor for offsets instead of computing them from JS strings.
 

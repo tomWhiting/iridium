@@ -1,7 +1,7 @@
 //! Input handling for keyboard, mouse, and IME.
 
 mod ime;
-mod keyboard;
+pub(crate) mod keyboard;
 mod mouse;
 
 pub use ime::{ImeEvent, ImeHandler, ImeResult, ImeState};

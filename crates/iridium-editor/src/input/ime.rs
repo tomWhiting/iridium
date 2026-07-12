@@ -282,21 +282,7 @@ impl ImeHandler {
 
 /// Computes cursor position after inserting text.
 fn compute_position_after_insert(start: Position, text: &str) -> Position {
-    let mut line = start.line;
-    let mut column = start.column;
-
-    for ch in text.chars() {
-        if ch == '\n' {
-            line += 1;
-            column = 0;
-        } else if ch == '\r' {
-            // Skip CR in CRLF
-        } else {
-            column += 1;
-        }
-    }
-
-    Position::new(line, column)
+    start.advanced_through(text)
 }
 
 #[cfg(test)]

@@ -65,3 +65,16 @@ index.d.ts
 
 .claude/current-session.json
 .claude/sessions.jsonl
+
+# Worktrees and local session state
+.worktrees/
+.claude/current-session.json
+.claude/sessions.jsonl
+.claude/settings1.json
+.claude/feedback/
+
+# Example build output
+examples/*/dist/
+
+# Grammar build cache
+packages/tree-sitter-builder/.cache/

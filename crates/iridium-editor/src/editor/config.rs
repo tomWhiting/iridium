@@ -32,6 +32,18 @@ pub struct EditorConfig {
     /// Auto-indent on newline (default: true)
     pub auto_indent: bool,
 
+    /// Auto-close bracket and quote pairs (default: true)
+    ///
+    /// When enabled, typing `(`, `[`, `{`, `"`, `'`, or `` ` `` inserts the
+    /// matching closer, typing a closer skips over an existing one, backspace
+    /// between an empty pair removes both halves, and typing an opener with a
+    /// selection wraps the selection.
+    ///
+    /// Defaults to `true` when absent from a serialized configuration, so
+    /// configurations written before this option existed keep parsing.
+    #[serde(default = "default_auto_pairs")]
+    pub auto_pairs: bool,
+
     /// Show line numbers (default: true)
     pub show_line_numbers: bool,
 
@@ -77,12 +89,19 @@ pub struct EditorConfig {
     pub line_height: f32,
 }
 
+/// Serde default for [`EditorConfig::auto_pairs`]: configurations serialized
+/// before the option existed behave as if auto-pairing were enabled.
+const fn default_auto_pairs() -> bool {
+    true
+}
+
 impl Default for EditorConfig {
     fn default() -> Self {
         Self {
             tab_width: 4,
             insert_spaces: true,
             auto_indent: true,
+            auto_pairs: true,
             show_line_numbers: true,
             show_minimap: true,
             minimap_width: DEFAULT_MINIMAP_WIDTH,
@@ -115,6 +134,8 @@ impl EditorConfig {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]
@@ -123,6 +144,42 @@ mod tests {
         assert_eq!(config.tab_width, 4);
         assert!(config.insert_spaces);
         assert!(config.show_line_numbers);
+        assert!(config.auto_pairs);
+    }
+
+    /// A configuration serialized before `auto_pairs` existed must still
+    /// deserialize, with auto-pairing enabled by default.
+    #[test]
+    fn config_without_auto_pairs_field_deserializes_with_default() {
+        let old_config = EditorConfig {
+            auto_pairs: false, // Value that must NOT survive removal below.
+            ..EditorConfig::default()
+        };
+        let json = serde_json::to_string(&old_config).expect("config must serialize");
+
+        let mut value: serde_json::Value =
+            serde_json::from_str(&json).expect("config JSON must parse");
+        value
+            .as_object_mut()
+            .expect("config must serialize to an object")
+            .remove("auto_pairs");
+        let stripped = serde_json::to_string(&value).expect("stripped config must serialize");
+
+        let parsed: EditorConfig =
+            serde_json::from_str(&stripped).expect("old config without auto_pairs must parse");
+        assert!(parsed.auto_pairs, "auto_pairs must default to true");
+    }
+
+    /// An explicitly serialized `auto_pairs` value round-trips.
+    #[test]
+    fn auto_pairs_round_trips() {
+        let config = EditorConfig {
+            auto_pairs: false,
+            ..EditorConfig::default()
+        };
+        let json = serde_json::to_string(&config).expect("config must serialize");
+        let parsed: EditorConfig = serde_json::from_str(&json).expect("config must parse");
+        assert!(!parsed.auto_pairs);
     }
 
     #[test]

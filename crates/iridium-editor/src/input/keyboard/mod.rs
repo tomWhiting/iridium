@@ -13,17 +13,26 @@
 //! cursors that converge on the same position are merged. The per-cursor
 //! primitives live in [`editing`] and [`motions`] so other input paths (e.g.
 //! paste handling in the editor core) can reuse them.
+//!
+//! Configuration-dependent behaviors — tab width and spaces-vs-tabs,
+//! indent/outdent, auto-indent on Enter (including bracket-block and
+//! code-fence expansion), and auto-closing pairs — live in [`behaviors`] and
+//! are driven by the [`EditorConfig`] passed to [`KeyboardHandler::handle_key`].
 
+mod behaviors;
 pub mod editing;
 pub mod motions;
 mod types;
 
+#[cfg(test)]
+mod behavior_tests;
 #[cfg(test)]
 mod tests;
 
 pub use types::{ClipboardOperation, KeyCode, KeyEvent, KeyResult, Modifiers, SearchAction};
 
 use crate::document::{CursorState, Document, Position, Range, Selection};
+use crate::editor::EditorConfig;
 use crate::history::{Command, UndoTree};
 
 use motions::VerticalDirection;
@@ -67,12 +76,18 @@ impl KeyboardHandler {
     /// Returns a `KeyResult` indicating what action should be taken.
     /// The caller is responsible for applying any resulting commands
     /// and handling clipboard operations.
+    ///
+    /// `config` drives the editing behaviors: `tab_width`/`insert_spaces`
+    /// for Tab, indent, and outdent; `auto_indent` for Enter (indent
+    /// inheritance, bracket-block and code-fence expansion); and `auto_pairs`
+    /// for bracket/quote pairing.
     pub fn handle_key(
         &mut self,
         event: &KeyEvent,
         document: &Document,
         cursor: &CursorState,
         history: &UndoTree,
+        config: &EditorConfig,
     ) -> KeyResult {
         match event.key {
             // Arrow key navigation
@@ -90,17 +105,17 @@ impl KeyboardHandler {
                 self.handle_ctrl_char(c, document, cursor, history)
             },
             KeyCode::Char(c) if !event.modifiers.alt && !event.modifiers.meta => {
-                self.handle_char_input(c, document, cursor)
+                self.handle_char_input(c, document, cursor, config)
             },
 
             // Enter key
-            KeyCode::Enter => self.handle_enter(document, cursor),
+            KeyCode::Enter => self.handle_enter(document, cursor, config),
 
             // Tab key
-            KeyCode::Tab => self.handle_tab(event, document, cursor),
+            KeyCode::Tab => self.handle_tab(event, document, cursor, config),
 
             // Delete operations
-            KeyCode::Backspace => self.handle_backspace(event, document, cursor),
+            KeyCode::Backspace => self.handle_backspace(event, document, cursor, config),
             KeyCode::Delete => self.handle_delete(event, document, cursor),
 
             // Escape - collapse to primary cursor
@@ -368,39 +383,82 @@ impl KeyboardHandler {
     }
 
     /// Handles character input.
+    ///
+    /// When `config.auto_pairs` is enabled and the character participates in
+    /// bracket/quote pairing, each cursor independently inserts the pair,
+    /// skips over an existing closer, or wraps its selection (see
+    /// [`behaviors::auto_pair_char_edits`]). All other characters are plain
+    /// per-cursor insertions.
     fn handle_char_input(
         &mut self,
         c: char,
         document: &Document,
         cursor: &CursorState,
+        config: &EditorConfig,
     ) -> KeyResult {
         self.preferred_columns = None;
+
+        if config.auto_pairs && behaviors::is_auto_pair_trigger(c) {
+            let edits = behaviors::auto_pair_char_edits(document, cursor, c);
+            return editing::build_multi_cursor_command_placed(document, cursor, edits)
+                .map_or(KeyResult::Handled, KeyResult::Command);
+        }
+
         Self::insert_text(&c.to_string(), document, cursor)
     }
 
     /// Handles Enter key.
-    fn handle_enter(&mut self, document: &Document, cursor: &CursorState) -> KeyResult {
+    ///
+    /// With `config.auto_indent`, each cursor's new line inherits its own
+    /// line's leading whitespace, expands bracket blocks, and expands opening
+    /// code fences (see [`behaviors::enter_edits`]). Without it, every cursor
+    /// inserts the bare document line ending.
+    fn handle_enter(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        config: &EditorConfig,
+    ) -> KeyResult {
         self.preferred_columns = None;
-        let line_ending = document.line_ending().as_str();
-        Self::insert_text(line_ending, document, cursor)
+
+        let edits = behaviors::enter_edits(document, cursor, config);
+        editing::build_multi_cursor_command_placed(document, cursor, edits)
+            .map_or(KeyResult::Handled, KeyResult::Command)
     }
 
-    /// Handles Tab key.
+    /// Handles Tab and Shift+Tab.
+    ///
+    /// - **Shift+Tab** outdents every line touched by any cursor or
+    ///   selection by up to one level (a leading tab or up to `tab_width`
+    ///   leading spaces), never removing non-whitespace.
+    /// - **Tab with any non-collapsed selection** indents every touched line
+    ///   by one level, keeping selections covering the same text.
+    /// - **Tab with only collapsed cursors** inserts a tab, or pads with
+    ///   spaces to the next tab stop from each cursor's column when
+    ///   `insert_spaces` is set.
     fn handle_tab(
         &mut self,
         event: &KeyEvent,
         document: &Document,
         cursor: &CursorState,
+        config: &EditorConfig,
     ) -> KeyResult {
         self.preferred_columns = None;
 
         if event.modifiers.shift {
-            // Outdent - not implemented in basic editing
-            KeyResult::Ignored
+            let edits = behaviors::outdent_edits(document, cursor, config);
+            return editing::build_line_edits_command(document, cursor, edits)
+                .map_or(KeyResult::Handled, KeyResult::Command);
+        }
+
+        if cursor.all_selections().any(|sel| !sel.is_collapsed()) {
+            let edits = behaviors::indent_edits(document, cursor, config);
+            editing::build_line_edits_command(document, cursor, edits)
+                .map_or(KeyResult::Handled, KeyResult::Command)
         } else {
-            // Insert tab character (or spaces if configured)
-            // For now, insert a tab character
-            Self::insert_text("\t", document, cursor)
+            let edits = behaviors::tab_insert_edits(cursor, config);
+            editing::build_multi_cursor_command(document, cursor, edits)
+                .map_or(KeyResult::Handled, KeyResult::Command)
         }
     }
 
@@ -408,16 +466,23 @@ impl KeyboardHandler {
     ///
     /// Each cursor acts independently: cursors with a selection delete the
     /// selection, collapsed cursors delete the character (or word with Ctrl)
-    /// before the caret. Converging cursors are merged.
+    /// before the caret. With `config.auto_pairs`, a collapsed cursor between
+    /// the two halves of an empty pair deletes both halves. Converging
+    /// cursors are merged.
     fn handle_backspace(
         &mut self,
         event: &KeyEvent,
         document: &Document,
         cursor: &CursorState,
+        config: &EditorConfig,
     ) -> KeyResult {
         self.preferred_columns = None;
 
-        let edits = editing::backspace_edits(document, cursor, event.modifiers.ctrl);
+        let edits = if config.auto_pairs && !event.modifiers.ctrl {
+            behaviors::backspace_edits_with_pairs(document, cursor)
+        } else {
+            editing::backspace_edits(document, cursor, event.modifiers.ctrl)
+        };
         editing::build_multi_cursor_command(document, cursor, edits)
             .map_or(KeyResult::Handled, KeyResult::Command)
     }

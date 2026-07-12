@@ -11,7 +11,7 @@ fn create_test_document() -> Document {
 }
 
 /// Builds a multi-cursor state from collapsed positions (first is primary).
-fn cursors_at(positions: &[(usize, usize)]) -> CursorState {
+pub(super) fn cursors_at(positions: &[(usize, usize)]) -> CursorState {
     let (first, rest) = positions
         .split_first()
         .expect("at least one cursor position");
@@ -23,7 +23,7 @@ fn cursors_at(positions: &[(usize, usize)]) -> CursorState {
 }
 
 /// Builds a multi-cursor state from selections (first is primary).
-fn cursors_with(selections: &[Selection]) -> CursorState {
+pub(super) fn cursors_with(selections: &[Selection]) -> CursorState {
     let (first, rest) = selections.split_first().expect("at least one selection");
     let mut state = CursorState::new(*first);
     for sel in rest {
@@ -33,7 +33,7 @@ fn cursors_with(selections: &[Selection]) -> CursorState {
 }
 
 /// All cursor head positions in `all_selections` order.
-fn heads(cursor: &CursorState) -> Vec<(usize, usize)> {
+pub(super) fn heads(cursor: &CursorState) -> Vec<(usize, usize)> {
     cursor
         .all_selections()
         .map(|sel| (sel.head.line, sel.head.column))
@@ -48,7 +48,13 @@ fn press(
     document: &mut Document,
     cursor: &mut CursorState,
 ) -> Option<Command> {
-    let result = handler.handle_key(event, document, cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        event,
+        document,
+        cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
     match result {
         KeyResult::Command(cmd) => {
             cmd.apply(document, cursor).expect("command must apply");
@@ -72,6 +78,7 @@ fn move_char_left() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -92,6 +99,7 @@ fn move_char_right() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -113,6 +121,7 @@ fn move_to_next_line() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -129,7 +138,13 @@ fn shift_extends_selection() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Right, Modifiers::shift());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
         assert_eq!(new_state.primary.anchor, Position::new(0, 5));
@@ -147,7 +162,13 @@ fn ctrl_moves_by_word() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Left, Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
         // Should move to start of "World"
@@ -164,7 +185,13 @@ fn char_insertion() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::simple(KeyCode::Char('!'));
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     if let KeyResult::Command(Command::Compound { commands }) = result {
         assert!(!commands.is_empty());
@@ -184,6 +211,7 @@ fn backspace_deletes_char() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::Compound { commands }) = result {
@@ -204,6 +232,7 @@ fn home_moves_to_line_start() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -224,6 +253,7 @@ fn end_moves_to_line_end() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -245,6 +275,7 @@ fn escape_collapses_selection() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -267,6 +298,7 @@ fn up_arrow_with_sticky_column() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -285,7 +317,13 @@ fn ctrl_d_selects_word_first() {
 
     // First Ctrl+D should select the word
     let event = KeyEvent::new(KeyCode::Char('d'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
         assert!(!new_state.primary.is_collapsed());
@@ -305,7 +343,13 @@ fn ctrl_d_adds_next_match() {
 
     // Ctrl+D should find next "foo"
     let event = KeyEvent::new(KeyCode::Char('d'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
         // Should have 2 cursors now
@@ -336,6 +380,7 @@ fn escape_collapses_multi_cursor() {
         &doc,
         &cursor,
         &UndoTree::new(),
+        &EditorConfig::default(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -794,7 +839,13 @@ fn copy_joins_selected_texts_with_line_ending() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('c'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     assert_eq!(
         result,
@@ -809,7 +860,13 @@ fn copy_collapsed_multi_cursor_copies_each_line() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('c'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     assert_eq!(
         result,
@@ -824,7 +881,13 @@ fn copy_collapsed_cursors_on_same_line_copy_line_once() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('c'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     assert_eq!(
         result,
@@ -842,7 +905,13 @@ fn cut_removes_all_selections() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('x'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
         panic!("expected a cut operation, got {result:?}");
@@ -863,7 +932,13 @@ fn cut_collapsed_multi_cursor_removes_lines() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('x'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
         panic!("expected a cut operation, got {result:?}");
@@ -891,7 +966,13 @@ fn cut_on_empty_document_still_updates_clipboard() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('x'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
         panic!("expected a cut operation, got {result:?}");
@@ -909,7 +990,13 @@ fn cut_trailing_empty_line_removes_preceding_newline() {
     let mut handler = KeyboardHandler::new();
 
     let event = KeyEvent::new(KeyCode::Char('x'), Modifiers::ctrl());
-    let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
+    let result = handler.handle_key(
+        &event,
+        &doc,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+    );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
         panic!("expected a cut operation, got {result:?}");

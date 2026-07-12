@@ -195,7 +195,7 @@ impl SearchState {
         if options.regex {
             self.find_regex_matches(&text, query, options, document)?;
         } else {
-            self.find_literal_matches(&text, query, options, document);
+            self.find_literal_matches(&text, query, options, document)?;
         }
 
         // Set current match to first if there are matches
@@ -207,33 +207,75 @@ impl SearchState {
     }
 
     /// Finds all literal (non-regex) matches.
+    ///
+    /// The case-sensitive path uses direct substring search. The case-insensitive
+    /// path delegates to the regex engine with an escaped pattern so that all
+    /// reported byte offsets refer to the *original* text and are always aligned
+    /// to character boundaries. Lowercasing the haystack and needle is not safe
+    /// here: some characters change UTF-8 byte length when lowercased (e.g. 'İ'
+    /// U+0130 lowercases to "i\u{307}", and 'ẞ' U+1E9E lowercases to 'ß' U+00DF),
+    /// which would desynchronize offsets from the original text.
+    ///
+    /// Returns `Err(String)` if the case-insensitive matcher cannot be built
+    /// (e.g. the escaped query exceeds the regex engine's size limit).
     fn find_literal_matches(
         &mut self,
         text: &str,
         query: &str,
         options: &SearchOptions,
         document: &Document,
-    ) {
-        let search_text: String;
-        let search_query: String;
+    ) -> Result<(), String> {
+        if options.case_sensitive {
+            let mut start = 0;
+            while let Some(offset) = text[start..].find(query) {
+                let match_start = start + offset;
+                let match_end = match_start + query.len();
 
-        // Handle case insensitivity by converting to lowercase
-        let (haystack, needle) = if options.case_sensitive {
-            (text, query)
-        } else {
-            search_text = text.to_lowercase();
-            search_query = query.to_lowercase();
-            (search_text.as_str(), search_query.as_str())
-        };
+                // Check whole-word boundary if required
+                if options.whole_word && !Self::is_word_boundary(text, match_start, match_end) {
+                    start = match_start + 1;
+                    continue;
+                }
 
-        let mut start = 0;
-        while let Some(offset) = haystack[start..].find(needle) {
-            let match_start = start + offset;
-            let match_end = match_start + query.len();
+                // Convert byte offsets to positions
+                if let (Some(start_pos), Some(end_pos)) = (
+                    document.offset_to_position(match_start),
+                    document.offset_to_position(match_end),
+                ) {
+                    self.matches.push(Range::new(start_pos, end_pos));
+                }
+
+                start = match_start + 1;
+            }
+            return Ok(());
+        }
+
+        // Case-insensitive: search the original text with a case-insensitive
+        // regex built from the escaped query. The regex engine performs Unicode
+        // case folding internally and reports offsets in the original haystack,
+        // so match ranges are always char-boundary-aligned in the original text.
+        let regex = RegexBuilder::new(&regex::escape(query))
+            .case_insensitive(true)
+            .build()
+            .map_err(|e| format!("Invalid search query: {e}"))?;
+
+        // Mirror the case-sensitive path's overlap semantics: after each match,
+        // resume searching one character past the match start.
+        let mut search_from = 0;
+        while search_from <= text.len() {
+            let Some(mat) = regex.find_at(text, search_from) else {
+                break;
+            };
+            let match_start = mat.start();
+            let match_end = mat.end();
+
+            // Advance to the next character boundary after the match start so
+            // overlapping matches are found and `find_at` stays boundary-aligned.
+            search_from =
+                match_start + text[match_start..].chars().next().map_or(1, char::len_utf8);
 
             // Check whole-word boundary if required
             if options.whole_word && !Self::is_word_boundary(text, match_start, match_end) {
-                start = match_start + 1;
                 continue;
             }
 
@@ -244,9 +286,9 @@ impl SearchState {
             ) {
                 self.matches.push(Range::new(start_pos, end_pos));
             }
-
-            start = match_start + 1;
         }
+
+        Ok(())
     }
 
     /// Finds all regex matches.
@@ -371,6 +413,7 @@ impl SearchState {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -571,6 +614,117 @@ mod tests {
     fn escape_regex_special_chars() {
         assert_eq!(SearchState::escape_regex("foo.bar"), r"foo\.bar");
         assert_eq!(SearchState::escape_regex("[test]"), r"\[test\]");
+    }
+
+    /// Converts every match back to byte offsets and asserts each range is
+    /// valid and char-boundary-aligned in the original text, returning the
+    /// matched slices.
+    fn assert_matches_slice_cleanly<'a>(
+        state: &SearchState,
+        doc: &Document,
+        text: &'a str,
+    ) -> Vec<&'a str> {
+        state
+            .all_matches()
+            .iter()
+            .map(|range| {
+                let start = doc
+                    .position_to_offset(range.start)
+                    .expect("match start must map to a valid offset");
+                let end = doc
+                    .position_to_offset(range.end)
+                    .expect("match end must map to a valid offset");
+                text.get(start..end)
+                    .expect("match range must be char-boundary-aligned in the original text")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn find_case_insensitive_dotted_capital_i_is_boundary_safe() {
+        // 'İ' (U+0130) lowercases to "i\u{307}" (2 bytes -> 3 bytes). The old
+        // lowercase-both-sides approach desynced byte offsets from the original
+        // text here. Unicode simple case folding (used by the regex engine)
+        // does not fold 'İ' to 'i', so "istanbul" does not match "İstanbul" —
+        // and crucially, no misaligned range is ever produced.
+        let text = "İstanbul";
+        let doc = Document::new(text);
+        let mut state = SearchState::new();
+        state
+            .find_all("istanbul", &SearchOptions::default(), &doc)
+            .unwrap();
+
+        assert_eq!(state.match_count(), 0);
+        assert!(assert_matches_slice_cleanly(&state, &doc, text).is_empty());
+    }
+
+    #[test]
+    fn find_case_insensitive_ascii_mixed_case_ranges() {
+        let text = "Hello HELLO hello hElLo";
+        let doc = Document::new(text);
+        let mut state = SearchState::new();
+        state
+            .find_all("hello", &SearchOptions::default(), &doc)
+            .unwrap();
+
+        assert_eq!(state.match_count(), 4);
+        let slices = assert_matches_slice_cleanly(&state, &doc, text);
+        assert_eq!(slices, vec!["Hello", "HELLO", "hello", "hElLo"]);
+    }
+
+    #[test]
+    fn find_case_insensitive_sharp_s_no_misaligned_ranges() {
+        // 'ẞ' (U+1E9E, 3 bytes) lowercases to 'ß' (U+00DF, 2 bytes), so the
+        // lowercased haystack is shorter than the original. The old approach
+        // produced ranges that were out of sync with (and not boundary-aligned
+        // in) the original text. Property: every reported match must slice
+        // cleanly out of the original haystack.
+        let text = "GROẞE straße";
+        let doc = Document::new(text);
+        let mut state = SearchState::new();
+        state
+            .find_all("ße", &SearchOptions::default(), &doc)
+            .unwrap();
+
+        // Matches "ẞE" in "GROẞE" (via case folding) and "ße" in "straße".
+        assert_eq!(state.match_count(), 2);
+        let slices = assert_matches_slice_cleanly(&state, &doc, text);
+        assert_eq!(slices, vec!["ẞE", "ße"]);
+        for slice in slices {
+            assert_eq!(slice.to_lowercase(), "ße");
+        }
+    }
+
+    #[test]
+    fn find_case_insensitive_multibyte_whole_word() {
+        // Whole-word filtering must keep working on the case-insensitive path.
+        let text = "straße straßenbahn STRAẞE";
+        let doc = Document::new(text);
+        let mut state = SearchState::new();
+        state
+            .find_all("straße", &SearchOptions::whole_word(), &doc)
+            .unwrap();
+
+        assert_eq!(state.match_count(), 2);
+        let slices = assert_matches_slice_cleanly(&state, &doc, text);
+        assert_eq!(slices, vec!["straße", "STRAẞE"]);
+    }
+
+    #[test]
+    fn find_case_insensitive_overlapping_matches_preserved() {
+        // The literal search historically reports overlapping matches (resume
+        // one position past each match start); the case-insensitive path must
+        // preserve that.
+        let text = "aAa";
+        let doc = Document::new(text);
+        let mut state = SearchState::new();
+        state
+            .find_all("aa", &SearchOptions::default(), &doc)
+            .unwrap();
+
+        assert_eq!(state.match_count(), 2);
+        let slices = assert_matches_slice_cleanly(&state, &doc, text);
+        assert_eq!(slices, vec!["aA", "Aa"]);
     }
 
     #[test]

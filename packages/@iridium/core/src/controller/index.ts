@@ -18,8 +18,8 @@
  * ```
  */
 
-// Import syntax worker client - uses relative path for bundler compatibility
-import { SyntaxHighlightClient, type EditInfo } from "../../../syntax-worker/src/client";
+// Import syntax worker client
+import { SyntaxHighlightClient, type EditInfo } from "../worker/client.ts";
 
 // Types for the low-level WASM editor
 interface WebEditor {
@@ -89,6 +89,10 @@ interface WebEditor {
   isTreeSitterActive(): boolean;
   getScrollY(): number;
   getLineHeight(): number;
+  getCharWidth(): number;
+  getTextOffsetX(): number;
+  getTextOffsetY(): number;
+  positionToPixel(line: number, column: number): number[];
   // Git integration: read-only, line backgrounds, gutter changes, blame
   setReadOnly(readOnly: boolean): void;
   isReadOnly(): boolean;
@@ -121,6 +125,12 @@ export interface IridiumEditorOptions {
   onChange?: (content: string) => void;
   /** Callback when cursor/selection changes */
   onSelectionChange?: (info: { line: number; column: number; hasSelection: boolean }) => void;
+  /** Callback when mouse hovers over a position (debounced 400ms). Null = mouse left. */
+  onMouseHover?: (info: { line: number; column: number; clientX: number; clientY: number } | null) => void;
+  /** Callback when editor scrolls (wheel or cursor movement). */
+  onScroll?: () => void;
+  /** Intercept keydown before editor processes it. Return true to consume the event. */
+  onBeforeKeyDown?: (e: KeyboardEvent) => boolean;
 }
 
 export interface EditorState {
@@ -156,7 +166,7 @@ export class IridiumEditor {
   private canvas: HTMLCanvasElement;
   private editor: WebEditor;
   private syntaxWorker: SyntaxHighlightClient | null = null;
-  private options: Required<Omit<IridiumEditorOptions, "onChange" | "onSelectionChange">> & Pick<IridiumEditorOptions, "onChange" | "onSelectionChange">;
+  private options: Required<Omit<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown">> & Pick<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown">;
   private currentLanguage: string;
   private isDragging = false;
   private animationFrameId = 0;
@@ -165,6 +175,9 @@ export class IridiumEditor {
   private destroyed = false;
   /** Pending edit info for incremental tree-sitter parsing (T027) */
   private lastEditInfo: EditInfo | null = null;
+  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastHoverLine = -1;
+  private lastHoverColumn = -1;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -181,6 +194,9 @@ export class IridiumEditor {
       enableSyntaxWorker: options.enableSyntaxWorker ?? false,
       onChange: options.onChange,
       onSelectionChange: options.onSelectionChange,
+      onMouseHover: options.onMouseHover,
+      onScroll: options.onScroll,
+      onBeforeKeyDown: options.onBeforeKeyDown,
     };
     this.currentLanguage = this.options.language;
   }
@@ -361,6 +377,14 @@ export class IridiumEditor {
       this.canvas.removeEventListener("wheel", handleWheel);
     });
 
+    // Mouse leave — cancel hover
+    const handleMouseLeave = (): void => {
+      this.resetHoverTimer();
+      this.options.onMouseHover?.(null);
+    };
+    this.canvas.addEventListener("mouseleave", handleMouseLeave);
+    this.eventCleanup.push(() => this.canvas.removeEventListener("mouseleave", handleMouseLeave));
+
     // Resize - observe parent container, not canvas (CSS % sizing doesn't trigger resize on canvas itself)
     const resizeTarget = this.canvas.parentElement || this.canvas;
     const resizeObserver = new ResizeObserver((entries) => {
@@ -400,7 +424,17 @@ export class IridiumEditor {
     return [pos[0], pos[1]];
   }
 
+  private resetHoverTimer(): void {
+    if (this.hoverTimer) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+    this.lastHoverLine = -1;
+    this.lastHoverColumn = -1;
+  }
+
   private handleMouseDown(e: MouseEvent): void {
+    this.resetHoverTimer();
     this.canvas.focus();
     const [line, column] = this.getMousePosition(e);
 
@@ -415,11 +449,27 @@ export class IridiumEditor {
   }
 
   private handleMouseMove(e: MouseEvent): void {
-    if (!this.isDragging) return;
-    const [line, column] = this.getMousePosition(e);
-    this.editor.extendSelectionToPosition(line, column);
-    this.editor.forceRender();
-    this.notifySelectionChange();
+    if (this.isDragging) {
+      const [line, column] = this.getMousePosition(e);
+      this.editor.extendSelectionToPosition(line, column);
+      this.editor.forceRender();
+      this.notifySelectionChange();
+      return;
+    }
+    // Hover detection (only when not dragging)
+    if (this.options.onMouseHover) {
+      this.resetHoverTimer();
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+      this.hoverTimer = setTimeout(() => {
+        const [line, column] = this.getMousePosition(e);
+        if (line !== this.lastHoverLine || column !== this.lastHoverColumn) {
+          this.lastHoverLine = line;
+          this.lastHoverColumn = column;
+          this.options.onMouseHover?.({ line, column, clientX, clientY });
+        }
+      }, 400);
+    }
   }
 
   private handleMouseUp(): void {
@@ -432,9 +482,17 @@ export class IridiumEditor {
     // Update highlights immediately - tree reuse makes this fast
     this.updateHighlights();
     this.editor.forceRender();
+    this.resetHoverTimer();
+    this.options.onScroll?.();
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
+    if (this.options.onBeforeKeyDown?.(e)) {
+      e.preventDefault();
+      return;
+    }
+    // Cancel hover on any keypress
+    this.resetHoverTimer();
     let handled = true;
     const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const selecting = e.shiftKey;
@@ -526,6 +584,7 @@ export class IridiumEditor {
       // Fire async worker request - will re-render with updated highlights when ready
       this.updateHighlights();
       this.notifySelectionChange();
+      this.options.onScroll?.();
     }
   }
 
@@ -1161,10 +1220,79 @@ export class IridiumEditor {
     this.editor.forceRender();
   }
 
+  // ============================================================================
+  // Layout metrics and position conversion
+  // ============================================================================
+
+  /** Get layout metrics for position calculations. */
+  getLayoutMetrics(): { lineHeight: number; charWidth: number; scrollY: number; textOffsetX: number; textOffsetY: number } {
+    return {
+      lineHeight: this.editor.getLineHeight(),
+      charWidth: this.editor.getCharWidth(),
+      scrollY: this.editor.getScrollY(),
+      textOffsetX: this.editor.getTextOffsetX(),
+      textOffsetY: this.editor.getTextOffsetY(),
+    };
+  }
+
+  /**
+   * Convert a document position to pixel coordinates.
+   * Returns null if the position is off-screen or on a folded line.
+   * Coordinates are in physical pixels (caller divides by devicePixelRatio).
+   */
+  positionToPixel(line: number, column: number): { x: number; y: number } | null {
+    const result = this.editor.positionToPixel(line, column);
+    if (result[0] < 0) return null;
+    return { x: result[0], y: result[1] };
+  }
+
+  /**
+   * Apply a completion: delete N characters before cursor, then insert text.
+   * Preserves undo history by using individual operations.
+   * Tracks the combined edit for incremental parsing using pre-edit content
+   * for oldEndPosition (required for correct tree-sitter row/column coords).
+   */
+  applyCompletion(deleteCount: number, text: string): void {
+    const contentBefore = this.editor.getContent();
+    const cursorByte = this.getCursorByteOffset();
+    const editStart = cursorByte - deleteCount;
+    const oldEndByte = cursorByte;
+
+    for (let i = 0; i < deleteCount; i++) {
+      this.editor.backspace();
+    }
+    this.editor.insert(text);
+
+    const contentAfter = this.editor.getContent();
+    const newEndByte = editStart + text.length;
+
+    // Compute positions: startPos and newEndPos use post-edit content,
+    // oldEndPos uses pre-edit content for correct row/column mapping.
+    const startPos = this.byteToPosition(contentAfter, editStart);
+    const oldEndPos = this.byteToPosition(contentBefore, oldEndByte);
+    const newEndPos = this.byteToPosition(contentAfter, newEndByte);
+
+    this.lastEditInfo = {
+      startIndex: editStart,
+      oldEndIndex: oldEndByte,
+      newEndIndex: newEndByte,
+      startPosition: startPos,
+      oldEndPosition: oldEndPos,
+      newEndPosition: newEndPos,
+    };
+
+    this.editor.ensureCursorVisible();
+    this.updateHighlights();
+    this.editor.forceRender();
+    this.notifyContentChange();
+    this.notifySelectionChange();
+  }
+
   /** Destroy the editor and clean up resources. */
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.resetHoverTimer();
 
     // Remove from tracking map
     initializedCanvases.delete(this.canvas);

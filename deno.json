@@ -1,0 +1,6 @@
+{
+  "workspace": [
+    "packages/@iridium/core",
+    "packages/@iridium/syntax-worker"
+  ]
+}

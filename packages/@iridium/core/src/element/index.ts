@@ -19,7 +19,7 @@
  *   - iridium-ready: Fired when editor is initialized
  */
 
-import { IridiumEditor, type EditorState } from "../controller/index";
+import { IridiumEditor, type EditorState } from "../controller/index.ts";
 
 /**
  * Custom element for the Iridium editor.
@@ -236,7 +236,7 @@ export class IridiumEditorElement extends HTMLElement {
   }
 
   /** Focus the editor. */
-  focus(): void {
+  override focus(): void {
     this.editor?.focus();
   }
 }

@@ -6,11 +6,11 @@
  */
 
 import { Parser, Language as TSLanguage, Query, Tree } from "web-tree-sitter";
-import { decodeCoreWasm } from "./core.gen";
-import { decodeGrammar, AVAILABLE_LANGUAGES } from "./grammars.gen";
-import { HIGHLIGHT_QUERIES } from "./queries";
+import { decodeCoreWasm } from "./core.gen.ts";
+import { decodeGrammar, AVAILABLE_LANGUAGES } from "./grammars.gen.ts";
+import { HIGHLIGHT_QUERIES } from "./queries.ts";
 
-export { AVAILABLE_LANGUAGES };
+export { AVAILABLE_LANGUAGES, decodeCoreWasm, decodeGrammar, HIGHLIGHT_QUERIES };
 export type Language = (typeof AVAILABLE_LANGUAGES)[number];
 
 export interface HighlightSpan {
@@ -71,7 +71,7 @@ export class SyntaxHighlighter {
    */
   async initialize(defaultLanguage: string = "rust"): Promise<void> {
     // Decode the bundled core WASM
-    const coreWasm = decodeCoreWasm();
+    const coreWasm = await decodeCoreWasm();
 
     // Initialize tree-sitter with the bundled WASM binary - no CDN needed
     // wasmBinary is an Emscripten option that provides pre-loaded WASM bytes
@@ -101,7 +101,7 @@ export class SyntaxHighlighter {
       return true;
     }
 
-    const wasmBytes = decodeGrammar(lang);
+    const wasmBytes = await decodeGrammar(lang);
     if (!wasmBytes) {
       console.error(`[Syntax] No bundled grammar for: ${lang}`);
       return false;

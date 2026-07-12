@@ -1,0 +1,18 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:web-tree-sitter@0.25.6": "0.25.6"
+  },
+  "npm": {
+    "web-tree-sitter@0.25.6": {
+      "integrity": "sha512-WG+/YGbxw8r+rLlzzhV+OvgiOJCWdIpOucG3qBf3RCBFMkGDb1CanUi2BxCxjnkpzU3/hLWPT8VO5EKsMk9Fxg=="
+    }
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:web-tree-sitter@0.25.6"
+      ]
+    }
+  }
+}

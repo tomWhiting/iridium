@@ -1,0 +1,8 @@
+# Override root .gitignore so that pkg/ is included
+# (the "files" field in package.json specifies what to publish)
+src/
+target/
+Cargo.toml
+Cargo.lock
+build.rs
+*.rs

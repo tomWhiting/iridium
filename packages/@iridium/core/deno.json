@@ -1,0 +1,16 @@
+{
+  "name": "@iridium-editor/core",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/controller/index.ts",
+    "./controller": "./src/controller/index.ts",
+    "./syntax": "./src/syntax/index.ts",
+    "./element": "./src/element/index.ts",
+    "./worker-client": "./src/worker/client.ts",
+    "./worker-protocol": "./src/worker/protocol.ts"
+  },
+  "compilerOptions": {
+    "lib": ["esnext", "dom", "dom.iterable"]
+  }
+}

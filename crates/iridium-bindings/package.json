@@ -1,6 +1,6 @@
 {
   "name": "iridium-bindings",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "TypeScript/WASM bindings for the Iridium GPU-accelerated text editor",
   "main": "./pkg/iridium_bindings.js",
@@ -28,7 +28,10 @@
     }
   },
   "files": [
-    "pkg/",
+    "pkg/iridium_bindings.js",
+    "pkg/iridium_bindings.d.ts",
+    "pkg/iridium_bindings_bg.wasm",
+    "pkg/iridium_bindings_bg.wasm.d.ts",
     "ts/",
     "grammars/"
   ],
@@ -44,7 +47,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/graphspace/iridium"
+    "url": "https://github.com/tomWhiting/iridium"
   },
   "engines": {
     "node": ">= 18"
@@ -53,7 +56,7 @@
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "build:syntax": "deno run -A scripts/inline-grammars.ts",
-    "prepublishOnly": "napi prepublish -t npm",
+
     "test": "echo \"No tests yet\"",
     "universal": "napi universal"
   },

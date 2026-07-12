@@ -1,6 +1,6 @@
 {
-  "name": "@iridium/core",
-  "version": "0.1.0",
+  "name": "@iridium-editor/core",
+  "version": "0.1.1",
   "type": "module",
   "description": "Core TypeScript modules for Iridium GPU-accelerated text editor",
   "exports": {
@@ -19,6 +19,14 @@
     "./element": {
       "types": "./src/element/index.ts",
       "default": "./src/element/index.ts"
+    },
+    "./worker-client": {
+      "types": "./src/worker/client.ts",
+      "default": "./src/worker/client.ts"
+    },
+    "./worker-protocol": {
+      "types": "./src/worker/protocol.ts",
+      "default": "./src/worker/protocol.ts"
     }
   },
   "files": [
@@ -35,12 +43,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/graphspace/iridium"
+    "url": "https://github.com/tomWhiting/iridium"
   },
   "peerDependencies": {
     "iridium-bindings": ">=0.1.0"
   },
   "dependencies": {
     "web-tree-sitter": "0.25.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

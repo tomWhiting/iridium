@@ -79,7 +79,7 @@ impl FoldRegion {
 
     /// Returns true if this region strictly contains another region.
     #[must_use]
-    pub fn contains_region(&self, other: &Self) -> bool {
+    pub const fn contains_region(&self, other: &Self) -> bool {
         self.start_line < other.start_line && self.end_line > other.end_line
     }
 }
@@ -109,7 +109,7 @@ struct FoldableNodeTypes {
 }
 
 impl FoldableNodeTypes {
-    fn for_language(language: Language) -> Self {
+    const fn for_language(language: Language) -> Self {
         match language {
             Language::Rust => Self {
                 blocks: &[
@@ -519,6 +519,7 @@ impl FoldDetector {
     }
 
     /// Merges consecutive single-line imports into foldable groups.
+    #[allow(clippy::unused_self)]
     fn merge_consecutive_imports(&self, regions: &mut Vec<FoldRegion>) {
         if regions.is_empty() {
             return;

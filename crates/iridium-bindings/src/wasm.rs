@@ -403,7 +403,8 @@ impl WebEditor {
 
     /// Sets gutter change indicators (thin colored bars in the gutter).
     /// Accepts a JS array of `{line: number, kind: string}` objects.
-    /// Kind must be "added", "modified", or "deleted". Line numbers are 0-indexed.
+    /// Kind must be "added", "modified", "deleted", "error", "warning", "info", or "hint".
+    /// Line numbers are 0-indexed.
     #[wasm_bindgen(js_name = setGutterChanges)]
     pub fn set_gutter_changes(&mut self, changes: &JsValue) -> Result<(), JsValue> {
         use js_sys::{Array, Reflect};
@@ -424,9 +425,13 @@ impl WebEditor {
                 "added" => self.theme.editor.change_added,
                 "modified" => self.theme.editor.change_modified,
                 "deleted" => self.theme.editor.change_deleted,
+                "error" => self.theme.editor.diagnostic_error,
+                "warning" => self.theme.editor.diagnostic_warning,
+                "info" => self.theme.editor.diagnostic_info,
+                "hint" => self.theme.editor.diagnostic_hint,
                 _ => {
                     return Err(JsValue::from_str(&format!(
-                        "unknown change kind: {} (expected added/modified/deleted)",
+                        "unknown change kind: {} (expected added/modified/deleted/error/warning/info/hint)",
                         kind
                     )));
                 }
@@ -2737,6 +2742,97 @@ impl WebEditor {
             let clamped_column = column.min(line_len);
 
             vec![doc_line as u32, clamped_column as u32]
+        }
+    }
+
+    /// Converts a document line/column to pixel coordinates.
+    /// Returns [x, y] in physical pixels. Returns [-1.0, -1.0] if the line is
+    /// hidden (folded or off-screen).
+    ///
+    /// This is the inverse of `pixelToPosition`. It uses the same cached visual
+    /// line map built during `render_frame` to correctly handle word wrapping
+    /// and code folding.
+    #[wasm_bindgen(js_name = positionToPixel)]
+    pub fn position_to_pixel(&self, doc_line: u32, column: u32) -> Vec<f32> {
+        let line_height = self.text_renderer.line_height();
+        let char_width = self.cached_char_width;
+        let padding = 10.0_f32;
+        let doc_line = doc_line as usize;
+        let column = column as usize;
+
+        // Check if line is folded (hidden)
+        if self.fold_state.is_line_hidden(doc_line) {
+            return vec![-1.0, -1.0];
+        }
+
+        // Use the cached visual line map if available (after first render)
+        if !self.cached_visual_line_map.is_empty() {
+            // Find the buffer line index for this document line
+            let buffer_line_idx = self
+                .cpu_visible_doc_lines
+                .iter()
+                .position(|&dl| dl == doc_line);
+
+            if let Some(buf_idx) = buffer_line_idx {
+                // Find the visual line that contains this column
+                // (handles word wrap — a single document line may span multiple visual lines)
+                let mut target_visual = None;
+                let mut col_in_segment = column;
+
+                for (visual_idx, &(bi, run_start)) in
+                    self.cached_visual_line_map.iter().enumerate()
+                {
+                    if bi == buf_idx {
+                        // Check if this is the last segment for this buffer line
+                        let next_run_start = self
+                            .cached_visual_line_map
+                            .get(visual_idx + 1)
+                            .filter(|&&(next_bi, _)| next_bi == buf_idx)
+                            .map(|&(_, start)| start);
+
+                        if let Some(next_start) = next_run_start {
+                            if column >= run_start && column < next_start {
+                                target_visual = Some(visual_idx);
+                                col_in_segment = column - run_start;
+                                break;
+                            }
+                        } else {
+                            // Last (or only) segment — column must be here
+                            if column >= run_start {
+                                target_visual = Some(visual_idx);
+                                col_in_segment = column - run_start;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(visual_idx) = target_visual {
+                    let virtual_scroll_offset =
+                        self.cached_map_viewport_start as f32 * line_height;
+                    let x =
+                        self.cached_content_offset_x + (col_in_segment as f32 * char_width);
+                    let y = padding + (visual_idx as f32 * line_height)
+                        + virtual_scroll_offset
+                        - self.scroll_y;
+                    return vec![x, y];
+                }
+            }
+
+            // Document line not in current viewport
+            return vec![-1.0, -1.0];
+        }
+
+        // Fallback: before first render, use simple calculation (no word wrap)
+        let visual_line = self.fold_state.document_to_visual_line(doc_line);
+        match visual_line {
+            Some(vl) => {
+                let offset_x = self.current_gutter_width() + padding;
+                let x = offset_x + (column as f32 * char_width);
+                let y = padding + (vl as f32 * line_height) - self.scroll_y;
+                vec![x, y]
+            }
+            None => vec![-1.0, -1.0],
         }
     }
 

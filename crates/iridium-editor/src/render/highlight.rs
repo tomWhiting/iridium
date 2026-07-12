@@ -42,7 +42,7 @@ impl HighlightRect {
 
     /// Creates a full-width line highlight.
     #[must_use]
-    pub fn full_line(y: f32, width: f32, height: f32, color: Color) -> Self {
+    pub const fn full_line(y: f32, width: f32, height: f32, color: Color) -> Self {
         Self {
             x: 0.0,
             y,
@@ -158,14 +158,14 @@ impl SelectionRenderer {
                 // Empty selection on this line, skip (but show for newline)
                 if line != end.line {
                     // For lines with newline selected, show a small rect
-                    let x = (col_start as f32 * char_width) - scroll_x;
+                    let x = (col_start as f32).mul_add(char_width, -scroll_x);
                     let width = char_width.min(4.0);
                     rects.push(HighlightRect::new(x, y, width, line_height, color));
                 }
                 continue;
             }
 
-            let x = (col_start as f32 * char_width) - scroll_x;
+            let x = (col_start as f32).mul_add(char_width, -scroll_x);
             let mut width = (col_end - col_start) as f32 * char_width;
 
             // For non-last lines, extend selection to show newline is included
@@ -350,7 +350,7 @@ impl FoldPlaceholder {
     /// Creates a new fold placeholder.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub const fn new(
         line: usize,
         x: f32,
         y: f32,
@@ -388,7 +388,7 @@ impl FoldPlaceholderRenderer {
         Self
     }
 
-    /// Computes fold placeholders from a FoldState.
+    /// Computes fold placeholders from a `FoldState`.
     #[allow(clippy::too_many_arguments, clippy::cast_precision_loss)]
     pub fn compute_placeholders<F>(
         &self,
@@ -417,7 +417,7 @@ impl FoldPlaceholderRenderer {
                     let text_width = text.len() as f32 * char_width;
 
                     let line_len = line_lengths(line);
-                    let x = ((line_len as f32) * char_width - scroll_x).max(0.0);
+                    let x = (line_len as f32).mul_add(char_width, -scroll_x).max(0.0);
 
                     let padding = 4.0;
                     let width = text_width + padding * 2.0;
@@ -471,7 +471,7 @@ impl FoldPlaceholderRenderer {
                     let text_width = text.len() as f32 * char_width;
 
                     let line_len = line_lengths(doc_line);
-                    let x = ((line_len as f32) * char_width - scroll_x).max(0.0);
+                    let x = (line_len as f32).mul_add(char_width, -scroll_x).max(0.0);
 
                     let padding = 4.0;
                     let width = text_width + padding * 2.0;
@@ -502,7 +502,7 @@ fn format_fold_placeholder(hidden_lines: usize) -> String {
     if hidden_lines <= 3 {
         "...".to_string()
     } else {
-        format!("... {} lines", hidden_lines)
+        format!("... {hidden_lines} lines")
     }
 }
 
@@ -540,7 +540,7 @@ pub struct SearchHighlightRenderer {
 impl SearchHighlightRenderer {
     /// Creates a new search highlight renderer.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             selection_renderer: SelectionRenderer::new(),
         }

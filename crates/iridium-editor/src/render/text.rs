@@ -215,7 +215,7 @@ impl TextRenderer {
             // Measure "MM" and divide by 2 for more accuracy
             let mut total_width = 0.0;
             let mut glyph_count = 0;
-            for glyph in run.glyphs.iter() {
+            for glyph in run.glyphs {
                 total_width += glyph.w;
                 glyph_count += 1;
             }
@@ -346,12 +346,12 @@ impl TextRenderer {
                 let run_start_col = if run.glyphs.is_empty() {
                     0
                 } else {
-                    run.glyphs.first().map(|g| g.start).unwrap_or(0)
+                    run.glyphs.first().map_or(0, |g| g.start)
                 };
                 let run_end_col = if run.glyphs.is_empty() {
                     0
                 } else {
-                    run.glyphs.last().map(|g| g.end).unwrap_or(0)
+                    run.glyphs.last().map_or(0, |g| g.end)
                 };
 
                 if column <= run_end_col || run.glyphs.is_empty() {
@@ -542,7 +542,7 @@ impl TextRenderer {
     /// # Arguments
     ///
     /// * `height` - New line height multiplier
-    pub fn set_line_height(&mut self, height: f32) {
+    pub const fn set_line_height(&mut self, height: f32) {
         self.config.line_height = height;
     }
 

@@ -314,49 +314,49 @@ impl ThemeBuilder {
     }
 
     /// Sets the background color.
-    pub fn background(mut self, color: Color) -> Self {
+    pub const fn background(mut self, color: Color) -> Self {
         self.theme.editor.background = color;
         self
     }
 
     /// Sets the foreground (text) color.
-    pub fn foreground(mut self, color: Color) -> Self {
+    pub const fn foreground(mut self, color: Color) -> Self {
         self.theme.editor.foreground = color;
         self
     }
 
     /// Sets the selection color.
-    pub fn selection(mut self, color: Color) -> Self {
+    pub const fn selection(mut self, color: Color) -> Self {
         self.theme.editor.selection = color;
         self
     }
 
     /// Sets the cursor color.
-    pub fn cursor(mut self, color: Color) -> Self {
+    pub const fn cursor(mut self, color: Color) -> Self {
         self.theme.editor.cursor = color;
         self
     }
 
     /// Sets the current line highlight color.
-    pub fn current_line(mut self, color: Color) -> Self {
+    pub const fn current_line(mut self, color: Color) -> Self {
         self.theme.editor.current_line = color;
         self
     }
 
     /// Sets the keyword syntax color.
-    pub fn keyword_color(mut self, color: Color) -> Self {
+    pub const fn keyword_color(mut self, color: Color) -> Self {
         self.theme.syntax.keyword = color;
         self
     }
 
     /// Sets the string syntax color.
-    pub fn string_color(mut self, color: Color) -> Self {
+    pub const fn string_color(mut self, color: Color) -> Self {
         self.theme.syntax.string = color;
         self
     }
 
     /// Sets the comment syntax color.
-    pub fn comment_color(mut self, color: Color) -> Self {
+    pub const fn comment_color(mut self, color: Color) -> Self {
         self.theme.syntax.comment = color;
         self
     }
@@ -368,13 +368,13 @@ impl ThemeBuilder {
     }
 
     /// Sets the font size.
-    pub fn font_size(mut self, size: f32) -> Self {
+    pub const fn font_size(mut self, size: f32) -> Self {
         self.theme.typography.font_size = size;
         self
     }
 
     /// Sets the line height multiplier.
-    pub fn line_height(mut self, height: f32) -> Self {
+    pub const fn line_height(mut self, height: f32) -> Self {
         self.theme.typography.line_height = height;
         self
     }

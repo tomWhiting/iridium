@@ -84,7 +84,7 @@ impl MinimapRenderer {
     }
 
     /// Enables or disables the minimap.
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub const fn set_enabled(&mut self, enabled: bool) {
         self.config.enabled = enabled;
     }
 
@@ -339,7 +339,7 @@ impl MinimapRenderer {
     }
 
     /// Handles mouse release to end drag.
-    pub fn handle_release(&mut self) {
+    pub const fn handle_release(&mut self) {
         self.drag_state.end();
     }
 
@@ -350,7 +350,7 @@ impl MinimapRenderer {
     }
 
     /// Calculates the scroll target to center a line in the viewport.
-    fn calculate_scroll_target(
+    const fn calculate_scroll_target(
         &self,
         clicked_line: usize,
         viewport: &Viewport,
@@ -372,7 +372,7 @@ impl MinimapRenderer {
     ///
     /// Returns 0.0 if minimap is disabled.
     #[must_use]
-    pub fn width(&self) -> f32 {
+    pub const fn width(&self) -> f32 {
         if self.config.enabled {
             self.config.width
         } else {

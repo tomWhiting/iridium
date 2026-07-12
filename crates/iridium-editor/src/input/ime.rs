@@ -137,7 +137,7 @@ impl ImeHandler {
 
     /// Returns true if IME composition is active.
     #[must_use]
-    pub fn is_composing(&self) -> bool {
+    pub const fn is_composing(&self) -> bool {
         matches!(self.state, ImeState::Composing { .. })
     }
 
@@ -152,7 +152,7 @@ impl ImeHandler {
 
     /// Returns the cursor position within composition, if any.
     #[must_use]
-    pub fn composition_cursor(&self) -> Option<usize> {
+    pub const fn composition_cursor(&self) -> Option<usize> {
         match &self.state {
             ImeState::Composing { cursor, .. } => Some(*cursor),
             _ => None,
@@ -402,7 +402,7 @@ mod tests {
         let result = handler.handle_ime(&ImeEvent::Disabled, &doc, &cursor);
 
         assert!(!handler.is_composing());
-        if let ImeResult::StateChanged(ImeState::Inactive) = result {
+        if result == ImeResult::StateChanged(ImeState::Inactive) {
             // Good
         } else {
             panic!("Expected StateChanged to Inactive");

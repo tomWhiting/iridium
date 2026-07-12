@@ -299,7 +299,7 @@ impl FrameTimer {
         self.dropped_frames = 0;
     }
 
-    /// Returns true if we're currently within a frame (between begin_frame and end_frame).
+    /// Returns true if we're currently within a frame (between `begin_frame` and `end_frame`).
     #[must_use]
     pub const fn in_frame(&self) -> bool {
         self.in_frame
@@ -346,7 +346,7 @@ impl DeltaTime {
 
     /// Returns the delta time in seconds.
     #[must_use]
-    pub fn delta_secs(&self) -> f32 {
+    pub const fn delta_secs(&self) -> f32 {
         self.delta.as_secs_f32()
     }
 
@@ -369,7 +369,7 @@ impl DeltaTime {
     }
 
     /// Sets the maximum delta time cap.
-    pub fn set_max_delta(&mut self, max: Duration) {
+    pub const fn set_max_delta(&mut self, max: Duration) {
         self.max_delta = max;
     }
 }
@@ -450,7 +450,7 @@ mod tests {
 
         // Scaling 100 units/sec by ~10ms should give ~1 unit
         let scaled = dt.scale(100.0);
-        assert!(scaled >= 0.5 && scaled <= 2.0);
+        assert!((0.5..=2.0).contains(&scaled));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::theme::Theme;
 
 fn create_test_document() -> Document {
     let content = (0..100)
-        .map(|i| format!("Line {} with some content here\n", i))
+        .map(|i| format!("Line {i} with some content here\n"))
         .collect::<String>();
     Document::new(&content)
 }

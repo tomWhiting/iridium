@@ -425,7 +425,7 @@ impl MinimapDragState {
     }
 
     /// Ends a drag operation.
-    pub fn end(&mut self) {
+    pub const fn end(&mut self) {
         self.is_dragging = false;
         self.start_line = None;
         self.viewport_offset = 0.0;

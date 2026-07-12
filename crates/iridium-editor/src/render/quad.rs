@@ -29,9 +29,9 @@ struct QuadVertex {
 impl QuadVertex {
     const ATTRIBS: [VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x4];
 
-    fn desc() -> VertexBufferLayout<'static> {
+    const fn desc() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
-            array_stride: std::mem::size_of::<QuadVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
@@ -77,7 +77,7 @@ impl Quad {
 }
 
 /// Shader source for quad rendering.
-const QUAD_SHADER: &str = r#"
+const QUAD_SHADER: &str = r"
 struct Uniforms {
     viewport_size: vec2<f32>,
     _padding: vec2<f32>,
@@ -111,7 +111,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return in.color;
 }
-"#;
+";
 
 /// Maximum number of quads that can be rendered in a single batch.
 const MAX_QUADS: usize = 1024;
@@ -133,7 +133,7 @@ pub struct QuadRenderer {
     bind_group: BindGroup,
     viewport_size: [f32; 2],
     /// Pre-allocated CPU-side vertex buffer to avoid per-frame allocations.
-    /// Capacity: MAX_QUADS * 6 vertices.
+    /// Capacity: `MAX_QUADS` * 6 vertices.
     cpu_vertices: Vec<QuadVertex>,
 }
 

@@ -189,7 +189,7 @@ const MULTI_CLICK_THRESHOLD_MS: u128 = 500;
 const MULTI_CLICK_DISTANCE: f32 = 5.0;
 
 /// State tracking for multi-click detection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct ClickState {
     /// Time of last click
     last_click_time: Option<Instant>,
@@ -197,16 +197,6 @@ struct ClickState {
     last_click_pos: Option<(f32, f32)>,
     /// Number of consecutive clicks
     click_count: u32,
-}
-
-impl Default for ClickState {
-    fn default() -> Self {
-        Self {
-            last_click_time: None,
-            last_click_pos: None,
-            click_count: 0,
-        }
-    }
 }
 
 /// Mouse event handler for the editor.
@@ -286,7 +276,7 @@ impl MouseHandler {
     /// Updates the gutter configuration.
     ///
     /// Call this when the gutter width changes (e.g., document grows).
-    pub fn set_gutter_config(&mut self, config: GutterClickConfig) {
+    pub const fn set_gutter_config(&mut self, config: GutterClickConfig) {
         self.gutter_config = config;
     }
 
@@ -389,7 +379,7 @@ impl MouseHandler {
     }
 
     /// Handles left mouse button release.
-    fn handle_left_release(&mut self) -> MouseResult {
+    const fn handle_left_release(&mut self) -> MouseResult {
         self.is_dragging = false;
         self.drag_anchor = None;
         self.selection_mode = SelectionMode::Character;
@@ -436,7 +426,7 @@ impl MouseHandler {
     }
 
     /// Handles scroll wheel event.
-    fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
+    const fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
         MouseResult::Scroll {
             delta_x: event.scroll_x,
             delta_y: event.scroll_y,
@@ -527,7 +517,7 @@ impl MouseHandler {
             self.click_state.last_click_pos,
         ) {
             let elapsed = now.duration_since(last_time).as_millis();
-            let distance = ((x - last_x).powi(2) + (y - last_y).powi(2)).sqrt();
+            let distance = (x - last_x).hypot(y - last_y);
 
             elapsed < MULTI_CLICK_THRESHOLD_MS && distance < MULTI_CLICK_DISTANCE
         } else {
@@ -593,20 +583,20 @@ impl MouseHandler {
         let mut start = col;
         let mut end = col;
 
-        if chars.get(col).map_or(false, |c| is_word_char(*c)) {
+        if chars.get(col).is_some_and(|c| is_word_char(*c)) {
             // On a word character - select the word
-            while start > 0 && chars.get(start - 1).map_or(false, |c| is_word_char(*c)) {
+            while start > 0 && chars.get(start - 1).is_some_and(|c| is_word_char(*c)) {
                 start -= 1;
             }
-            while end < chars.len() && chars.get(end).map_or(false, |c| is_word_char(*c)) {
+            while end < chars.len() && chars.get(end).is_some_and(|c| is_word_char(*c)) {
                 end += 1;
             }
-        } else if chars.get(col).map_or(false, |c| c.is_whitespace()) {
+        } else if chars.get(col).is_some_and(|c| c.is_whitespace()) {
             // On whitespace - select whitespace block
-            while start > 0 && chars.get(start - 1).map_or(false, |c| c.is_whitespace()) {
+            while start > 0 && chars.get(start - 1).is_some_and(|c| c.is_whitespace()) {
                 start -= 1;
             }
-            while end < chars.len() && chars.get(end).map_or(false, |c| c.is_whitespace()) {
+            while end < chars.len() && chars.get(end).is_some_and(|c| c.is_whitespace()) {
                 end += 1;
             }
         } else {
@@ -614,14 +604,14 @@ impl MouseHandler {
             while start > 0
                 && chars
                     .get(start - 1)
-                    .map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
+                    .is_some_and(|c| !is_word_char(*c) && !c.is_whitespace())
             {
                 start -= 1;
             }
             while end < chars.len()
                 && chars
                     .get(end)
-                    .map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
+                    .is_some_and(|c| !is_word_char(*c) && !c.is_whitespace())
             {
                 end += 1;
             }
@@ -951,7 +941,7 @@ mod tests {
         if let MouseResult::ToggleFold { line } = result {
             assert_eq!(line, 1); // y=25 at line_height=20 is line 1
         } else {
-            panic!("Expected ToggleFold result, got {:?}", result);
+            panic!("Expected ToggleFold result, got {result:?}");
         }
     }
 

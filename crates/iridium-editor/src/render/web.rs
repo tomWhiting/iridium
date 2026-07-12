@@ -139,9 +139,7 @@ mod wasm {
             web_sys::console::log_1(
                 &format!(
                     "[Iridium] GPU: {} ({:?}) - Driver: {}",
-                    info.name,
-                    info.backend,
-                    info.driver_info
+                    info.name, info.backend, info.driver_info
                 )
                 .into(),
             );

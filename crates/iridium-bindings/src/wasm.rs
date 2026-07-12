@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
     EditorConfig, Position, Range,
     document::{CursorState, Selection},
@@ -21,7 +22,6 @@ use iridium_editor::{
     syntax_stubs::Language,
     theme::Theme,
 };
-use crate::web_span_index::{WebSpan, WebSpanIndex};
 
 /// Initialize panic hook for better error messages in browser console.
 #[wasm_bindgen(start)]
@@ -380,9 +380,8 @@ impl WebEditor {
             let color_hex = Reflect::get(&entry, &JsValue::from_str("color"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("color must be a hex string"))?;
-            let color = Color::from_hex(&color_hex).ok_or_else(|| {
-                JsValue::from_str(&format!("invalid hex color: {}", color_hex))
-            })?;
+            let color = Color::from_hex(&color_hex)
+                .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {}", color_hex)))?;
             self.line_backgrounds.insert(line, color);
         }
 
@@ -434,7 +433,7 @@ impl WebEditor {
                         "unknown change kind: {} (expected added/modified/deleted/error/warning/info/hint)",
                         kind
                     )));
-                }
+                },
             };
             self.gutter_changes.insert(line, color);
         }
@@ -726,20 +725,19 @@ impl WebEditor {
         let viewport_height = self.surface.height() as f32;
 
         let cursor_line = self.editor.cursor().line;
-        let cursor_y = if cursor_line == self.cached_cursor_doc_line
-            && self.cached_cursor_abs_y > 0.0
-        {
-            // Cursor on the same line as last render — use cached position
-            // (accounts for wrapping within this line)
-            self.cached_cursor_abs_y
-        } else {
-            // Cursor moved to a different line — approximate using fold mapping
-            let visual_line = self
-                .fold_state
-                .document_to_visual_line(cursor_line)
-                .unwrap_or(0);
-            padding + (visual_line as f32 * line_height)
-        };
+        let cursor_y =
+            if cursor_line == self.cached_cursor_doc_line && self.cached_cursor_abs_y > 0.0 {
+                // Cursor on the same line as last render — use cached position
+                // (accounts for wrapping within this line)
+                self.cached_cursor_abs_y
+            } else {
+                // Cursor moved to a different line — approximate using fold mapping
+                let visual_line = self
+                    .fold_state
+                    .document_to_visual_line(cursor_line)
+                    .unwrap_or(0);
+                padding + (visual_line as f32 * line_height)
+            };
 
         // Scroll up if cursor is above viewport
         if cursor_y < self.scroll_y + padding {
@@ -954,11 +952,8 @@ impl WebEditor {
         {
             self.cached_viewport_width = current_width;
             self.cached_viewport_height = current_height;
-            self.text_renderer.update_viewport(
-                self.surface.queue(),
-                current_width,
-                current_height,
-            );
+            self.text_renderer
+                .update_viewport(self.surface.queue(), current_width, current_height);
             self.background_quad_renderer.update_viewport(
                 self.surface.queue(),
                 current_width,
@@ -996,7 +991,8 @@ impl WebEditor {
 
         // Ensure doc_to_visual has capacity for all lines (grows if needed, never shrinks)
         if self.cpu_doc_to_visual.capacity() < line_count {
-            self.cpu_doc_to_visual.reserve(line_count - self.cpu_doc_to_visual.capacity());
+            self.cpu_doc_to_visual
+                .reserve(line_count - self.cpu_doc_to_visual.capacity());
         }
         self.cpu_doc_to_visual.clear();
 
@@ -1154,7 +1150,8 @@ impl WebEditor {
             } else {
                 run.glyphs.first().map(|g| g.start).unwrap_or(0)
             };
-            self.cached_visual_line_map.push((run.line_i, run_start_col));
+            self.cached_visual_line_map
+                .push((run.line_i, run_start_col));
         }
 
         // Cache total visual lines for max_scroll_y.
@@ -1181,10 +1178,7 @@ impl WebEditor {
                 }
 
                 // Use custom text for this doc_line, or empty string if out of range
-                let text = custom_lines
-                    .get(doc_line)
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
+                let text = custom_lines.get(doc_line).map(|s| s.as_str()).unwrap_or("");
                 self.cpu_line_numbers.push_str(text);
 
                 // Add blank lines for wrapped visual lines
@@ -1327,15 +1321,12 @@ impl WebEditor {
                         );
 
                     let mut emitted = false;
-                    for (vline_idx, &(buf_idx, _)) in
-                        self.cached_visual_line_map.iter().enumerate()
+                    for (vline_idx, &(buf_idx, _)) in self.cached_visual_line_map.iter().enumerate()
                     {
                         if buf_idx != buffer_line {
                             continue;
                         }
-                        let y = padding
-                            + (vline_idx as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             self.cpu_line_bg_quads.push(Quad::new(
@@ -1351,9 +1342,7 @@ impl WebEditor {
 
                     // Fallback: if visual line map wasn't built yet, use simple position
                     if !emitted {
-                        let y = padding
-                            + (vi as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             self.cpu_line_bg_quads.push(Quad::new(
@@ -1388,15 +1377,12 @@ impl WebEditor {
                         );
 
                     let mut emitted = false;
-                    for (vline_idx, &(buf_idx, _)) in
-                        self.cached_visual_line_map.iter().enumerate()
+                    for (vline_idx, &(buf_idx, _)) in self.cached_visual_line_map.iter().enumerate()
                     {
                         if buf_idx != buffer_line {
                             continue;
                         }
-                        let y = padding
-                            + (vline_idx as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             // 3px wide bar at left gutter edge
@@ -1412,9 +1398,7 @@ impl WebEditor {
                     }
 
                     if !emitted {
-                        let y = padding
-                            + (vi as f32 * line_height)
-                            + virtual_scroll_offset
+                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
                         if y + line_height > 0.0 && y < surface_height {
                             self.cpu_gutter_change_quads.push(Quad::new(
@@ -1499,19 +1483,27 @@ impl WebEditor {
                     let seg_end = sel_col_end.min(run_end_col);
 
                     // Extra width only applies on the last segment of the line
-                    let seg_extra = if run_end_col >= line_len { newline_extra } else { 0.0 };
+                    let seg_extra = if run_end_col >= line_len {
+                        newline_extra
+                    } else {
+                        0.0
+                    };
 
                     if seg_start < seg_end || (seg_start == seg_end && seg_extra > 0.0) {
-                        let x = content_offset_x
-                            + ((seg_start - run_start_col) as f32 * char_width);
+                        let x =
+                            content_offset_x + ((seg_start - run_start_col) as f32 * char_width);
                         let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
                             - self.scroll_y;
-                        let width =
-                            (seg_end - seg_start) as f32 * char_width + seg_extra;
+                        let width = (seg_end - seg_start) as f32 * char_width + seg_extra;
 
                         if y + line_height > 0.0 && y < surface_height {
-                            self.cpu_selection_quads
-                                .push(Quad::new(x, y, width, line_height, selection_color));
+                            self.cpu_selection_quads.push(Quad::new(
+                                x,
+                                y,
+                                width,
+                                line_height,
+                                selection_color,
+                            ));
                         }
                         handled = true;
                     }
@@ -1527,12 +1519,16 @@ impl WebEditor {
                     );
                     let x = content_offset_x + sx;
                     let y = padding + sy + virtual_scroll_offset - self.scroll_y;
-                    let width =
-                        (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
+                    let width = (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
 
                     if y + line_height > 0.0 && y < surface_height {
-                        self.cpu_selection_quads
-                            .push(Quad::new(x, y, width, line_height, selection_color));
+                        self.cpu_selection_quads.push(Quad::new(
+                            x,
+                            y,
+                            width,
+                            line_height,
+                            selection_color,
+                        ));
                     }
                 }
             }
@@ -1667,11 +1663,7 @@ impl WebEditor {
         }
 
         self.text_renderer
-            .prepare(
-                self.surface.device(),
-                self.surface.queue(),
-                text_areas,
-            )
+            .prepare(self.surface.device(), self.surface.queue(), text_areas)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         // Get background color from theme
@@ -2718,10 +2710,7 @@ impl WebEditor {
             let column = run_start_col + col_in_run;
 
             // Clamp to actual line length
-            let line_len = doc
-                .line(doc_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+            let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
             let clamped_column = column.min(line_len);
 
             vec![doc_line as u32, clamped_column as u32]
@@ -2734,10 +2723,7 @@ impl WebEditor {
                 .min(line_count.saturating_sub(1));
 
             let offset_x = self.current_gutter_width() + padding;
-            let line_len = doc
-                .line(doc_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+            let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
             let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
             let clamped_column = column.min(line_len);
 
@@ -2779,8 +2765,7 @@ impl WebEditor {
                 let mut target_visual = None;
                 let mut col_in_segment = column;
 
-                for (visual_idx, &(bi, run_start)) in
-                    self.cached_visual_line_map.iter().enumerate()
+                for (visual_idx, &(bi, run_start)) in self.cached_visual_line_map.iter().enumerate()
                 {
                     if bi == buf_idx {
                         // Check if this is the last segment for this buffer line
@@ -2808,12 +2793,9 @@ impl WebEditor {
                 }
 
                 if let Some(visual_idx) = target_visual {
-                    let virtual_scroll_offset =
-                        self.cached_map_viewport_start as f32 * line_height;
-                    let x =
-                        self.cached_content_offset_x + (col_in_segment as f32 * char_width);
-                    let y = padding + (visual_idx as f32 * line_height)
-                        + virtual_scroll_offset
+                    let virtual_scroll_offset = self.cached_map_viewport_start as f32 * line_height;
+                    let x = self.cached_content_offset_x + (col_in_segment as f32 * char_width);
+                    let y = padding + (visual_idx as f32 * line_height) + virtual_scroll_offset
                         - self.scroll_y;
                     return vec![x, y];
                 }
@@ -2831,7 +2813,7 @@ impl WebEditor {
                 let x = offset_x + (column as f32 * char_width);
                 let y = padding + (vl as f32 * line_height) - self.scroll_y;
                 vec![x, y]
-            }
+            },
             None => vec![-1.0, -1.0],
         }
     }

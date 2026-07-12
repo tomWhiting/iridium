@@ -633,11 +633,8 @@ impl MinimapRenderData {
         }
 
         // Generate content rectangles from cached lines
-        let content_rects: Vec<(MinimapRect, ThemeColor)> = renderer
-            .generate_rects(dimensions)
-            .into_iter()
-            .map(|(rect, color)| (rect, color))
-            .collect();
+        let content_rects: Vec<(MinimapRect, ThemeColor)> =
+            renderer.generate_rects(dimensions).into_iter().collect();
 
         // Create viewport indicator overlay
         let viewport_indicator = Some((indicator.rect(), indicator.color));

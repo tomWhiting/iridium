@@ -438,9 +438,9 @@ impl GutterRenderer {
         format!("{line_number:>width$}")
     }
 
-    /// Computes fold indicators from a FoldState (T134).
+    /// Computes fold indicators from a `FoldState` (T134).
     ///
-    /// This is a convenience method that extracts fold markers from the FoldState
+    /// This is a convenience method that extracts fold markers from the `FoldState`
     /// and computes their visual positions for rendering.
     ///
     /// # Arguments

@@ -189,8 +189,8 @@ impl IridiumEditor {
     #[napi]
     pub fn set_selection(&self, anchor: JsPosition, head: JsPosition) {
         self.with_editor_mut(|editor| {
-            let selection = Selection::new(anchor.into(), head.into());
-            editor.state_mut().cursor = iridium_editor::CursorState::new(selection);
+            // Clamps both endpoints and resets keyboard vertical state.
+            editor.set_selection(anchor.into(), head.into());
         });
         self.emit_selection_changed();
     }
@@ -205,12 +205,7 @@ impl IridiumEditor {
     #[napi]
     pub fn select_all(&self) {
         self.with_editor_mut(|editor| {
-            let line_count = editor.state().document.line_count();
-            if line_count == 0 {
-                return;
-            }
-
-            let last_line = line_count.saturating_sub(1);
+            let last_line = editor.state().document.line_count().saturating_sub(1);
             let last_col = editor
                 .state()
                 .document
@@ -218,8 +213,8 @@ impl IridiumEditor {
                 .map(|l| l.chars().count())
                 .unwrap_or(0);
 
-            let selection = Selection::new(Position::zero(), Position::new(last_line, last_col));
-            editor.state_mut().cursor = iridium_editor::CursorState::new(selection);
+            // Editor::set_selection clamps and resets keyboard vertical state.
+            editor.set_selection(Position::zero(), Position::new(last_line, last_col));
         });
         self.emit_selection_changed();
     }
@@ -253,7 +248,10 @@ impl IridiumEditor {
     #[napi]
     pub fn collapse_to_primary_cursor(&self) {
         self.with_editor_mut(|editor| {
-            editor.state_mut().cursor.collapse_to_primary();
+            // Reproduce the primary selection through the clamping API, which
+            // drops secondary cursors and resets keyboard vertical state.
+            let primary = editor.state().cursor.primary;
+            editor.set_selection(primary.anchor, primary.head);
         });
         self.emit_selection_changed();
     }

@@ -146,6 +146,19 @@ impl KeyboardHandler {
         Self::insert_text(text, document, cursor)
     }
 
+    /// Clears the sticky-column state used for vertical (Up/Down) movement.
+    ///
+    /// The preferred columns recorded by the last vertical move are only
+    /// validated by cursor *count*, so a cursor change that bypasses
+    /// [`Self::handle_key`] — host-driven `set_cursor`/`set_selection`,
+    /// mouse-applied commands, IME commits, undo/redo, paste — can leave a
+    /// stale sticky column behind without changing the count, making the
+    /// next Up/Down jump to the old column. The editor must call this from
+    /// every such path.
+    pub fn reset_vertical_state(&mut self) {
+        self.preferred_columns = None;
+    }
+
     // ========== Navigation handlers ==========
 
     /// Handles left arrow key.

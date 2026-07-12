@@ -6,6 +6,7 @@ use super::config::EditorConfig;
 use super::fold_state::{FoldInfo, FoldState};
 use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::{Command, UndoTree};
+use crate::input::keyboard::editing;
 use crate::input::{
     ClipboardOperation, ImeEvent, ImeHandler, ImeResult, ImeState, KeyEvent, KeyResult,
     KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
@@ -197,6 +198,46 @@ impl EditorState {
     pub const fn language(&self) -> Option<Language> {
         self.fold_state.language()
     }
+
+    /// Re-synchronizes the active search with the current document content.
+    ///
+    /// Recorded match ranges point into the document as it was when the
+    /// search last ran; any content mutation can silently invalidate them
+    /// (and literal-mode replace trusts them verbatim), so this must be
+    /// called after every content-modifying command, including undo/redo.
+    ///
+    /// When a search with a non-empty query is active, the search is re-run
+    /// against the mutated document with the current query and options, and
+    /// the current match is preserved by nearest position (the match at or
+    /// after the previous current match's start). With an empty query this
+    /// is a no-op. Re-running the full search on every edit is the honest
+    /// baseline; incremental match maintenance is a planned optimization
+    /// (PLAN.md Phase 2 performance work).
+    ///
+    /// Returns `true` when an active search was re-run (matches and current
+    /// index may have changed), `false` when there was nothing to refresh.
+    pub fn refresh_search(&mut self) -> bool {
+        if self.search.query.is_empty() {
+            return false;
+        }
+
+        let previous_position = self.search.current_range().map(|range| range.start);
+        let query = self.search.query.clone();
+        let options = self.search.options.clone();
+
+        // The query and options were validated when the search was created
+        // and are unchanged here, so this can only fail if the public search
+        // fields were mutated into an invalid state. `find_all` clears the
+        // recorded matches before validating, which is exactly the safe
+        // outcome for that case: no stale range survives.
+        let _ = self.search.find_all(&query, &options, &self.document);
+
+        if let Some(position) = previous_position {
+            self.search.goto_nearest_match(position);
+        }
+
+        true
+    }
 }
 
 /// The main Iridium editor instance.
@@ -264,8 +305,15 @@ impl Editor {
     }
 
     /// Sets the content, replacing everything.
+    ///
+    /// The cursor is reset (so the keyboard handler's sticky vertical column
+    /// is dropped) and any active search is re-run against the new content.
     pub fn set_content(&mut self, content: &str) {
         self.state.set_content(content);
+        self.keyboard_handler.reset_vertical_state();
+        if self.state.refresh_search() {
+            self.emit_search_updated();
+        }
         self.emit_content_changed();
     }
 
@@ -282,9 +330,25 @@ impl Editor {
     }
 
     /// Sets the cursor position.
+    ///
+    /// The position is clamped to the document. This bypasses the keyboard
+    /// handler, so its sticky vertical column is reset.
     pub fn set_cursor(&mut self, position: Position) {
         let clamped = self.state.document.clamp_position(position);
+        self.keyboard_handler.reset_vertical_state();
         self.state.cursor = CursorState::at(clamped);
+        self.emit_selection_changed();
+    }
+
+    /// Sets the selection, replacing all cursors with a single selection.
+    ///
+    /// Both endpoints are clamped to the document. This bypasses the
+    /// keyboard handler, so its sticky vertical column is reset.
+    pub fn set_selection(&mut self, anchor: Position, head: Position) {
+        let anchor = self.state.document.clamp_position(anchor);
+        let head = self.state.document.clamp_position(head);
+        self.keyboard_handler.reset_vertical_state();
+        self.state.cursor = CursorState::new(Selection::new(anchor, head));
         self.emit_selection_changed();
     }
 
@@ -372,6 +436,10 @@ impl Editor {
 
         match result {
             MouseResult::Command(cmd) => {
+                // Mouse-driven cursor changes bypass the keyboard handler;
+                // drop its sticky vertical column so the next Up/Down starts
+                // from the clicked position.
+                self.keyboard_handler.reset_vertical_state();
                 self.apply_command(cmd);
             },
             MouseResult::Scroll { delta_x, delta_y } => {
@@ -405,6 +473,9 @@ impl Editor {
 
         match result {
             ImeResult::Command(cmd) => {
+                // IME commits move the cursor without going through the
+                // keyboard handler; drop its sticky vertical column.
+                self.keyboard_handler.reset_vertical_state();
                 self.apply_command(cmd);
                 None
             },
@@ -491,6 +562,14 @@ impl Editor {
         // Push to undo history if it modifies content
         if content_changed {
             self.state.history.push(command);
+
+            // Recorded search match ranges point into the pre-edit document;
+            // re-synchronize the active search so replace operations never
+            // act on stale ranges.
+            if self.state.refresh_search() {
+                self.emit_search_updated();
+            }
+
             self.emit_content_changed();
         }
 
@@ -503,6 +582,13 @@ impl Editor {
     /// Performs undo.
     ///
     /// Returns true if an action was undone.
+    ///
+    /// Commands recorded with a trailing `SetSelection` (all keyboard edits,
+    /// paste, replace) restore the exact prior cursor state themselves. For
+    /// history entries that carry no selection information (bare
+    /// `Insert`/`Delete`/`Replace` from host-driven [`Self::apply_command`]
+    /// calls), the cursor is explicitly placed at the edit site — see
+    /// [`replayed_command_caret`] — instead of being left wherever it was.
     pub fn undo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.undo() {
             // Note: history.undo() already returns the inverse command,
@@ -514,8 +600,7 @@ impl Editor {
                 });
                 return false;
             }
-            self.emit_content_changed();
-            self.emit_selection_changed();
+            self.finish_history_replay(&cmd);
             true
         } else {
             false
@@ -525,6 +610,10 @@ impl Editor {
     /// Performs redo.
     ///
     /// Returns true if an action was redone.
+    ///
+    /// Cursor placement follows the same rules as [`Self::undo`]: commands
+    /// carrying a `SetSelection` restore the cursor state themselves, and
+    /// bare content commands place the cursor at the edit site.
     pub fn redo(&mut self) -> bool {
         if let Some(cmd) = self.state.history.redo() {
             if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
@@ -534,42 +623,61 @@ impl Editor {
                 });
                 return false;
             }
-            self.emit_content_changed();
-            self.emit_selection_changed();
+            self.finish_history_replay(&cmd);
             true
         } else {
             false
         }
     }
 
+    /// Shared post-processing for a successfully applied undo/redo command.
+    ///
+    /// - Places the cursor at the edit site when the replayed command carries
+    ///   no `SetSelection` of its own (documented behavior of [`Self::undo`]
+    ///   and [`Self::redo`]).
+    /// - Resets the keyboard handler's sticky vertical column (the cursor
+    ///   moved without going through `handle_key`).
+    /// - Re-synchronizes the active search with the mutated document.
+    /// - Emits content, search, and selection events.
+    fn finish_history_replay(&mut self, cmd: &Command) {
+        if !command_restores_selection(cmd) {
+            if let Some(position) = replayed_command_caret(cmd) {
+                let clamped = self.state.document.clamp_position(position);
+                self.state.cursor = CursorState::at(clamped);
+            }
+        }
+
+        self.keyboard_handler.reset_vertical_state();
+
+        if self.state.refresh_search() {
+            self.emit_search_updated();
+        }
+
+        self.emit_content_changed();
+        self.emit_selection_changed();
+    }
+
     /// Handles a paste operation with the given text.
+    ///
+    /// The text is inserted at every cursor (each cursor's selection is
+    /// replaced) through the same multi-cursor command builder as keyboard
+    /// input, so the whole paste is one reversible command whose trailing
+    /// `SetSelection` restores both text and the exact prior cursor state on
+    /// undo.
     pub fn paste(&mut self, text: &str) {
         if self.state.read_only || text.is_empty() {
             return;
         }
 
-        // Delete selection if any, then insert
-        if !self.state.cursor.primary.is_collapsed() {
-            let range = self.state.cursor.primary.range();
-            let deleted = self.state.document.slice(range);
-            let cmd = Command::Delete {
-                range,
-                deleted_text: deleted,
-            };
-            self.apply_command(cmd);
+        // Paste moves the cursor without going through handle_key.
+        self.keyboard_handler.reset_vertical_state();
+
+        let edits = editing::replace_all_edits(&self.state.cursor, text);
+        if let Some(command) =
+            editing::build_multi_cursor_command(&self.state.document, &self.state.cursor, edits)
+        {
+            self.apply_command(command);
         }
-
-        let pos = self.state.cursor.primary.head;
-        let cmd = Command::Insert {
-            position: pos,
-            text: text.to_string(),
-        };
-        self.apply_command(cmd);
-
-        // Move cursor after inserted text
-        let new_pos = compute_position_after_insert(pos, text);
-        self.state.cursor = CursorState::at(new_pos);
-        self.emit_selection_changed();
     }
 
     /// Adds an event listener.
@@ -858,6 +966,7 @@ impl Editor {
 
             // Move cursor to current match
             if let Some(range) = self.state.search.current_range() {
+                self.keyboard_handler.reset_vertical_state();
                 self.state.cursor = CursorState::at(range.start);
                 self.emit_selection_changed();
             }
@@ -906,6 +1015,7 @@ impl Editor {
         self.state.search.next_match();
 
         if let Some(range) = self.state.search.current_range() {
+            self.keyboard_handler.reset_vertical_state();
             self.state.cursor = CursorState::at(range.start);
             self.emit_selection_changed();
         }
@@ -920,6 +1030,7 @@ impl Editor {
         self.state.search.previous_match();
 
         if let Some(range) = self.state.search.current_range() {
+            self.keyboard_handler.reset_vertical_state();
             self.state.cursor = CursorState::at(range.start);
             self.emit_selection_changed();
         }
@@ -951,9 +1062,15 @@ impl Editor {
         );
 
         if let Some(cmd) = cmd {
+            // The replace command carries a SetSelection that moves the
+            // cursor without going through handle_key.
+            self.keyboard_handler.reset_vertical_state();
             self.apply_command(cmd);
 
-            // Re-run search to update match positions
+            // Re-run search from the top so navigation restarts at the first
+            // match (apply_command already refreshed the stale ranges; this
+            // additionally resets the current-match index for the
+            // goto_next_match below, preserving long-standing behavior).
             let query = self.state.search.query.clone();
             let options = self.state.search.options.clone();
             let _ = self
@@ -993,6 +1110,9 @@ impl Editor {
         );
 
         if let Some((cmd, replace_result)) = result {
+            // The replace command carries a SetSelection that moves the
+            // cursor without going through handle_key.
+            self.keyboard_handler.reset_vertical_state();
             self.apply_command(cmd);
 
             // Clear search since all matches are replaced
@@ -1043,14 +1163,49 @@ impl Editor {
     }
 }
 
-/// Computes cursor position after inserting text.
-fn compute_position_after_insert(start: Position, text: &str) -> Position {
-    start.advanced_through(text)
+/// Returns true if the command (or any nested command) sets the cursor state
+/// itself via `SetSelection`.
+///
+/// Such commands need no fallback caret placement after undo/redo: the
+/// recorded selection states restore the cursor exactly.
+fn command_restores_selection(command: &Command) -> bool {
+    match command {
+        Command::SetSelection { .. } => true,
+        Command::Compound { commands } => commands.iter().any(command_restores_selection),
+        Command::Insert { .. } | Command::Delete { .. } | Command::Replace { .. } => false,
+    }
+}
+
+/// Fallback caret position for a replayed (undo/redo) command that carries no
+/// `SetSelection` of its own.
+///
+/// The caret is placed at the edit site of the applied command:
+/// - `Insert` (the undo of a delete, or a redone insert): the end of the
+///   inserted text.
+/// - `Delete` (the undo of an insert, or a redone delete): the start of the
+///   removed range.
+/// - `Replace`: the end of the newly inserted text.
+/// - `Compound`: the first content command's site.
+///
+/// Returns `None` when the command contains no content edit at all.
+fn replayed_command_caret(command: &Command) -> Option<Position> {
+    match command {
+        Command::Insert { position, text } => Some(position.advanced_through(text)),
+        Command::Delete { range, .. } => Some(range.start),
+        Command::Replace {
+            range, new_text, ..
+        } => Some(range.start.advanced_through(new_text)),
+        Command::SetSelection { .. } => None,
+        Command::Compound { commands } => commands.iter().find_map(replayed_command_caret),
+    }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::document::Range;
+    use crate::input::{KeyCode, Modifiers};
 
     #[test]
     fn editor_state_new() {
@@ -1259,5 +1414,319 @@ line 5";
 
         // Language setting should emit fold changed
         assert!(event_received.load(Ordering::SeqCst));
+    }
+
+    // =========================================================================
+    // Paste (multi-cursor command path)
+    // =========================================================================
+
+    /// Returns the head positions of all cursors in `all_selections` order
+    /// (primary first).
+    fn cursor_heads(editor: &Editor) -> Vec<Position> {
+        editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect()
+    }
+
+    #[test]
+    fn paste_multi_cursor_inserts_at_every_cursor() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abcd");
+        editor.set_cursor(Position::new(0, 0));
+        editor
+            .state_mut()
+            .cursor
+            .add_cursor(Selection::collapsed(Position::new(0, 2)));
+
+        editor.paste("X");
+
+        assert_eq!(editor.content(), "XabXcd");
+        assert_eq!(
+            cursor_heads(&editor),
+            vec![Position::new(0, 1), Position::new(0, 4)]
+        );
+        assert!(
+            editor
+                .state()
+                .cursor
+                .all_selections()
+                .all(Selection::is_collapsed)
+        );
+    }
+
+    #[test]
+    fn undo_of_paste_restores_text_and_all_cursors() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abcd");
+        editor.set_cursor(Position::new(0, 0));
+        editor
+            .state_mut()
+            .cursor
+            .add_cursor(Selection::collapsed(Position::new(0, 2)));
+
+        editor.paste("X");
+        assert_eq!(editor.content(), "XabXcd");
+
+        // A single undo must restore both the text and the exact prior
+        // multi-cursor state.
+        assert!(editor.undo());
+        assert_eq!(editor.content(), "abcd");
+        assert_eq!(
+            cursor_heads(&editor),
+            vec![Position::new(0, 0), Position::new(0, 2)]
+        );
+    }
+
+    #[test]
+    fn paste_replaces_forward_selection_and_undoes() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abcd");
+        // Forward selection: anchor before head. The old single-cursor paste
+        // inserted at the stale pre-delete head after deleting the selection.
+        editor.set_selection(Position::new(0, 1), Position::new(0, 3));
+
+        editor.paste("Z");
+        assert_eq!(editor.content(), "aZd");
+        assert_eq!(editor.cursor(), Position::new(0, 2));
+
+        assert!(editor.undo());
+        assert_eq!(editor.content(), "abcd");
+        assert_eq!(editor.state().cursor.primary.anchor, Position::new(0, 1));
+        assert_eq!(editor.state().cursor.primary.head, Position::new(0, 3));
+    }
+
+    #[test]
+    fn paste_is_noop_when_read_only_or_empty() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abcd");
+        editor.set_cursor(Position::new(0, 2));
+
+        editor.paste("");
+        assert_eq!(editor.content(), "abcd");
+
+        editor.state_mut().read_only = true;
+        editor.paste("X");
+        assert_eq!(editor.content(), "abcd");
+        assert_eq!(editor.cursor(), Position::new(0, 2));
+    }
+
+    /// Regression test (Norn review, 2026-07-12): delete-forward leaves every
+    /// caret in place, so the generated compound used to carry no
+    /// `SetSelection` — undo's bare-command fallback then collapsed the
+    /// multi-cursor state to a single caret. The builder now always records
+    /// the cursor transition when content changes, so undo restores every
+    /// cursor exactly.
+    #[test]
+    fn undo_of_multi_cursor_delete_forward_restores_all_cursors() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abc\ndef");
+        editor.state_mut().cursor = CursorState {
+            primary: Selection::collapsed(Position::new(0, 1)),
+            secondary: vec![Selection::collapsed(Position::new(1, 1))],
+        };
+
+        let event = KeyEvent::new(KeyCode::Delete, Modifiers::none());
+        editor.handle_key(&event);
+        assert_eq!(editor.content(), "ac\ndf");
+        assert_eq!(editor.state().cursor.cursor_count(), 2);
+
+        assert!(editor.undo());
+        assert_eq!(editor.content(), "abc\ndef");
+        assert_eq!(
+            editor.state().cursor.cursor_count(),
+            2,
+            "undo must restore the multi-cursor state, not collapse it"
+        );
+        assert_eq!(editor.state().cursor.primary.head, Position::new(0, 1));
+        assert_eq!(editor.state().cursor.secondary[0].head, Position::new(1, 1));
+
+        assert!(editor.redo());
+        assert_eq!(editor.content(), "ac\ndf");
+        assert_eq!(editor.state().cursor.cursor_count(), 2);
+    }
+
+    // =========================================================================
+    // Undo/redo cursor placement for bare (selection-less) commands
+    // =========================================================================
+
+    #[test]
+    fn undo_of_bare_insert_places_cursor_at_insert_position() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("hello world");
+        editor.apply_command(Command::Insert {
+            position: Position::new(0, 5),
+            text: "X".to_string(),
+        });
+        assert_eq!(editor.content(), "helloX world");
+
+        // Move the caret away to prove undo repositions it explicitly.
+        editor.set_cursor(Position::new(0, 0));
+
+        assert!(editor.undo());
+        assert_eq!(editor.content(), "hello world");
+        // Undoing an insert removes the text; the caret lands at the start
+        // of the removed range.
+        assert_eq!(editor.cursor(), Position::new(0, 5));
+
+        assert!(editor.redo());
+        assert_eq!(editor.content(), "helloX world");
+        // Redoing the insert places the caret at the end of the inserted text.
+        assert_eq!(editor.cursor(), Position::new(0, 6));
+    }
+
+    #[test]
+    fn undo_of_bare_delete_places_cursor_at_end_of_restored_text() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("hello world");
+        editor.apply_command(Command::Delete {
+            range: Range::new(Position::new(0, 0), Position::new(0, 6)),
+            deleted_text: "hello ".to_string(),
+        });
+        assert_eq!(editor.content(), "world");
+        editor.set_cursor(Position::new(0, 3));
+
+        assert!(editor.undo());
+        assert_eq!(editor.content(), "hello world");
+        // Undoing a delete re-inserts the text; the caret lands at its end.
+        assert_eq!(editor.cursor(), Position::new(0, 6));
+    }
+
+    // =========================================================================
+    // Search invalidation on document mutation
+    // =========================================================================
+
+    #[test]
+    fn typing_with_active_search_refreshes_match_ranges() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("foo bar foo");
+        editor.find("foo", &SearchOptions::default()).unwrap();
+        assert_eq!(editor.search_match_count(), 2);
+
+        editor.set_cursor(Position::new(0, 0));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.content(), "xfoo bar foo");
+
+        // Matches must reflect the mutated document, not the stale offsets.
+        let starts: Vec<Position> = editor
+            .search_state()
+            .all_matches()
+            .iter()
+            .map(|range| range.start)
+            .collect();
+        assert_eq!(starts, vec![Position::new(0, 1), Position::new(0, 9)]);
+    }
+
+    #[test]
+    fn replace_all_literal_after_edit_ignores_stale_ranges() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("foo bar foo");
+        editor.find("foo", &SearchOptions::default()).unwrap();
+
+        // Mutate the document while the search is active: every recorded
+        // range shifts right by one column.
+        editor.set_cursor(Position::new(0, 0));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.content(), "xfoo bar foo");
+
+        // Literal-mode replace trusts the recorded ranges verbatim; without
+        // the refresh it would have replaced "xfo" and " fo".
+        let replaced = editor.replace_all_matches("Z");
+        assert_eq!(replaced, 2);
+        assert_eq!(editor.content(), "xZ bar Z");
+    }
+
+    #[test]
+    fn replace_all_regex_after_edit_replaces_refreshed_matches() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("foo bar foo");
+        editor.find("f(o+)", &SearchOptions::regex_mode()).unwrap();
+
+        editor.set_cursor(Position::new(0, 0));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.content(), "xfoo bar foo");
+
+        // Regex replace verifies matches; without the refresh both recorded
+        // ranges would fail verification and nothing would be replaced.
+        let replaced = editor.replace_all_matches("[$1]");
+        assert_eq!(replaced, 2);
+        assert_eq!(editor.content(), "x[oo] bar [oo]");
+    }
+
+    #[test]
+    fn undo_with_active_search_refreshes_match_ranges() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("foo bar foo");
+        editor.set_cursor(Position::new(0, 0));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.content(), "xfoo bar foo");
+
+        editor.find("foo", &SearchOptions::default()).unwrap();
+        let starts: Vec<Position> = editor
+            .search_state()
+            .all_matches()
+            .iter()
+            .map(|range| range.start)
+            .collect();
+        assert_eq!(starts, vec![Position::new(0, 1), Position::new(0, 9)]);
+
+        // Undo mutates the document outside apply_command; matches must
+        // follow the restored text.
+        assert!(editor.undo());
+        assert_eq!(editor.content(), "foo bar foo");
+        let starts: Vec<Position> = editor
+            .search_state()
+            .all_matches()
+            .iter()
+            .map(|range| range.start)
+            .collect();
+        assert_eq!(starts, vec![Position::new(0, 0), Position::new(0, 8)]);
+    }
+
+    // =========================================================================
+    // Sticky-column invalidation for cursor changes outside handle_key
+    // =========================================================================
+
+    #[test]
+    fn set_cursor_resets_sticky_column_for_vertical_moves() {
+        let mut editor = Editor::with_defaults();
+        // Lines of length 10 / 2 / 10 (Norn review scenario).
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
+
+        editor.set_cursor(Position::new(0, 8));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(1, 2));
+
+        // The host moves the cursor without going through handle_key; the
+        // sticky column from the previous Down (8) must not survive, or the
+        // next Down would jump to (2, 8).
+        editor.set_cursor(Position::new(1, 1));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(2, 1));
+    }
+
+    #[test]
+    fn undo_resets_sticky_column_for_vertical_moves() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
+
+        // Bare insert on line 1 so undo's fallback caret placement moves the
+        // cursor without a SetSelection.
+        editor.apply_command(Command::Insert {
+            position: Position::new(1, 1),
+            text: "Q".to_string(),
+        });
+
+        editor.set_cursor(Position::new(0, 8));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(1, 3));
+
+        // Undo moves the caret to (1, 1); the sticky column (8) must reset.
+        assert!(editor.undo());
+        assert_eq!(editor.cursor(), Position::new(1, 1));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(2, 1));
     }
 }

@@ -168,7 +168,12 @@ pub fn build_multi_cursor_command(
         }
     }
 
-    if new_state != *cursor {
+    // Always record the cursor transition when content changed, even if no
+    // caret moved (e.g. delete-forward leaves every caret in place): the
+    // SetSelection is what lets the command's inverse restore the exact
+    // multi-cursor state on undo. Without it, history replay has no cursor
+    // context and must fall back to a single caret at the edit site.
+    if !commands.is_empty() || new_state != *cursor {
         commands.push(Command::SetSelection {
             old_state: cursor.clone(),
             new_state,

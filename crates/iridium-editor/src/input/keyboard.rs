@@ -709,7 +709,11 @@ impl KeyboardHandler {
     }
 
     /// Moves cursor to start of document.
-    fn move_to_document_start(&self, cursor: &CursorState, extend_selection: bool) -> CursorState {
+    const fn move_to_document_start(
+        &self,
+        cursor: &CursorState,
+        extend_selection: bool,
+    ) -> CursorState {
         let new_head = Position::zero();
         self.make_cursor_state(cursor, new_head, extend_selection)
     }
@@ -749,7 +753,7 @@ impl KeyboardHandler {
         while col > 0
             && chars
                 .get(col.saturating_sub(1))
-                .map_or(false, |c| c.is_whitespace())
+                .is_some_and(|c| c.is_whitespace())
         {
             col -= 1;
         }
@@ -759,12 +763,12 @@ impl KeyboardHandler {
         if col > 0
             && chars
                 .get(col.saturating_sub(1))
-                .map_or(false, |c| is_word_char(*c))
+                .is_some_and(|c| is_word_char(*c))
         {
             while col > 0
                 && chars
                     .get(col.saturating_sub(1))
-                    .map_or(false, |c| is_word_char(*c))
+                    .is_some_and(|c| is_word_char(*c))
             {
                 col -= 1;
             }
@@ -773,7 +777,7 @@ impl KeyboardHandler {
             while col > 0
                 && chars
                     .get(col.saturating_sub(1))
-                    .map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
+                    .is_some_and(|c| !is_word_char(*c) && !c.is_whitespace())
             {
                 col -= 1;
             }
@@ -800,22 +804,22 @@ impl KeyboardHandler {
         let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
 
         // Skip current word or punctuation
-        if chars.get(col).map_or(false, |c| is_word_char(*c)) {
-            while col < line_len && chars.get(col).map_or(false, |c| is_word_char(*c)) {
+        if chars.get(col).is_some_and(|c| is_word_char(*c)) {
+            while col < line_len && chars.get(col).is_some_and(|c| is_word_char(*c)) {
                 col += 1;
             }
-        } else if chars.get(col).map_or(false, |c| !c.is_whitespace()) {
+        } else if chars.get(col).is_some_and(|c| !c.is_whitespace()) {
             while col < line_len
                 && chars
                     .get(col)
-                    .map_or(false, |c| !is_word_char(*c) && !c.is_whitespace())
+                    .is_some_and(|c| !is_word_char(*c) && !c.is_whitespace())
             {
                 col += 1;
             }
         }
 
         // Skip whitespace
-        while col < line_len && chars.get(col).map_or(false, |c| c.is_whitespace()) {
+        while col < line_len && chars.get(col).is_some_and(|c| c.is_whitespace()) {
             col += 1;
         }
 
@@ -1268,7 +1272,7 @@ impl KeyboardHandler {
         let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
 
         // Check if we're on a word character
-        if !chars.get(col).map_or(false, |c| is_word_char(*c)) {
+        if !chars.get(col).is_some_and(|c| is_word_char(*c)) {
             return Selection::collapsed(position);
         }
 
@@ -1276,10 +1280,10 @@ impl KeyboardHandler {
         let mut start = col;
         let mut end = col;
 
-        while start > 0 && chars.get(start - 1).map_or(false, |c| is_word_char(*c)) {
+        while start > 0 && chars.get(start - 1).is_some_and(|c| is_word_char(*c)) {
             start -= 1;
         }
-        while end < chars.len() && chars.get(end).map_or(false, |c| is_word_char(*c)) {
+        while end < chars.len() && chars.get(end).is_some_and(|c| is_word_char(*c)) {
             end += 1;
         }
 
@@ -1292,7 +1296,7 @@ impl KeyboardHandler {
     // ========== Utility methods ==========
 
     /// Creates a new cursor state with the given head position.
-    fn make_cursor_state(
+    const fn make_cursor_state(
         &self,
         old: &CursorState,
         new_head: Position,
@@ -1441,7 +1445,7 @@ mod tests {
         let result = handler.handle_key(&event, &doc, &cursor, &UndoTree::new());
 
         if let KeyResult::Command(Command::Compound { commands }) = result {
-            assert!(commands.len() >= 1);
+            assert!(!commands.is_empty());
         } else {
             panic!("Expected Compound command");
         }

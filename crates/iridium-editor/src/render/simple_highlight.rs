@@ -60,7 +60,7 @@ pub struct SyntaxColors {
 impl SyntaxColors {
     /// Creates dark theme syntax colors.
     #[must_use]
-    pub fn dark() -> Self {
+    pub const fn dark() -> Self {
         Self {
             text: Color::rgb(0.847, 0.871, 0.914),        // #D8DEE9
             keyword: Color::rgb(0.506, 0.631, 0.757),     // #81A1C1 (blue)
@@ -75,7 +75,7 @@ impl SyntaxColors {
 
     /// Creates light theme syntax colors.
     #[must_use]
-    pub fn light() -> Self {
+    pub const fn light() -> Self {
         Self {
             text: Color::rgb(0.231, 0.259, 0.322),        // #3B4252
             keyword: Color::rgb(0.369, 0.506, 0.675),     // #5E81AC
@@ -123,7 +123,7 @@ pub struct SimpleHighlighter {
 impl SimpleHighlighter {
     /// Creates a new highlighter with default dark theme colors.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             colors: SyntaxColors::dark(),
         }
@@ -136,17 +136,17 @@ impl SimpleHighlighter {
     }
 
     /// Sets the syntax colors.
-    pub fn set_colors(&mut self, colors: SyntaxColors) {
+    pub const fn set_colors(&mut self, colors: SyntaxColors) {
         self.colors = colors;
     }
 
     /// Sets dark theme colors.
-    pub fn set_dark_theme(&mut self) {
+    pub const fn set_dark_theme(&mut self) {
         self.colors = SyntaxColors::dark();
     }
 
     /// Sets light theme colors.
-    pub fn set_light_theme(&mut self) {
+    pub const fn set_light_theme(&mut self) {
         self.colors = SyntaxColors::light();
     }
 
@@ -277,7 +277,7 @@ impl SimpleHighlighter {
                 }
 
                 // Check if it's followed by ( to detect function calls
-                let is_function = chars.peek().map(|(_, c)| *c == '(').unwrap_or(false);
+                let is_function = chars.peek().is_some_and(|(_, c)| *c == '(');
 
                 let token_type = if is_keyword(&word) {
                     TokenType::Keyword
@@ -393,15 +393,12 @@ fn is_keyword(word: &str) -> bool {
 
 /// Checks if a word looks like a type (starts with uppercase).
 fn is_type(word: &str) -> bool {
-    word.chars()
-        .next()
-        .map(|c| c.is_uppercase())
-        .unwrap_or(false)
-        && word.chars().skip(1).any(|c| c.is_lowercase())
+    word.chars().next().is_some_and(char::is_uppercase)
+        && word.chars().skip(1).any(char::is_lowercase)
 }
 
 /// Checks if a character is punctuation.
-fn is_punctuation(ch: char) -> bool {
+const fn is_punctuation(ch: char) -> bool {
     matches!(
         ch,
         '(' | ')'

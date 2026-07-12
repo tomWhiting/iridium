@@ -243,7 +243,7 @@ impl Viewport {
         }
 
         let screen_line = visual_line - self.first_line;
-        Some(screen_line as f32 * self.line_height - self.scroll_offset_y)
+        Some((screen_line as f32).mul_add(self.line_height, -self.scroll_offset_y))
     }
 
     /// Returns the number of visible lines accounting for folds.
@@ -382,7 +382,7 @@ struct VisibleLinesIterator<'a> {
     total_lines: usize,
 }
 
-impl<'a> Iterator for VisibleLinesIterator<'a> {
+impl Iterator for VisibleLinesIterator<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -445,12 +445,12 @@ mod tests {
 
     #[cfg(feature = "syntax")]
     fn setup_fold_state() -> FoldState {
-        let code = r#"line 0
+        let code = r"line 0
 fn foo() {
     hidden 1
     hidden 2
 }
-line 5"#;
+line 5";
         let mut state = FoldState::for_language(Language::Rust);
         state.update_regions(code);
         state

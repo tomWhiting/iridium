@@ -159,7 +159,7 @@ impl CursorRenderer {
         // Determine which phase of the blink cycle we're in
         let cycle_position = elapsed.as_millis() % self.config.blink_interval.as_millis();
 
-        self.blink_state = if cycle_position < half_interval.as_millis() as u128 {
+        self.blink_state = if cycle_position < half_interval.as_millis() {
             BlinkState::Visible
         } else {
             BlinkState::Hidden
@@ -206,7 +206,7 @@ impl CursorRenderer {
     }
 
     /// Sets the cursor style.
-    pub fn set_style(&mut self, style: CursorStyle) {
+    pub const fn set_style(&mut self, style: CursorStyle) {
         self.config.style = style;
     }
 
@@ -217,7 +217,7 @@ impl CursorRenderer {
     }
 
     /// Enables or disables cursor blinking.
-    pub fn set_blink_enabled(&mut self, enabled: bool) {
+    pub const fn set_blink_enabled(&mut self, enabled: bool) {
         self.config.blink_enabled = enabled;
         if !enabled {
             self.blink_state = BlinkState::Visible;
@@ -261,7 +261,7 @@ impl CursorRenderer {
             .filter(|pos| pos.line >= first_visible_line && pos.line < last_visible_line)
             .map(|pos| {
                 let screen_line = pos.line - first_visible_line;
-                let x = (pos.column as f32 * char_width) - scroll_x;
+                let x = (pos.column as f32).mul_add(char_width, -scroll_x);
                 let y = screen_line as f32 * line_height;
 
                 let (width, height) = match self.config.style {
@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn cursor_rect_computation() {
         let renderer = CursorRenderer::default();
-        let positions = vec![Position::new(5, 10)];
+        let positions = [Position::new(5, 10)];
         let line_height = 20.0;
         let char_width = 8.0;
         let color = Color::rgb(1.0, 1.0, 1.0);
@@ -439,7 +439,7 @@ mod tests {
             ..Default::default()
         };
         let renderer = CursorRenderer::new(config);
-        let positions = vec![Position::new(0, 0)];
+        let positions = [Position::new(0, 0)];
         let line_height = 20.0;
         let char_width = 8.0;
         let color = Color::rgb(1.0, 1.0, 1.0);

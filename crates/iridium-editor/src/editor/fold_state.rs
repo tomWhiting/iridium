@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// lookups without per-line iteration.
 #[derive(Debug, Clone, Default)]
 struct LineMapping {
-    /// Sorted list of fold boundaries: (doc_line, cumulative_hidden_before, hidden_in_fold)
+    /// Sorted list of fold boundaries: (`doc_line`, `cumulative_hidden_before`, `hidden_in_fold`)
     /// Each entry represents a fold start line and the total hidden lines before it,
     /// plus the number of lines hidden by this specific fold.
     boundaries: Vec<FoldBoundary>,
@@ -40,7 +40,7 @@ struct FoldBoundary {
     end_line: usize,
     /// Cumulative count of hidden lines before this fold.
     hidden_before: usize,
-    /// Number of lines hidden by this fold (end_line - start_line).
+    /// Number of lines hidden by this fold (`end_line` - `start_line`).
     hidden_count: usize,
 }
 
@@ -142,7 +142,7 @@ impl LineMapping {
             Ok(idx) => {
                 // Exact match - doc_line is a fold start (visible)
                 self.boundaries[idx].hidden_before
-            }
+            },
             Err(idx) => {
                 if idx == 0 {
                     // Before all folds
@@ -157,14 +157,14 @@ impl LineMapping {
                     // After the fold
                     prev.hidden_before + prev.hidden_count
                 }
-            }
+            },
         };
 
         Some(doc_line - hidden_before)
     }
 
     /// Returns total hidden line count. O(1).
-    fn total_hidden(&self) -> usize {
+    const fn total_hidden(&self) -> usize {
         self.total_hidden
     }
 
@@ -499,7 +499,7 @@ impl FoldState {
                 self.regions
                     .iter()
                     .find(|r| r.start_line == line)
-                    .map_or(false, |r| r.kind == kind)
+                    .is_some_and(|r| r.kind == kind)
             })
             .copied()
             .collect();
@@ -524,7 +524,7 @@ impl FoldState {
     /// Returns the total number of hidden lines.
     /// This operation is O(1) using the cached line mapping.
     #[must_use]
-    pub fn hidden_line_count(&self) -> usize {
+    pub const fn hidden_line_count(&self) -> usize {
         self.line_mapping.total_hidden()
     }
 
@@ -642,12 +642,12 @@ fn bar() {
 
     #[test]
     fn visual_line_mapping() {
-        let source = r#"line 0
+        let source = r"line 0
 fn foo() {
     hidden 1
     hidden 2
 }
-line 5"#;
+line 5";
         let mut state = setup_rust_fold_state(source);
 
         // Without folds, visual == document
@@ -670,11 +670,11 @@ line 5"#;
 
     #[test]
     fn hidden_line_count() {
-        let source = r#"fn foo() {
+        let source = r"fn foo() {
     line 1
     line 2
     line 3
-}"#;
+}";
         let mut state = setup_rust_fold_state(source);
 
         assert_eq!(state.hidden_line_count(), 0);

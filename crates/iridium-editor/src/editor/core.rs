@@ -421,7 +421,7 @@ impl Editor {
 
     /// Returns true if IME composition is in progress.
     #[must_use]
-    pub fn is_ime_composing(&self) -> bool {
+    pub const fn is_ime_composing(&self) -> bool {
         self.ime_handler.is_composing()
     }
 
@@ -693,7 +693,7 @@ impl Editor {
     }
 
     /// Returns a mutable reference to the fold state.
-    pub fn fold_state_mut(&mut self) -> &mut FoldState {
+    pub const fn fold_state_mut(&mut self) -> &mut FoldState {
         &mut self.state.fold_state
     }
 
@@ -1212,11 +1212,11 @@ fn bar() {
     #[test]
     fn editor_visible_line_count() {
         let mut editor = Editor::with_defaults();
-        let code = r#"fn main() {
+        let code = r"fn main() {
     line 1
     line 2
     line 3
-}"#;
+}";
         editor.set_content(code);
         editor.set_language(Language::Rust);
 
@@ -1231,12 +1231,12 @@ fn bar() {
     #[test]
     fn editor_visual_line_mapping() {
         let mut editor = Editor::with_defaults();
-        let code = r#"line 0
+        let code = r"line 0
 fn foo() {
     hidden 1
     hidden 2
 }
-line 5"#;
+line 5";
         editor.set_content(code);
         editor.set_language(Language::Rust);
 

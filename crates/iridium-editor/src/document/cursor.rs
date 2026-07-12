@@ -217,7 +217,7 @@ impl CursorState {
     ///
     /// Secondary cursors are sorted by their start position.
     pub fn sort(&mut self) {
-        self.secondary.sort_by(|a, b| a.start().cmp(&b.start()));
+        self.secondary.sort_by_key(Selection::start);
     }
 
     /// Merges overlapping cursors.

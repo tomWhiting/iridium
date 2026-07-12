@@ -314,7 +314,10 @@ mod tests {
         }"#;
         let colors: EditorColors = serde_json::from_str(partial).unwrap();
         assert!((colors.background.r - 0.1).abs() < f32::EPSILON);
-        assert_eq!(colors.diagnostic_error, EditorColors::dark().diagnostic_error);
+        assert_eq!(
+            colors.diagnostic_error,
+            EditorColors::dark().diagnostic_error
+        );
         assert_eq!(colors.diff_added_bg, EditorColors::dark().diff_added_bg);
     }
 

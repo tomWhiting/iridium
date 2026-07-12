@@ -38,6 +38,43 @@ impl Position {
     pub const fn zero() -> Self {
         Self { line: 0, column: 0 }
     }
+
+    /// Returns the position reached by advancing through `text` from `self`.
+    ///
+    /// Handles all line ending styles the document layer indexes as line
+    /// breaks: LF breaks the line, CR immediately followed by LF defers to
+    /// the LF (one break per CRLF pair), and a lone CR breaks the line
+    /// itself. Columns count characters, matching the document's
+    /// position/column semantics.
+    ///
+    /// This is the single source of truth for "where does the caret land
+    /// after inserting `text`" — command inversion depends on it, so a wrong
+    /// result here makes undo delete the wrong range.
+    #[must_use]
+    pub fn advanced_through(self, text: &str) -> Self {
+        let mut line = self.line;
+        let mut column = self.column;
+
+        let mut chars = text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\n' => {
+                    line += 1;
+                    column = 0;
+                },
+                '\r' => {
+                    if chars.peek() != Some(&'\n') {
+                        line += 1;
+                        column = 0;
+                    }
+                    // CRLF: the following LF performs the line break.
+                },
+                _ => column += 1,
+            }
+        }
+
+        Self { line, column }
+    }
 }
 
 impl PartialOrd for Position {

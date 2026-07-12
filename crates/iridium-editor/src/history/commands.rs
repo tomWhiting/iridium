@@ -228,25 +228,14 @@ impl Command {
 
     /// Computes the end position after inserting text at a position.
     ///
-    /// Handles all line ending styles (LF, CRLF, CR) correctly.
-    /// CR is skipped (for CRLF compatibility), and LF causes line break.
+    /// Handles all line ending styles (LF, CRLF, CR) correctly: LF breaks the
+    /// line, CR immediately followed by LF defers to the LF, and a lone CR
+    /// (legacy line ending, which `Document` indexes as a line break) breaks
+    /// the line itself. Getting the lone-CR case wrong makes `inverse()`
+    /// compute an empty delete range for an inserted CR, so undo would leave
+    /// the inserted byte behind.
     fn compute_end_position(start: Position, text: &str) -> Position {
-        let mut line = start.line;
-        let mut column = start.column;
-
-        for ch in text.chars() {
-            if ch == '\n' {
-                line += 1;
-                column = 0;
-            } else if ch == '\r' {
-                // Skip CR in CRLF sequences - the LF will handle the newline
-                // (matches behavior in core.rs compute_position_after_insert)
-            } else {
-                column += 1;
-            }
-        }
-
-        Position::new(line, column)
+        start.advanced_through(text)
     }
 }
 
@@ -433,5 +422,50 @@ mod tests {
         let inverse = cmd.inverse();
         inverse.apply(&mut doc, &mut cursor).unwrap();
         assert_eq!(doc.text(), "Hello");
+    }
+
+    /// Regression test (Norn review, 2026-07-12): a lone CR is a line break
+    /// in the document layer, so the inverse of inserting "\r" must delete
+    /// exactly that byte. The previous implementation skipped every CR when
+    /// computing the end position, producing an empty delete range — undo
+    /// applied "successfully" while leaving the inserted CR behind.
+    #[test]
+    fn insert_lone_cr_inverse_deletes_it() {
+        let mut doc = Document::new("ab");
+        let mut cursor = CursorState::at(Position::new(0, 1));
+
+        let cmd = Command::Insert {
+            position: Position::new(0, 1),
+            text: "\r".to_string(),
+        };
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "a\rb");
+        assert_eq!(doc.line_count(), 2);
+
+        let inverse = cmd.inverse();
+        let Command::Delete { range, .. } = &inverse else {
+            panic!("inverse of Insert must be Delete, got {inverse:?}");
+        };
+        assert_ne!(range.start, range.end, "delete range must not be empty");
+
+        inverse.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "ab");
+    }
+
+    /// CRLF still counts as a single line break when computing end positions.
+    #[test]
+    fn insert_crlf_inverse_roundtrips() {
+        let mut doc = Document::new("ab");
+        let mut cursor = CursorState::at(Position::new(0, 1));
+
+        let cmd = Command::Insert {
+            position: Position::new(0, 1),
+            text: "x\r\ny".to_string(),
+        };
+        cmd.apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.line_count(), 2);
+
+        cmd.inverse().apply(&mut doc, &mut cursor).unwrap();
+        assert_eq!(doc.text(), "ab");
     }
 }

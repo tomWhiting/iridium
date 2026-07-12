@@ -31,7 +31,7 @@ use iridium_syntax::{HighlightSpan, HighlightType};
 pub struct SpanIndex {
     /// The underlying interval tree
     lapper: Lapper<usize, HighlightType>,
-    /// Cached span count for O(1) len()
+    /// Cached span count for O(1) `len()`
     count: usize,
 }
 
@@ -57,8 +57,6 @@ impl SpanIndex {
     /// ```
     #[must_use]
     pub fn new(spans: Vec<HighlightSpan>) -> Self {
-        let count = spans.len();
-
         // Convert HighlightSpan to Lapper Interval
         // Lapper uses half-open intervals [start, stop) which matches our span semantics
         let intervals: Vec<Interval<usize, HighlightType>> = spans
@@ -71,6 +69,8 @@ impl SpanIndex {
             })
             .collect();
 
+        // Count after filtering so len() reflects the spans actually indexed
+        let count = intervals.len();
         let lapper = Lapper::new(intervals);
 
         Self { lapper, count }
@@ -97,7 +97,7 @@ impl SpanIndex {
 
     /// Finds all spans overlapping the given byte range.
     ///
-    /// Returns an iterator over spans that overlap [start_byte, end_byte).
+    /// Returns an iterator over spans that overlap `[start_byte, end_byte)`.
     /// This includes spans that:
     /// - Start before `start_byte` and end after `start_byte`
     /// - Start within the range
@@ -137,8 +137,9 @@ impl SpanIndex {
 
     /// Returns the number of indexed spans.
     ///
-    /// Note: This returns the count of spans passed to `new()`, not the
-    /// count after filtering invalid spans.
+    /// Empty or invalid spans (where `start >= end`) are filtered out during
+    /// construction and are not counted, so this always equals the number of
+    /// intervals actually stored in the index.
     #[must_use]
     #[inline]
     pub const fn len(&self) -> usize {
@@ -202,10 +203,11 @@ impl Iterator for QueryIterator<'_> {
 }
 
 #[cfg(all(test, feature = "syntax"))]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
-    fn make_span(start: usize, end: usize) -> HighlightSpan {
+    const fn make_span(start: usize, end: usize) -> HighlightSpan {
         HighlightSpan::new(start, end, HighlightType::Keyword)
     }
 
@@ -229,16 +231,13 @@ mod tests {
         assert_eq!(results[0].end, 20);
 
         // Query exactly matching
-        let results: Vec<_> = index.query(10, 20).collect();
-        assert_eq!(results.len(), 1);
+        assert_eq!(index.query(10, 20).count(), 1);
 
         // Query before span
-        let results: Vec<_> = index.query(0, 5).collect();
-        assert_eq!(results.len(), 0);
+        assert_eq!(index.query(0, 5).count(), 0);
 
         // Query after span
-        let results: Vec<_> = index.query(25, 30).collect();
-        assert_eq!(results.len(), 0);
+        assert_eq!(index.query(25, 30).count(), 0);
     }
 
     #[test]
@@ -246,8 +245,7 @@ mod tests {
         let index = SpanIndex::new(vec![make_span(0, 10), make_span(5, 15), make_span(10, 20)]);
 
         // Query that overlaps all three
-        let results: Vec<_> = index.query(8, 12).collect();
-        assert_eq!(results.len(), 3);
+        assert_eq!(index.query(8, 12).count(), 3);
     }
 
     #[test]
@@ -267,8 +265,7 @@ mod tests {
         let index = SpanIndex::new(vec![make_span(50, 150)]);
 
         // Query overlaps start of span
-        let results: Vec<_> = index.query(0, 100).collect();
-        assert_eq!(results.len(), 1);
+        assert_eq!(index.query(0, 100).count(), 1);
     }
 
     #[test]
@@ -276,11 +273,8 @@ mod tests {
         let index = SpanIndex::new(vec![make_span(0, 100)]);
 
         // start >= end should return empty
-        let results: Vec<_> = index.query(50, 50).collect();
-        assert_eq!(results.len(), 0);
-
-        let results: Vec<_> = index.query(100, 50).collect();
-        assert_eq!(results.len(), 0);
+        assert_eq!(index.query(50, 50).count(), 0);
+        assert_eq!(index.query(100, 50).count(), 0);
     }
 
     #[test]
@@ -292,8 +286,42 @@ mod tests {
         ]);
 
         // Only the valid span should be queryable
-        let results: Vec<_> = index.query(0, 100).collect();
-        assert_eq!(results.len(), 1);
+        assert_eq!(index.query(0, 100).count(), 1);
+
+        // len() must reflect only the spans actually indexed
+        assert_eq!(index.len(), 1);
+        assert!(!index.is_empty());
+    }
+
+    /// Regression test: `len()` must count only the intervals actually
+    /// indexed, excluding empty (start == end) spans dropped by the
+    /// construction filter.
+    #[test]
+    fn len_excludes_empty_spans() {
+        let index = SpanIndex::new(vec![
+            make_span(0, 5),   // valid
+            make_span(5, 5),   // empty: dropped
+            make_span(10, 20), // valid
+            make_span(20, 20), // empty: dropped
+            make_span(30, 40), // valid
+        ]);
+
+        assert_eq!(index.len(), 3);
+        assert!(!index.is_empty());
+
+        // The queryable span count must agree with len()
+        assert_eq!(index.query(0, 100).count(), index.len());
+    }
+
+    /// Regression test: an index built entirely from empty spans must
+    /// report `is_empty()` and a zero `len()`.
+    #[test]
+    fn all_empty_spans_yield_empty_index() {
+        let index = SpanIndex::new(vec![make_span(0, 0), make_span(7, 7), make_span(42, 42)]);
+
+        assert!(index.is_empty());
+        assert_eq!(index.len(), 0);
+        assert_eq!(index.query(0, 100).count(), 0);
     }
 
     #[test]
@@ -372,7 +400,7 @@ mod tests {
         assert_eq!(extending_span.end, 15000);
     }
 
-    /// T040: SpanIndex should handle 100,000+ spans without stack overflow.
+    /// T040: `SpanIndex` should handle 100,000+ spans without stack overflow.
     /// This verifies that the interval tree scales to very large files.
     #[test]
     fn large_index_100k_spans() {

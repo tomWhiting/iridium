@@ -7,6 +7,9 @@
 //! - Backspace/Delete
 //! - Clipboard operations (Ctrl+C/X/V)
 //! - Undo/Redo (Ctrl+Z, Ctrl+Y/Ctrl+Shift+Z)
+//! - Line operations: move lines (Alt+Up/Down), duplicate lines
+//!   (Shift+Alt+Up/Down), delete lines (Ctrl+Shift+K), join lines (Ctrl+J)
+//! - Comment toggling: line comments (Ctrl+/), block comments (Shift+Alt+A)
 //!
 //! All editing and navigation operations are multi-cursor aware: every
 //! cursor (primary and secondary) is edited or moved independently, and
@@ -18,14 +21,25 @@
 //! indent/outdent, auto-indent on Enter (including bracket-block and
 //! code-fence expansion), and auto-closing pairs — live in [`behaviors`] and
 //! are driven by the [`EditorConfig`] passed to [`KeyboardHandler::handle_key`].
+//!
+//! Comment toggling lives in [`comments`]: the comment syntax is resolved
+//! from the document's language identifier ([`Document::language`]), falling
+//! back to [`EditorConfig::line_comment_token`]; when neither is available
+//! the toggle keys are acknowledged without editing.
 
 mod behaviors;
+mod comments;
 pub mod editing;
+mod line_ops;
 pub mod motions;
 mod types;
 
 #[cfg(test)]
 mod behavior_tests;
+#[cfg(test)]
+mod comment_tests;
+#[cfg(test)]
+mod line_ops_tests;
 #[cfg(test)]
 mod tests;
 
@@ -46,6 +60,9 @@ use motions::VerticalDirection;
 /// - Text editing (character input, Backspace, Delete)
 /// - Clipboard operations (Ctrl+C/X/V)
 /// - Undo/Redo (Ctrl+Z, Ctrl+Y)
+/// - Line operations (Alt+Up/Down move, Shift+Alt+Up/Down duplicate,
+///   Ctrl+Shift+K delete, Ctrl+J join)
+/// - Comment toggling (Ctrl+/ line comments, Shift+Alt+A block comments)
 ///
 /// All operations act on every cursor of a multi-cursor [`CursorState`].
 #[derive(Debug, Default)]
@@ -79,8 +96,10 @@ impl KeyboardHandler {
     ///
     /// `config` drives the editing behaviors: `tab_width`/`insert_spaces`
     /// for Tab, indent, and outdent; `auto_indent` for Enter (indent
-    /// inheritance, bracket-block and code-fence expansion); and `auto_pairs`
-    /// for bracket/quote pairing.
+    /// inheritance, bracket-block and code-fence expansion); `auto_pairs`
+    /// for bracket/quote pairing; and `line_comment_token` as the comment
+    /// syntax fallback for Ctrl+/ and Shift+Alt+A when the document's
+    /// language provides none.
     pub fn handle_key(
         &mut self,
         event: &KeyEvent,
@@ -90,6 +109,16 @@ impl KeyboardHandler {
         config: &EditorConfig,
     ) -> KeyResult {
         match event.key {
+            // Alt+Up/Down move the cursors' line blocks; Shift+Alt+Up/Down
+            // duplicate them. Plain and Shift arrows fall through to cursor
+            // movement below.
+            KeyCode::Up if Self::is_line_op_modifiers(event.modifiers) => {
+                self.handle_line_vertical(event, document, cursor, VerticalDirection::Up)
+            },
+            KeyCode::Down if Self::is_line_op_modifiers(event.modifiers) => {
+                self.handle_line_vertical(event, document, cursor, VerticalDirection::Down)
+            },
+
             // Arrow key navigation
             KeyCode::Left => self.handle_left(event, document, cursor),
             KeyCode::Right => self.handle_right(event, document, cursor),
@@ -100,9 +129,35 @@ impl KeyboardHandler {
             KeyCode::Home => self.handle_home(event, document, cursor),
             KeyCode::End => self.handle_end(event, document, cursor),
 
-            // Character input
-            KeyCode::Char(c) if event.modifiers.ctrl => {
-                self.handle_ctrl_char(c, document, cursor, history)
+            // Shift+Alt+A toggles block comments. Ctrl and Meta must be
+            // absent: AltGr layouts report Ctrl+Alt and compose characters,
+            // which must keep passing through untouched.
+            //
+            // Contract: hosts forward the BASE logical letter for modifier
+            // chords (a platform where Alt resolves the logical key to a
+            // special character, e.g. macOS Shift+Option+A -> "Å", must
+            // normalize to the physical base letter before dispatch — the
+            // web controller does this in translateKeyEvent).
+            KeyCode::Char(c)
+                if c.eq_ignore_ascii_case(&'a')
+                    && event.modifiers.alt
+                    && event.modifiers.shift
+                    && !event.modifiers.ctrl
+                    && !event.modifiers.meta =>
+            {
+                self.handle_toggle_block_comment(document, cursor, config)
+            },
+
+            // Character input. Ctrl+character shortcuts require that
+            // neither Alt nor Meta is also held: compound chords like
+            // Ctrl+Alt+J or Ctrl+Meta+K are reserved for the host/OS, and
+            // layouts reporting AltGr as Ctrl+Alt compose characters with
+            // those modifiers — both must pass through untouched (they fall
+            // to the `Char(_)` arm below), never mutate the document.
+            KeyCode::Char(c)
+                if event.modifiers.ctrl && !event.modifiers.alt && !event.modifiers.meta =>
+            {
+                self.handle_ctrl_char(c, event.modifiers.shift, document, cursor, history, config)
             },
             KeyCode::Char(c) if !event.modifiers.alt && !event.modifiers.meta => {
                 self.handle_char_input(c, document, cursor, config)
@@ -128,8 +183,9 @@ impl KeyboardHandler {
 
             // Everything else: Page Up/Down are handled by the viewport,
             // function keys and modifier-only keys are not handled, and
-            // characters with Alt/Meta modifiers pass through. (The bare F3
-            // arm is unreachable due to the guards above but keeps the match
+            // characters with Alt or Meta modifiers — including Ctrl+Alt
+            // and Ctrl+Meta chords — pass through. (The bare F3 arm is
+            // unreachable due to the guards above but keeps the match
             // exhaustive.)
             KeyCode::PageUp
             | KeyCode::PageDown
@@ -338,6 +394,35 @@ impl KeyboardHandler {
         new_cursor
     }
 
+    /// Returns true when the modifier set selects a line operation on
+    /// Up/Down: Alt (move lines) or Shift+Alt (duplicate lines), without
+    /// Ctrl or Meta (reserved for other bindings such as add-cursor).
+    const fn is_line_op_modifiers(modifiers: Modifiers) -> bool {
+        modifiers.alt && !modifiers.ctrl && !modifiers.meta
+    }
+
+    /// Handles Alt+Up/Down (move line blocks) and Shift+Alt+Up/Down
+    /// (duplicate lines/selections).
+    ///
+    /// Both operations act on every cursor and produce a single undoable
+    /// command; see [`line_ops::move_lines`] and [`line_ops::duplicate_lines`].
+    fn handle_line_vertical(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+        direction: VerticalDirection,
+    ) -> KeyResult {
+        self.preferred_columns = None;
+
+        let command = if event.modifiers.shift {
+            line_ops::duplicate_lines(document, cursor, direction)
+        } else {
+            line_ops::move_lines(document, cursor, direction)
+        };
+        command.map_or(KeyResult::Handled, KeyResult::Command)
+    }
+
     /// Handles Escape key - collapse to primary cursor.
     fn handle_escape(&mut self, cursor: &CursorState) -> KeyResult {
         self.preferred_columns = None;
@@ -356,12 +441,20 @@ impl KeyboardHandler {
     // ========== Editing handlers ==========
 
     /// Handles Ctrl+key combinations.
+    ///
+    /// `shift` distinguishes the shifted bindings: Ctrl+Shift+K deletes each
+    /// cursor's lines, while Ctrl+J (unshifted) joins each cursor's line
+    /// with the next. `config` drives comment toggling (Ctrl+/), which falls
+    /// back to `config.line_comment_token` when the document's language
+    /// provides no comment syntax.
     fn handle_ctrl_char(
         &mut self,
         c: char,
+        shift: bool,
         document: &Document,
         cursor: &CursorState,
         history: &UndoTree,
+        config: &EditorConfig,
     ) -> KeyResult {
         match c.to_ascii_lowercase() {
             'c' => Self::handle_copy(document, cursor),
@@ -378,7 +471,72 @@ impl KeyboardHandler {
             'a' => Self::handle_select_all(document, cursor),
             'd' => Self::handle_add_selection_next_match(document, cursor), // T107
             'f' => KeyResult::Search(SearchAction::OpenSearch),             // T121
+            'k' if shift => {
+                self.preferred_columns = None;
+                line_ops::delete_lines(document, cursor)
+                    .map_or(KeyResult::Handled, KeyResult::Command)
+            },
+            'j' if !shift => {
+                self.preferred_columns = None;
+                line_ops::join_lines(document, cursor)
+                    .map_or(KeyResult::Handled, KeyResult::Command)
+            },
+            '/' => self.handle_toggle_line_comment(document, cursor, config),
             _ => KeyResult::Ignored,
+        }
+    }
+
+    /// Handles Ctrl+/ — toggle line comment.
+    ///
+    /// Each cursor's touched lines toggle as a group with VS Code
+    /// semantics, with groups sharing a line merged so the outcome never
+    /// depends on which cursor is primary (see
+    /// [`comments::toggle_line_comment_edits`]); the whole toggle is one
+    /// undoable command that remaps every cursor and selection. When no comment syntax is available (no language, a
+    /// commentless language like JSON, and no configured fallback token)
+    /// the key is acknowledged without editing.
+    fn handle_toggle_line_comment(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        config: &EditorConfig,
+    ) -> KeyResult {
+        self.preferred_columns = None;
+
+        let Some(syntax) = comments::resolve_comment_syntax(document, config) else {
+            return KeyResult::Handled;
+        };
+        let edits = comments::toggle_line_comment_edits(document, cursor, &syntax);
+        editing::build_line_edits_command(document, cursor, edits)
+            .map_or(KeyResult::Handled, KeyResult::Command)
+    }
+
+    /// Handles Shift+Alt+A — toggle block comment.
+    ///
+    /// Each selection is wrapped in the language's block pair or unwrapped
+    /// when it is exactly wrapped already (see
+    /// [`comments::toggle_block_comment_edits`]). Languages without a block
+    /// pair fall back to the line toggle; with no comment syntax at all the
+    /// key is acknowledged without editing.
+    fn handle_toggle_block_comment(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        config: &EditorConfig,
+    ) -> KeyResult {
+        self.preferred_columns = None;
+
+        let Some(syntax) = comments::resolve_comment_syntax(document, config) else {
+            return KeyResult::Handled;
+        };
+        if let Some((open, close)) = &syntax.block {
+            let edits = comments::toggle_block_comment_edits(document, cursor, open, close);
+            editing::build_multi_cursor_command_placed(document, cursor, edits)
+                .map_or(KeyResult::Handled, KeyResult::Command)
+        } else {
+            let edits = comments::toggle_line_comment_edits(document, cursor, &syntax);
+            editing::build_line_edits_command(document, cursor, edits)
+                .map_or(KeyResult::Handled, KeyResult::Command)
         }
     }
 

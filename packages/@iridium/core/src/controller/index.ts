@@ -722,6 +722,27 @@ export class IridiumEditor {
       }
     }
 
+    // Alt-chorded letters: macOS resolves Option+letter to a special
+    // character (Shift+Option+A -> "Å"), so the logical e.key would never
+    // match a core binding like Shift+Alt+A (toggle block comment).
+    // Normalize to the physical base letter via e.code — the Rust core's
+    // contract is base logical letters plus modifiers. This does not affect
+    // typing special characters: composed input (Option+e etc.) belongs to
+    // the composition/IME path, not keydown dispatch.
+    if (e.altKey) {
+      const physical = /^Key([A-Z])$/.exec(e.code);
+      if (physical) {
+        const base = e.shiftKey ? physical[1] : physical[1].toLowerCase();
+        return {
+          key: base,
+          ctrl: e.metaKey || e.ctrlKey,
+          shift: e.shiftKey,
+          alt: true,
+          meta: false,
+        };
+      }
+    }
+
     // Default macOS mapping: Cmd and Ctrl both forward as the Rust `ctrl`
     // (editor shortcuts), `meta` is never forwarded.
     return {

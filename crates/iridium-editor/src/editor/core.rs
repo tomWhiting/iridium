@@ -177,8 +177,16 @@ impl EditorState {
     }
 
     /// Sets the content, resetting cursor and history.
+    ///
+    /// The current language (if any) carries over to the new document, so
+    /// language-aware editing keeps working after a full content swap.
     pub fn set_content(&mut self, content: &str) {
+        let language_id = self
+            .language()
+            .map(|language| language.id().to_owned())
+            .filter(|id| !id.is_empty());
         self.document = Document::new(content);
+        self.document.set_language(language_id);
         self.cursor = CursorState::at(Position::zero());
         self.history = UndoTree::new();
         self.scroll_line = 0;
@@ -187,9 +195,17 @@ impl EditorState {
         self.fold_state.update_regions(content);
     }
 
-    /// Sets the language for syntax-aware folding.
+    /// Sets the language for syntax-aware folding and language-aware editing.
+    ///
+    /// The language id is also recorded on the document itself so editing
+    /// paths that only see the document (e.g. comment toggling in the
+    /// keyboard handler) can resolve the language's comment syntax.
     pub fn set_language(&mut self, language: Language) {
         self.fold_state.set_language(language);
+        let id = language.id();
+        if !id.is_empty() {
+            self.document.set_language(Some(id.to_owned()));
+        }
         self.fold_state.update_regions(&self.document.text());
     }
 

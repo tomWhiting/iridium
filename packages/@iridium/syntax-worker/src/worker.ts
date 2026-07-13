@@ -7,6 +7,7 @@
 
 import { Parser, Language as TSLanguage, Query, Tree } from "web-tree-sitter";
 import type { WorkerRequest, WorkerResponse, HighlightSpan, EditInfo } from "./protocol.ts";
+import { convertSpansToUtf8, convertEditInfo } from "./encoding.ts";
 
 // Import bundled grammars from @iridium/core
 import { decodeCoreWasm, decodeGrammar, AVAILABLE_LANGUAGES, HIGHLIGHT_QUERIES } from "@iridium-editor/core/syntax";
@@ -21,7 +22,15 @@ class SyntaxWorker {
   private tree: Tree | null = null;
   private languages: Map<string, LanguageData> = new Map();
   private currentLanguage: string = "rust";
-  private lastContentHash: number = 0;
+  /**
+   * The exact document string that produced {@link tree}, kept so incremental
+   * edits can convert the Rust core's rope-byte edit info against the *pre-edit*
+   * text (see {@link convertEditInfo}). Held in lock-step with `tree`: set to
+   * the parsed content whenever `tree` is (re)assigned from a parse, and cleared
+   * to `null` whenever `tree` is discarded. When it is `null` no valid pre-edit
+   * text exists and callers must do a full (non-incremental) parse.
+   */
+  private lastContent: string | null = null;
 
   async initialize(defaultLanguage: string = "rust"): Promise<void> {
     const coreWasm = await decodeCoreWasm();
@@ -81,7 +90,7 @@ class SyntaxWorker {
     this.currentLanguage = lang;
     this.parser.setLanguage(data.grammar);
     this.tree = null;
-    this.lastContentHash = 0;
+    this.lastContent = null;
     return true;
   }
 
@@ -94,6 +103,9 @@ class SyntaxWorker {
     try {
       this.tree = this.parser.parse(content);
       if (!this.tree) return [];
+      // Keep the parsed text so the next incremental edit can convert
+      // rope-byte edit info against this pre-edit content.
+      this.lastContent = content;
 
       const captures = data.query.captures(this.tree.rootNode);
 
@@ -106,8 +118,14 @@ class SyntaxWorker {
       );
 
       spans.sort((a, b) => a.start - b.start || a.end - b.end);
-      return spans;
+      // tree-sitter reports UTF-16 code-unit offsets; the rope indexes by
+      // UTF-8 byte. Convert before handing spans back to the Rust core.
+      return convertSpansToUtf8(content, spans);
     } catch (e) {
+      // A failed parse must not leave a stale tree/lastContent pair behind:
+      // the controller's next edit is relative to THIS request's content.
+      this.tree = null;
+      this.lastContent = null;
       console.error("[SyntaxWorker] Parse error:", e);
       return [];
     }
@@ -119,23 +137,29 @@ class SyntaxWorker {
     const data = this.languages.get(this.currentLanguage);
     if (!data) return [];
 
-    if (!this.tree) {
+    // Without both the old tree and the pre-edit text, the byte->UTF-16 edit
+    // conversion has no reference document; fall back to a full parse.
+    if (!this.tree || this.lastContent === null) {
       return this.highlight(content);
     }
 
     try {
+      // The edit arrives in rope bytes / byte columns; tree-sitter needs
+      // UTF-16 code units, converted against the pre- and post-edit text.
+      const tsEdit = convertEditInfo(this.lastContent, content, edit);
       this.tree.edit({
-        startIndex: edit.startIndex,
-        oldEndIndex: edit.oldEndIndex,
-        newEndIndex: edit.newEndIndex,
-        startPosition: edit.startPosition,
-        oldEndPosition: edit.oldEndPosition,
-        newEndPosition: edit.newEndPosition,
+        startIndex: tsEdit.startIndex,
+        oldEndIndex: tsEdit.oldEndIndex,
+        newEndIndex: tsEdit.newEndIndex,
+        startPosition: tsEdit.startPosition,
+        oldEndPosition: tsEdit.oldEndPosition,
+        newEndPosition: tsEdit.newEndPosition,
       });
 
       const oldTree = this.tree;
       this.tree = this.parser.parse(content, oldTree);
       if (!this.tree) return this.highlight(content);
+      this.lastContent = content;
 
       const captures = data.query.captures(this.tree.rootNode);
 
@@ -148,8 +172,12 @@ class SyntaxWorker {
       );
 
       spans.sort((a, b) => a.start - b.start || a.end - b.end);
-      return spans;
+      return convertSpansToUtf8(content, spans);
     } catch (e) {
+      // tree.edit() may already have mutated the old tree; drop the pair and
+      // recover with a clean full parse of the current content.
+      this.tree = null;
+      this.lastContent = null;
       console.error("[SyntaxWorker] Incremental parse error:", e);
       return this.highlight(content);
     }
@@ -167,25 +195,32 @@ class SyntaxWorker {
     if (!data) return [];
 
     try {
-      const contentHash = this.quickHash(content);
-      const contentChanged = contentHash !== this.lastContentHash || !this.tree;
+      // Content identity must be exact: a sampled hash once skipped
+      // same-length edits at unsampled positions, leaving the tree and
+      // lastContent describing stale text that later edit-info conversions
+      // ran against. String equality early-exits on the first difference,
+      // which is cheap next to a parse.
+      const contentChanged = !this.tree || this.lastContent !== content;
 
       if (contentChanged) {
-        this.lastContentHash = contentHash;
-
-        if (editInfo && this.tree) {
+        // Incremental reuse needs the old tree AND the pre-edit text (to
+        // convert the rope-byte edit into tree-sitter's UTF-16 space);
+        // otherwise re-parse from scratch.
+        if (editInfo && this.tree && this.lastContent !== null) {
+          const tsEdit = convertEditInfo(this.lastContent, content, editInfo);
           this.tree.edit({
-            startIndex: editInfo.startIndex,
-            oldEndIndex: editInfo.oldEndIndex,
-            newEndIndex: editInfo.newEndIndex,
-            startPosition: editInfo.startPosition,
-            oldEndPosition: editInfo.oldEndPosition,
-            newEndPosition: editInfo.newEndPosition,
+            startIndex: tsEdit.startIndex,
+            oldEndIndex: tsEdit.oldEndIndex,
+            newEndIndex: tsEdit.newEndIndex,
+            startPosition: tsEdit.startPosition,
+            oldEndPosition: tsEdit.oldEndPosition,
+            newEndPosition: tsEdit.newEndPosition,
           });
           this.tree = this.parser.parse(content, this.tree);
         } else {
           this.tree = this.parser.parse(content);
         }
+        this.lastContent = this.tree ? content : null;
       }
 
       if (!this.tree) return [];
@@ -193,14 +228,17 @@ class SyntaxWorker {
       const startPoint = { row: Math.max(0, startLine), column: 0 };
       const endPoint = { row: endLine, column: 0 };
 
+      // Range bounds are in tree-sitter's UTF-16 code-unit space (JS
+      // `string.length` per line), matching node.startIndex/endIndex, so the
+      // overlap test below is done entirely in UTF-16 before conversion.
       const lines = content.split("\n");
-      let startByte = 0;
+      let startUnit = 0;
       for (let i = 0; i < startLine && i < lines.length; i++) {
-        startByte += lines[i].length + 1;
+        startUnit += lines[i].length + 1;
       }
-      let endByte = startByte;
+      let endUnit = startUnit;
       for (let i = startLine; i < endLine && i < lines.length; i++) {
-        endByte += lines[i].length + 1;
+        endUnit += lines[i].length + 1;
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -209,7 +247,7 @@ class SyntaxWorker {
       const spans: HighlightSpan[] = [];
       for (const c of captures) {
         const node = c.node;
-        if (node.endIndex <= startByte || node.startIndex >= endByte) {
+        if (node.endIndex <= startUnit || node.startIndex >= endUnit) {
           continue;
         }
         spans.push({
@@ -220,25 +258,19 @@ class SyntaxWorker {
       }
 
       spans.sort((a, b) => a.start - b.start || a.end - b.end);
-      return spans;
+      // Convert to UTF-8 byte offsets for the rope only once, on the filtered
+      // viewport spans.
+      return convertSpansToUtf8(content, spans);
     } catch (e) {
+      // Same discipline as the other paths: never keep a possibly
+      // edit-adjusted tree paired with text it no longer describes.
+      this.tree = null;
+      this.lastContent = null;
       console.error("[SyntaxWorker] Range highlight error:", e);
       return [];
     }
   }
 
-  private quickHash(str: string): number {
-    const len = str.length;
-    if (len === 0) return 0;
-    const sample =
-      str.charCodeAt(0) +
-      str.charCodeAt(Math.floor(len / 4)) * 31 +
-      str.charCodeAt(Math.floor(len / 2)) * 997 +
-      str.charCodeAt(Math.floor((3 * len) / 4)) * 7919 +
-      str.charCodeAt(len - 1) * 65537 +
-      len * 16777619;
-    return sample >>> 0;
-  }
 }
 
 // Worker instance

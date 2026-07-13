@@ -57,12 +57,14 @@ const ALT: Modifiers = Modifiers {
     ctrl: false,
     alt: true,
     meta: false,
+    alt_graph: false,
 };
 const SHIFT_ALT: Modifiers = Modifiers {
     shift: true,
     ctrl: false,
     alt: true,
     meta: false,
+    alt_graph: false,
 };
 
 const MOVE_UP: KeyEvent = KeyEvent::new(KeyCode::Up, ALT);
@@ -749,24 +751,28 @@ const CTRL_ALT: Modifiers = Modifiers {
     ctrl: true,
     alt: true,
     meta: false,
+    alt_graph: false,
 };
 const CTRL_META: Modifiers = Modifiers {
     shift: false,
     ctrl: true,
     alt: false,
     meta: true,
+    alt_graph: false,
 };
 const CTRL_SHIFT_ALT: Modifiers = Modifiers {
     shift: true,
     ctrl: true,
     alt: true,
     meta: false,
+    alt_graph: false,
 };
 const CTRL_SHIFT_META: Modifiers = Modifiers {
     shift: true,
     ctrl: true,
     alt: false,
     meta: true,
+    alt_graph: false,
 };
 
 #[test]

@@ -220,23 +220,59 @@ impl CursorState {
         self.secondary.sort_by_key(Selection::start);
     }
 
-    /// Merges overlapping cursors.
+    /// Returns true when two cursors must collapse into one.
     ///
-    /// After merging, all cursors are sorted by position and no two cursors overlap.
-    /// Adjacent selections (where one ends where another starts) are also merged.
+    /// Two cursors merge when they genuinely occupy shared ground:
+    /// - their ranges strictly overlap (share at least one interior position),
+    ///   or
+    /// - they touch at an endpoint (one ends exactly where the other begins)
+    ///   **and at least one side is collapsed** — which also covers duplicate
+    ///   collapsed carets at the exact same position, and a collapsed caret
+    ///   sitting on either endpoint of a non-empty selection.
+    ///
+    /// Crucially, two *non-empty* selections that merely touch at an endpoint
+    /// do **not** merge. Occurrence-based multi-cursor verbs
+    /// (select-all-occurrences, Ctrl+D, skip) legitimately place adjacent
+    /// matches such as the two `foo` halves of `foofoo`; those must remain
+    /// distinct edit targets rather than fuse into a single selection.
+    ///
+    /// A collapsed caret touching a non-empty selection *must* merge, however:
+    /// leaving it distinct (e.g. a Ctrl-click at the exact end of an existing
+    /// selection) makes a single keystroke apply both the selection replacement
+    /// and a boundary insertion, duplicating the typed text. Merging touching
+    /// non-empty ranges (fusing adjacent occurrences) and failing to merge a
+    /// touching collapsed caret (duplicate edits) were the two poles of the
+    /// adjacency defect.
+    fn should_merge(a: &Selection, b: &Selection) -> bool {
+        if a.overlaps(b) {
+            return true;
+        }
+        if !a.is_collapsed() && !b.is_collapsed() {
+            // Two non-empty selections that only touch at an endpoint stay
+            // distinct edit targets.
+            return false;
+        }
+        // At least one side is collapsed: merge when the ranges touch at an
+        // endpoint (covers duplicate collapsed carets and a caret on either
+        // endpoint of a non-empty selection).
+        a.end() == b.start() || b.end() == a.start()
+    }
+
+    /// Merges cursors that share ground (see [`Self::should_merge`]).
+    ///
+    /// After merging, all cursors are sorted by position and no two cursors
+    /// overlap. Adjacent non-empty selections are preserved as distinct
+    /// cursors; only strict overlaps and duplicate collapsed carets collapse.
     fn merge_overlapping(&mut self) {
         if self.secondary.is_empty() {
             return;
         }
 
-        // First, check if any secondary cursor overlaps with primary
-        // If so, merge into primary and remove from secondary
+        // First, fold any secondary cursor that shares ground with the primary
+        // into the primary and drop it from the secondary list.
         let mut i = 0;
         while i < self.secondary.len() {
-            if self.primary.overlaps(&self.secondary[i])
-                || self.primary.end() == self.secondary[i].start()
-                || self.secondary[i].end() == self.primary.start()
-            {
+            if Self::should_merge(&self.primary, &self.secondary[i]) {
                 self.primary = self.primary.merge(&self.secondary[i]);
                 self.secondary.remove(i);
             } else {
@@ -247,13 +283,10 @@ impl CursorState {
         // Sort secondaries by start position
         self.sort();
 
-        // Merge adjacent/overlapping secondaries
+        // Merge secondaries that share ground with their successor.
         let mut i = 0;
         while i + 1 < self.secondary.len() {
-            let current_end = self.secondary[i].end();
-            let next_start = self.secondary[i + 1].start();
-
-            if self.secondary[i].overlaps(&self.secondary[i + 1]) || current_end == next_start {
+            if Self::should_merge(&self.secondary[i], &self.secondary[i + 1]) {
                 let merged = self.secondary[i].merge(&self.secondary[i + 1]);
                 self.secondary[i] = merged;
                 self.secondary.remove(i + 1);
@@ -341,13 +374,59 @@ mod tests {
     }
 
     #[test]
-    fn cursor_state_merge_adjacent() {
+    fn cursor_state_adjacent_non_empty_selections_stay_distinct() {
         let mut state = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 5)));
-        // Add adjacent cursor (starts where primary ends)
+        // Add an adjacent selection (starts exactly where the primary ends).
+        // Two non-empty selections that only touch must NOT fuse: occurrence
+        // verbs rely on adjacent matches remaining separate edit targets.
         state.add_cursor(Selection::new(Position::new(0, 5), Position::new(0, 10)));
-        // Should be merged
+        assert_eq!(state.cursor_count(), 2);
+        assert_eq!(state.primary.range().end, Position::new(0, 5));
+        assert_eq!(state.secondary[0].start(), Position::new(0, 5));
+        assert_eq!(state.secondary[0].end(), Position::new(0, 10));
+    }
+
+    #[test]
+    fn cursor_state_collapsed_caret_touching_selection_end_merges() {
+        // Reviewer finding: a Ctrl-click at the exact end of an existing
+        // selection lands a collapsed caret touching the selection's endpoint.
+        // It must merge, or a single keystroke applies both the selection
+        // replacement and a boundary insertion (duplicating the typed text).
+        let mut state = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 3)));
+        state.add_cursor(Selection::collapsed(Position::new(0, 3)));
         assert_eq!(state.cursor_count(), 1);
-        assert_eq!(state.primary.end(), Position::new(0, 10));
+        assert_eq!(state.primary.start(), Position::new(0, 0));
+        assert_eq!(state.primary.end(), Position::new(0, 3));
+    }
+
+    #[test]
+    fn cursor_state_collapsed_caret_touching_selection_start_merges() {
+        // The symmetric case: a Ctrl-click at the exact start of an existing
+        // selection also merges rather than leaving a duplicate edit target.
+        let mut state = CursorState::new(Selection::new(Position::new(0, 2), Position::new(0, 5)));
+        state.add_cursor(Selection::collapsed(Position::new(0, 2)));
+        assert_eq!(state.cursor_count(), 1);
+        assert_eq!(state.primary.start(), Position::new(0, 2));
+        assert_eq!(state.primary.end(), Position::new(0, 5));
+    }
+
+    #[test]
+    fn cursor_state_collapsed_caret_not_touching_selection_stays_distinct() {
+        // A collapsed caret with a genuine gap from the selection is a real
+        // second cursor and must not be swallowed by the endpoint-merge rule.
+        let mut state = CursorState::new(Selection::new(Position::new(0, 0), Position::new(0, 3)));
+        state.add_cursor(Selection::collapsed(Position::new(0, 5)));
+        assert_eq!(state.cursor_count(), 2);
+    }
+
+    #[test]
+    fn cursor_state_duplicate_collapsed_carets_merge() {
+        let mut state = CursorState::at(Position::new(0, 5));
+        // A second collapsed caret at the same position is a duplicate and
+        // collapses into one cursor.
+        state.add_cursor(Selection::collapsed(Position::new(0, 5)));
+        assert_eq!(state.cursor_count(), 1);
+        assert_eq!(state.primary.head, Position::new(0, 5));
     }
 
     #[test]

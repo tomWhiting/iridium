@@ -15,6 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: Check workspace (all features)
         run: cargo check --workspace --all-features --all-targets
@@ -22,6 +24,14 @@ jobs:
         # Precursor to the Phase 2 kernel gate: the editing core must build
         # without the syntax feature (and, post-split, without any GPU crate).
         run: cargo check -p iridium-editor --no-default-features
+      - name: Check web bindings on the wasm target
+        # The wasm module is target-gated (cfg(target_arch = "wasm32")), so
+        # native checks never type-check it. This is the exact feature set
+        # wasm-pack builds with; without it a broken WebEditor surface is
+        # invisible until someone runs wasm-pack locally.
+        run: >
+          cargo check -p iridium-bindings --no-default-features --features web
+          --target wasm32-unknown-unknown
 
   test:
     name: Test

@@ -492,8 +492,9 @@ impl WebEditor {
     /// Read-only mode mirrors `Editor::handle_key`: only selection changes,
     /// copy, and search actions are honored; every other consumed key is a
     /// no-op that still reports `"handled"`.
-    // The four bools mirror the DOM KeyboardEvent modifier flags 1:1; a
-    // struct would not survive the wasm-bindgen boundary as ergonomically.
+    // The five bools mirror the DOM KeyboardEvent modifier flags 1:1
+    // (`alt_graph` is `getModifierState("AltGraph")`); a struct would not
+    // survive the wasm-bindgen boundary as ergonomically.
     #[allow(clippy::fn_params_excessive_bools)]
     #[wasm_bindgen(js_name = handleKeyEvent)]
     pub fn handle_key_event(
@@ -503,6 +504,7 @@ impl WebEditor {
         shift: bool,
         alt: bool,
         meta: bool,
+        alt_graph: bool,
     ) -> String {
         let Some(key_code) = key_code_from_dom_key(key) else {
             // Unknown key: never reaches the Rust core.
@@ -536,6 +538,7 @@ impl WebEditor {
                 ctrl,
                 alt,
                 meta,
+                alt_graph,
             },
             is_repeat: false,
         };
@@ -625,12 +628,7 @@ impl WebEditor {
     pub fn copy_text(&mut self) -> Option<String> {
         let event = KeyEvent {
             key: KeyCode::Char('c'),
-            modifiers: Modifiers {
-                shift: false,
-                ctrl: true,
-                alt: false,
-                meta: false,
-            },
+            modifiers: Modifiers::ctrl(),
             is_repeat: false,
         };
         let state = self.editor.state();
@@ -666,12 +664,7 @@ impl WebEditor {
         }
         let event = KeyEvent {
             key: KeyCode::Char('x'),
-            modifiers: Modifiers {
-                shift: false,
-                ctrl: true,
-                alt: false,
-                meta: false,
-            },
+            modifiers: Modifiers::ctrl(),
             is_repeat: false,
         };
         let state = self.editor.state();

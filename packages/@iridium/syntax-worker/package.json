@@ -20,6 +20,9 @@
   "files": [
     "src/"
   ],
+  "scripts": {
+    "test": "bun test src/"
+  },
   "keywords": [
     "syntax-highlighting",
     "tree-sitter",

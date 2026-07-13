@@ -21,6 +21,7 @@ const BLOCK_TOGGLE: KeyEvent = KeyEvent::new(
         ctrl: false,
         alt: true,
         meta: false,
+        alt_graph: false,
     },
 );
 

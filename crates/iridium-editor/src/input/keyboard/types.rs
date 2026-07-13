@@ -76,7 +76,7 @@ pub enum KeyCode {
 }
 
 /// Keyboard modifier state.
-#[allow(clippy::struct_excessive_bools)] // Mirrors the four hardware modifier keys.
+#[allow(clippy::struct_excessive_bools)] // Mirrors the hardware modifier keys.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Modifiers {
     /// Shift key is held
@@ -87,6 +87,17 @@ pub struct Modifiers {
     pub alt: bool,
     /// Meta key is held (Win key, or Cmd on Mac)
     pub meta: bool,
+    /// `AltGraph` (`AltGr`) is active.
+    ///
+    /// On many non-US layouts `AltGr` is reported by the browser as
+    /// `ctrl` + `alt` held together while composing a character (e.g. `@`, `€`).
+    /// That coincides exactly with the Ctrl+Alt chord used for add-cursor
+    /// above/below, so the two are indistinguishable from the `ctrl`/`alt` bits
+    /// alone. Hosts that can observe `getModifierState("AltGraph")` set this bit
+    /// so modifier chords (see [`super::KeyboardHandler`]) can exclude `AltGr`
+    /// and let the character compose untouched. Defaults to `false`.
+    #[serde(default)]
+    pub alt_graph: bool,
 }
 
 impl Modifiers {
@@ -98,6 +109,7 @@ impl Modifiers {
             ctrl: false,
             alt: false,
             meta: false,
+            alt_graph: false,
         }
     }
 
@@ -109,6 +121,7 @@ impl Modifiers {
             ctrl: false,
             alt: false,
             meta: false,
+            alt_graph: false,
         }
     }
 
@@ -120,6 +133,7 @@ impl Modifiers {
             ctrl: true,
             alt: false,
             meta: false,
+            alt_graph: false,
         }
     }
 
@@ -131,6 +145,7 @@ impl Modifiers {
             ctrl: true,
             alt: false,
             meta: false,
+            alt_graph: false,
         }
     }
 }

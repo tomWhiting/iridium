@@ -316,7 +316,19 @@ impl Editor {
     }
 
     /// Returns a mutable reference to the editor state.
-    pub const fn state_mut(&mut self) -> &mut EditorState {
+    ///
+    /// This exposes the raw [`EditorState`] for out-of-band mutation, so the
+    /// keyboard handler's transient state — the sticky vertical column and the
+    /// multi-cursor addition-order stack — is invalidated up front. Both are
+    /// validated by exact cursor-state (and revision) identity, which value
+    /// equality alone cannot protect: a caller could remove and re-add a cursor
+    /// through `state.cursor`, landing on a byte-identical `CursorState`, and a
+    /// later Ctrl+U would then pop against a stale stack. Eagerly clearing here
+    /// means any mutation via this accessor is treated like every other
+    /// host-driven cursor jump (`set_cursor`, mouse, IME, paste).
+    pub fn state_mut(&mut self) -> &mut EditorState {
+        self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
         &mut self.state
     }
 
@@ -327,6 +339,7 @@ impl Editor {
     pub fn set_content(&mut self, content: &str) {
         self.state.set_content(content);
         self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
         if self.state.refresh_search() {
             self.emit_search_updated();
         }
@@ -352,6 +365,7 @@ impl Editor {
     pub fn set_cursor(&mut self, position: Position) {
         let clamped = self.state.document.clamp_position(position);
         self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
         self.state.cursor = CursorState::at(clamped);
         self.emit_selection_changed();
     }
@@ -364,6 +378,7 @@ impl Editor {
         let anchor = self.state.document.clamp_position(anchor);
         let head = self.state.document.clamp_position(head);
         self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
         self.state.cursor = CursorState::new(Selection::new(anchor, head));
         self.emit_selection_changed();
     }
@@ -387,7 +402,7 @@ impl Editor {
                 KeyResult::Command(cmd) => {
                     // Only apply selection changes in read-only mode
                     if matches!(cmd, Command::SetSelection { .. }) {
-                        self.apply_command(cmd);
+                        self.apply_command_internal(cmd);
                     }
                 },
                 KeyResult::Handled | KeyResult::Ignored => {},
@@ -415,12 +430,38 @@ impl Editor {
 
         match result {
             KeyResult::Command(cmd) => {
-                self.apply_command(cmd);
+                self.apply_command_internal(cmd);
                 EditorKeyResult::None
             },
             KeyResult::Clipboard(clip) => EditorKeyResult::Clipboard(clip),
             KeyResult::Search(action) => self.handle_search_action(action),
             KeyResult::Handled | KeyResult::Ignored => EditorKeyResult::None,
+        }
+    }
+
+    /// Drops the most recently added occurrence cursor and selects the next
+    /// occurrence instead, wrapping around the document.
+    ///
+    /// This is the "skip occurrence" verb (VS Code's Ctrl+K Ctrl+D). Because
+    /// this codebase has no chord infrastructure yet, it is exposed as a
+    /// direct method rather than a key binding; see
+    /// [`KeyboardHandler::skip_last_added_occurrence`] for the exact behavior.
+    ///
+    /// Produces only a selection change, so it is permitted in read-only mode.
+    /// Returns `true` when the cursor state changed.
+    pub fn skip_last_added_occurrence(&mut self) -> bool {
+        let result = self
+            .keyboard_handler
+            .skip_last_added_occurrence(&self.state.document, &self.state.cursor);
+        match result {
+            KeyResult::Command(cmd) => {
+                self.apply_command_internal(cmd);
+                true
+            },
+            KeyResult::Handled
+            | KeyResult::Ignored
+            | KeyResult::Clipboard(_)
+            | KeyResult::Search(_) => false,
         }
     }
 
@@ -458,7 +499,8 @@ impl Editor {
                 // drop its sticky vertical column so the next Up/Down starts
                 // from the clicked position.
                 self.keyboard_handler.reset_vertical_state();
-                self.apply_command(cmd);
+                self.keyboard_handler.invalidate_cursor_order();
+                self.apply_command_internal(cmd);
             },
             MouseResult::Scroll { delta_x, delta_y } => {
                 // Handle scrolling
@@ -494,7 +536,8 @@ impl Editor {
                 // IME commits move the cursor without going through the
                 // keyboard handler; drop its sticky vertical column.
                 self.keyboard_handler.reset_vertical_state();
-                self.apply_command(cmd);
+                self.keyboard_handler.invalidate_cursor_order();
+                self.apply_command_internal(cmd);
                 None
             },
             ImeResult::StateChanged(state) => Some(state),
@@ -559,12 +602,37 @@ impl Editor {
         });
     }
 
-    /// Applies a command to the document.
+    /// Applies a command to the document (public, host-driven entry point).
     ///
-    /// This method handles both document modifications and selection changes,
-    /// emitting appropriate events. Errors during command application are
-    /// emitted as error events.
+    /// This is the out-of-band command surface for host code (apply a bare
+    /// `Insert`/`Delete`/`Replace`, or push a `SetSelection`). Like every other
+    /// host-driven cursor mutation it first invalidates the keyboard handler's
+    /// transient state — the sticky vertical column and the multi-cursor
+    /// addition-order stack — so a `SetSelection` that reconstructs a
+    /// byte-identical `CursorState` cannot leave Ctrl+U/skip acting on a stale
+    /// stack. The internal keyboard/mouse/IME/paste paths deliberately bypass
+    /// this via [`Self::apply_command_internal`]: they manage that transient
+    /// state themselves (the keyboard handler through its own post-dispatch
+    /// bookkeeping, the others by resetting it explicitly before applying).
+    ///
+    /// Document modifications and selection changes both emit appropriate
+    /// events; errors during command application are emitted as error events.
     pub fn apply_command(&mut self, command: Command) {
+        self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
+        self.apply_command_internal(command);
+    }
+
+    /// Applies a command without touching the keyboard handler's transient
+    /// state.
+    ///
+    /// Used by the input paths that own that state themselves: the keyboard
+    /// handler (which runs its own post-dispatch bookkeeping in
+    /// `note_operation`, and for the add verbs *must* keep its addition-order
+    /// stack across command application) and the mouse/IME/paste/search paths
+    /// (which reset the sticky column and addition-order stack explicitly before
+    /// calling this).
+    fn apply_command_internal(&mut self, command: Command) {
         let content_changed = command.modifies_content();
         let selection_changed = command.modifies_selection();
 
@@ -653,10 +721,16 @@ impl Editor {
     /// - Places the cursor at the edit site when the replayed command carries
     ///   no `SetSelection` of its own (documented behavior of [`Self::undo`]
     ///   and [`Self::redo`]).
-    /// - Resets the keyboard handler's sticky vertical column (the cursor
-    ///   moved without going through `handle_key`).
     /// - Re-synchronizes the active search with the mutated document.
     /// - Emits content, search, and selection events.
+    ///
+    /// Note it deliberately does **not** reset the keyboard handler's sticky
+    /// vertical column. The handler validates its sticky columns against the
+    /// exact cursor state they were captured for, so restoring the prior
+    /// cursor state on undo/redo also revives its per-cursor sticky columns —
+    /// a multi-cursor block built by add-above/below keeps its preferred
+    /// columns across an undone edit. A stale sticky column cannot leak,
+    /// because any other restored state simply fails the identity check.
     fn finish_history_replay(&mut self, cmd: &Command) {
         if !command_restores_selection(cmd) {
             if let Some(position) = replayed_command_caret(cmd) {
@@ -665,7 +739,19 @@ impl Editor {
             }
         }
 
-        self.keyboard_handler.reset_vertical_state();
+        // History replay moves the cursor outside the keyboard handler. The
+        // multi-cursor addition-order stack is meaningless against a replayed
+        // state and must not let Ctrl+U/skip act on it, so it is invalidated.
+        // The sticky columns are deliberately NOT discarded: restoring the
+        // exact cursor state an edit was made from also revives the per-cursor
+        // sticky columns captured before that edit (a multi-cursor block built
+        // by add-above/below keeps its preferred columns across an undone
+        // edit). Clearing only the dirty flag lets that revival happen while
+        // the columns' cursor-state/revision validation still guards against
+        // resurrecting a mismatched set.
+        self.keyboard_handler.invalidate_cursor_order();
+        self.keyboard_handler
+            .revalidate_vertical_columns(&self.state.cursor, self.state.document.revision());
 
         if self.state.refresh_search() {
             self.emit_search_updated();
@@ -689,12 +775,13 @@ impl Editor {
 
         // Paste moves the cursor without going through handle_key.
         self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
 
         let edits = editing::replace_all_edits(&self.state.cursor, text);
         if let Some(command) =
             editing::build_multi_cursor_command(&self.state.document, &self.state.cursor, edits)
         {
-            self.apply_command(command);
+            self.apply_command_internal(command);
         }
     }
 
@@ -985,6 +1072,7 @@ impl Editor {
             // Move cursor to current match
             if let Some(range) = self.state.search.current_range() {
                 self.keyboard_handler.reset_vertical_state();
+                self.keyboard_handler.invalidate_cursor_order();
                 self.state.cursor = CursorState::at(range.start);
                 self.emit_selection_changed();
             }
@@ -1034,6 +1122,7 @@ impl Editor {
 
         if let Some(range) = self.state.search.current_range() {
             self.keyboard_handler.reset_vertical_state();
+            self.keyboard_handler.invalidate_cursor_order();
             self.state.cursor = CursorState::at(range.start);
             self.emit_selection_changed();
         }
@@ -1049,6 +1138,7 @@ impl Editor {
 
         if let Some(range) = self.state.search.current_range() {
             self.keyboard_handler.reset_vertical_state();
+            self.keyboard_handler.invalidate_cursor_order();
             self.state.cursor = CursorState::at(range.start);
             self.emit_selection_changed();
         }
@@ -1083,7 +1173,8 @@ impl Editor {
             // The replace command carries a SetSelection that moves the
             // cursor without going through handle_key.
             self.keyboard_handler.reset_vertical_state();
-            self.apply_command(cmd);
+            self.keyboard_handler.invalidate_cursor_order();
+            self.apply_command_internal(cmd);
 
             // Re-run search from the top so navigation restarts at the first
             // match (apply_command already refreshed the stale ranges; this
@@ -1131,7 +1222,8 @@ impl Editor {
             // The replace command carries a SetSelection that moves the
             // cursor without going through handle_key.
             self.keyboard_handler.reset_vertical_state();
-            self.apply_command(cmd);
+            self.keyboard_handler.invalidate_cursor_order();
+            self.apply_command_internal(cmd);
 
             // Clear search since all matches are replaced
             self.close_search();
@@ -1567,6 +1659,54 @@ line 5";
     }
 
     // =========================================================================
+    // Multi-cursor skip verb (threaded through the editor)
+    // =========================================================================
+
+    #[test]
+    fn editor_skip_last_added_occurrence_drops_and_advances() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("foo foo foo foo");
+        editor.set_cursor(Position::new(0, 1));
+
+        // Build up three occurrence cursors via Ctrl+D.
+        let ctrl_d = KeyEvent::new(KeyCode::Char('d'), Modifiers::ctrl());
+        editor.handle_key(&ctrl_d); // select word "foo"
+        editor.handle_key(&ctrl_d); // add @4
+        editor.handle_key(&ctrl_d); // add @8
+        assert_eq!(editor.state().cursor.cursor_count(), 3);
+
+        // Skip drops the @8 cursor and advances to @12.
+        assert!(editor.skip_last_added_occurrence());
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.range().start)
+            .collect();
+        assert_eq!(
+            heads,
+            vec![
+                Position::new(0, 0),
+                Position::new(0, 4),
+                Position::new(0, 12)
+            ]
+        );
+    }
+
+    #[test]
+    fn editor_skip_last_added_occurrence_single_cursor_is_noop() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("hello world");
+        editor.set_cursor(Position::new(0, 0));
+
+        // No word under a caret at a boundary/space? Caret at 0 is on 'h'; the
+        // bootstrap selects "hello". A second skip with only one occurrence is
+        // a no-op.
+        assert!(editor.skip_last_added_occurrence());
+        assert!(!editor.skip_last_added_occurrence());
+    }
+
+    // =========================================================================
     // Undo/redo cursor placement for bare (selection-less) commands
     // =========================================================================
 
@@ -1726,6 +1866,67 @@ line 5";
     }
 
     #[test]
+    fn undo_preserves_sticky_columns_for_multi_cursor_block() {
+        // Finding 3: sticky columns are validated against the exact cursor
+        // state they were captured for, so undo/redo restoring that state also
+        // revives its per-cursor sticky columns instead of discarding them.
+        let mut editor = Editor::with_defaults();
+        // Lines of length 10 / 2 / 10.
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
+        editor.set_cursor(Position::new(0, 8));
+
+        let ctrl_alt_down = KeyEvent::new(
+            KeyCode::Down,
+            Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: true,
+                meta: false,
+                alt_graph: false,
+            },
+        );
+
+        // Add a cursor below: cursors at (0,8) and (1,2), sticky columns [8,8].
+        editor.handle_key(&ctrl_alt_down);
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(heads, vec![Position::new(0, 8), Position::new(1, 2)]);
+
+        // Type at both cursors, then undo the edit.
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('z')));
+        assert!(editor.undo());
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(heads, vec![Position::new(0, 8), Position::new(1, 2)]);
+
+        // Add below again: the line-1 cursor's sticky column (8) survived the
+        // undo, so it lands at (2, 8) — not the clamped column (2).
+        editor.handle_key(&ctrl_alt_down);
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(
+            heads,
+            vec![
+                Position::new(0, 8),
+                Position::new(1, 2),
+                Position::new(2, 8)
+            ]
+        );
+    }
+
+    #[test]
     fn undo_resets_sticky_column_for_vertical_moves() {
         let mut editor = Editor::with_defaults();
         editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
@@ -1746,5 +1947,321 @@ line 5";
         assert_eq!(editor.cursor(), Position::new(1, 1));
         editor.handle_key(&KeyEvent::simple(KeyCode::Down));
         assert_eq!(editor.cursor(), Position::new(2, 1));
+    }
+
+    #[test]
+    fn bare_content_edit_invalidates_sticky_column_via_revision() {
+        // Finding 3 (revision): a host-applied bare content command shifts text
+        // under the caret without moving its coordinates, so cursor-state
+        // identity alone still matches. Validating the sticky column against the
+        // document revision discards it, so the next vertical move re-seeds from
+        // the live head column.
+        let mut editor = Editor::with_defaults();
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
+        editor.set_cursor(Position::new(0, 8));
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(1, 2));
+
+        // Insert on line 1 without moving the caret's (1, 2) coordinates.
+        editor.apply_command(Command::Insert {
+            position: Position::new(1, 0),
+            text: "Z".to_string(),
+        });
+        assert_eq!(editor.cursor(), Position::new(1, 2));
+
+        // Without the revision check the stale sticky column (8) would land the
+        // caret at (2, 8); the fix re-seeds from column 2.
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(2, 2));
+    }
+
+    #[test]
+    fn vertical_add_columns_survive_undo_of_a_later_edit() {
+        // Finding 5 (reachable case): a vertical add produces a selection-only
+        // SetSelection, which is intentionally NOT recorded in the undo history
+        // (selection changes are not undoable, matching VS Code), so
+        // editor.undo() never reverts the add itself. The reachable exactness
+        // concern is undoing a *content* edit made after a vertical add: the
+        // pre-edit sticky columns must survive so a subsequent add reproduces
+        // the exact columns.
+        let mut editor = Editor::with_defaults();
+        // Four lines so add-below has room after the restored two-cursor block.
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc\ndddddddddd");
+        editor.set_cursor(Position::new(0, 8));
+
+        let ctrl_alt_down = KeyEvent::new(
+            KeyCode::Down,
+            Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: true,
+                meta: false,
+                alt_graph: false,
+            },
+        );
+
+        // Down records sticky column 8; add-below clones it to (2, 8).
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        editor.handle_key(&ctrl_alt_down);
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(heads, vec![Position::new(1, 2), Position::new(2, 8)]);
+
+        // A content edit at both cursors, then undo it.
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('z')));
+        assert!(editor.undo());
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(heads, vec![Position::new(1, 2), Position::new(2, 8)]);
+
+        // Add below again: the (2, 8) cursor's sticky column survived the undo,
+        // so its clone lands at (3, 8) — not the clamped (3, 2).
+        editor.handle_key(&ctrl_alt_down);
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(
+            heads,
+            vec![
+                Position::new(1, 2),
+                Position::new(2, 8),
+                Position::new(3, 8)
+            ]
+        );
+    }
+
+    #[test]
+    fn mouse_reconstruction_invalidates_addition_order_stack() {
+        // Finding 2: build a three-cursor block with add-above then add-below
+        // (stack = [top, bottom]). Mouse clicks then rebuild the exact same
+        // three-cursor state. Because the mouse path invalidates the
+        // addition-order stack, Ctrl+U no-ops instead of removing the wrong
+        // (stale-stack) cursor.
+        use crate::input::{MouseButton, MouseEvent};
+        use crate::render::Viewport;
+
+        let mut editor = Editor::with_defaults();
+        editor.set_content("aa\nbb\ncc");
+        // Known geometry: line_height 20, so line L spans y in [20L, 20L+20);
+        // gutter 48, char width 12, so column 1 is x = 48 + 12 + 6 = 66.
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+
+        editor.set_cursor(Position::new(1, 1));
+        let ctrl_alt_up = KeyEvent::new(
+            KeyCode::Up,
+            Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: true,
+                meta: false,
+                alt_graph: false,
+            },
+        );
+        let ctrl_alt_down = KeyEvent::new(
+            KeyCode::Down,
+            Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: true,
+                meta: false,
+                alt_graph: false,
+            },
+        );
+        editor.handle_key(&ctrl_alt_up); // add (0,1)
+        editor.handle_key(&ctrl_alt_down); // add (2,1)
+        assert_eq!(editor.state().cursor.cursor_count(), 3);
+
+        // Plain-click the middle line (collapse), then ctrl-click bottom and
+        // top, reconstructing the same three-cursor state.
+        editor.handle_mouse(&MouseEvent::press(MouseButton::Left, 66.0, 30.0));
+        editor.handle_mouse(&MouseEvent::release(MouseButton::Left, 66.0, 30.0));
+        editor.handle_mouse(&MouseEvent::press(MouseButton::Left, 66.0, 50.0).with_ctrl());
+        editor.handle_mouse(&MouseEvent::release(MouseButton::Left, 66.0, 50.0));
+        editor.handle_mouse(&MouseEvent::press(MouseButton::Left, 66.0, 10.0).with_ctrl());
+        editor.handle_mouse(&MouseEvent::release(MouseButton::Left, 66.0, 10.0));
+
+        let heads: Vec<Position> = editor
+            .state()
+            .cursor
+            .all_selections()
+            .map(|sel| sel.head)
+            .collect();
+        assert_eq!(
+            heads,
+            vec![
+                Position::new(1, 1),
+                Position::new(0, 1),
+                Position::new(2, 1)
+            ],
+            "mouse clicks must reconstruct the exact three-cursor state"
+        );
+
+        // Ctrl+U must be a no-op: the stack was invalidated by the mouse path.
+        editor.handle_key(&KeyEvent::new(KeyCode::Char('u'), Modifiers::ctrl()));
+        assert_eq!(
+            editor.state().cursor.cursor_count(),
+            3,
+            "Ctrl+U must not remove a cursor from an invalidated stack"
+        );
+    }
+
+    /// Builds the three-cursor block ([top, bottom] addition-order stack) used
+    /// by the Finding 1 reconstruction tests.
+    fn three_cursor_block() -> Editor {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("aa\nbb\ncc");
+        editor.set_cursor(Position::new(1, 1));
+
+        let ctrl_alt = Modifiers {
+            shift: false,
+            ctrl: true,
+            alt: true,
+            meta: false,
+            alt_graph: false,
+        };
+        editor.handle_key(&KeyEvent::new(KeyCode::Up, ctrl_alt)); // add (0,1)
+        editor.handle_key(&KeyEvent::new(KeyCode::Down, ctrl_alt)); // add (2,1)
+        assert_eq!(editor.state().cursor.cursor_count(), 3);
+        editor
+    }
+
+    #[test]
+    fn public_apply_command_reconstruction_invalidates_addition_order_stack() {
+        // Finding 1 (public command surface): a host reconstructs the exact
+        // three-cursor state through two public SetSelection commands. The
+        // rebuilt state is byte-identical and the document revision is
+        // unchanged, so value equality alone would let the stale [top, bottom]
+        // stack survive and Ctrl+U would pop the wrong cursor. Public
+        // apply_command must invalidate the stack.
+        let mut editor = three_cursor_block();
+        let three = editor.state().cursor.clone();
+
+        editor.apply_command(Command::SetSelection {
+            old_state: three.clone(),
+            new_state: CursorState::at(Position::new(1, 1)),
+        });
+        editor.apply_command(Command::SetSelection {
+            old_state: CursorState::at(Position::new(1, 1)),
+            new_state: three.clone(),
+        });
+        assert_eq!(editor.state().cursor, three);
+
+        editor.handle_key(&KeyEvent::new(KeyCode::Char('u'), Modifiers::ctrl()));
+        assert_eq!(
+            editor.state().cursor.cursor_count(),
+            3,
+            "Ctrl+U must not pop from a stack invalidated by public apply_command"
+        );
+    }
+
+    #[test]
+    fn state_mut_reconstruction_invalidates_addition_order_stack() {
+        // Finding 1 (raw state_mut surface): the same reconstruction performed
+        // directly through state_mut().cursor must also invalidate the stack.
+        let mut editor = three_cursor_block();
+        let three = editor.state().cursor.clone();
+
+        editor.state_mut().cursor = CursorState::at(Position::new(1, 1));
+        editor.state_mut().cursor = three.clone();
+        assert_eq!(editor.state().cursor, three);
+
+        editor.handle_key(&KeyEvent::new(KeyCode::Char('u'), Modifiers::ctrl()));
+        assert_eq!(
+            editor.state().cursor.cursor_count(),
+            3,
+            "Ctrl+U must not pop from a stack invalidated by state_mut"
+        );
+    }
+
+    #[test]
+    fn horizontal_round_trip_before_edit_is_not_resurrected_by_undo() {
+        // Finding 2: a horizontal round trip invalidates the sticky column
+        // *before* a content edit; undoing that edit must NOT revive it.
+        let mut editor = Editor::with_defaults();
+        // Lines of length 10 / 2 / 10.
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
+
+        editor.set_cursor(Position::new(0, 8));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(1, 2)); // records sticky column 8
+
+        // Left-then-Right returns the caret to (1,2) but permanently discards
+        // the sticky column: a selection-only round trip is never undoable, so
+        // no later undo may revive it.
+        editor.handle_key(&KeyEvent::simple(KeyCode::Left));
+        editor.handle_key(&KeyEvent::simple(KeyCode::Right));
+        assert_eq!(editor.cursor(), Position::new(1, 2));
+
+        // Type one character, then undo it. Undo restores (1,2) but must not
+        // resurrect the sticky column (8) invalidated before the edit.
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.cursor(), Position::new(1, 3));
+        assert!(editor.undo());
+        assert_eq!(editor.cursor(), Position::new(1, 2));
+
+        // The next Down re-seeds from the live column (2) → (2,2), not (2,8).
+        editor.handle_key(&KeyEvent::simple(KeyCode::Down));
+        assert_eq!(editor.cursor(), Position::new(2, 2));
+    }
+
+    #[test]
+    fn ctrl_click_at_selection_end_does_not_duplicate_typed_text() {
+        // Finding 5 (reachable via Ctrl-click): a Ctrl-click at the exact end of
+        // an existing selection lands a collapsed caret touching the endpoint.
+        // It must merge into the selection so a single keystroke replaces it
+        // once ("xdef"), rather than also inserting at the boundary ("xxdef").
+        use crate::input::{MouseButton, MouseEvent};
+        use crate::render::Viewport;
+
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abcdef");
+        // Geometry: line_height 20, gutter 48, char width 12, so column c is
+        // x = 48 + c*12 + 6; column 3 -> 90, line 0 center y = 10.
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+
+        editor.set_selection(Position::new(0, 0), Position::new(0, 3));
+        editor.handle_mouse(&MouseEvent::press(MouseButton::Left, 90.0, 10.0).with_ctrl());
+        editor.handle_mouse(&MouseEvent::release(MouseButton::Left, 90.0, 10.0));
+        assert_eq!(
+            editor.state().cursor.cursor_count(),
+            1,
+            "a caret touching the selection endpoint must merge into it"
+        );
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.content(), "xdef");
+    }
+
+    #[test]
+    fn ctrl_click_at_selection_start_does_not_duplicate_typed_text() {
+        // Finding 5 (both ends): the symmetric Ctrl-click at the selection start
+        // must also merge.
+        use crate::input::{MouseButton, MouseEvent};
+        use crate::render::Viewport;
+
+        let mut editor = Editor::with_defaults();
+        editor.set_content("abcdef");
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+
+        // Select columns 2..5 ("cde"); Ctrl-click at the start (column 2 -> x=78).
+        editor.set_selection(Position::new(0, 2), Position::new(0, 5));
+        editor.handle_mouse(&MouseEvent::press(MouseButton::Left, 78.0, 10.0).with_ctrl());
+        editor.handle_mouse(&MouseEvent::release(MouseButton::Left, 78.0, 10.0));
+        assert_eq!(editor.state().cursor.cursor_count(), 1);
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::Char('x')));
+        assert_eq!(editor.content(), "abxf");
     }
 }

@@ -65,7 +65,7 @@ export type SearchAction = "open" | "next" | "prev" | "close";
 
 // Types for the low-level WASM editor
 interface WebEditor {
-  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean): KeyEventAction;
+  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean): KeyEventAction;
   takeLastEdit(): WasmEditInfo | undefined;
   getPendingClipboardText(): string | undefined;
   copyText(): string | undefined;
@@ -611,7 +611,7 @@ export class IridiumEditor {
     // (e) Translate the DOM event into the Rust core's key vocabulary and
     // forward it (see the mapping table in translateKeyEvent).
     const t = this.translateKeyEvent(e);
-    const action = this.editor.handleKeyEvent(t.key, t.ctrl, t.shift, t.alt, t.meta);
+    const action = this.editor.handleKeyEvent(t.key, t.ctrl, t.shift, t.alt, t.meta, t.altGraph);
 
     if (action === "ignored") {
       // The editor does not handle this key; leave it to the browser.
@@ -688,9 +688,22 @@ export class IridiumEditor {
    */
   private translateKeyEvent(
     e: KeyboardEvent
-  ): { key: string; ctrl: boolean; shift: boolean; alt: boolean; meta: boolean } {
+  ): { key: string; ctrl: boolean; shift: boolean; alt: boolean; meta: boolean; altGraph: boolean } {
+    // AltGr is reported by browsers as Ctrl+Alt held together on many non-US
+    // layouts, which collides with the Ctrl+Alt add-cursor chord. The Rust
+    // core disambiguates with this bit (Modifiers::alt_graph), so it is
+    // forwarded on every branch. Synthetic KeyboardEvents may lack
+    // getModifierState, hence the defensive call.
+    const altGraph = e.getModifierState?.("AltGraph") ?? false;
     if (!this.isMacPlatform) {
-      return { key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, meta: e.metaKey };
+      return {
+        key: e.key,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+        meta: e.metaKey,
+        altGraph,
+      };
     }
 
     // Option-only chords: word motions and word deletes.
@@ -700,7 +713,7 @@ export class IridiumEditor {
         case "ArrowRight":
         case "Backspace":
         case "Delete":
-          return { key: e.key, ctrl: true, shift: e.shiftKey, alt: false, meta: false };
+          return { key: e.key, ctrl: true, shift: e.shiftKey, alt: false, meta: false, altGraph };
         default:
           break;
       }
@@ -710,13 +723,13 @@ export class IridiumEditor {
     if (e.metaKey && !e.altKey && !e.ctrlKey) {
       switch (e.key) {
         case "ArrowLeft":
-          return { key: "Home", ctrl: false, shift: e.shiftKey, alt: false, meta: false };
+          return { key: "Home", ctrl: false, shift: e.shiftKey, alt: false, meta: false, altGraph };
         case "ArrowRight":
-          return { key: "End", ctrl: false, shift: e.shiftKey, alt: false, meta: false };
+          return { key: "End", ctrl: false, shift: e.shiftKey, alt: false, meta: false, altGraph };
         case "ArrowUp":
-          return { key: "Home", ctrl: true, shift: e.shiftKey, alt: false, meta: false };
+          return { key: "Home", ctrl: true, shift: e.shiftKey, alt: false, meta: false, altGraph };
         case "ArrowDown":
-          return { key: "End", ctrl: true, shift: e.shiftKey, alt: false, meta: false };
+          return { key: "End", ctrl: true, shift: e.shiftKey, alt: false, meta: false, altGraph };
         default:
           break;
       }
@@ -739,6 +752,7 @@ export class IridiumEditor {
           shift: e.shiftKey,
           alt: true,
           meta: false,
+          altGraph,
         };
       }
     }
@@ -751,6 +765,7 @@ export class IridiumEditor {
       shift: e.shiftKey,
       alt: e.altKey,
       meta: false,
+      altGraph,
     };
   }
 

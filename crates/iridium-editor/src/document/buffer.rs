@@ -91,6 +91,12 @@ pub struct Document {
     line_ending: LineEnding,
     /// Language identifier for syntax highlighting
     language: Option<String>,
+    /// Monotonic content-revision counter, bumped on every mutation that
+    /// changes the text (insert of non-empty text, deletion of a non-empty
+    /// range). Callers that cache document-relative state (e.g. the keyboard
+    /// handler's multi-cursor addition stack) compare revisions to detect
+    /// that content moved under otherwise-unchanged cursor positions.
+    revision: u64,
 }
 
 impl Default for Document {
@@ -108,7 +114,19 @@ impl Document {
             content: Rope::from_str(content),
             line_ending,
             language: None,
+            revision: 0,
         }
+    }
+
+    /// Returns the current content-revision counter.
+    ///
+    /// The value increases by at least one every time the document's text
+    /// changes; it never decreases and is unaffected by pure cursor moves.
+    /// Two observations of the same value guarantee the text did not change
+    /// between them.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Creates an empty document.
@@ -264,6 +282,9 @@ impl Document {
             })?;
 
         self.content.insert(offset, text);
+        if !text.is_empty() {
+            self.revision = self.revision.wrapping_add(1);
+        }
         Ok(())
     }
 
@@ -291,6 +312,9 @@ impl Document {
 
         let deleted = self.content.slice(start_offset..end_offset).to_string();
         self.content.remove(start_offset..end_offset);
+        if start_offset != end_offset {
+            self.revision = self.revision.wrapping_add(1);
+        }
         Ok(deleted)
     }
 

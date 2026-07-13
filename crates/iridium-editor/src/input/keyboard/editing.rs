@@ -32,11 +32,35 @@
 //! block edits (indent/outdent) where the edits do not correspond to cursors
 //! one-to-one: it applies arbitrary non-overlapping edits and *remaps* every
 //! existing cursor and selection endpoint through them.
+//!
+//! [`build_command_with_offsets`] is the third entry point, for whole-line
+//! operations (move, duplicate, delete, and join in [`super::line_ops`])
+//! whose caret rules fit neither of the above: the caller supplies every
+//! cursor's post-edit anchor and head as byte offsets into the edited
+//! document.
 
 use crate::document::{CursorState, Document, Position, Range, Selection};
 use crate::history::Command;
 
 use super::motions;
+
+/// How a cursor or selection endpoint sitting exactly at a pure insertion's
+/// position relates to the inserted text during endpoint remapping.
+///
+/// `After` (the default) shifts the endpoint past the inserted text — an
+/// endpoint at an indent insertion keeps covering the same characters.
+/// `Before` leaves the endpoint in place — an endpoint at a closing comment
+/// marker's insertion point stays with its text, inside the comment, rather
+/// than jumping past the marker. Only pure insertions consult the bias;
+/// deletions and replacements always shift endpoints at or past their end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InsertBias {
+    /// Endpoints at the insertion position shift past the inserted text.
+    #[default]
+    After,
+    /// Endpoints at the insertion position stay before the inserted text.
+    Before,
+}
 
 /// A single cursor's contribution to a multi-cursor edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,12 +69,18 @@ pub struct CursorEdit {
     pub range: Range,
     /// Text to insert at `range.start` (may be empty for a pure deletion).
     pub text: String,
+    /// Endpoint affinity for pure insertions (see [`InsertBias`]).
+    pub bias: InsertBias,
 }
 
 impl CursorEdit {
     /// Creates an edit that replaces `range` with `text`.
     pub const fn replace(range: Range, text: String) -> Self {
-        Self { range, text }
+        Self {
+            range,
+            text,
+            bias: InsertBias::After,
+        }
     }
 
     /// Creates an edit that deletes `range` without inserting anything.
@@ -58,6 +88,17 @@ impl CursorEdit {
         Self {
             range,
             text: String::new(),
+            bias: InsertBias::After,
+        }
+    }
+
+    /// Creates a pure insertion that endpoints at the insertion position do
+    /// NOT shift past (see [`InsertBias::Before`]).
+    pub fn insert_before(at: Position, text: String) -> Self {
+        Self {
+            range: Range::new(at, at),
+            text,
+            bias: InsertBias::Before,
         }
     }
 }
@@ -246,6 +287,53 @@ pub fn build_line_edits_command(
     finalize_command(cursor, new_state, commands)
 }
 
+/// Builds a single reversible command from arbitrary non-overlapping edits
+/// plus explicit post-edit cursor offsets.
+///
+/// This is the entry point for whole-line operations (move, duplicate,
+/// delete, and join lines) where neither the per-cursor caret placement of
+/// [`build_multi_cursor_command_placed`] nor the endpoint remapping of
+/// [`build_line_edits_command`] matches where the cursors must land: carets
+/// ride with moved text, land inside duplicated copies, keep their column
+/// through a line deletion, or jump to a join point. `new_offsets` supplies
+/// each cursor's post-edit anchor and head as byte offsets into the edited
+/// document, in [`CursorState::all_selections`] order (primary first);
+/// offsets are clamped to the edited document's length. Cursors that
+/// converge on the same position are merged.
+///
+/// Edits with equal positions keep their order in `edits` (the sort is
+/// stable), so callers can rely on the same ordering they used to compute
+/// the offsets.
+///
+/// Returns `None` when the edits change neither the document nor the cursor
+/// state, or when the inputs are inconsistent (wrong offset count, edits
+/// that cannot be applied), in which case doing nothing is the safe
+/// response.
+pub fn build_command_with_offsets(
+    document: &Document,
+    cursor: &CursorState,
+    mut edits: Vec<CursorEdit>,
+    new_offsets: Vec<(usize, usize)>,
+) -> Option<Command> {
+    if new_offsets.len() != cursor.cursor_count() {
+        return None;
+    }
+
+    edits.sort_by_key(|edit| (edit.range.start, edit.range.end, !edit.text.is_empty()));
+    clamp_edit_ranges(document, &mut edits);
+    let (commands, scratch) = emit_content_commands(document, &edits)?;
+
+    let mut new_selections: Vec<Selection> = Vec::with_capacity(new_offsets.len());
+    for (anchor_offset, head_offset) in new_offsets {
+        let anchor = scratch.offset_to_position(anchor_offset.min(scratch.byte_count()))?;
+        let head = scratch.offset_to_position(head_offset.min(scratch.byte_count()))?;
+        new_selections.push(Selection::new(anchor, head));
+    }
+
+    let new_state = cursor_state_from(&new_selections, 0)?;
+    finalize_command(cursor, new_state, commands)
+}
+
 /// Clamps sorted edit ranges to the document and to each other so no byte is
 /// deleted twice (overlaps happen when e.g. two cursors word-delete into the
 /// same word). A fully-consumed range degenerates to an empty range at the
@@ -312,9 +400,20 @@ fn emit_content_commands(
 /// insertion exactly at the offset shifts it right, so selections keep
 /// covering the same text after an indent). Offsets inside a removed span
 /// floor at the span's start.
-fn remap_offset(offset: usize, edits: &[CursorEdit], offsets: &[(usize, usize)]) -> Option<usize> {
+pub(super) fn remap_offset(
+    offset: usize,
+    edits: &[CursorEdit],
+    offsets: &[(usize, usize)],
+) -> Option<usize> {
     let mut delta: i64 = 0;
     for (edit, &(start, end)) in edits.iter().zip(offsets) {
+        let before_biased_insertion =
+            start == end && end == offset && edit.bias == InsertBias::Before;
+        if before_biased_insertion {
+            // The endpoint stays before this insertion's text; later edits
+            // at the same position may still apply, so keep scanning.
+            continue;
+        }
         if end <= offset {
             delta += i64::try_from(edit.text.len()).ok()?;
             delta -= i64::try_from(end - start).ok()?;

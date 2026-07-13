@@ -44,6 +44,18 @@ pub struct EditorConfig {
     #[serde(default = "default_auto_pairs")]
     pub auto_pairs: bool,
 
+    /// Fallback line-comment token for toggle-line-comment (default: None)
+    ///
+    /// Used by Ctrl+/ (and Shift+Alt+A's line fallback) when the document's
+    /// language is unknown or has no comment syntax of its own. Ignored when
+    /// the language supplies comment tokens. When neither the language nor
+    /// this option provides a token, toggling comments is a no-op.
+    ///
+    /// Defaults to `None` when absent from a serialized configuration, so
+    /// configurations written before this option existed keep parsing.
+    #[serde(default)]
+    pub line_comment_token: Option<String>,
+
     /// Show line numbers (default: true)
     pub show_line_numbers: bool,
 
@@ -102,6 +114,7 @@ impl Default for EditorConfig {
             insert_spaces: true,
             auto_indent: true,
             auto_pairs: true,
+            line_comment_token: None,
             show_line_numbers: true,
             show_minimap: true,
             minimap_width: DEFAULT_MINIMAP_WIDTH,
@@ -180,6 +193,41 @@ mod tests {
         let json = serde_json::to_string(&config).expect("config must serialize");
         let parsed: EditorConfig = serde_json::from_str(&json).expect("config must parse");
         assert!(!parsed.auto_pairs);
+    }
+
+    /// A configuration serialized before `line_comment_token` existed must
+    /// still deserialize, with no fallback token.
+    #[test]
+    fn config_without_line_comment_token_field_deserializes_with_default() {
+        let config = EditorConfig {
+            line_comment_token: Some("//".to_string()), // Must NOT survive removal below.
+            ..EditorConfig::default()
+        };
+        let json = serde_json::to_string(&config).expect("config must serialize");
+
+        let mut value: serde_json::Value =
+            serde_json::from_str(&json).expect("config JSON must parse");
+        value
+            .as_object_mut()
+            .expect("config must serialize to an object")
+            .remove("line_comment_token");
+        let stripped = serde_json::to_string(&value).expect("stripped config must serialize");
+
+        let parsed: EditorConfig = serde_json::from_str(&stripped)
+            .expect("old config without line_comment_token must parse");
+        assert_eq!(parsed.line_comment_token, None);
+    }
+
+    /// An explicitly serialized `line_comment_token` value round-trips.
+    #[test]
+    fn line_comment_token_round_trips() {
+        let config = EditorConfig {
+            line_comment_token: Some("#".to_string()),
+            ..EditorConfig::default()
+        };
+        let json = serde_json::to_string(&config).expect("config must serialize");
+        let parsed: EditorConfig = serde_json::from_str(&json).expect("config must parse");
+        assert_eq!(parsed.line_comment_token.as_deref(), Some("#"));
     }
 
     #[test]

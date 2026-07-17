@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>iridium-bindings web smoke</title>
+<style>
+  body { margin: 0; background: #1e1e1e; color: #ddd; font: 14px monospace; }
+  #status { padding: 8px; white-space: pre-wrap; }
+  canvas { display: block; width: 800px; height: 480px; outline: 1px solid #555; }
+</style>
+<div id="status">starting</div>
+<canvas id="editor" width="800" height="480" tabindex="0"></canvas>
+<script type="module">
+  import init, { createWebEditor, isWebGPUSupported } from "./pkg/iridium_bindings.js";
+
+  const status = document.querySelector("#status");
+  const canvas = document.querySelector("#editor");
+
+  try {
+    await init();
+    if (!(await isWebGPUSupported())) throw new Error("WebGPU adapter unavailable");
+
+    const editor = await createWebEditor(canvas, window.devicePixelRatio);
+    const fontResponse = await fetch("../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
+    if (!fontResponse.ok) throw new Error(`font fetch failed: HTTP ${fontResponse.status}`);
+    editor.loadFont(new Uint8Array(await fontResponse.arrayBuffer()));
+    editor.setContent("// iridium-bindings browser smoke\nfn main() {\n    println!(\"WebGPU\");\n}\n");
+    editor.forceRender();
+    status.textContent = `PASS: wasm initialized, WebGPU surface created, frame rendered (${editor.getLineCount()} lines)`;
+    document.title = "PASS iridium-bindings web smoke";
+    window.iridiumWebBuildSmoke = { editor, passed: true };
+  } catch (error) {
+    status.textContent = `FAIL: ${error?.stack ?? error}`;
+    status.style.color = "#ff6b6b";
+    document.title = "FAIL iridium-bindings web smoke";
+    window.iridiumWebBuildSmoke = { error, passed: false };
+    throw error;
+  }
+</script>

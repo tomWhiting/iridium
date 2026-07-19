@@ -11,6 +11,7 @@ use web_sys::HtmlCanvasElement;
 
 use crate::edit_tracking::{EditSpan, PendingEdit, byte_point, compose_pending, compute_edit_span};
 use crate::key_map::key_code_from_dom_key;
+use crate::text_range::text_range;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
     EditorConfig, Position, Range,
@@ -603,6 +604,26 @@ impl WebEditor {
                 })
             },
         }
+    }
+
+    /// Returns the document text between two byte offsets.
+    ///
+    /// This is the ranged companion to `takeLastEdit`: the edit info
+    /// carries byte offsets only, and a consumer that needs the bytes of
+    /// the new span (e.g. an outbound edit-proposal builder) calls
+    /// `getTextRange(info.startByte, info.newEndByte)` synchronously after
+    /// the take, before any further edit can move the offsets. Only the
+    /// requested range is materialized across the wasm boundary — never
+    /// the whole document — so the per-keystroke cost is proportional to
+    /// the edit, not the file.
+    ///
+    /// Errors when the range is inverted (`startByte > endByte`), out of
+    /// bounds, or either offset does not fall on a UTF-8 character
+    /// boundary.
+    #[wasm_bindgen(js_name = getTextRange)]
+    pub fn get_text_range(&self, start_byte: usize, end_byte: usize) -> Result<String, JsValue> {
+        text_range(&self.editor.state().document, start_byte, end_byte)
+            .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     /// Consumes the clipboard text stashed by the last `"copy"`/`"cut"` key

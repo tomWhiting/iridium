@@ -45,6 +45,7 @@
 // unit-tested natively).
 pub mod edit_tracking;
 pub mod key_map;
+pub mod text_range;
 
 // Napi modules (Node.js bindings)
 #[cfg(feature = "napi")]

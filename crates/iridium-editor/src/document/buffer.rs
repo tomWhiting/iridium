@@ -452,6 +452,40 @@ mod tests {
     }
 
     #[test]
+    fn revision_bumps_on_text_mutations_only() {
+        let mut doc = Document::new("hello world");
+        assert_eq!(doc.revision(), 0);
+
+        // Non-empty insert bumps.
+        doc.insert(Position::new(0, 5), ",").unwrap();
+        let after_insert = doc.revision();
+        assert!(after_insert > 0);
+
+        // Empty insert does not bump.
+        doc.insert(Position::new(0, 0), "").unwrap();
+        assert_eq!(doc.revision(), after_insert);
+
+        // Non-empty delete bumps.
+        doc.delete(Range::new(Position::new(0, 5), Position::new(0, 6)))
+            .unwrap();
+        let after_delete = doc.revision();
+        assert!(after_delete > after_insert);
+
+        // Empty delete does not bump.
+        doc.delete(Range::new(Position::new(0, 3), Position::new(0, 3)))
+            .unwrap();
+        assert_eq!(doc.revision(), after_delete);
+
+        // Replace bumps (at least once).
+        doc.replace(
+            Range::new(Position::new(0, 6), Position::new(0, 11)),
+            "rust",
+        )
+        .unwrap();
+        assert!(doc.revision() > after_delete);
+    }
+
+    #[test]
     fn insert_delete_utf8() {
         let mut doc = Document::new("日本語");
 

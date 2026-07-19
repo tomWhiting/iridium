@@ -606,6 +606,63 @@ impl WebEditor {
         }
     }
 
+    /// Applies a positional edit sequenced by the document authority (a
+    /// remote edit), bypassing the undo tree.
+    ///
+    /// This is the application path for `edit-applied` deltas: the range
+    /// `[startByte, oldEndByte)` is replaced with `text` exactly as the
+    /// authority sequenced it. It deliberately works in read-only mode —
+    /// followers are read-only and still apply remote deltas; the
+    /// read-only gate protects against *local* mutation sources only.
+    ///
+    /// Behavior:
+    ///
+    /// - The edit never enters the undo tree, so it can never be locally
+    ///   undone. The existing history is reset as well: its recorded
+    ///   commands carry coordinates valid only in the pre-edit document
+    ///   lineage, and replaying one after the rebase would apply an
+    ///   inverse at shifted positions (the edit tracker's exact-or-refuse
+    ///   discipline, applied to history).
+    /// - Every local cursor and selection (multi-cursor aware) is
+    ///   transformed across the change: positions before the edit stay,
+    ///   positions at or after the old end shift by the byte delta (an
+    ///   insertion at a cursor's exact position keeps the cursor glued to
+    ///   the text that followed it), positions inside the replaced range
+    ///   collapse to the edit start, and cursors landing on shared ground
+    ///   merge.
+    /// - The edit composes into the pending tracking for `takeLastEdit`
+    ///   through the same exact-composition math as local edits; a
+    ///   Degraded pending state stays Degraded (full reparse), never a
+    ///   guessed span.
+    ///
+    /// Errors when the range is inverted, out of bounds, or not on UTF-8
+    /// character boundaries; the document, history, and cursors are
+    /// untouched on error.
+    #[wasm_bindgen(js_name = applyRemoteEdit)]
+    pub fn apply_remote_edit(
+        &mut self,
+        start_byte: usize,
+        old_end_byte: usize,
+        text: &str,
+    ) -> Result<(), JsValue> {
+        let span =
+            crate::remote_edit::apply_remote_edit(&mut self.editor, start_byte, old_end_byte, text)
+                .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let Some(span) = span else {
+            // Validated no-op (empty range, empty text): nothing changed.
+            return Ok(());
+        };
+        // The cursor may have moved outside handle_key; drop the keyboard
+        // handler's transient state like every other host-driven jump.
+        self.keyboard_handler.reset_vertical_state();
+        self.keyboard_handler.invalidate_cursor_order();
+        self.record_edit(span);
+        let content = self.editor.content();
+        self.fold_state.update_regions(&content);
+        self.needs_redraw = true;
+        Ok(())
+    }
+
     /// Returns the document text between two byte offsets.
     ///
     /// This is the ranged companion to `takeLastEdit`: the edit info

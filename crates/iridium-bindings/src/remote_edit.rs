@@ -232,6 +232,7 @@ fn position_for_offset(document: &Document, offset: usize) -> Position {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use iridium_editor::history::Command;
     use iridium_editor::{Editor, Selection};

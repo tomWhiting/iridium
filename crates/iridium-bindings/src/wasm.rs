@@ -2433,6 +2433,21 @@ impl WebEditor {
         self.editor.state().document.line_count() as u32
     }
 
+    /// Returns the document's monotonic content-revision counter.
+    ///
+    /// The counter increases by at least one on every mutation that
+    /// changes the text — keystroke, paste, cut, undo/redo, remote edit —
+    /// never decreases, and is unaffected by pure cursor moves. The
+    /// authoring adapter uses it as a cheap local cut to correlate spans
+    /// taken via `takeLastEdit` with the proposals built from them. Two
+    /// observations of the same value guarantee the text did not change
+    /// between them.
+    // wasm-bindgen cannot export `const fn`.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn revision(&self) -> u64 {
+        self.editor.state().document.revision()
+    }
+
     /// Checks if undo is available.
     #[wasm_bindgen(js_name = canUndo)]
     pub fn can_undo(&self) -> bool {

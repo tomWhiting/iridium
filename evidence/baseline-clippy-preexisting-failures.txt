@@ -1,0 +1,440 @@
+    Checking iridium-editor v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-editor)
+error: this could be a `const fn`
+   --> crates/iridium-editor/src/editor/fold_state.rs:554:5
+    |
+554 | /     pub fn visible_line_count(&self, total_lines: usize) -> usize {
+555 | |         total_lines.saturating_sub(self.hidden_line_count())
+556 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+    = note: `-D clippy::missing-const-for-fn` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::missing_const_for_fn)]`
+help: make the function `const`
+    |
+554 |     pub const fn visible_line_count(&self, total_lines: usize) -> usize {
+    |         +++++
+
+error: these match arms have identical bodies
+   --> crates/iridium-editor/src/editor/mod.rs:103:13
+    |
+103 |               IridiumError::ParseError { .. } => Self::ParseError,
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+104 |               IridiumError::InvalidUtf8 { .. } => Self::InvalidUtf8,
+105 | /             IridiumError::InvalidPosition { .. }
+106 | |             | IridiumError::InvalidRange
+107 | |             | IridiumError::NotSupported { .. } => Self::ParseError,
+    | |___________________________________________________________________^
+    |
+    = help: if this is unintentional make the arms return different values
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#match_same_arms
+    = note: `-D clippy::match-same-arms` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::match_same_arms)]`
+help: otherwise merge the patterns into a single arm
+    |
+103 ~             IridiumError::ParseError { .. } | IridiumError::InvalidPosition { .. }
+104 +             | IridiumError::InvalidRange
+105 ~             | IridiumError::NotSupported { .. } => Self::ParseError,
+106 |             IridiumError::InvalidUtf8 { .. } => Self::InvalidUtf8,
+107 ~             }
+    |
+
+error: unused `self` argument
+   --> crates/iridium-editor/src/input/mouse.rs:429:28
+    |
+429 |     const fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
+    |                            ^^^^^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+    = note: `-D clippy::unused-self` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unused_self)]`
+
+error: this function's return value is unnecessarily wrapped by `Option`
+   --> crates/iridium-editor/src/input/mouse.rs:540:5
+    |
+540 | /     fn pixel_to_position(
+541 | |         &self,
+542 | |         x: f32,
+543 | |         y: f32,
+544 | |         document: &Document,
+545 | |         viewport: &Viewport,
+546 | |     ) -> Option<Position> {
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unnecessary_wraps
+    = note: `-D clippy::unnecessary-wraps` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_wraps)]`
+help: remove `Option` from the return type...
+    |
+546 -     ) -> Option<Position> {
+546 +     ) -> document::position::Position {
+    |
+help: ...and then remove the surrounding `Some()` from returning expressions
+    |
+565 -         Some(Position::new(line, column))
+565 +         Position::new(line, column)
+    |
+
+error: casting `f32` to `usize` may truncate the value
+   --> crates/iridium-editor/src/input/mouse.rs:549:20
+    |
+549 |         let line = (line_f.floor() as usize).saturating_add(viewport.first_line);
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+    = note: `-D clippy::cast-possible-truncation` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cast_possible_truncation)]`
+
+error: casting `f32` to `usize` may lose the sign of the value
+   --> crates/iridium-editor/src/input/mouse.rs:549:20
+    |
+549 |         let line = (line_f.floor() as usize).saturating_add(viewport.first_line);
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+    = note: `-D clippy::cast-sign-loss` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cast_sign_loss)]`
+
+error: casting `f32` to `usize` may truncate the value
+   --> crates/iridium-editor/src/input/mouse.rs:559:22
+    |
+559 |         let column = column_f.floor().max(0.0) as usize;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+error: casting `f32` to `usize` may lose the sign of the value
+   --> crates/iridium-editor/src/input/mouse.rs:559:22
+    |
+559 |         let column = column_f.floor().max(0.0) as usize;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+error: unused `self` argument
+   --> crates/iridium-editor/src/input/mouse.rs:569:23
+    |
+569 |     fn select_word_at(&self, position: Position, document: &Document) -> Selection {
+    |                       ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+error: unused `self` argument
+   --> crates/iridium-editor/src/input/mouse.rs:627:23
+    |
+627 |     fn select_line_at(&self, position: Position, document: &Document) -> Selection {
+    |                       ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+error: use Option::map_or instead of an if let/else
+   --> crates/iridium-editor/src/input/mouse.rs:703:9
+    |
+703 | /         if let Some(target_line) =
+704 | |             minimap_renderer.handle_click(event.x, event.y, minimap_dimensions, viewport)
+705 | |         {
+706 | |             MouseResult::ScrollToLine { target_line }
+707 | |         } else {
+708 | |             MouseResult::Ignored
+709 | |         }
+    | |_________^ help: try: `minimap_renderer.handle_click(event.x, event.y, minimap_dimensions, viewport).map_or(MouseResult::Ignored, |target_line| MouseResult::ScrollToLine { target_line })`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+    = note: `-D clippy::option-if-let-else` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::option_if_let_else)]`
+
+error: use Option::map_or instead of an if let/else
+   --> crates/iridium-editor/src/input/mouse.rs:739:9
+    |
+739 | /         if let Some(target_line) =
+740 | |             minimap_renderer.handle_drag(event.x, event.y, minimap_dimensions, viewport)
+741 | |         {
+742 | |             MouseResult::ScrollToLine { target_line }
+743 | |         } else {
+744 | |             MouseResult::Ignored
+745 | |         }
+    | |_________^ help: try: `minimap_renderer.handle_drag(event.x, event.y, minimap_dimensions, viewport).map_or(MouseResult::Ignored, |target_line| MouseResult::ScrollToLine { target_line })`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+
+error: this could be a `const fn`
+   --> crates/iridium-editor/src/input/mouse.rs:753:5
+    |
+753 | /     pub fn handle_minimap_release(
+754 | |         &mut self,
+755 | |         minimap_renderer: &mut crate::render::MinimapRenderer,
+756 | |     ) {
+757 | |         minimap_renderer.handle_release();
+758 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+    |
+753 |     pub const fn handle_minimap_release(
+    |         +++++
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/cursor.rs:264:25
+    |
+264 |                 let x = (pos.column as f32).mul_add(char_width, -scroll_x);
+    |                         ^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+    = note: `-D clippy::cast-precision-loss` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cast_precision_loss)]`
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/cursor.rs:265:25
+    |
+265 |                 let y = screen_line as f32 * line_height;
+    |                         ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:140:21
+    |
+140 |             let y = screen_line as f32 * line_height;
+    |                     ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:161:29
+    |
+161 |                     let x = (col_start as f32).mul_add(char_width, -scroll_x);
+    |                             ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:168:21
+    |
+168 |             let x = (col_start as f32).mul_add(char_width, -scroll_x);
+    |                     ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:169:29
+    |
+169 |             let mut width = (col_end - col_start) as f32 * char_width;
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:294:25
+    |
+294 |                 let y = screen_line as f32 * line_height;
+    |                         ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: unused `self` argument
+   --> crates/iridium-editor/src/render/minimap/renderer.rs:354:9
+    |
+354 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+error: calling `PipelineCompilationOptions::default()` is more clear than this expression
+   --> crates/iridium-editor/src/render/quad.rs:202:38
+    |
+202 |                 compilation_options: Default::default(),
+    |                                      ^^^^^^^^^^^^^^^^^^ help: try: `PipelineCompilationOptions::default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#default_trait_access
+    = note: `-D clippy::default-trait-access` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::default_trait_access)]`
+
+error: calling `PipelineCompilationOptions::default()` is more clear than this expression
+   --> crates/iridium-editor/src/render/quad.rs:212:38
+    |
+212 |                 compilation_options: Default::default(),
+    |                                      ^^^^^^^^^^^^^^^^^^ help: try: `PipelineCompilationOptions::default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#default_trait_access
+
+error: casting `u32` to `f32` causes a loss of precision (`u32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/quad.rs:247:31
+    |
+247 |         self.viewport_size = [width as f32, height as f32];
+    |                               ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `u32` to `f32` causes a loss of precision (`u32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/quad.rs:247:45
+    |
+247 |         self.viewport_size = [width as f32, height as f32];
+    |                                             ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-editor/src/render/quad.rs:325:29
+    |
+325 |         render_pass.draw(0..self.cpu_vertices.len() as u32, 0..1);
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+325 -         render_pass.draw(0..self.cpu_vertices.len() as u32, 0..1);
+325 +         render_pass.draw(0..u32::try_from(self.cpu_vertices.len()), 0..1);
+    |
+
+error: used `unwrap()` on an `Option` value
+   --> crates/iridium-editor/src/render/simple_highlight.rs:246:37
+    |
+246 |                         number.push(chars.next().unwrap().1);
+    |                                     ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+    = note: `-D clippy::unwrap-used` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unwrap_used)]`
+
+error: used `unwrap()` on an `Option` value
+   --> crates/iridium-editor/src/render/simple_highlight.rs:273:35
+    |
+273 |                         word.push(chars.next().unwrap().1);
+    |                                   ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: casting `i32` to `f32` causes a loss of precision (`i32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:223:38
+    |
+223 |                 return total_width / glyph_count as f32;
+    |                                      ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:359:32
+    |
+359 |                     cursor_y = visual_line as f32 * line_height;
+    |                                ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:363:32
+    |
+363 |                     cursor_x = col_in_run as f32 * char_width;
+    |                                ^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:369:28
+    |
+369 |                 cursor_y = visual_line as f32 * line_height;
+    |                            ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:370:28
+    |
+370 |                 cursor_x = column as f32 * char_width;
+    |                            ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:377:24
+    |
+377 |             cursor_y = visual_line as f32 * line_height;
+    |                        ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:378:24
+    |
+378 |             cursor_x = column as f32 * char_width;
+    |                        ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+error: use Option::map_or instead of an if let/else
+   --> crates/iridium-editor/src/render/viewport.rs:153:9
+    |
+153 | /         if let Some(visual_line) = fold_state.document_to_visual_line(line) {
+154 | |             visual_line >= self.first_line && visual_line < self.first_line + self.visible_lines
+155 | |         } else {
+156 | |             false
+157 | |         }
+    | |_________^ help: try: `fold_state.document_to_visual_line(line).map_or(false, |visual_line| visual_line >= self.first_line && visual_line < self.first_line + self.visible_lines)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+
+error: unused `self` argument
+   --> crates/iridium-editor/src/render/viewport.rs:202:34
+    |
+202 |     fn find_enclosing_fold_start(&self, line: usize, fold_state: &FoldState) -> Option<usize> {
+    |                                  ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-editor/src/view/frame_timer.rs:247:52
+    |
+247 |         let avg_frame_time = self.frame_time_sum / count as u32;
+    |                                                    ^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+247 -         let avg_frame_time = self.frame_time_sum / count as u32;
+247 +         let avg_frame_time = self.frame_time_sum / u32::try_from(count);
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-editor/src/view/frame_timer.rs:274:35
+    |
+274 |             self.frame_time_sum / self.frame_times.len() as u32
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+274 -             self.frame_time_sum / self.frame_times.len() as u32
+274 +             self.frame_time_sum / u32::try_from(self.frame_times.len())
+    |
+
+error: this argument is a mutable reference, but not used mutably
+   --> crates/iridium-editor/src/input/mouse.rs:391:9
+    |
+391 |         &mut self,
+    |         ^^^^^^^^^ help: consider changing to: `&self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_ref_mut
+    = note: `-D clippy::needless-pass-by-ref-mut` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_pass_by_ref_mut)]`
+
+error: this argument is a mutable reference, but not used mutably
+   --> crates/iridium-editor/src/input/mouse.rs:429:28
+    |
+429 |     const fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
+    |                            ^^^^^^^^^ help: consider changing to: `&self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_ref_mut
+
+error: could not compile `iridium-editor` (lib) due to 41 previous errors

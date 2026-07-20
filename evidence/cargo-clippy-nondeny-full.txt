@@ -1,0 +1,3381 @@
+   Compiling iridium-bindings v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-bindings)
+    Checking iridium-editor v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-editor)
+warning: value assigned to `in_line_comment` is never read
+   --> crates/iridium-editor/src/syntax_stubs.rs:118:35
+    |
+118 |         let mut in_line_comment = false;
+    |                                   ^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `in_line_comment` is never read
+   --> crates/iridium-editor/src/syntax_stubs.rs:159:21
+    |
+159 |                     in_line_comment = true;
+    |                     ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: this could be a `const fn`
+   --> crates/iridium-editor/src/editor/fold_state.rs:554:5
+    |
+554 | /     pub fn visible_line_count(&self, total_lines: usize) -> usize {
+555 | |         total_lines.saturating_sub(self.hidden_line_count())
+556 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+    = note: `-W clippy::missing-const-for-fn` implied by `-W clippy::nursery`
+    = help: to override `-W clippy::nursery` add `#[allow(clippy::missing_const_for_fn)]`
+help: make the function `const`
+    |
+554 |     pub const fn visible_line_count(&self, total_lines: usize) -> usize {
+    |         +++++
+
+warning: these match arms have identical bodies
+   --> crates/iridium-editor/src/editor/mod.rs:103:13
+    |
+103 |               IridiumError::ParseError { .. } => Self::ParseError,
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+104 |               IridiumError::InvalidUtf8 { .. } => Self::InvalidUtf8,
+105 | /             IridiumError::InvalidPosition { .. }
+106 | |             | IridiumError::InvalidRange
+107 | |             | IridiumError::NotSupported { .. } => Self::ParseError,
+    | |___________________________________________________________________^
+    |
+    = help: if this is unintentional make the arms return different values
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#match_same_arms
+    = note: `-W clippy::match-same-arms` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::match_same_arms)]`
+help: otherwise merge the patterns into a single arm
+    |
+103 ~             IridiumError::ParseError { .. } | IridiumError::InvalidPosition { .. }
+104 +             | IridiumError::InvalidRange
+105 ~             | IridiumError::NotSupported { .. } => Self::ParseError,
+106 |             IridiumError::InvalidUtf8 { .. } => Self::InvalidUtf8,
+107 ~             }
+    |
+
+warning: unused `self` argument
+   --> crates/iridium-editor/src/input/mouse.rs:429:28
+    |
+429 |     const fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
+    |                            ^^^^^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+    = note: `-W clippy::unused-self` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::unused_self)]`
+
+warning: this function's return value is unnecessarily wrapped by `Option`
+   --> crates/iridium-editor/src/input/mouse.rs:540:5
+    |
+540 | /     fn pixel_to_position(
+541 | |         &self,
+542 | |         x: f32,
+543 | |         y: f32,
+544 | |         document: &Document,
+545 | |         viewport: &Viewport,
+546 | |     ) -> Option<Position> {
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unnecessary_wraps
+    = note: `-W clippy::unnecessary-wraps` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::unnecessary_wraps)]`
+help: remove `Option` from the return type...
+    |
+546 -     ) -> Option<Position> {
+546 +     ) -> document::position::Position {
+    |
+help: ...and then remove the surrounding `Some()` from returning expressions
+    |
+565 -         Some(Position::new(line, column))
+565 +         Position::new(line, column)
+    |
+
+warning: casting `f32` to `usize` may truncate the value
+   --> crates/iridium-editor/src/input/mouse.rs:549:20
+    |
+549 |         let line = (line_f.floor() as usize).saturating_add(viewport.first_line);
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+    = note: `-W clippy::cast-possible-truncation` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_possible_truncation)]`
+
+warning: casting `f32` to `usize` may lose the sign of the value
+   --> crates/iridium-editor/src/input/mouse.rs:549:20
+    |
+549 |         let line = (line_f.floor() as usize).saturating_add(viewport.first_line);
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+    = note: `-W clippy::cast-sign-loss` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_sign_loss)]`
+
+warning: casting `f32` to `usize` may truncate the value
+   --> crates/iridium-editor/src/input/mouse.rs:559:22
+    |
+559 |         let column = column_f.floor().max(0.0) as usize;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+   --> crates/iridium-editor/src/input/mouse.rs:559:22
+    |
+559 |         let column = column_f.floor().max(0.0) as usize;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: unused `self` argument
+   --> crates/iridium-editor/src/input/mouse.rs:569:23
+    |
+569 |     fn select_word_at(&self, position: Position, document: &Document) -> Selection {
+    |                       ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+warning: unused `self` argument
+   --> crates/iridium-editor/src/input/mouse.rs:627:23
+    |
+627 |     fn select_line_at(&self, position: Position, document: &Document) -> Selection {
+    |                       ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+warning: use Option::map_or instead of an if let/else
+   --> crates/iridium-editor/src/input/mouse.rs:703:9
+    |
+703 | /         if let Some(target_line) =
+704 | |             minimap_renderer.handle_click(event.x, event.y, minimap_dimensions, viewport)
+705 | |         {
+706 | |             MouseResult::ScrollToLine { target_line }
+707 | |         } else {
+708 | |             MouseResult::Ignored
+709 | |         }
+    | |_________^ help: try: `minimap_renderer.handle_click(event.x, event.y, minimap_dimensions, viewport).map_or(MouseResult::Ignored, |target_line| MouseResult::ScrollToLine { target_line })`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+    = note: `-W clippy::option-if-let-else` implied by `-W clippy::nursery`
+    = help: to override `-W clippy::nursery` add `#[allow(clippy::option_if_let_else)]`
+
+warning: use Option::map_or instead of an if let/else
+   --> crates/iridium-editor/src/input/mouse.rs:739:9
+    |
+739 | /         if let Some(target_line) =
+740 | |             minimap_renderer.handle_drag(event.x, event.y, minimap_dimensions, viewport)
+741 | |         {
+742 | |             MouseResult::ScrollToLine { target_line }
+743 | |         } else {
+744 | |             MouseResult::Ignored
+745 | |         }
+    | |_________^ help: try: `minimap_renderer.handle_drag(event.x, event.y, minimap_dimensions, viewport).map_or(MouseResult::Ignored, |target_line| MouseResult::ScrollToLine { target_line })`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+
+warning: this could be a `const fn`
+   --> crates/iridium-editor/src/input/mouse.rs:753:5
+    |
+753 | /     pub fn handle_minimap_release(
+754 | |         &mut self,
+755 | |         minimap_renderer: &mut crate::render::MinimapRenderer,
+756 | |     ) {
+757 | |         minimap_renderer.handle_release();
+758 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+    |
+753 |     pub const fn handle_minimap_release(
+    |         +++++
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/cursor.rs:264:25
+    |
+264 |                 let x = (pos.column as f32).mul_add(char_width, -scroll_x);
+    |                         ^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+    = note: `-W clippy::cast-precision-loss` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_precision_loss)]`
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/cursor.rs:265:25
+    |
+265 |                 let y = screen_line as f32 * line_height;
+    |                         ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:140:21
+    |
+140 |             let y = screen_line as f32 * line_height;
+    |                     ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:161:29
+    |
+161 |                     let x = (col_start as f32).mul_add(char_width, -scroll_x);
+    |                             ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:168:21
+    |
+168 |             let x = (col_start as f32).mul_add(char_width, -scroll_x);
+    |                     ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:169:29
+    |
+169 |             let mut width = (col_end - col_start) as f32 * char_width;
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/highlight.rs:294:25
+    |
+294 |                 let y = screen_line as f32 * line_height;
+    |                         ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: unused `self` argument
+   --> crates/iridium-editor/src/render/minimap/renderer.rs:354:9
+    |
+354 |         &self,
+    |         ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+warning: future cannot be sent between threads safely
+   --> crates/iridium-editor/src/render/pipeline.rs:142:5
+    |
+142 |     async fn init_async(config: RenderConfig) -> Result<Self, IridiumError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ future returned by `init_async` is not `Send`
+    |
+    = note: `(dyn wgpu::dispatch::RequestAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestAdapterFuture` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestDeviceFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestDeviceFuture` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/pipeline.rs:157:14
+    |
+152 |               .request_adapter(&RequestAdapterOptions {
+    |  _______________________________-
+153 | |                 power_preference: config.power_preference,
+154 | |                 compatible_surface: None,
+155 | |                 force_fallback_adapter: false,
+156 | |             })
+    | |_____________- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+157 |               .await;
+    |                ^^^^^ await occurs here, with the value maybe used later
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Sync`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/pipeline.rs:181:14
+    |
+159 |         let adapter = match adapter_result {
+    |             ------- has type `wgpu::Adapter` which is not `Send`
+...
+181 |             .await
+    |              ^^^^^ await occurs here, with `adapter` maybe used later
+    = note: `*mut u8` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::EnumerateAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::EnumerateAdapterFuture` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/pipeline.rs:157:14
+    |
+152 |               .request_adapter(&RequestAdapterOptions {
+    |  _______________________________-
+153 | |                 power_preference: config.power_preference,
+154 | |                 compatible_surface: None,
+155 | |                 force_fallback_adapter: false,
+156 | |             })
+    | |_____________- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+157 |               .await;
+    |                ^^^^^ await occurs here, with the value maybe used later
+    = note: `*mut u8` doesn't implement `std::marker::Sync`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#future_not_send
+    = note: `-W clippy::future-not-send` implied by `-W clippy::nursery`
+    = help: to override `-W clippy::nursery` add `#[allow(clippy::future_not_send)]`
+
+warning: usage of an `Arc` that is not `Send` and `Sync`
+   --> crates/iridium-editor/src/render/pipeline.rs:185:21
+    |
+185 |             device: Arc::new(device),
+    |                     ^^^^^^^^^^^^^^^^
+    |
+    = note: `Arc<Device>` is not `Send` and `Sync` as `Device` is neither `Send` nor `Sync`
+    = help: if the `Arc` will not be used across threads replace it with an `Rc`
+    = help: otherwise make `Device` `Send` and `Sync` or consider a wrapper type such as `Mutex`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#arc_with_non_send_sync
+    = note: `-W clippy::arc-with-non-send-sync` implied by `-W clippy::suspicious`
+    = help: to override `-W clippy::suspicious` add `#[allow(clippy::arc_with_non_send_sync)]`
+
+warning: usage of an `Arc` that is not `Send` and `Sync`
+   --> crates/iridium-editor/src/render/pipeline.rs:186:20
+    |
+186 |             queue: Arc::new(queue),
+    |                    ^^^^^^^^^^^^^^^
+    |
+    = note: `Arc<Queue>` is not `Send` and `Sync` as `Queue` is neither `Send` nor `Sync`
+    = help: if the `Arc` will not be used across threads replace it with an `Rc`
+    = help: otherwise make `Queue` `Send` and `Sync` or consider a wrapper type such as `Mutex`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#arc_with_non_send_sync
+
+warning: future cannot be sent between threads safely
+   --> crates/iridium-editor/src/render/pipeline.rs:193:5
+    |
+193 | /     async fn create_adapter_error(
+194 | |         instance: &Instance,
+195 | |         error: wgpu::RequestAdapterError,
+196 | |     ) -> IridiumError {
+    | |_____________________^ future returned by `create_adapter_error` is not `Send`
+    |
+    = note: `(dyn wgpu::dispatch::EnumerateAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::EnumerateAdapterFuture` doesn't implement `std::marker::Send`
+note: captured value is not `Send` because `&` references cannot be sent unless their referent is `Sync`
+   --> crates/iridium-editor/src/render/pipeline.rs:194:9
+    |
+194 |         instance: &Instance,
+    |         ^^^^^^^^ has type `&wgpu::Instance` which is not `Send`, because `wgpu::Instance` is not `Sync`
+    = note: `*mut u8` doesn't implement `std::marker::Sync`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#future_not_send
+
+warning: calling `PipelineCompilationOptions::default()` is more clear than this expression
+   --> crates/iridium-editor/src/render/quad.rs:202:38
+    |
+202 |                 compilation_options: Default::default(),
+    |                                      ^^^^^^^^^^^^^^^^^^ help: try: `PipelineCompilationOptions::default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#default_trait_access
+    = note: `-W clippy::default-trait-access` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::default_trait_access)]`
+
+warning: calling `PipelineCompilationOptions::default()` is more clear than this expression
+   --> crates/iridium-editor/src/render/quad.rs:212:38
+    |
+212 |                 compilation_options: Default::default(),
+    |                                      ^^^^^^^^^^^^^^^^^^ help: try: `PipelineCompilationOptions::default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#default_trait_access
+
+warning: casting `u32` to `f32` causes a loss of precision (`u32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/quad.rs:247:31
+    |
+247 |         self.viewport_size = [width as f32, height as f32];
+    |                               ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `u32` to `f32` causes a loss of precision (`u32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/quad.rs:247:45
+    |
+247 |         self.viewport_size = [width as f32, height as f32];
+    |                                             ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-editor/src/render/quad.rs:325:29
+    |
+325 |         render_pass.draw(0..self.cpu_vertices.len() as u32, 0..1);
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+325 -         render_pass.draw(0..self.cpu_vertices.len() as u32, 0..1);
+325 +         render_pass.draw(0..u32::try_from(self.cpu_vertices.len()), 0..1);
+    |
+
+warning: used `unwrap()` on an `Option` value
+   --> crates/iridium-editor/src/render/simple_highlight.rs:246:37
+    |
+246 |                         number.push(chars.next().unwrap().1);
+    |                                     ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+    = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on an `Option` value
+   --> crates/iridium-editor/src/render/simple_highlight.rs:273:35
+    |
+273 |                         word.push(chars.next().unwrap().1);
+    |                                   ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+warning: casting `i32` to `f32` causes a loss of precision (`i32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:223:38
+    |
+223 |                 return total_width / glyph_count as f32;
+    |                                      ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:359:32
+    |
+359 |                     cursor_y = visual_line as f32 * line_height;
+    |                                ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:363:32
+    |
+363 |                     cursor_x = col_in_run as f32 * char_width;
+    |                                ^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:369:28
+    |
+369 |                 cursor_y = visual_line as f32 * line_height;
+    |                            ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:370:28
+    |
+370 |                 cursor_x = column as f32 * char_width;
+    |                            ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:377:24
+    |
+377 |             cursor_y = visual_line as f32 * line_height;
+    |                        ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+   --> crates/iridium-editor/src/render/text.rs:378:24
+    |
+378 |             cursor_x = column as f32 * char_width;
+    |                        ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: use Option::map_or instead of an if let/else
+   --> crates/iridium-editor/src/render/viewport.rs:153:9
+    |
+153 | /         if let Some(visual_line) = fold_state.document_to_visual_line(line) {
+154 | |             visual_line >= self.first_line && visual_line < self.first_line + self.visible_lines
+155 | |         } else {
+156 | |             false
+157 | |         }
+    | |_________^ help: try: `fold_state.document_to_visual_line(line).map_or(false, |visual_line| visual_line >= self.first_line && visual_line < self.first_line + self.visible_lines)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+
+warning: unused `self` argument
+   --> crates/iridium-editor/src/render/viewport.rs:202:34
+    |
+202 |     fn find_enclosing_fold_start(&self, line: usize, fold_state: &FoldState) -> Option<usize> {
+    |                                  ^^^^^
+    |
+    = help: consider refactoring to an associated function
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unused_self
+
+warning: future cannot be sent between threads safely
+   --> crates/iridium-editor/src/render/web.rs:91:9
+    |
+ 91 | /         pub async fn from_canvas(
+ 92 | |             canvas: web_sys::HtmlCanvasElement,
+ 93 | |             width: u32,
+ 94 | |             height: u32,
+ 95 | |         ) -> Result<Self, IridiumError> {
+    | |_______________________________________^ future returned by `from_canvas` is not `Send`
+    |
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+119 |             let surface = instance.create_surface(surface_target).map_err(|e| {
+    |                 ------- has type `wgpu::Surface<'_>` which is not `Send`
+...
+132 |                 .await
+    |                  ^^^^^ await occurs here, with `surface` maybe used later
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Send`
+note: captured value is not `Send`
+   --> crates/iridium-editor/src/render/web.rs:92:13
+    |
+ 92 |             canvas: web_sys::HtmlCanvasElement,
+    |             ^^^^^^ has type `web_sys::HtmlCanvasElement` which is not `Send`
+    = note: `*mut u8` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestAdapterFuture` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestDeviceFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestDeviceFuture` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+127 |                   .request_adapter(&wgpu::RequestAdapterOptions {
+    |  ___________________________________-
+128 | |                     power_preference: wgpu::PowerPreference::HighPerformance,
+129 | |                     compatible_surface: Some(&surface),
+130 | |                     force_fallback_adapter: false,
+131 | |                 })
+    | |_________________- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+132 |                   .await
+    |                    ^^^^^ await occurs here, with the value maybe used later
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Sync`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+127 |                   .request_adapter(&wgpu::RequestAdapterOptions {
+    |  ___________________________________-
+128 | |                     power_preference: wgpu::PowerPreference::HighPerformance,
+129 | |                     compatible_surface: Some(&surface),
+130 | |                     force_fallback_adapter: false,
+131 | |                 })
+    | |_________________- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+132 |                   .await
+    |                    ^^^^^ await occurs here, with the value maybe used later
+    = note: `*mut u8` doesn't implement `std::marker::Sync`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#future_not_send
+
+warning: future cannot be sent between threads safely
+   --> crates/iridium-editor/src/render/web.rs:104:9
+    |
+104 | /         pub async fn from_canvas_with_config(
+105 | |             canvas: web_sys::HtmlCanvasElement,
+106 | |             width: u32,
+107 | |             height: u32,
+108 | |             render_config: WebRenderConfig,
+109 | |         ) -> Result<Self, IridiumError> {
+    | |_______________________________________^ future returned by `from_canvas_with_config` is not `Send`
+    |
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+119 |             let surface = instance.create_surface(surface_target).map_err(|e| {
+    |                 ------- has type `wgpu::Surface<'_>` which is not `Send`
+...
+132 |                 .await
+    |                  ^^^^^ await occurs here, with `surface` maybe used later
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestAdapterFuture` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestDeviceFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestDeviceFuture` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+119 |             let surface = instance.create_surface(surface_target).map_err(|e| {
+    |                 ------- has type `wgpu::Surface<'_>` which is not `Send`
+...
+132 |                 .await
+    |                  ^^^^^ await occurs here, with `surface` maybe used later
+    = note: `*mut u8` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+127 |                   .request_adapter(&wgpu::RequestAdapterOptions {
+    |  ___________________________________-
+128 | |                     power_preference: wgpu::PowerPreference::HighPerformance,
+129 | |                     compatible_surface: Some(&surface),
+130 | |                     force_fallback_adapter: false,
+131 | |                 })
+    | |_________________- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+132 |                   .await
+    |                    ^^^^^ await occurs here, with the value maybe used later
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Sync`
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-editor/src/render/web.rs:132:18
+    |
+127 |                   .request_adapter(&wgpu::RequestAdapterOptions {
+    |  ___________________________________-
+128 | |                     power_preference: wgpu::PowerPreference::HighPerformance,
+129 | |                     compatible_surface: Some(&surface),
+130 | |                     force_fallback_adapter: false,
+131 | |                 })
+    | |_________________- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+132 |                   .await
+    |                    ^^^^^ await occurs here, with the value maybe used later
+    = note: `*mut u8` doesn't implement `std::marker::Sync`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#future_not_send
+
+warning: usage of an `Arc` that is not `Send` and `Sync`
+   --> crates/iridium-editor/src/render/web.rs:160:26
+    |
+160 |             let device = Arc::new(device);
+    |                          ^^^^^^^^^^^^^^^^
+    |
+    = note: `Arc<Device>` is not `Send` and `Sync` as `Device` is neither `Send` nor `Sync`
+    = help: if the `Arc` will not be used across threads replace it with an `Rc`
+    = help: otherwise make `Device` `Send` and `Sync` or consider a wrapper type such as `Mutex`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#arc_with_non_send_sync
+
+warning: usage of an `Arc` that is not `Send` and `Sync`
+   --> crates/iridium-editor/src/render/web.rs:161:25
+    |
+161 |             let queue = Arc::new(queue);
+    |                         ^^^^^^^^^^^^^^^
+    |
+    = note: `Arc<Queue>` is not `Send` and `Sync` as `Queue` is neither `Send` nor `Sync`
+    = help: if the `Arc` will not be used across threads replace it with an `Rc`
+    = help: otherwise make `Queue` `Send` and `Sync` or consider a wrapper type such as `Mutex`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#arc_with_non_send_sync
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-editor/src/render/web.rs:310:35
+    |
+310 |     /// The callback receives the DOMHighResTimeStamp from requestAnimationFrame.
+    |                                   ^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+    = note: `-W clippy::doc-markdown` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::doc_markdown)]`
+help: try
+    |
+310 -     /// The callback receives the DOMHighResTimeStamp from requestAnimationFrame.
+310 +     /// The callback receives the `DOMHighResTimeStamp` from requestAnimationFrame.
+    |
+
+warning: used `expect()` on an `Option` value
+   --> crates/iridium-editor/src/render/web.rs:314:22
+    |
+314 |         let window = web_sys::window().expect("no global window");
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+    = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `expect()` on a `Result` value
+   --> crates/iridium-editor/src/render/web.rs:316:9
+    |
+316 | /         window
+317 | |             .request_animation_frame(closure.as_ref().unchecked_ref())
+318 | |             .expect("requestAnimationFrame failed");
+    | |___________________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+warning: used `expect()` on an `Option` value
+   --> crates/iridium-editor/src/render/web.rs:324:9
+    |
+324 | /         web_sys::window()
+325 | |             .expect("no global window")
+326 | |             .performance()
+327 | |             .expect("no performance object")
+    | |____________________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+warning: used `expect()` on an `Option` value
+   --> crates/iridium-editor/src/render/web.rs:324:9
+    |
+324 | /         web_sys::window()
+325 | |             .expect("no global window")
+    | |_______________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+warning: this could be a `const fn`
+  --> crates/iridium-editor/src/syntax_stubs.rs:16:5
+   |
+16 | /     pub fn all() -> &'static [Language] {
+17 | |         &[]
+18 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+   |
+16 |     pub const fn all() -> &'static [Language] {
+   |         +++++
+
+warning: unnecessary structure name repetition
+  --> crates/iridium-editor/src/syntax_stubs.rs:16:31
+   |
+16 |     pub fn all() -> &'static [Language] {
+   |                               ^^^^^^^^ help: use the applicable keyword: `Self`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+   = note: `-W clippy::use-self` implied by `-W clippy::nursery`
+   = help: to override `-W clippy::nursery` add `#[allow(clippy::use_self)]`
+
+warning: this could be a `const fn`
+  --> crates/iridium-editor/src/syntax_stubs.rs:22:5
+   |
+22 | /     pub fn id(&self) -> &'static str {
+23 | |         ""
+24 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+   |
+22 |     pub const fn id(&self) -> &'static str {
+   |         +++++
+
+warning: this could be a `const fn`
+  --> crates/iridium-editor/src/syntax_stubs.rs:28:5
+   |
+28 | /     pub fn from_extension(_ext: &str) -> Option<Language> {
+29 | |         None
+30 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+   |
+28 |     pub const fn from_extension(_ext: &str) -> Option<Language> {
+   |         +++++
+
+warning: unnecessary structure name repetition
+  --> crates/iridium-editor/src/syntax_stubs.rs:28:49
+   |
+28 |     pub fn from_extension(_ext: &str) -> Option<Language> {
+   |                                                 ^^^^^^^^ help: use the applicable keyword: `Self`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+warning: this could be a `const fn`
+  --> crates/iridium-editor/src/syntax_stubs.rs:34:5
+   |
+34 | /     pub fn from_id(_id: &str) -> Option<Language> {
+35 | |         None
+36 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+   |
+34 |     pub const fn from_id(_id: &str) -> Option<Language> {
+   |         +++++
+
+warning: unnecessary structure name repetition
+  --> crates/iridium-editor/src/syntax_stubs.rs:34:41
+   |
+34 |     pub fn from_id(_id: &str) -> Option<Language> {
+   |                                         ^^^^^^^^ help: use the applicable keyword: `Self`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+warning: item in documentation is missing backticks
+  --> crates/iridium-editor/src/syntax_stubs.rs:39:10
+   |
+39 | /// Stub FoldKind - fold kinds for non-syntax folding.
+   |          ^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+   |
+39 - /// Stub FoldKind - fold kinds for non-syntax folding.
+39 + /// Stub `FoldKind` - fold kinds for non-syntax folding.
+   |
+
+warning: item in documentation is missing backticks
+  --> crates/iridium-editor/src/syntax_stubs.rs:52:10
+   |
+52 | /// Stub FoldRegion - represents a foldable region.
+   |          ^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+   |
+52 - /// Stub FoldRegion - represents a foldable region.
+52 + /// Stub `FoldRegion` - represents a foldable region.
+   |
+
+warning: this could be a `const fn`
+  --> crates/iridium-editor/src/syntax_stubs.rs:66:5
+   |
+66 | /     pub fn hidden_line_count(&self) -> usize {
+67 | |         self.end_line.saturating_sub(self.start_line)
+68 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+   |
+66 |     pub const fn hidden_line_count(&self) -> usize {
+   |         +++++
+
+warning: this could be a `const fn`
+  --> crates/iridium-editor/src/syntax_stubs.rs:87:5
+   |
+87 | /     pub fn new(_language: Language) -> Option<Self> {
+88 | |         Some(Self {
+89 | |             regions: Vec::new(),
+90 | |         })
+91 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+   |
+87 |     pub const fn new(_language: Language) -> Option<Self> {
+   |         +++++
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-editor/src/syntax_stubs.rs:213:10
+    |
+213 | /// Stub SyntaxError - errors from syntax operations.
+    |          ^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+213 - /// Stub SyntaxError - errors from syntax operations.
+213 + /// Stub `SyntaxError` - errors from syntax operations.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-editor/src/syntax_stubs.rs:230:10
+    |
+230 | /// Stub HighlightType - highlight types for syntax coloring.
+    |          ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+230 - /// Stub HighlightType - highlight types for syntax coloring.
+230 + /// Stub `HighlightType` - highlight types for syntax coloring.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-editor/src/syntax_stubs.rs:293:10
+    |
+293 | /// Stub HighlightSpan - a highlighted region.
+    |          ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+293 - /// Stub HighlightSpan - a highlighted region.
+293 + /// Stub `HighlightSpan` - a highlighted region.
+    |
+
+warning: this could be a `const fn`
+   --> crates/iridium-editor/src/syntax_stubs.rs:310:5
+    |
+310 | /     pub fn new(_language: Language) -> Result<Self, SyntaxError> {
+311 | |         Err(SyntaxError::UnsupportedLanguage)
+312 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+    |
+310 |     pub const fn new(_language: Language) -> Result<Self, SyntaxError> {
+    |         +++++
+
+warning: this could be a `const fn`
+   --> crates/iridium-editor/src/syntax_stubs.rs:315:5
+    |
+315 | /     pub fn highlight(&mut self, _source: &str) -> Vec<HighlightSpan> {
+316 | |         Vec::new()
+317 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+    |
+315 |     pub const fn highlight(&mut self, _source: &str) -> Vec<HighlightSpan> {
+    |         +++++
+
+warning: this could be a `const fn`
+   --> crates/iridium-editor/src/syntax_stubs.rs:320:5
+    |
+320 | /     pub fn update(
+321 | |         &mut self,
+322 | |         _source: &str,
+323 | |         _start_byte: usize,
+...   |
+327 | |         Vec::new()
+328 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+    |
+320 |     pub const fn update(
+    |         +++++
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-editor/src/view/frame_timer.rs:247:52
+    |
+247 |         let avg_frame_time = self.frame_time_sum / count as u32;
+    |                                                    ^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+247 -         let avg_frame_time = self.frame_time_sum / count as u32;
+247 +         let avg_frame_time = self.frame_time_sum / u32::try_from(count);
+    |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-editor/src/view/frame_timer.rs:274:35
+    |
+274 |             self.frame_time_sum / self.frame_times.len() as u32
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+274 -             self.frame_time_sum / self.frame_times.len() as u32
+274 +             self.frame_time_sum / u32::try_from(self.frame_times.len())
+    |
+
+warning: this argument is a mutable reference, but not used mutably
+   --> crates/iridium-editor/src/input/mouse.rs:391:9
+    |
+391 |         &mut self,
+    |         ^^^^^^^^^ help: consider changing to: `&self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_ref_mut
+    = note: `-W clippy::needless-pass-by-ref-mut` implied by `-W clippy::nursery`
+    = help: to override `-W clippy::nursery` add `#[allow(clippy::needless_pass_by_ref_mut)]`
+
+warning: this argument is a mutable reference, but not used mutably
+   --> crates/iridium-editor/src/input/mouse.rs:429:28
+    |
+429 |     const fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
+    |                            ^^^^^^^^^ help: consider changing to: `&self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_ref_mut
+
+warning: `iridium-editor` (lib) generated 73 warnings (run `cargo clippy --fix --lib -p iridium-editor` to apply 20 suggestions)
+warning: binding's name is too similar to existing binding
+    --> crates/iridium-bindings/src/wasm.rs:2121:25
+     |
+2121 |                     let seg_start = sel_col_start.max(run_start_col);
+     |                         ^^^^^^^^^
+     |
+note: existing binding defined here
+    --> crates/iridium-bindings/src/wasm.rs:2063:17
+     |
+2063 |             let sel_start = selection.start();
+     |                 ^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#similar_names
+     = note: `-W clippy::similar-names` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::similar_names)]`
+
+warning: binding's name is too similar to existing binding
+    --> crates/iridium-bindings/src/wasm.rs:2122:25
+     |
+2122 |                     let seg_end = sel_col_end.min(run_end_col);
+     |                         ^^^^^^^
+     |
+note: existing binding defined here
+    --> crates/iridium-bindings/src/wasm.rs:2064:17
+     |
+2064 |             let sel_end = selection.end();
+     |                 ^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#similar_names
+
+warning: field `pixel_ratio` is never read
+   --> crates/iridium-bindings/src/wasm.rs:156:5
+    |
+142 | pub struct WebEditor {
+    |            --------- field in this struct
+...
+156 |     pixel_ratio: f32,
+    |     ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `len` is never used
+  --> crates/iridium-bindings/src/web_span_index.rs:75:18
+   |
+31 | impl WebSpanIndex {
+   | ----------------- method in this implementation
+...
+75 |     pub const fn len(&self) -> usize {
+   |                  ^^^
+
+warning: this could be a `const fn`
+  --> crates/iridium-bindings/src/highlight_span_shift.rs:58:1
+   |
+58 | / pub fn shift_span(
+59 | |     start: usize,
+60 | |     end: usize,
+61 | |     edit_start: usize,
+...  |
+77 | |     None
+78 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+   = note: `-W clippy::missing-const-for-fn` implied by `-W clippy::nursery`
+   = help: to override `-W clippy::nursery` add `#[allow(clippy::missing_const_for_fn)]`
+help: make the function `const`
+   |
+58 | pub const fn shift_span(
+   |     +++++
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:137:5
+    |
+137 | /// WebEditor provides a complete browser-based editor experience.
+    |     ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+    = note: `-W clippy::doc-markdown` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::doc_markdown)]`
+help: try
+    |
+137 - /// WebEditor provides a complete browser-based editor experience.
+137 + /// `WebEditor` provides a complete browser-based editor experience.
+    |
+
+warning: more than 3 bools in a struct
+   --> crates/iridium-bindings/src/wasm.rs:142:1
+    |
+142 | / pub struct WebEditor {
+143 | |     editor: Editor,
+144 | |     surface: WebSurface,
+145 | |     text_renderer: TextRenderer,
+...   |
+279 | |     pending_edit: PendingEdit,
+280 | | }
+    | |_^
+    |
+    = help: consider using a state machine or refactoring bools into two-variant enums
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#struct_excessive_bools
+    = note: `-W clippy::struct-excessive-bools` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::struct_excessive_bools)]`
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:155:32
+    |
+155 |     /// Device pixel ratio for HiDPI scaling
+    |                                ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+155 -     /// Device pixel ratio for HiDPI scaling
+155 +     /// Device pixel ratio for `HiDPI` scaling
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:189:19
+    |
+189 |     /// Capacity: MAX_VIEWPORT_LINES.
+    |                   ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+189 -     /// Capacity: MAX_VIEWPORT_LINES.
+189 +     /// Capacity: `MAX_VIEWPORT_LINES`.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:198:19
+    |
+198 |     /// Capacity: MAX_SELECTION_QUADS.
+    |                   ^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+198 -     /// Capacity: MAX_SELECTION_QUADS.
+198 +     /// Capacity: `MAX_SELECTION_QUADS`.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:210:49
+    |
+210 |     /// Cached visual line mapping built during render_frame.
+    |                                                 ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+210 -     /// Cached visual line mapping built during render_frame.
+210 +     /// Cached visual line mapping built during `render_frame`.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:211:43
+    |
+211 |     /// Each entry maps a visual line to (buffer_line_index, start_column_in_line).
+    |                                           ^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+211 -     /// Each entry maps a visual line to (buffer_line_index, start_column_in_line).
+211 +     /// Each entry maps a visual line to (`buffer_line_index`, start_column_in_line).
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:211:62
+    |
+211 |     /// Each entry maps a visual line to (buffer_line_index, start_column_in_line).
+    |                                                              ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+211 -     /// Each entry maps a visual line to (buffer_line_index, start_column_in_line).
+211 +     /// Each entry maps a visual line to (buffer_line_index, `start_column_in_line`).
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:213:13
+    |
+213 |     /// The viewport_start value when cached_visual_line_map was built.
+    |             ^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+213 -     /// The viewport_start value when cached_visual_line_map was built.
+213 +     /// The `viewport_start` value when cached_visual_line_map was built.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:213:39
+    |
+213 |     /// The viewport_start value when cached_visual_line_map was built.
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+213 -     /// The viewport_start value when cached_visual_line_map was built.
+213 +     /// The viewport_start value when `cached_visual_line_map` was built.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:221:70
+    |
+221 |     /// Total visual lines including wrapped sub-lines, updated each render_frame.
+    |                                                                      ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+221 -     /// Total visual lines including wrapped sub-lines, updated each render_frame.
+221 +     /// Total visual lines including wrapped sub-lines, updated each `render_frame`.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:223:63
+    |
+223 |     /// Absolute cursor Y position (document space) from last render_frame.
+    |                                                               ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+223 -     /// Absolute cursor Y position (document space) from last render_frame.
+223 +     /// Absolute cursor Y position (document space) from last `render_frame`.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:225:34
+    |
+225 |     /// The cursor doc line when cached_cursor_abs_y was computed.
+    |                                  ^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+225 -     /// The cursor doc line when cached_cursor_abs_y was computed.
+225 +     /// The cursor doc line when `cached_cursor_abs_y` was computed.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:232:33
+    |
+232 |     /// When non-empty, used by color_for_highlight_type with hierarchical fallback.
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+232 -     /// When non-empty, used by color_for_highlight_type with hierarchical fallback.
+232 +     /// When non-empty, used by `color_for_highlight_type` with hierarchical fallback.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:240:37
+    |
+240 |     /// Per-line background colors (doc_line → color). Used for diff highlighting.
+    |                                     ^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+240 -     /// Per-line background colors (doc_line → color). Used for diff highlighting.
+240 +     /// Per-line background colors (`doc_line` → color). Used for diff highlighting.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:244:44
+    |
+244 |     /// Per-line gutter change bar colors (doc_line → color). Used for change indicators.
+    |                                            ^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+244 -     /// Per-line gutter change bar colors (doc_line → color). Used for change indicators.
+244 +     /// Per-line gutter change bar colors (`doc_line` → color). Used for change indicators.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:250:30
+    |
+250 |     /// Per-line blame text (doc_line → formatted blame string). Shown at end of cursor line.
+    |                              ^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+250 -     /// Per-line blame text (doc_line → formatted blame string). Shown at end of cursor line.
+250 +     /// Per-line blame text (`doc_line` → formatted blame string). Shown at end of cursor line.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:289:19
+    |
+289 | /// Creates a new WebEditor attached to a canvas element.
+    |                   ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+289 - /// Creates a new WebEditor attached to a canvas element.
+289 + /// Creates a new `WebEditor` attached to a canvas element.
+    |
+
+warning: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/wasm.rs:296:76
+    |
+296 | /// * `pixel_ratio` - The device pixel ratio (window.devicePixelRatio) for HiDPI scaling
+    |                                                                            ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+296 - /// * `pixel_ratio` - The device pixel ratio (window.devicePixelRatio) for HiDPI scaling
+296 + /// * `pixel_ratio` - The device pixel ratio (window.devicePixelRatio) for `HiDPI` scaling
+    |
+
+warning: future cannot be sent between threads safely
+   --> crates/iridium-bindings/src/wasm.rs:298:1
+    |
+298 | / pub async fn create_web_editor(
+299 | |     canvas: HtmlCanvasElement,
+300 | |     pixel_ratio: f32,
+301 | | ) -> Result<WebEditor, JsValue> {
+    | |_______________________________^ future returned by `create_web_editor` is not `Send`
+    |
+note: future is not `Send` as this value is used across an await
+   --> crates/iridium-bindings/src/wasm.rs:315:10
+    |
+299 |     canvas: HtmlCanvasElement,
+    |     ------ has type `web_sys::HtmlCanvasElement` which is not `Send`
+...
+315 |         .await
+    |          ^^^^^ await occurs here, with `canvas` maybe used later
+    = note: `*mut u8` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestAdapterFuture` doesn't implement `std::marker::Send`
+    = note: `(dyn wgpu::dispatch::RequestDeviceFuture + 'static)` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::dispatch::RequestDeviceFuture` doesn't implement `std::marker::Send`
+    = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Sync`
+    = note: `*mut u8` doesn't implement `std::marker::Sync`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#future_not_send
+    = note: `-W clippy::future-not-send` implied by `-W clippy::nursery`
+    = help: to override `-W clippy::nursery` add `#[allow(clippy::future_not_send)]`
+
+warning: variables can be used directly in the `format!` string
+   --> crates/iridium-bindings/src/wasm.rs:307:10
+    |
+307 |       log(&format!(
+    |  __________^
+308 | |         "[Iridium] Canvas size: {}x{}, pixel ratio: {}",
+309 | |         width, height, pixel_ratio
+310 | |     ));
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+    = note: `-W clippy::uninlined-format-args` implied by `-W clippy::pedantic`
+    = help: to override `-W clippy::pedantic` add `#[allow(clippy::uninlined_format_args)]`
+
+warning: variables can be used directly in the `format!` string
+   --> crates/iridium-bindings/src/wasm.rs:317:23
+    |
+317 |             let msg = format!("[Iridium] WebSurface error: {}", e);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+help: change this to
+    |
+317 -             let msg = format!("[Iridium] WebSurface error: {}", e);
+317 +             let msg = format!("[Iridium] WebSurface error: {e}");
+    |
+
+warning: variables can be used directly in the `format!` string
+   --> crates/iridium-bindings/src/wasm.rs:327:23
+    |
+327 |             let msg = format!("[Iridium] TextRenderer error: {}", e);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+help: change this to
+    |
+327 -             let msg = format!("[Iridium] TextRenderer error: {}", e);
+327 +             let msg = format!("[Iridium] TextRenderer error: {e}");
+    |
+
+warning: variables can be used directly in the `format!` string
+   --> crates/iridium-bindings/src/wasm.rs:336:10
+    |
+336 |       log(&format!(
+    |  __________^
+337 | |         "[Iridium] Font size: {} (base {} * ratio {})",
+338 | |         scaled_font_size, base_font_size, pixel_ratio
+339 | |     ));
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:1001:5
+     |
+1001 | /     pub fn is_read_only(&self) -> bool {
+1002 | |         self.read_only
+1003 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+1001 |     pub const fn is_read_only(&self) -> bool {
+     |         +++++
+
+warning: casting `f64` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1022:24
+     |
+1022 |               let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+     |  ________________________^
+1023 | |                 .as_f64()
+1024 | |                 .ok_or_else(|| JsValue::from_str("line must be a number"))?
+1025 | |                 as usize;
+     | |________________________^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+     = note: `-W clippy::cast-possible-truncation` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_possible_truncation)]`
+
+warning: casting `f64` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1022:24
+     |
+1022 |               let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+     |  ________________________^
+1023 | |                 .as_f64()
+1024 | |                 .ok_or_else(|| JsValue::from_str("line must be a number"))?
+1025 | |                 as usize;
+     | |________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+     = note: `-W clippy::cast-sign-loss` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_sign_loss)]`
+
+warning: variables can be used directly in the `format!` string
+    --> crates/iridium-bindings/src/wasm.rs:1030:51
+     |
+1030 |                 .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {}", color_hex)))?;
+     |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+help: change this to
+     |
+1030 -                 .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {}", color_hex)))?;
+1030 +                 .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {color_hex}")))?;
+     |
+
+warning: casting `f64` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1062:24
+     |
+1062 |               let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+     |  ________________________^
+1063 | |                 .as_f64()
+1064 | |                 .ok_or_else(|| JsValue::from_str("line must be a number"))?
+1065 | |                 as usize;
+     | |________________________^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f64` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1062:24
+     |
+1062 |               let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+     |  ________________________^
+1063 | |                 .as_f64()
+1064 | |                 .ok_or_else(|| JsValue::from_str("line must be a number"))?
+1065 | |                 as usize;
+     | |________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: variables can be used directly in the `format!` string
+    --> crates/iridium-bindings/src/wasm.rs:1078:51
+     |
+1078 |                       return Err(JsValue::from_str(&format!(
+     |  ___________________________________________________^
+1079 | |                         "unknown change kind: {} (expected added/modified/deleted/error/warning/info/hint)",
+1080 | |                         kind
+1081 | |                     )));
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+
+warning: casting `f64` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1145:24
+     |
+1145 |               let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+     |  ________________________^
+1146 | |                 .as_f64()
+1147 | |                 .ok_or_else(|| JsValue::from_str("line must be a number"))?
+1148 | |                 as usize;
+     | |________________________^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f64` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1145:24
+     |
+1145 |               let line = Reflect::get(&entry, &JsValue::from_str("line"))?
+     |  ________________________^
+1146 | |                 .as_f64()
+1147 | |                 .ok_or_else(|| JsValue::from_str("line must be a number"))?
+1148 | |                 as usize;
+     | |________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: using `clone` on type `Selection` which implements the `Copy` trait
+    --> crates/iridium-bindings/src/wasm.rs:1190:25
+     |
+1190 |         let selection = self.editor.state().cursor.primary.clone();
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `self.editor.state().cursor.primary`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#clone_on_copy
+     = note: `-W clippy::clone-on-copy` implied by `-W clippy::complexity`
+     = help: to override `-W clippy::complexity` add `#[allow(clippy::clone_on_copy)]`
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:1230:37
+     |
+1230 |                   let prev_line_len = self
+     |  _____________________________________^
+1231 | |                     .editor
+1232 | |                     .state()
+1233 | |                     .document
+1234 | |                     .line(cursor.line - 1)
+1235 | |                     .map(|l| l.chars().count())
+1236 | |                     .unwrap_or(0);
+     | |_________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+     = note: `-W clippy::map-unwrap-or` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::map_unwrap_or)]`
+help: use `map_or(<a>, <f>)` instead
+     |
+1235 -                     .map(|l| l.chars().count())
+1235 +                     .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:1269:32
+     |
+1269 |           let current_line_len = self
+     |  ________________________________^
+1270 | |             .editor
+1271 | |             .state()
+1272 | |             .document
+1273 | |             .line(cursor.line)
+1274 | |             .map(|l| l.chars().count())
+1275 | |             .unwrap_or(0);
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+1274 -             .map(|l| l.chars().count())
+1274 +             .map_or(0, |l| l.chars().count());
+     |
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:1318:5
+     |
+1318 | /     pub fn get_scroll_y(&self) -> f32 {
+1319 | |         self.scroll_y
+1320 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+1318 |     pub const fn get_scroll_y(&self) -> f32 {
+     |         +++++
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1338:56
+     |
+1338 |     /// Uses `cached_total_visual_lines` from the last render_frame to account
+     |                                                        ^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1338 -     /// Uses `cached_total_visual_lines` from the last render_frame to account
+1338 +     /// Uses `cached_total_visual_lines` from the last `render_frame` to account
+     |
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:1350:30
+     |
+1350 |         let content_height = total_visual as f32 * line_height;
+     |                              ^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+     = note: `-W clippy::cast-precision-loss` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_precision_loss)]`
+
+warning: casting `u32` to `f32` causes a loss of precision (`u32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:1351:31
+     |
+1351 |         let viewport_height = self.surface.height() as f32;
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1357:57
+     |
+1357 |     /// Uses the cached cursor absolute Y from the last render_frame when the
+     |                                                         ^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1357 -     /// Uses the cached cursor absolute Y from the last render_frame when the
+1357 +     /// Uses the cached cursor absolute Y from the last `render_frame` when the
+     |
+
+warning: casting `u32` to `f32` causes a loss of precision (`u32` is 32 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:1364:31
+     |
+1364 |         let viewport_height = self.surface.height() as f32;
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:1378:17
+     |
+1378 |                 padding + (visual_line as f32 * line_height)
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(visual_line as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+     = note: `-W clippy::suboptimal-flops` implied by `-W clippy::nursery`
+     = help: to override `-W clippy::nursery` add `#[allow(clippy::suboptimal_flops)]`
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:1378:28
+     |
+1378 |                 padding + (visual_line as f32 * line_height)
+     |                            ^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1393:40
+     |
+1393 |     /// Converts highlight spans (from WebSpanIndex query) to colored text spans for rendering.
+     |                                        ^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1393 -     /// Converts highlight spans (from WebSpanIndex query) to colored text spans for rendering.
+1393 +     /// Converts highlight spans (from `WebSpanIndex` query) to colored text spans for rendering.
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1395:55
+     |
+1395 |     /// This is the optimized version that works with WebSpan from the WebSpanIndex.
+     |                                                       ^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1395 -     /// This is the optimized version that works with WebSpan from the WebSpanIndex.
+1395 +     /// This is the optimized version that works with `WebSpan` from the WebSpanIndex.
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1395:72
+     |
+1395 |     /// This is the optimized version that works with WebSpan from the WebSpanIndex.
+     |                                                                        ^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1395 -     /// This is the optimized version that works with WebSpan from the WebSpanIndex.
+1395 +     /// This is the optimized version that works with WebSpan from the `WebSpanIndex`.
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1401:33
+     |
+1401 |     /// * `spans` - Iterator of WebSpan from WebSpanIndex::query()
+     |                                 ^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1401 -     /// * `spans` - Iterator of WebSpan from WebSpanIndex::query()
+1401 +     /// * `spans` - Iterator of `WebSpan` from WebSpanIndex::query()
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1401:46
+     |
+1401 |     /// * `spans` - Iterator of WebSpan from WebSpanIndex::query()
+     |                                              ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1401 -     /// * `spans` - Iterator of WebSpan from WebSpanIndex::query()
+1401 +     /// * `spans` - Iterator of WebSpan from `WebSpanIndex::query()`
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1474:50
+     |
+1474 |     /// (Legacy version - kept for fallback when SpanIndex is empty)
+     |                                                  ^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1474 -     /// (Legacy version - kept for fallback when SpanIndex is empty)
+1474 +     /// (Legacy version - kept for fallback when `SpanIndex` is empty)
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:1534:37
+     |
+1534 |     /// Looks up the `syntax_theme` HashMap with hierarchical resolution:
+     |                                     ^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+1534 -     /// Looks up the `syntax_theme` HashMap with hierarchical resolution:
+1534 +     /// Looks up the `syntax_theme` `HashMap` with hierarchical resolution:
+     |
+
+warning: adding items after statements is confusing, since items exist from the start of the scope
+    --> crates/iridium-bindings/src/wasm.rs:1807:9
+     |
+1807 |         use std::fmt::Write;
+     |         ^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#items_after_statements
+     = note: `-W clippy::items-after-statements` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::items_after_statements)]`
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1615:34
+     |
+1615 |         let first_visible_line = (self.scroll_y / line_height).floor() as usize;
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1615:34
+     |
+1615 |         let first_visible_line = (self.scroll_y / line_height).floor() as usize;
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1616:34
+     |
+1616 |         let visible_line_count = (surface_height / line_height).ceil() as usize + 2;
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1616:34
+     |
+1616 |         let visible_line_count = (surface_height / line_height).ceil() as usize + 2;
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: redundant closure
+    --> crates/iridium-bindings/src/wasm.rs:1706:57
+     |
+1706 |                 let max_chars = custom_lines.iter().map(|s| s.len()).max().unwrap_or(1);
+     |                                                         ^^^^^^^^^^^ help: replace the closure with the method itself: `std::string::String::len`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+     = note: `-W clippy::redundant-closure-for-method-calls` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::redundant_closure_for_method_calls)]`
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:1708:17
+     |
+1708 |                 (max_chars as f32 * char_width) + (char_width * 2.0)
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(max_chars as f32).mul_add(char_width, char_width * 2.0)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1728:34
+     |
+1728 |                 let first_line = (self.scroll_y / line_height).floor() as usize;
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1728:34
+     |
+1728 |                 let first_line = (self.scroll_y / line_height).floor() as usize;
+     |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:1729:37
+     |
+1729 |                 let visible_lines = (surface_height / line_height).ceil() as usize + 1;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:1729:37
+     |
+1729 |                 let visible_lines = (surface_height / line_height).ceil() as usize + 1;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:1790:17
+     |
+1790 |                 run.glyphs.first().map(|g| g.start).unwrap_or(0)
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+1790 -                 run.glyphs.first().map(|g| g.start).unwrap_or(0)
+1790 +                 run.glyphs.first().map_or(0, |g| g.start)
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:1820:28
+     |
+1820 |                 let text = custom_lines.get(doc_line).map(|s| s.as_str()).unwrap_or("");
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+1820 -                 let text = custom_lines.get(doc_line).map(|s| s.as_str()).unwrap_or("");
+1820 +                 let text = custom_lines.get(doc_line).map_or("", |s| s.as_str());
+     |
+
+warning: redundant closure
+    --> crates/iridium-bindings/src/wasm.rs:1820:59
+     |
+1820 |                 let text = custom_lines.get(doc_line).map(|s| s.as_str()).unwrap_or("");
+     |                                                           ^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::string::String::as_str`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:1968:33
+     |
+1968 |                         let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(vline_idx as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:1984:33
+     |
+1984 |                         let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(vi as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2024:33
+     |
+2024 |                         let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(vline_idx as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2040:33
+     |
+2040 |                         let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(vi as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2074:32
+     |
+2074 |                 let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
+     |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2074 -                 let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
+2074 +                 let line_len = line_content.map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2113:39
+     |
+2113 |                       let run_end_col = self
+     |  _______________________________________^
+2114 | |                         .cached_visual_line_map
+2115 | |                         .get(vi + 1)
+2116 | |                         .filter(|(next_buf, _)| *next_buf == buffer_line)
+2117 | |                         .map(|(_, next_start)| *next_start)
+2118 | |                         .unwrap_or(line_len);
+     | |____________________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2117 -                         .map(|(_, next_start)| *next_start)
+2117 +                         .map_or(line_len, |(_, next_start)| *next_start);
+     |
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2133:29
+     |
+2133 | ...                   content_offset_x + ((seg_start - run_start_col) as f32 * char_width);
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `((seg_start - run_start_col) as f32).mul_add(char_width, content_offset_x)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2134:33
+     |
+2134 |                         let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(vi as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2136:37
+     |
+2136 |                         let width = (seg_end - seg_start) as f32 * char_width + seg_extra;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `((seg_end - seg_start) as f32).mul_add(char_width, seg_extra)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2161:33
+     |
+2161 |                     let width = (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `((sel_col_end - sel_col_start) as f32).mul_add(char_width, newline_extra)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `u32` to `i32` may wrap around the value
+    --> crates/iridium-bindings/src/wasm.rs:2204:24
+     |
+2204 |                 right: self.surface.width() as i32,
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_wrap
+     = note: `-W clippy::cast-possible-wrap` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::cast_possible_wrap)]`
+
+warning: casting `u32` to `i32` may wrap around the value
+    --> crates/iridium-bindings/src/wasm.rs:2205:25
+     |
+2205 |                 bottom: self.surface.height() as i32,
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_wrap
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2208:17
+     |
+2208 |                 (foreground.r * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2208:17
+     |
+2208 |                 (foreground.r * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2209:17
+     |
+2209 |                 (foreground.g * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2209:17
+     |
+2209 |                 (foreground.g * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2210:17
+     |
+2210 |                 (foreground.b * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2210:17
+     |
+2210 |                 (foreground.b * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2211:17
+     |
+2211 |                 (foreground.a * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2211:17
+     |
+2211 |                 (foreground.a * 255.0) as u8,
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2241:28
+     |
+2241 |               let line_len = self
+     |  ____________________________^
+2242 | |                 .editor
+2243 | |                 .state()
+2244 | |                 .document
+2245 | |                 .line(cursor_doc_line)
+2246 | |                 .map(|l| l.chars().count())
+2247 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2246 -                 .map(|l| l.chars().count())
+2246 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:2248:13
+     |
+2248 |             content_offset_x + (line_len as f32 * char_width)
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(line_len as f32).mul_add(char_width, content_offset_x)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `f32` to `i32` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2269:28
+     |
+2269 |                     right: gutter_width as i32,
+     |                            ^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `u32` to `i32` may wrap around the value
+    --> crates/iridium-bindings/src/wasm.rs:2270:29
+     |
+2270 |                     bottom: self.surface.height() as i32,
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_wrap
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2273:21
+     |
+2273 |                     (line_number_color.r * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2273:21
+     |
+2273 |                     (line_number_color.r * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2274:21
+     |
+2274 |                     (line_number_color.g * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2274:21
+     |
+2274 |                     (line_number_color.g * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2275:21
+     |
+2275 |                     (line_number_color.b * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2275:21
+     |
+2275 |                     (line_number_color.b * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2276:21
+     |
+2276 |                     (line_number_color.a * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2276:21
+     |
+2276 |                     (line_number_color.a * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `i32` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2289:27
+     |
+2289 |                     left: blame_left as i32,
+     |                           ^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `u32` to `i32` may wrap around the value
+    --> crates/iridium-bindings/src/wasm.rs:2291:28
+     |
+2291 |                     right: self.surface.width() as i32,
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_wrap
+
+warning: casting `u32` to `i32` may wrap around the value
+    --> crates/iridium-bindings/src/wasm.rs:2292:29
+     |
+2292 |                     bottom: self.surface.height() as i32,
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_wrap
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2295:21
+     |
+2295 |                     (blame_fg.r * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2295:21
+     |
+2295 |                     (blame_fg.r * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2296:21
+     |
+2296 |                     (blame_fg.g * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2296:21
+     |
+2296 |                     (blame_fg.g * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2297:21
+     |
+2297 |                     (blame_fg.b * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2297:21
+     |
+2297 |                     (blame_fg.b * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `u8` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2298:21
+     |
+2298 |                     (blame_fg.a * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `u8` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2298:21
+     |
+2298 |                     (blame_fg.a * 255.0) as u8,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:2414:5
+     |
+2414 | /     pub fn set_syntax_enabled(&mut self, enabled: bool) {
+2415 | |         self.syntax_enabled = enabled;
+2416 | |         self.needs_redraw = true;
+2417 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+2414 |     pub const fn set_syntax_enabled(&mut self, enabled: bool) {
+     |         +++++
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:2421:5
+     |
+2421 | /     pub fn is_syntax_enabled(&self) -> bool {
+2422 | |         self.syntax_enabled
+2423 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+2421 |     pub const fn is_syntax_enabled(&self) -> bool {
+     |         +++++
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:2430:29
+     |
+2430 |     /// Internally builds a WebSpanIndex for O(log n + k) viewport queries.
+     |                             ^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+2430 -     /// Internally builds a WebSpanIndex for O(log n + k) viewport queries.
+2430 +     /// Internally builds a `WebSpanIndex` for O(log n + k) viewport queries.
+     |
+
+warning: casting `f64` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2441:25
+     |
+2441 |               let start = Reflect::get(&obj, &JsValue::from_str("start"))
+     |  _________________________^
+2442 | |                 .map_err(|_| JsValue::from_str("missing start"))?
+2443 | |                 .as_f64()
+2444 | |                 .ok_or_else(|| JsValue::from_str("start not a number"))?
+2445 | |                 as usize;
+     | |________________________^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f64` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2441:25
+     |
+2441 |               let start = Reflect::get(&obj, &JsValue::from_str("start"))
+     |  _________________________^
+2442 | |                 .map_err(|_| JsValue::from_str("missing start"))?
+2443 | |                 .as_f64()
+2444 | |                 .ok_or_else(|| JsValue::from_str("start not a number"))?
+2445 | |                 as usize;
+     | |________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f64` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:2446:23
+     |
+2446 |               let end = Reflect::get(&obj, &JsValue::from_str("end"))
+     |  _______________________^
+2447 | |                 .map_err(|_| JsValue::from_str("missing end"))?
+2448 | |                 .as_f64()
+2449 | |                 .ok_or_else(|| JsValue::from_str("end not a number"))?
+2450 | |                 as usize;
+     | |________________________^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f64` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:2446:23
+     |
+2446 |               let end = Reflect::get(&obj, &JsValue::from_str("end"))
+     |  _______________________^
+2447 | |                 .map_err(|_| JsValue::from_str("missing end"))?
+2448 | |                 .as_f64()
+2449 | |                 .ok_or_else(|| JsValue::from_str("end not a number"))?
+2450 | |                 as usize;
+     | |________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: variables can be used directly in the `format!` string
+    --> crates/iridium-bindings/src/wasm.rs:2510:36
+     |
+2510 |                 JsValue::from_str(&format!("invalid hex color for '{}': {}", key_str, hex))
+     |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#uninlined_format_args
+help: change this to
+     |
+2510 -                 JsValue::from_str(&format!("invalid hex color for '{}': {}", key_str, hex))
+2510 +                 JsValue::from_str(&format!("invalid hex color for '{key_str}': {hex}"))
+     |
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:2529:5
+     |
+2529 | /     pub fn is_tree_sitter_active(&self) -> bool {
+2530 | |         self.use_ts_highlights
+2531 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+2529 |     pub const fn is_tree_sitter_active(&self) -> bool {
+     |         +++++
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:2535:5
+     |
+2535 | /     pub fn get_cursor_line(&self) -> u32 {
+2536 | |         self.editor.cursor().line as u32
+2537 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+2535 |     pub const fn get_cursor_line(&self) -> u32 {
+     |         +++++
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:2536:9
+     |
+2536 |         self.editor.cursor().line as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+2536 -         self.editor.cursor().line as u32
+2536 +         u32::try_from(self.editor.cursor().line)
+     |
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:2541:5
+     |
+2541 | /     pub fn get_cursor_column(&self) -> u32 {
+2542 | |         self.editor.cursor().column as u32
+2543 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+2541 |     pub const fn get_cursor_column(&self) -> u32 {
+     |         +++++
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:2542:9
+     |
+2542 |         self.editor.cursor().column as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+2542 -         self.editor.cursor().column as u32
+2542 +         u32::try_from(self.editor.cursor().column)
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:2548:9
+     |
+2548 |         self.editor.state().document.line_count() as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+2548 -         self.editor.state().document.line_count() as u32
+2548 +         u32::try_from(self.editor.state().document.line_count())
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2651:33
+     |
+2651 |               let prev_line_len = self
+     |  _________________________________^
+2652 | |                 .editor
+2653 | |                 .state()
+2654 | |                 .document
+2655 | |                 .line(cursor.line - 1)
+2656 | |                 .map(|l| l.chars().count())
+2657 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2656 -                 .map(|l| l.chars().count())
+2656 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2669:32
+     |
+2669 |           let current_line_len = self
+     |  ________________________________^
+2670 | |             .editor
+2671 | |             .state()
+2672 | |             .document
+2673 | |             .line(cursor.line)
+2674 | |             .map(|l| l.chars().count())
+2675 | |             .unwrap_or(0);
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2674 -             .map(|l| l.chars().count())
+2674 +             .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2693:35
+     |
+2693 |               let target_line_len = self
+     |  ___________________________________^
+2694 | |                 .editor
+2695 | |                 .state()
+2696 | |                 .document
+2697 | |                 .line(cursor.line - 1)
+2698 | |                 .map(|l| l.chars().count())
+2699 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2698 -                 .map(|l| l.chars().count())
+2698 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2712:35
+     |
+2712 |               let target_line_len = self
+     |  ___________________________________^
+2713 | |                 .editor
+2714 | |                 .state()
+2715 | |                 .document
+2716 | |                 .line(cursor.line + 1)
+2717 | |                 .map(|l| l.chars().count())
+2718 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2717 -                 .map(|l| l.chars().count())
+2717 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2737:24
+     |
+2737 |           let line_len = self
+     |  ________________________^
+2738 | |             .editor
+2739 | |             .state()
+2740 | |             .document
+2741 | |             .line(cursor.line)
+2742 | |             .map(|l| l.chars().count())
+2743 | |             .unwrap_or(0);
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2742 -             .map(|l| l.chars().count())
+2742 +             .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2761:33
+     |
+2761 |               let last_line_len = self
+     |  _________________________________^
+2762 | |                 .editor
+2763 | |                 .state()
+2764 | |                 .document
+2765 | |                 .line(last_line)
+2766 | |                 .map(|l| l.chars().count())
+2767 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2766 -                 .map(|l| l.chars().count())
+2766 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: this argument (4 byte) is passed by reference, but would be more efficient if passed by value (limit: 4 byte)
+    --> crates/iridium-bindings/src/wasm.rs:2793:22
+     |
+2793 |     fn char_class(c: &char) -> u8 {
+     |                      ^^^^^ help: consider passing by value instead: `char`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#trivially_copy_pass_by_ref
+     = note: `-W clippy::trivially-copy-pass-by-ref` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::trivially_copy_pass_by_ref)]`
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2810:37
+     |
+2810 |                   let prev_line_len = doc
+     |  _____________________________________^
+2811 | |                     .line(pos.line - 1)
+2812 | |                     .map(|l| l.chars().count())
+2813 | |                     .unwrap_or(0);
+     | |_________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2812 -                     .map(|l| l.chars().count())
+2812 +                     .map_or(0, |l| l.chars().count());
+     |
+
+warning: this could be rewritten as `let...else`
+    --> crates/iridium-bindings/src/wasm.rs:2820:9
+     |
+2820 | /         let line_content = match doc.line(pos.line) {
+2821 | |             Some(l) => l,
+2822 | |             None => return pos,
+2823 | |         };
+     | |__________^ help: consider writing: `let Some(line_content) = doc.line(pos.line) else { return pos };`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#manual_let_else
+     = note: `-W clippy::manual-let-else` implied by `-W clippy::pedantic`
+     = help: to override `-W clippy::pedantic` add `#[allow(clippy::manual_let_else)]`
+
+warning: called `map(<f>).unwrap_or(false)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2834:16
+     |
+2834 |               && chars
+     |  ________________^
+2835 | |                 .get(col - 1)
+2836 | |                 .map(|c| c.is_whitespace())
+2837 | |                 .unwrap_or(false)
+     | |_________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `is_some_and(<f>)` instead
+     |
+2836 -                 .map(|c| c.is_whitespace())
+2836 +                 .is_some_and(|c| c.is_whitespace())
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2848:28
+     |
+2848 |         let target_class = chars.get(col - 1).map(Self::char_class).unwrap_or(0);
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2848 -         let target_class = chars.get(col - 1).map(Self::char_class).unwrap_or(0);
+2848 +         let target_class = chars.get(col - 1).map_or(0, Self::char_class);
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2851:26
+     |
+2851 |         while col > 0 && chars.get(col - 1).map(Self::char_class).unwrap_or(0) == target_class {
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2851 -         while col > 0 && chars.get(col - 1).map(Self::char_class).unwrap_or(0) == target_class {
+2851 +         while col > 0 && chars.get(col - 1).map_or(0, Self::char_class) == target_class {
+     |
+
+warning: this could be rewritten as `let...else`
+    --> crates/iridium-bindings/src/wasm.rs:2864:9
+     |
+2864 | /         let line_content = match doc.line(pos.line) {
+2865 | |             Some(l) => l,
+2866 | |             None => return pos,
+2867 | |         };
+     | |__________^ help: consider writing: `let Some(line_content) = doc.line(pos.line) else { return pos };`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#manual_let_else
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2881:29
+     |
+2881 |         let current_class = chars.get(col).map(Self::char_class).unwrap_or(0);
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2881 -         let current_class = chars.get(col).map(Self::char_class).unwrap_or(0);
+2881 +         let current_class = chars.get(col).map_or(0, Self::char_class);
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2885:16
+     |
+2885 |             && chars.get(col).map(Self::char_class).unwrap_or(0) == current_class
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+2885 -             && chars.get(col).map(Self::char_class).unwrap_or(0) == current_class
+2885 +             && chars.get(col).map_or(0, Self::char_class) == current_class
+     |
+
+warning: called `map(<f>).unwrap_or(false)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:2891:36
+     |
+2891 |         while col < chars.len() && chars.get(col).map(|c| c.is_whitespace()).unwrap_or(false) {
+     |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `is_some_and(<f>)` instead
+     |
+2891 -         while col < chars.len() && chars.get(col).map(|c| c.is_whitespace()).unwrap_or(false) {
+2891 +         while col < chars.len() && chars.get(col).is_some_and(|c| c.is_whitespace()) {
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3044:9
+     |
+3044 |         self.editor.state().cursor.primary.start().line as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3044 -         self.editor.state().cursor.primary.start().line as u32
+3044 +         u32::try_from(self.editor.state().cursor.primary.start().line)
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3050:9
+     |
+3050 |         self.editor.state().cursor.primary.start().column as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3050 -         self.editor.state().cursor.primary.start().column as u32
+3050 +         u32::try_from(self.editor.state().cursor.primary.start().column)
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3056:9
+     |
+3056 |         self.editor.state().cursor.primary.end().line as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3056 -         self.editor.state().cursor.primary.end().line as u32
+3056 +         u32::try_from(self.editor.state().cursor.primary.end().line)
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3062:9
+     |
+3062 |         self.editor.state().cursor.primary.end().column as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3062 -         self.editor.state().cursor.primary.end().column as u32
+3062 +         u32::try_from(self.editor.state().cursor.primary.end().column)
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3094:33
+     |
+3094 |               let prev_line_len = self
+     |  _________________________________^
+3095 | |                 .editor
+3096 | |                 .state()
+3097 | |                 .document
+3098 | |                 .line(head.line - 1)
+3099 | |                 .map(|l| l.chars().count())
+3100 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3099 -                 .map(|l| l.chars().count())
+3099 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3118:24
+     |
+3118 |           let line_len = self
+     |  ________________________^
+3119 | |             .editor
+3120 | |             .state()
+3121 | |             .document
+3122 | |             .line(head.line)
+3123 | |             .map(|l| l.chars().count())
+3124 | |             .unwrap_or(0);
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3123 -             .map(|l| l.chars().count())
+3123 +             .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3148:35
+     |
+3148 |               let target_line_len = self
+     |  ___________________________________^
+3149 | |                 .editor
+3150 | |                 .state()
+3151 | |                 .document
+3152 | |                 .line(head.line - 1)
+3153 | |                 .map(|l| l.chars().count())
+3154 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3153 -                 .map(|l| l.chars().count())
+3153 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3170:35
+     |
+3170 |               let target_line_len = self
+     |  ___________________________________^
+3171 | |                 .editor
+3172 | |                 .state()
+3173 | |                 .document
+3174 | |                 .line(head.line + 1)
+3175 | |                 .map(|l| l.chars().count())
+3176 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3175 -                 .map(|l| l.chars().count())
+3175 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3228:24
+     |
+3228 |           let line_len = self
+     |  ________________________^
+3229 | |             .editor
+3230 | |             .state()
+3231 | |             .document
+3232 | |             .line(head.line)
+3233 | |             .map(|l| l.chars().count())
+3234 | |             .unwrap_or(0);
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3233 -             .map(|l| l.chars().count())
+3233 +             .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3259:33
+     |
+3259 |               let last_line_len = self
+     |  _________________________________^
+3260 | |                 .editor
+3261 | |                 .state()
+3262 | |                 .document
+3263 | |                 .line(last_line)
+3264 | |                 .map(|l| l.chars().count())
+3265 | |                 .unwrap_or(0);
+     | |_____________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3264 -                 .map(|l| l.chars().count())
+3264 +                 .map_or(0, |l| l.chars().count());
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3281:33
+     |
+3281 |             let last_line_len = doc.line(last_line).map(|l| l.chars().count()).unwrap_or(0);
+     |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3281 -             let last_line_len = doc.line(last_line).map(|l| l.chars().count()).unwrap_or(0);
+3281 +             let last_line_len = doc.line(last_line).map_or(0, |l| l.chars().count());
+     |
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:3321:5
+     |
+3321 | /     pub fn get_char_width(&self) -> f32 {
+3322 | |         self.cached_char_width
+3323 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+3321 |     pub const fn get_char_width(&self) -> f32 {
+     |         +++++
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:3344:5
+     |
+3344 | /     pub fn get_text_offset_y(&self) -> f32 {
+3345 | |         10.0
+3346 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+3344 |     pub const fn get_text_offset_y(&self) -> f32 {
+     |         +++++
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:3350:5
+     |
+3350 | /     pub fn is_gutter_enabled(&self) -> bool {
+3351 | |         self.gutter_enabled
+3352 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+3350 |     pub const fn is_gutter_enabled(&self) -> bool {
+     |         +++++
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:3356:5
+     |
+3356 | /     pub fn set_gutter_enabled(&mut self, enabled: bool) {
+3357 | |         self.gutter_enabled = enabled;
+3358 | |         self.needs_redraw = true;
+3359 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+3356 |     pub const fn set_gutter_enabled(&mut self, enabled: bool) {
+     |         +++++
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:3366:12
+     |
+3366 |     /// a (buffer_line_index, run_start_column) pair, allowing accurate column
+     |            ^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+3366 -     /// a (buffer_line_index, run_start_column) pair, allowing accurate column
+3366 +     /// a (`buffer_line_index`, run_start_column) pair, allowing accurate column
+     |
+
+warning: item in documentation is missing backticks
+    --> crates/iridium-bindings/src/wasm.rs:3366:31
+     |
+3366 |     /// a (buffer_line_index, run_start_column) pair, allowing accurate column
+     |                               ^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+     |
+3366 -     /// a (buffer_line_index, run_start_column) pair, allowing accurate column
+3366 +     /// a (buffer_line_index, `run_start_column`) pair, allowing accurate column
+     |
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:3375:37
+     |
+3375 |         let virtual_scroll_offset = self.cached_map_viewport_start as f32 * line_height;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:3381:37
+     |
+3381 |         let visual_line_in_buffer = (y_in_buffer / line_height).floor().max(0.0) as usize;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:3381:37
+     |
+3381 |         let visual_line_in_buffer = (y_in_buffer / line_height).floor().max(0.0) as usize;
+     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:3403:17
+     |
+3403 |                 ((x - self.cached_content_offset_x) / char_width + 0.5).max(0.0) as usize;
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:3403:17
+     |
+3403 |                 ((x - self.cached_content_offset_x) / char_width + 0.5).max(0.0) as usize;
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3407:28
+     |
+3407 |             let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3407 -             let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
+3407 +             let line_len = doc.line(doc_line).map_or(0, |l| l.chars().count());
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3410:18
+     |
+3410 |             vec![doc_line as u32, clamped_column as u32]
+     |                  ^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3410 -             vec![doc_line as u32, clamped_column as u32]
+3410 +             vec![u32::try_from(doc_line), clamped_column as u32]
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3410:35
+     |
+3410 |             vec![doc_line as u32, clamped_column as u32]
+     |                                   ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3410 -             vec![doc_line as u32, clamped_column as u32]
+3410 +             vec![doc_line as u32, u32::try_from(clamped_column)]
+     |
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:3413:31
+     |
+3413 |             let visual_line = ((y + self.scroll_y - padding) / line_height).max(0.0) as usize;
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:3413:31
+     |
+3413 |             let visual_line = ((y + self.scroll_y - padding) / line_height).max(0.0) as usize;
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3420:28
+     |
+3420 |             let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3420 -             let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
+3420 +             let line_len = doc.line(doc_line).map_or(0, |l| l.chars().count());
+     |
+
+warning: casting `f32` to `usize` may truncate the value
+    --> crates/iridium-bindings/src/wasm.rs:3421:26
+     |
+3421 |             let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+warning: casting `f32` to `usize` may lose the sign of the value
+    --> crates/iridium-bindings/src/wasm.rs:3421:26
+     |
+3421 |             let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_sign_loss
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3424:18
+     |
+3424 |             vec![doc_line as u32, clamped_column as u32]
+     |                  ^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3424 -             vec![doc_line as u32, clamped_column as u32]
+3424 +             vec![u32::try_from(doc_line), clamped_column as u32]
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3424:35
+     |
+3424 |             vec![doc_line as u32, clamped_column as u32]
+     |                                   ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3424 -             vec![doc_line as u32, clamped_column as u32]
+3424 +             vec![doc_line as u32, u32::try_from(clamped_column)]
+     |
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:3490:49
+     |
+3490 |                     let virtual_scroll_offset = self.cached_map_viewport_start as f32 * line_height;
+     |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:3491:29
+     |
+3491 |                     let x = self.cached_content_offset_x + (col_in_segment as f32 * char_width);
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(col_in_segment as f32).mul_add(char_width, self.cached_content_offset_x)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:3491:61
+     |
+3491 |                     let x = self.cached_content_offset_x + (col_in_segment as f32 * char_width);
+     |                                                             ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:3492:29
+     |
+3492 |                     let y = padding + (visual_idx as f32 * line_height) + virtual_scroll_offset
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(visual_idx as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:3492:40
+     |
+3492 |                     let y = padding + (visual_idx as f32 * line_height) + virtual_scroll_offset
+     |                                        ^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: use Option::map_or_else instead of an if let/else
+    --> crates/iridium-bindings/src/wasm.rs:3504:9
+     |
+3504 | /         match visual_line {
+3505 | |             Some(vl) => {
+3506 | |                 let offset_x = self.current_gutter_width() + padding;
+3507 | |                 let x = offset_x + (column as f32 * char_width);
+...    |
+3511 | |             None => vec![-1.0, -1.0],
+3512 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+     = note: `-W clippy::option-if-let-else` implied by `-W clippy::nursery`
+     = help: to override `-W clippy::nursery` add `#[allow(clippy::option_if_let_else)]`
+help: try
+     |
+3504 ~         visual_line.map_or_else(|| vec![-1.0, -1.0], |vl| {
+3505 +                 let offset_x = self.current_gutter_width() + padding;
+3506 +                 let x = offset_x + (column as f32 * char_width);
+3507 +                 let y = padding + (vl as f32 * line_height) - self.scroll_y;
+3508 +                 vec![x, y]
+3509 +             })
+     |
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:3507:25
+     |
+3507 |                 let x = offset_x + (column as f32 * char_width);
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(column as f32).mul_add(char_width, offset_x)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:3507:37
+     |
+3507 |                 let x = offset_x + (column as f32 * char_width);
+     |                                     ^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: multiply and add expressions can be calculated more efficiently and accurately
+    --> crates/iridium-bindings/src/wasm.rs:3508:25
+     |
+3508 |                 let y = padding + (vl as f32 * line_height) - self.scroll_y;
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `(vl as f32).mul_add(line_height, padding)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#suboptimal_flops
+
+warning: casting `usize` to `f32` causes a loss of precision (`usize` is 32 or 64 bits wide, but `f32`'s mantissa is only 23 bits wide)
+    --> crates/iridium-bindings/src/wasm.rs:3508:36
+     |
+3508 |                 let y = padding + (vl as f32 * line_height) - self.scroll_y;
+     |                                    ^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_precision_loss
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3534:22
+     |
+3534 |             .map(|r| r.start_line as u32)
+     |                      ^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3534 -             .map(|r| r.start_line as u32)
+3534 +             .map(|r| u32::try_from(r.start_line))
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3617:48
+     |
+3617 |         self.fold_state.folded_lines().map(|l| l as u32).collect()
+     |                                                ^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3617 -         self.fold_state.folded_lines().map(|l| l as u32).collect()
+3617 +         self.fold_state.folded_lines().map(|l| u32::try_from(l)).collect()
+     |
+
+warning: this could be a `const fn`
+    --> crates/iridium-bindings/src/wasm.rs:3622:5
+     |
+3622 | /     pub fn get_hidden_line_count(&self) -> u32 {
+3623 | |         self.fold_state.hidden_line_count() as u32
+3624 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+help: make the function `const`
+     |
+3622 |     pub const fn get_hidden_line_count(&self) -> u32 {
+     |         +++++
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3623:9
+     |
+3623 |         self.fold_state.hidden_line_count() as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3623 -         self.fold_state.hidden_line_count() as u32
+3623 +         u32::try_from(self.fold_state.hidden_line_count())
+     |
+
+warning: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3630:9
+     |
+3630 |         self.fold_state.visible_line_count(total) as u32
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3630 -         self.fold_state.visible_line_count(total) as u32
+3630 +         u32::try_from(self.fold_state.visible_line_count(total))
+     |
+
+warning: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+    --> crates/iridium-bindings/src/wasm.rs:3637:9
+     |
+3637 | /         self.fold_state
+3638 | |             .region_at(start_line as usize)
+3639 | |             .map(|r| r.end_line as i32)
+3640 | |             .unwrap_or(-1)
+     | |__________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+help: use `map_or(<a>, <f>)` instead
+     |
+3639 -             .map(|r| r.end_line as i32)
+3639 +             .map_or(-1, |r| r.end_line as i32)
+     |
+
+warning: casting `usize` to `i32` may truncate the value on targets with 64-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3639:22
+     |
+3639 |             .map(|r| r.end_line as i32)
+     |                      ^^^^^^^^^^^^^^^^^
+     |
+     = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+     |
+3639 -             .map(|r| r.end_line as i32)
+3639 +             .map(|r| i32::try_from(r.end_line))
+     |
+
+warning: casting `usize` to `i32` may wrap around the value on targets with 32-bit wide pointers
+    --> crates/iridium-bindings/src/wasm.rs:3639:22
+     |
+3639 |             .map(|r| r.end_line as i32)
+     |                      ^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_wrap
+
+warning: future cannot be sent between threads safely
+    --> crates/iridium-bindings/src/wasm.rs:3646:1
+     |
+3646 | pub async fn is_webgpu_supported() -> bool {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ future returned by `is_webgpu_supported` is not `Send`
+     |
+     = note: `(dyn wgpu::dispatch::RequestAdapterFuture + 'static)` doesn't implement `std::marker::Send`
+     = note: `dyn wgpu::dispatch::RequestAdapterFuture` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+    --> crates/iridium-bindings/src/wasm.rs:3657:10
+     |
+3656 |         .request_adapter(&wgpu::RequestAdapterOptions::default())
+     |                           -------------------------------------- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+3657 |         .await
+     |          ^^^^^ await occurs here, with `wgpu::RequestAdapterOptions::default()` maybe used later
+     = note: `dyn wgpu::WindowHandle` doesn't implement `std::marker::Sync`
+note: future is not `Send` as this value is used across an await
+    --> crates/iridium-bindings/src/wasm.rs:3657:10
+     |
+3649 |     let instance = Instance::new(&InstanceDescriptor {
+     |         -------- has type `wgpu::Instance` which is not `Send`
+...
+3657 |         .await
+     |          ^^^^^ await occurs here, with `instance` maybe used later
+     = note: `*mut u8` doesn't implement `std::marker::Send`
+note: future is not `Send` as this value is used across an await
+    --> crates/iridium-bindings/src/wasm.rs:3657:10
+     |
+3656 |         .request_adapter(&wgpu::RequestAdapterOptions::default())
+     |                           -------------------------------------- has type `wgpu::RequestAdapterOptionsBase<&wgpu::Surface<'_>>` which is not `Send`
+3657 |         .await
+     |          ^^^^^ await occurs here, with `wgpu::RequestAdapterOptions::default()` maybe used later
+     = note: `*mut u8` doesn't implement `std::marker::Sync`
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#future_not_send
+
+warning: item in documentation is missing backticks
+  --> crates/iridium-bindings/src/web_span_index.rs:63:54
+   |
+63 |     /// Returns an iterator over spans that overlap [start_byte, end_byte).
+   |                                                      ^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+   |
+63 -     /// Returns an iterator over spans that overlap [start_byte, end_byte).
+63 +     /// Returns an iterator over spans that overlap [`start_byte`, end_byte).
+   |
+
+warning: item in documentation is missing backticks
+  --> crates/iridium-bindings/src/web_span_index.rs:63:66
+   |
+63 |     /// Returns an iterator over spans that overlap [start_byte, end_byte).
+   |                                                                  ^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+   |
+63 -     /// Returns an iterator over spans that overlap [start_byte, end_byte).
+63 +     /// Returns an iterator over spans that overlap [start_byte, `end_byte`).
+   |
+
+warning: `iridium-bindings` (lib) generated 203 warnings (7 duplicates) (run `cargo clippy --fix --lib -p iridium-bindings` to apply 100 suggestions)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 3.78s

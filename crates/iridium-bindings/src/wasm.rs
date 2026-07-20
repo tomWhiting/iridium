@@ -889,9 +889,67 @@ impl WebEditor {
     /// [`compose_pending`] for the composition rules). Must be called after
     /// the edit has been applied: composition captures the new-end point
     /// against the post-edit document.
+    ///
+    /// This is also the single choke point every content mutation funnels
+    /// through — local keystrokes and paste (`track_and_apply`), cut,
+    /// `applyRemoteEdit`, and undo/redo (`record_whole_document_edit`) all
+    /// call it exactly once per mutation — so it doubles as the one place
+    /// tracked highlight spans get carried forward across the edit
+    /// ([`Self::shift_highlight_spans`]; see that method for the flicker it
+    /// closes).
     fn record_edit(&mut self, span: EditSpan) {
         let pending = std::mem::take(&mut self.pending_edit);
         self.pending_edit = compose_pending(&self.editor.state().document, pending, span);
+        self.shift_highlight_spans(span);
+    }
+
+    /// Repositions every stored tree-sitter highlight span across `span`,
+    /// dropping any span the edit itself overlaps.
+    ///
+    /// Without this, a span applied by `setTreeSitterHighlights` stayed at
+    /// its ABSOLUTE byte offsets forever, until the next
+    /// `setTreeSitterHighlights`/`clearTreeSitterHighlights` call. Every
+    /// edit between an edit's synchronous render and the highlight worker's
+    /// asynchronous replacement spans landing (a few milliseconds later)
+    /// rendered the CURRENT document sliced at STALE, pre-edit offsets —
+    /// coloring the wrong characters for one or more frames (the reported
+    /// flicker: text flashes to misaligned colors, then "recolors" once the
+    /// worker's fresh spans arrive). [`crate::highlight_span_shift::shift_span`]
+    /// carries the pure per-span math; this method applies it to every
+    /// tracked span and rebuilds the query index in one pass, so the very
+    /// next render — even before the worker responds — paints either the
+    /// correct color at the correct position or nothing at all for the
+    /// handful of characters the edit itself touched. Never a wrong one.
+    fn shift_highlight_spans(&mut self, span: EditSpan) {
+        if self.ts_highlights.is_empty() {
+            return;
+        }
+        self.ts_highlights.retain_mut(|highlight| {
+            match crate::highlight_span_shift::shift_span(
+                highlight.start,
+                highlight.end,
+                span.start_byte,
+                span.old_end_byte,
+                span.new_end_byte,
+            ) {
+                Some((start, end)) => {
+                    highlight.start = start;
+                    highlight.end = end;
+                    true
+                },
+                None => false,
+            }
+        });
+        let web_spans = self
+            .ts_highlights
+            .iter()
+            .map(|highlight| WebSpan {
+                start: highlight.start,
+                end: highlight.end,
+                highlight_type: highlight.highlight_type.clone(),
+            })
+            .collect();
+        self.span_index = WebSpanIndex::new(web_spans);
     }
 
     /// Records a conservative whole-document edit (used by undo/redo, where

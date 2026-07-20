@@ -1,0 +1,447 @@
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.105
+   Compiling quote v1.0.43
+   Compiling unicode-ident v1.0.22
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.7
+   Compiling tree-sitter-language v0.1.6
+   Compiling libm v0.2.15
+   Compiling libc v0.2.180
+   Compiling cfg-if v1.0.4
+   Compiling cfg_aliases v0.2.1
+   Compiling bitflags v2.10.0
+   Compiling cc v1.2.52
+   Compiling autocfg v1.5.0
+   Compiling log v0.4.29
+   Compiling memchr v2.7.6
+   Compiling num-traits v0.2.19
+   Compiling smallvec v1.15.1
+   Compiling zmij v1.0.12
+   Compiling once_cell v1.21.3
+   Compiling thiserror v2.0.17
+   Compiling zerocopy v0.8.33
+   Compiling pin-project-lite v0.2.16
+   Compiling foldhash v0.2.0
+   Compiling parking_lot_core v0.9.12
+   Compiling core-foundation-sys v0.8.7
+   Compiling rustc-hash v1.1.0
+   Compiling paste v1.0.15
+   Compiling hashbrown v0.16.1
+   Compiling core_maths v0.1.1
+   Compiling naga v28.0.0
+   Compiling equivalent v1.0.2
+   Compiling bit-vec v0.8.0
+   Compiling syn v2.0.114
+   Compiling version_check v0.9.5
+   Compiling foreign-types-shared v0.3.1
+   Compiling unicode-width v0.1.14
+   Compiling core-foundation v0.10.1
+   Compiling malloc_buf v0.0.6
+   Compiling scopeguard v1.2.0
+   Compiling serde_core v1.0.228
+   Compiling lock_api v0.4.14
+   Compiling core-graphics-types v0.2.0
+   Compiling objc v0.2.7
+   Compiling codespan-reporting v0.12.0
+   Compiling slotmap v1.1.1
+   Compiling bit-set v0.8.0
+   Compiling indexmap v2.13.0
+   Compiling aho-corasick v1.1.4
+   Compiling wgpu-hal v28.0.0
+   Compiling block v0.1.6
+   Compiling arrayvec v0.7.6
+   Compiling hexf-parse v0.2.1
+   Compiling serde_json v1.0.149
+   Compiling regex-syntax v0.8.8
+   Compiling parking_lot v0.12.5
+   Compiling bytemuck_derive v1.10.2
+   Compiling zerocopy-derive v0.8.33
+   Compiling thiserror-impl v2.0.17
+   Compiling foreign-types-macros v0.2.3
+   Compiling bytemuck v1.24.0
+   Compiling regex-automata v0.4.13
+   Compiling foreign-types v0.5.0
+   Compiling dtor-proc-macro v0.0.6
+   Compiling profiling v1.0.17
+   Compiling raw-window-handle v0.6.2
+   Compiling itoa v1.0.17
+   Compiling font-types v0.10.1
+   Compiling wgpu-types v28.0.0
+   Compiling read-fonts v0.35.0
+   Compiling metal v0.33.0
+   Compiling tinyvec_macros v0.1.1
+   Compiling tinyvec v1.10.0
+   Compiling half v2.7.1
+   Compiling memmap2 v0.9.9
+   Compiling ttf-parser v0.25.1
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-core v28.0.0
+   Compiling serde v1.0.228
+   Compiling litrs v1.0.0
+   Compiling zeno v0.3.3
+   Compiling yazi v0.2.1
+   Compiling futures-core v0.3.31
+   Compiling futures-sink v0.3.31
+   Compiling napi-build v2.3.1
+   Compiling futures-channel v0.3.31
+   Compiling document-features v0.2.12
+   Compiling fontdb v0.23.0
+   Compiling tree-sitter v0.26.3
+   Compiling read-fonts v0.36.0
+   Compiling serde_derive v1.0.228
+   Compiling tracing-attributes v0.1.31
+   Compiling futures-macro v0.3.31
+   Compiling skrifa v0.37.0
+   Compiling tree-sitter-javascript v0.25.0
+   Compiling tree-sitter-typescript v0.23.2
+   Compiling tree-sitter-rust v0.24.0
+   Compiling tree-sitter-yaml v0.7.2
+   Compiling tree-sitter-css v0.25.0
+   Compiling tree-sitter-cpp v0.23.4
+   Compiling tree-sitter-bash v0.25.1
+   Compiling tree-sitter-go v0.25.0
+   Compiling tree-sitter-python v0.25.0
+   Compiling tree-sitter-json v0.24.8
+   Compiling tree-sitter-md v0.5.2
+   Compiling tree-sitter-c v0.24.1
+   Compiling wgpu v28.0.0
+   Compiling unicode-segmentation v1.12.0
+   Compiling unicode-script v0.5.8
+   Compiling pin-utils v0.1.0
+   Compiling swash v0.2.6
+   Compiling unicode-linebreak v0.1.5
+   Compiling unicode-bidi v0.3.18
+   Compiling futures-task v0.3.31
+   Compiling slab v0.4.11
+   Compiling self_cell v1.2.2
+   Compiling futures-io v0.3.31
+   Compiling ctor-proc-macro v0.0.7
+   Compiling smol_str v0.2.2
+   Compiling rangemap v1.7.1
+   Compiling sys-locale v0.3.2
+   Compiling linebender_resource_handle v0.1.1
+   Compiling futures-util v0.3.31
+   Compiling wgpu-core-deps-apple v28.0.0
+   Compiling tracing v0.1.44
+   Compiling harfrust v0.3.2
+   Compiling regex v1.12.2
+   Compiling euclid v0.22.11
+   Compiling svg_fmt v0.4.5
+   Compiling static_assertions v1.1.0
+   Compiling streaming-iterator v0.1.9
+   Compiling rustc-hash v2.1.1
+   Compiling convert_case v0.10.0
+   Compiling cosmic-text v0.15.0
+   Compiling etagere v0.2.15
+   Compiling futures-executor v0.3.31
+   Compiling harfrust v0.4.1
+   Compiling skrifa v0.39.0
+   Compiling napi v3.8.2
+   Compiling dtor v0.1.1
+   Compiling libloading v0.9.0
+   Compiling lru v0.16.3
+   Compiling str_indices v0.4.4
+   Compiling semver v1.0.27
+   Compiling lazy_static v1.5.0
+   Compiling sharded-slab v0.1.7
+   Compiling napi-derive-backend v5.0.1
+   Compiling ropey v2.0.0-beta.1
+   Compiling glyphon v0.10.0
+   Compiling napi-sys v3.2.1
+   Compiling ctor v0.6.3
+   Compiling cosmic-text v0.16.0
+   Compiling iridium-syntax v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-syntax)
+   Compiling futures v0.3.31
+   Compiling iridium-bindings v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-bindings)
+   Compiling tracing-log v0.2.0
+   Compiling matchers v0.2.0
+   Compiling rust-lapper v1.2.0
+   Compiling tokio v1.49.0
+   Compiling thread_local v1.1.9
+   Compiling nu-ansi-term v0.50.3
+   Compiling pollster v0.4.0
+   Compiling web-time v1.1.0
+   Compiling nohash-hasher v0.2.0
+   Compiling iridium-editor v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-editor)
+   Compiling tracing-subscriber v0.3.22
+   Compiling napi-derive v3.5.1
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 09s
+     Running unittests src/lib.rs (/Users/tom/Developer/ablative/iridium/target/debug/deps/iridium_bindings-f25000672ea49b58)
+
+running 15 tests
+
+thread 'highlight_span_shift::tests::a_run_of_spans_all_shift_consistently_after_an_insertion' (6130767) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:138:9:
+assertion `left == right` failed
+  left: [(0, 3), (5, 8), (8, 12), (20, 25)]
+ right: [(0, 3), (6, 9), (9, 13), (21, 26)]
+stack backtrace:
+test highlight_span_shift::tests::span_after_replace_with_equal_length_is_unchanged_in_position ... ok
+test highlight_span_shift::tests::span_before_edit_is_unchanged_on_deletion ... ok
+test highlight_span_shift::tests::span_before_edit_is_unchanged_on_insertion ... ok
+test highlight_span_shift::tests::span_ending_exactly_at_edit_start_is_unchanged ... ok
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::a_run_of_spans_all_shift_consistently_after_an_insertion
+             at ./src/highlight_span_shift.rs:138:9
+   5: iridium_bindings::highlight_span_shift::tests::a_run_of_spans_all_shift_consistently_after_an_insertion::{{closure}}
+             at ./src/highlight_span_shift.rs:131:66
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::a_whole_document_edit_drops_every_pre_existing_span' (6130768) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:185:13:
+assertion `left == right` failed
+  left: Some((0, 5))
+ right: None
+stack backtrace:
+test highlight_span_shift::tests::a_run_of_spans_all_shift_consistently_after_an_insertion ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::a_whole_document_edit_drops_every_pre_existing_span
+             at ./src/highlight_span_shift.rs:185:13
+   5: iridium_bindings::highlight_span_shift::tests::a_whole_document_edit_drops_every_pre_existing_span::{{closure}}
+             at ./src/highlight_span_shift.rs:178:61
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_after_insertion_shifts_forward_by_inserted_length' (6130770) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:103:9:
+assertion `left == right` failed
+  left: Some((10, 17))
+ right: Some((11, 18))
+stack backtrace:
+test highlight_span_shift::tests::a_whole_document_edit_drops_every_pre_existing_span ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_after_insertion_shifts_forward_by_inserted_length
+             at ./src/highlight_span_shift.rs:103:9
+   5: iridium_bindings::highlight_span_shift::tests::span_after_insertion_shifts_forward_by_inserted_length::{{closure}}
+             at ./src/highlight_span_shift.rs:101:64
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_after_deletion_shifts_backward_by_deleted_length' (6130769) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:115:9:
+assertion `left == right` failed
+  left: Some((10, 17))
+ right: Some((9, 16))
+stack backtrace:
+test highlight_span_shift::tests::span_after_insertion_shifts_forward_by_inserted_length ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_after_deletion_shifts_backward_by_deleted_length
+             at ./src/highlight_span_shift.rs:115:9
+   5: iridium_bindings::highlight_span_shift::tests::span_after_deletion_shifts_backward_by_deleted_length::{{closure}}
+             at ./src/highlight_span_shift.rs:113:63
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_after_multi_byte_insertion_shifts_by_the_full_delta' (6130771) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:109:9:
+assertion `left == right` failed
+  left: Some((10, 17))
+ right: Some((12, 19))
+stack backtrace:
+test highlight_span_shift::tests::span_after_deletion_shifts_backward_by_deleted_length ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_after_multi_byte_insertion_shifts_by_the_full_delta
+             at ./src/highlight_span_shift.rs:109:9
+   5: iridium_bindings::highlight_span_shift::tests::span_after_multi_byte_insertion_shifts_by_the_full_delta::{{closure}}
+             at ./src/highlight_span_shift.rs:107:66
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_containing_the_whole_edit_is_dropped' (6130775) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:146:9:
+assertion `left == right` failed
+  left: Some((0, 20))
+ right: None
+stack backtrace:
+test highlight_span_shift::tests::span_after_multi_byte_insertion_shifts_by_the_full_delta ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_containing_the_whole_edit_is_dropped
+             at ./src/highlight_span_shift.rs:146:9
+   5: iridium_bindings::highlight_span_shift::tests::span_containing_the_whole_edit_is_dropped::{{closure}}
+             at ./src/highlight_span_shift.rs:144:51
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_exactly_equal_to_the_edited_range_is_dropped' (6130777) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:163:9:
+assertion `left == right` failed
+  left: Some((10, 20))
+ right: None
+test highlight_span_shift::tests::span_containing_the_whole_edit_is_dropped ... FAILED
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_exactly_equal_to_the_edited_range_is_dropped
+             at ./src/highlight_span_shift.rs:163:9
+   5: iridium_bindings::highlight_span_shift::tests::span_exactly_equal_to_the_edited_range_is_dropped::{{closure}}
+             at ./src/highlight_span_shift.rs:162:59
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_overlapping_the_edit_end_is_dropped' (6130778) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:158:9:
+assertion `left == right` failed
+  left: Some((15, 25))
+ right: None
+stack backtrace:
+test highlight_span_shift::tests::span_exactly_equal_to_the_edited_range_is_dropped ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_overlapping_the_edit_end_is_dropped
+             at ./src/highlight_span_shift.rs:158:9
+   5: iridium_bindings::highlight_span_shift::tests::span_overlapping_the_edit_end_is_dropped::{{closure}}
+             at ./src/highlight_span_shift.rs:156:50
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_overlapping_the_edit_start_is_dropped' (6130779) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:152:9:
+assertion `left == right` failed
+  left: Some((5, 15))
+ right: None
+stack backtrace:
+test highlight_span_shift::tests::span_overlapping_the_edit_end_is_dropped ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_overlapping_the_edit_start_is_dropped
+             at ./src/highlight_span_shift.rs:152:9
+   5: iridium_bindings::highlight_span_shift::tests::span_overlapping_the_edit_start_is_dropped::{{closure}}
+             at ./src/highlight_span_shift.rs:150:52
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::span_starting_exactly_at_edit_old_end_shifts' (6130780) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:121:9:
+assertion `left == right` failed
+  left: Some((10, 20))
+ right: Some((11, 21))
+stack backtrace:
+test highlight_span_shift::tests::span_overlapping_the_edit_start_is_dropped ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::span_starting_exactly_at_edit_old_end_shifts
+             at ./src/highlight_span_shift.rs:121:9
+   5: iridium_bindings::highlight_span_shift::tests::span_starting_exactly_at_edit_old_end_shifts::{{closure}}
+             at ./src/highlight_span_shift.rs:119:54
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'highlight_span_shift::tests::zero_width_span_at_the_edit_point_is_dropped_not_kept' (6130781) panicked at crates/iridium-bindings/src/highlight_span_shift.rs:172:9:
+assertion `left == right` failed
+  left: Some((12, 12))
+ right: None
+stack backtrace:
+test highlight_span_shift::tests::span_starting_exactly_at_edit_old_end_shifts ... FAILED
+   0: __rustc::rust_begin_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+   3: core::panicking::assert_failed
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/panicking.rs:399:5
+   4: iridium_bindings::highlight_span_shift::tests::zero_width_span_at_the_edit_point_is_dropped_not_kept
+             at ./src/highlight_span_shift.rs:172:9
+   5: iridium_bindings::highlight_span_shift::tests::zero_width_span_at_the_edit_point_is_dropped_not_kept::{{closure}}
+             at ./src/highlight_span_shift.rs:167:63
+   6: core::ops::function::FnOnce::call_once
+             at /Users/tom/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+test highlight_span_shift::tests::zero_width_span_at_the_edit_point_is_dropped_not_kept ... FAILED
+
+failures:
+
+failures:
+    highlight_span_shift::tests::a_run_of_spans_all_shift_consistently_after_an_insertion
+    highlight_span_shift::tests::a_whole_document_edit_drops_every_pre_existing_span
+    highlight_span_shift::tests::span_after_deletion_shifts_backward_by_deleted_length
+    highlight_span_shift::tests::span_after_insertion_shifts_forward_by_inserted_length
+    highlight_span_shift::tests::span_after_multi_byte_insertion_shifts_by_the_full_delta
+    highlight_span_shift::tests::span_containing_the_whole_edit_is_dropped
+    highlight_span_shift::tests::span_exactly_equal_to_the_edited_range_is_dropped
+    highlight_span_shift::tests::span_overlapping_the_edit_end_is_dropped
+    highlight_span_shift::tests::span_overlapping_the_edit_start_is_dropped
+    highlight_span_shift::tests::span_starting_exactly_at_edit_old_end_shifts
+    highlight_span_shift::tests::zero_width_span_at_the_edit_point_is_dropped_not_kept
+
+test result: FAILED. 4 passed; 11 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p iridium-bindings --lib`

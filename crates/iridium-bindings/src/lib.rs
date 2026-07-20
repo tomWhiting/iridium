@@ -44,6 +44,7 @@
 // Shared, target-independent modules (used by the WASM surface,
 // unit-tested natively).
 pub mod edit_tracking;
+pub mod highlight_span_shift;
 pub mod key_map;
 pub mod remote_edit;
 pub mod text_range;

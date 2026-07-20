@@ -1,0 +1,1092 @@
+    Checking iridium-syntax v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-syntax)
+   Compiling iridium-bindings v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-bindings)
+    Checking iridium-editor v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-editor)
+error: this could be a `const fn`
+  --> crates/iridium-bindings/src/highlight_span_shift.rs:58:1
+   |
+58 | / pub fn shift_span(
+59 | |     start: usize,
+60 | |     end: usize,
+61 | |     edit_start: usize,
+...  |
+77 | |     None
+78 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#missing_const_for_fn
+   = note: `-D clippy::missing-const-for-fn` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::missing_const_for_fn)]`
+help: make the function `const`
+   |
+58 | pub const fn shift_span(
+   |     +++++
+
+error: redundant closure
+  --> crates/iridium-bindings/src/editor.rs:85:26
+   |
+85 |         self.with_editor(|editor| editor.content())
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `iridium_editor::Editor::content`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+   = note: `-D clippy::redundant-closure-for-method-calls` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::redundant_closure_for_method_calls)]`
+
+error: this argument is passed by value, but not consumed in the function body
+  --> crates/iridium-bindings/src/editor.rs:92:40
+   |
+92 |     pub fn set_content(&self, content: String) {
+   |                                        ^^^^^^ help: consider changing the type to: `&str`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+   = note: `-D clippy::needless-pass-by-value` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::needless_pass_by_value)]`
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:102:35
+    |
+102 |         self.with_editor(|editor| editor.state().document.line_count() as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+    = note: `-D clippy::cast-possible-truncation` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cast_possible_truncation)]`
+help: ... or use `try_from` and handle the error accordingly
+    |
+102 -         self.with_editor(|editor| editor.state().document.line_count() as u32)
+102 +         self.with_editor(|editor| u32::try_from(editor.state().document.line_count()))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:119:29
+    |
+119 |                 .map(|line| line.chars().count() as u32)
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+119 -                 .map(|line| line.chars().count() as u32)
+119 +                 .map(|line| u32::try_from(line.chars().count()))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:145:35
+    |
+145 |         self.with_editor(|editor| editor.cursor().line as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+145 -         self.with_editor(|editor| editor.cursor().line as u32)
+145 +         self.with_editor(|editor| u32::try_from(editor.cursor().line))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:151:35
+    |
+151 |         self.with_editor(|editor| editor.cursor().column as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+151 -         self.with_editor(|editor| editor.cursor().column as u32)
+151 +         self.with_editor(|editor| u32::try_from(editor.cursor().column))
+    |
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:200:46
+    |
+200 |     pub fn set_selection_range(&self, range: JsRange) {
+    |                                              ^^^^^^^
+    |
+help: or consider marking this type as `Copy`
+   --> crates/iridium-bindings/src/types.rs:33:1
+    |
+ 33 | pub struct JsRange {
+    | ^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+help: consider taking a reference instead
+    |
+200 |     pub fn set_selection_range(&self, range: &JsRange) {
+    |                                              +
+
+error: called `map(<f>).unwrap_or(<a>)` on an `Option` value
+   --> crates/iridium-bindings/src/editor.rs:209:28
+    |
+209 |               let last_col = editor
+    |  ____________________________^
+210 | |                 .state()
+211 | |                 .document
+212 | |                 .line(last_line)
+213 | |                 .map(|l| l.chars().count())
+214 | |                 .unwrap_or(0);
+    | |_____________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#map_unwrap_or
+    = note: `-D clippy::map-unwrap-or` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::map_unwrap_or)]`
+help: use `map_or(<a>, <f>)` instead
+    |
+213 -                 .map(|l| l.chars().count())
+213 +                 .map_or(0, |l| l.chars().count());
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:244:35
+    |
+244 |         self.with_editor(|editor| editor.state().cursor.cursor_count() as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+244 -         self.with_editor(|editor| editor.state().cursor.cursor_count() as u32)
+244 +         self.with_editor(|editor| u32::try_from(editor.state().cursor.cursor_count()))
+    |
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:278:43
+    |
+278 |         let result = self.with_editor_mut(|editor| editor.undo());
+    |                                           ^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `iridium_editor::Editor::undo`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:288:43
+    |
+288 |         let result = self.with_editor_mut(|editor| editor.redo());
+    |                                           ^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `iridium_editor::Editor::redo`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant clone
+   --> crates/iridium-bindings/src/editor.rs:306:38
+    |
+306 |                 root_id: info.root_id.clone(),
+    |                                      ^^^^^^^^ help: remove this
+    |
+note: this value is dropped without further use
+   --> crates/iridium-bindings/src/editor.rs:306:26
+    |
+306 |                 root_id: info.root_id.clone(),
+    |                          ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_clone
+    = note: `-D clippy::redundant-clone` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_clone)]`
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:301:29
+    |
+301 |                 node_count: info.node_count as u32,
+    |                             ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+301 -                 node_count: info.node_count as u32,
+301 +                 node_count: u32::try_from(info.node_count),
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:302:31
+    |
+302 |                 branch_count: info.branch_count as u32,
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+302 -                 branch_count: info.branch_count as u32,
+302 +                 branch_count: u32::try_from(info.branch_count),
+    |
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:319:31
+    |
+319 |     pub fn find(&self, query: String, options: Option<JsSearchOptions>) -> Result<JsSearchResult> {
+    |                               ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:325:26
+    |
+325 |                 .map_err(|e| Error::from_reason(e))?;
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the associated function itself: `Error::from_reason`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure
+    = note: `-D clippy::redundant-closure` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_closure)]`
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:328:30
+    |
+328 |                 match_count: editor.search_match_count() as u32,
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+328 -                 match_count: editor.search_match_count() as u32,
+328 +                 match_count: u32::try_from(editor.search_match_count()),
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:329:69
+    |
+329 |                 current_index: editor.current_match_index().map(|i| i as u32),
+    |                                                                     ^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+329 -                 current_index: editor.current_match_index().map(|i| i as u32),
+329 +                 current_index: editor.current_match_index().map(|i| u32::try_from(i)),
+    |
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:342:40
+    |
+342 |     pub fn update_search(&self, query: String) -> Result<bool> {
+    |                                        ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:346:26
+    |
+346 |                 .map_err(|e| Error::from_reason(e))
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the associated function itself: `Error::from_reason`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:371:35
+    |
+371 |         self.with_editor(|editor| editor.search_match_count() as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+371 -         self.with_editor(|editor| editor.search_match_count() as u32)
+371 +         self.with_editor(|editor| u32::try_from(editor.search_match_count()))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:377:72
+    |
+377 |         self.with_editor(|editor| editor.current_match_index().map(|i| i as u32))
+    |                                                                        ^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+377 -         self.with_editor(|editor| editor.current_match_index().map(|i| i as u32))
+377 +         self.with_editor(|editor| editor.current_match_index().map(|i| u32::try_from(i)))
+    |
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:384:48
+    |
+384 |     pub fn replace_current(&self, replacement: String) -> bool {
+    |                                                ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:396:44
+    |
+396 |     pub fn replace_all(&self, replacement: String) -> u32 {
+    |                                            ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:401:9
+    |
+401 |         count as u32
+    |         ^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+401 -         count as u32
+401 +         u32::try_from(count)
+    |
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:415:26
+    |
+415 |         self.with_editor(|editor| editor.is_searching())
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `iridium_editor::Editor::is_searching`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:483:35
+    |
+483 |         self.with_editor(|editor| editor.folded_count() as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+483 -         self.with_editor(|editor| editor.folded_count() as u32)
+483 +         self.with_editor(|editor| u32::try_from(editor.folded_count()))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:489:35
+    |
+489 |         self.with_editor(|editor| editor.fold_region_count() as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+489 -         self.with_editor(|editor| editor.fold_region_count() as u32)
+489 +         self.with_editor(|editor| u32::try_from(editor.fold_region_count()))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:495:35
+    |
+495 |         self.with_editor(|editor| editor.visible_line_count() as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+495 -         self.with_editor(|editor| editor.visible_line_count() as u32)
+495 +         self.with_editor(|editor| u32::try_from(editor.visible_line_count()))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:501:35
+    |
+501 |         self.with_editor(|editor| editor.visual_to_document_line(visual_line as usize) as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+501 -         self.with_editor(|editor| editor.visual_to_document_line(visual_line as usize) as u32)
+501 +         self.with_editor(|editor| u32::try_from(editor.visual_to_document_line(visual_line as usize)))
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:510:26
+    |
+510 |                 .map(|l| l as u32)
+    |                          ^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+510 -                 .map(|l| l as u32)
+510 +                 .map(|l| u32::try_from(l))
+    |
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:535:26
+    |
+535 |         self.with_editor(|editor| editor.is_dark_theme())
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `iridium_editor::Editor::is_dark_theme`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:568:42
+    |
+568 |     pub fn set_language(&self, language: String) -> bool {
+    |                                          ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: use Option::map_or instead of an if let/else
+   --> crates/iridium-bindings/src/editor.rs:571:9
+    |
+571 | /         if let Some(lang) = lang {
+572 | |             self.with_editor_mut(|editor| {
+573 | |                 editor.set_language(lang);
+574 | |             });
+...   |
+577 | |             false
+578 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#option_if_let_else
+    = note: `-D clippy::option-if-let-else` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::option_if_let_else)]`
+help: try
+    |
+571 ~         lang.map_or(false, |lang| {
+572 +             self.with_editor_mut(|editor| {
+573 +                 editor.set_language(lang);
+574 +             });
+575 +             true
+576 +         })
+    |
+
+error: casting `f64` to `f32` may truncate the value
+   --> crates/iridium-bindings/src/editor.rs:642:25
+    |
+642 |                 .resize(width as f32, height as f32);
+    |                         ^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+error: casting `f64` to `f32` may truncate the value
+   --> crates/iridium-bindings/src/editor.rs:642:39
+    |
+642 |                 .resize(width as f32, height as f32);
+    |                                       ^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:653:35
+    |
+653 |         self.with_editor(|editor| editor.state().scroll_line as u32)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+653 -         self.with_editor(|editor| editor.state().scroll_line as u32)
+653 +         self.with_editor(|editor| u32::try_from(editor.state().scroll_line))
+    |
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/editor.rs:688:29
+    |
+688 |     pub fn on(&self, event: String, callback: EventCallback) -> u32 {
+    |                             ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:730:54
+    |
+730 |         let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+    |                                                      ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/editor.rs:739:58
+    |
+739 |         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+    |                                                          ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:779:33
+    |
+779 |         let mut editor_config = EditorConfig::default();
+    |                                 ^^^^^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+    = note: `-D clippy::use-self` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::use_self)]`
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:809:9
+    |
+809 |         SearchOptions {
+    |         ^^^^^^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:819:9
+    |
+819 |         Position::new(pos.line as usize, pos.column as usize)
+    |         ^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:825:9
+    |
+825 |         JsPosition {
+    |         ^^^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:826:19
+    |
+826 |             line: pos.line as u32,
+    |                   ^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+826 -             line: pos.line as u32,
+826 +             line: u32::try_from(pos.line),
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/editor.rs:827:21
+    |
+827 |             column: pos.column as u32,
+    |                     ^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+827 -             column: pos.column as u32,
+827 +             column: u32::try_from(pos.column),
+    |
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:834:9
+    |
+834 |         Range::new(range.start.into(), range.end.into())
+    |         ^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:840:9
+    |
+840 |         JsRange {
+    |         ^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+error: unnecessary structure name repetition
+   --> crates/iridium-bindings/src/editor.rs:849:9
+    |
+849 |         JsSelection {
+    |         ^^^^^^^^^^^ help: use the applicable keyword: `Self`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#use_self
+
+error: item in documentation is missing backticks
+  --> crates/iridium-bindings/src/events.rs:39:20
+   |
+39 | /// In napi-rs v3, ThreadsafeFunction uses const generics instead of ErrorStrategy.
+   |                    ^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+   = note: `-D clippy::doc-markdown` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::doc_markdown)]`
+help: try
+   |
+39 - /// In napi-rs v3, ThreadsafeFunction uses const generics instead of ErrorStrategy.
+39 + /// In napi-rs v3, `ThreadsafeFunction` uses const generics instead of ErrorStrategy.
+   |
+
+error: item in documentation is missing backticks
+  --> crates/iridium-bindings/src/events.rs:39:70
+   |
+39 | /// In napi-rs v3, ThreadsafeFunction uses const generics instead of ErrorStrategy.
+   |                                                                      ^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+   |
+39 - /// In napi-rs v3, ThreadsafeFunction uses const generics instead of ErrorStrategy.
+39 + /// In napi-rs v3, ThreadsafeFunction uses const generics instead of `ErrorStrategy`.
+   |
+
+error: redundant closure
+  --> crates/iridium-bindings/src/events.rs:79:29
+   |
+79 |             .unwrap_or_else(|e| e.into_inner());
+   |                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+  --> crates/iridium-bindings/src/events.rs:92:29
+   |
+92 |             .unwrap_or_else(|e| e.into_inner());
+   |                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/events.rs:104:29
+    |
+104 |             .unwrap_or_else(|e| e.into_inner());
+    |                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/events.rs:113:29
+    |
+113 |             .unwrap_or_else(|e| e.into_inner());
+    |                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/events.rs:122:61
+    |
+122 |         let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
+    |                                                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/events.rs:138:61
+    |
+138 |         let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
+    |                                                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/events.rs:144:61
+    |
+144 |         let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
+    |                                                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: redundant closure
+   --> crates/iridium-bindings/src/events.rs:150:61
+    |
+150 |         let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
+    |                                                             ^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `std::sync::PoisonError::into_inner`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure_for_method_calls
+
+error: this `map_or` can be simplified
+   --> crates/iridium-bindings/src/events.rs:152:26
+    |
+152 |             .filter(|k| !subs.get(*k).map_or(true, Vec::is_empty))
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unnecessary_map_or
+    = note: `-D clippy::unnecessary-map-or` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_map_or)]`
+help: use is_none_or instead
+    |
+152 -             .filter(|k| !subs.get(*k).map_or(true, Vec::is_empty))
+152 +             .filter(|k| !subs.get(*k).is_none_or(Vec::is_empty))
+    |
+
+error: used `expect()` on an `Option` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:335:20
+    |
+335 |           let span = compute_edit_span(&d, &insert(1, 0, "xy"))
+    |  ____________________^
+336 | |             .expect("valid command")
+337 | |             .expect("content edit");
+    | |___________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+    = note: `-D clippy::expect-used` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::expect_used)]`
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:335:20
+    |
+335 |           let span = compute_edit_span(&d, &insert(1, 0, "xy"))
+    |  ____________________^
+336 | |             .expect("valid command")
+    | |____________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on an `Option` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:353:20
+    |
+353 |           let span = compute_edit_span(&d, &delete((0, 1), (0, 3), "el"))
+    |  ____________________^
+354 | |             .expect("valid command")
+355 | |             .expect("content edit");
+    | |___________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:353:20
+    |
+353 |           let span = compute_edit_span(&d, &delete((0, 1), (0, 3), "el"))
+    |  ____________________^
+354 | |             .expect("valid command")
+    | |____________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on an `Option` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:376:20
+    |
+376 |           let span = compute_edit_span(&d, &cmd)
+    |  ____________________^
+377 | |             .expect("valid command")
+378 | |             .expect("content edit");
+    | |___________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:376:20
+    |
+376 |           let span = compute_edit_span(&d, &cmd)
+    |  ____________________^
+377 | |             .expect("valid command")
+    | |____________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on an `Option` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:408:20
+    |
+408 |           let span = compute_edit_span(&d, &cmd)
+    |  ____________________^
+409 | |             .expect("valid command")
+410 | |             .expect("content edit");
+    | |___________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:408:20
+    |
+408 |           let span = compute_edit_span(&d, &cmd)
+    |  ____________________^
+409 | |             .expect("valid command")
+    | |____________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on an `Option` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:444:17
+    |
+444 |                 byte_point(&pre, old_end).expect("edit old end must lie inside the document");
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: `panic` should not be present in production code
+   --> crates/iridium-bindings/src/edit_tracking.rs:466:13
+    |
+466 |             panic!("expected exact composition, got {pending:?}");
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#panic
+    = note: `-D clippy::panic` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::panic)]`
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:493:32
+    |
+493 |                 let inserted = i64::try_from(text.len()).expect("test sizes fit i64");
+    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:494:31
+    |
+494 |                 let removed = i64::try_from(old_end - start).expect("test sizes fit i64");
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:498:23
+    |
+498 |         let new_end = i64::try_from(span.new_end_byte).expect("test sizes fit i64");
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: used `expect()` on a `Result` value
+   --> crates/iridium-bindings/src/edit_tracking.rs:499:23
+    |
+499 |         let old_end = i64::try_from(span.old_end_byte).expect("test sizes fit i64");
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/events.rs:198:29
+    |
+198 |     pub fn on(&self, event: String, callback: EventCallback) -> u32 {
+    |                             ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/events.rs:220:31
+    |
+220 |     pub fn emit(&self, event: String, data: String) {
+    |                               ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/events.rs:220:45
+    |
+220 |     pub fn emit(&self, event: String, data: String) {
+    |                                             ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/events.rs:226:41
+    |
+226 |     pub fn listener_count(&self, event: String) -> u32 {
+    |                                         ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/events.rs:227:9
+    |
+227 |         self.inner.listener_count(&event) as u32
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+227 -         self.inner.listener_count(&event) as u32
+227 +         u32::try_from(self.inner.listener_count(&event))
+    |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/iridium-bindings/src/edit_tracking.rs:690:24
+    |
+690 |         let sequences: &[(&str, &[(usize, usize, &str)])] = &[
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: used `expect()` on an `Option` value
+   --> crates/iridium-bindings/src/highlight_span_shift.rs:142:27
+    |
+142 |             .map(|(s, e)| shift_span(s, e, edit.0, edit.1, edit.2).expect("no overlap"))
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#expect_used
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/types.rs:148:55
+    |
+148 |             regions: info.regions.into_iter().map(|l| l as u32).collect(),
+    |                                                       ^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+148 -             regions: info.regions.into_iter().map(|l| l as u32).collect(),
+148 +             regions: info.regions.into_iter().map(|l| u32::try_from(l)).collect(),
+    |
+
+error: casting `usize` to `u32` may truncate the value on targets with 64-bit wide pointers
+   --> crates/iridium-bindings/src/types.rs:149:53
+    |
+149 |             folded: info.folded.into_iter().map(|l| l as u32).collect(),
+    |                                                     ^^^^^^^^
+    |
+    = help: if this is intentional allow the lint with `#[allow(clippy::cast_possible_truncation)]` ...
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#cast_possible_truncation
+help: ... or use `try_from` and handle the error accordingly
+    |
+149 -             folded: info.folded.into_iter().map(|l| l as u32).collect(),
+149 +             folded: info.folded.into_iter().map(|l| u32::try_from(l)).collect(),
+    |
+
+error: trailing zero-sized array in a struct which is not marked with a `repr` attribute
+   --> crates/iridium-bindings/src/lib.rs:145:1
+    |
+145 | #[napi]
+    | ^^^^^^^
+    |
+    = help: consider annotating `is_webgpu_supported_c_callback::{closure#0}::NapiRefContainer` with `#[repr(C)]` or another `repr` attribute
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#trailing_empty_array
+    = note: `-D clippy::trailing-empty-array` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::trailing_empty_array)]`
+    = note: this error originates in the attribute macro `napi` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: trailing zero-sized array in a struct which is not marked with a `repr` attribute
+   --> crates/iridium-bindings/src/lib.rs:191:1
+    |
+191 | #[napi]
+    | ^^^^^^^
+    |
+    = help: consider annotating `get_gpu_info_c_callback::{closure#0}::NapiRefContainer` with `#[repr(C)]` or another `repr` attribute
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#trailing_empty_array
+    = note: this error originates in the attribute macro `napi` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/lib.rs:229:29
+    |
+229 |     /// Device type (e.g., "DiscreteGpu", "IntegratedGpu")
+    |                             ^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+229 -     /// Device type (e.g., "DiscreteGpu", "IntegratedGpu")
+229 +     /// Device type (e.g., "`DiscreteGpu`", "IntegratedGpu")
+    |
+
+error: item in documentation is missing backticks
+   --> crates/iridium-bindings/src/lib.rs:229:44
+    |
+229 |     /// Device type (e.g., "DiscreteGpu", "IntegratedGpu")
+    |                                            ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#doc_markdown
+help: try
+    |
+229 -     /// Device type (e.g., "DiscreteGpu", "IntegratedGpu")
+229 +     /// Device type (e.g., "DiscreteGpu", "`IntegratedGpu`")
+    |
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:862:22
+    |
+862 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+    = note: `-D clippy::unwrap-used` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unwrap_used)]`
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:869:22
+    |
+869 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:881:22
+    |
+881 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:891:22
+    |
+891 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:905:22
+    |
+905 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:914:22
+    |
+914 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/lib.rs:273:46
+    |
+273 | pub fn get_language_for_extension(extension: String) -> Option<String> {
+    |                                              ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/editor.rs:925:22
+    |
+925 |         let editor = IridiumEditor::new().unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: this argument is passed by value, but not consumed in the function body
+   --> crates/iridium-bindings/src/lib.rs:290:46
+    |
+290 | pub fn get_extensions_for_language(language: String) -> Vec<String> {
+    |                                              ^^^^^^ help: consider changing the type to: `&str`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#needless_pass_by_value
+
+error: could not compile `iridium-bindings` (lib) due to 74 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/lib.rs:367:22
+    |
+367 |         let editor = create_editor(None).unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: used `unwrap()` on a `Result` value
+   --> crates/iridium-bindings/src/lib.rs:373:22
+    |
+373 |         let editor = create_editor_with_content("Hello".to_string(), None).unwrap();
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unwrap_used
+
+error: could not compile `iridium-bindings` (lib test) due to 99 previous errors

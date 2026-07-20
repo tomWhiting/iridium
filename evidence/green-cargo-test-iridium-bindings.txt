@@ -1,0 +1,106 @@
+   Compiling iridium-bindings v0.1.0 (/Users/tom/Developer/ablative/iridium/.worktrees/fix-highlight-flicker/crates/iridium-bindings)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2.81s
+     Running unittests src/lib.rs (/Users/tom/Developer/ablative/iridium/target/debug/deps/iridium_bindings-f25000672ea49b58)
+
+running 92 tests
+test edit_tracking::tests::byte_point_out_of_bounds_is_none ... ok
+test edit_tracking::tests::byte_point_returns_byte_columns_for_multibyte_text ... ok
+test edit_tracking::tests::byte_point_ascii ... ok
+test edit_tracking::tests::compose_adjacent_old_end_at_pending_new_end_is_exact ... ok
+test edit_tracking::tests::compose_adjacent_start_at_pending_new_end_is_exact ... ok
+test edit_tracking::tests::compose_backspace_into_typed_text_is_exact ... ok
+test edit_tracking::tests::compose_disjoint_after_across_rows_back_maps_the_point ... ok
+test edit_tracking::tests::compose_disjoint_after_is_exact ... ok
+test edit_tracking::tests::compose_deltas_sum_over_edit_sequences ... ok
+test edit_tracking::tests::compose_edit_before_pending_is_exact ... ok
+test edit_tracking::tests::compose_inconsistent_points_degrade ... ok
+test edit_tracking::tests::compose_onto_degraded_stays_degraded ... ok
+test edit_tracking::tests::compose_onto_none_stores_span_with_new_end_point ... ok
+test edit_tracking::tests::compose_sequential_typing_is_exact ... ok
+test edit_tracking::tests::compose_straddling_pending_boundary_is_exact ... ok
+test edit_tracking::tests::compose_unresolvable_new_end_degrades ... ok
+test edit_tracking::tests::compose_whole_document_span_after_pending_is_exact ... ok
+test edit_tracking::tests::span_for_delete ... ok
+test edit_tracking::tests::span_for_insert ... ok
+test edit_tracking::tests::span_for_multi_cursor_compound_covers_all_edits ... ok
+test edit_tracking::tests::span_for_replace ... ok
+test edit_tracking::tests::span_for_selection_only_command_is_none ... ok
+test edit_tracking::tests::span_with_invalid_position_is_err ... ok
+test editor::tests::editor_creation ... ok
+test editor::tests::editor_content_operations ... ok
+test editor::tests::editor_cursor_operations ... ok
+test editor::tests::editor_focus_state ... ok
+test editor::tests::editor_read_only ... ok
+test editor::tests::editor_selection_operations ... ok
+test editor::tests::editor_undo_redo ... ok
+test events::tests::event_emitter_clear_all ... ok
+test events::tests::event_emitter_creation ... ok
+test events::tests::event_names_empty ... ok
+test highlight_span_shift::tests::a_run_of_spans_all_shift_consistently_after_an_insertion ... ok
+test highlight_span_shift::tests::a_whole_document_edit_drops_every_pre_existing_span ... ok
+test highlight_span_shift::tests::span_after_deletion_shifts_backward_by_deleted_length ... ok
+test highlight_span_shift::tests::span_after_insertion_shifts_forward_by_inserted_length ... ok
+test highlight_span_shift::tests::span_after_multi_byte_insertion_shifts_by_the_full_delta ... ok
+test highlight_span_shift::tests::span_after_replace_with_equal_length_is_unchanged_in_position ... ok
+test highlight_span_shift::tests::span_before_edit_is_unchanged_on_deletion ... ok
+test highlight_span_shift::tests::span_before_edit_is_unchanged_on_insertion ... ok
+test highlight_span_shift::tests::span_containing_the_whole_edit_is_dropped ... ok
+test highlight_span_shift::tests::span_ending_exactly_at_edit_start_is_unchanged ... ok
+test highlight_span_shift::tests::span_exactly_equal_to_the_edited_range_is_dropped ... ok
+test highlight_span_shift::tests::span_overlapping_the_edit_end_is_dropped ... ok
+test highlight_span_shift::tests::span_overlapping_the_edit_start_is_dropped ... ok
+test highlight_span_shift::tests::span_starting_exactly_at_edit_old_end_shifts ... ok
+test highlight_span_shift::tests::zero_width_span_at_the_edit_point_is_dropped_not_kept ... ok
+test key_map::tests::bare_modifier_presses_are_unmapped ... ok
+test key_map::tests::function_keys_map_to_variants ... ok
+test key_map::tests::ime_and_special_keys_are_unmapped ... ok
+test key_map::tests::multi_scalar_strings_are_unmapped ... ok
+test key_map::tests::named_editing_keys_map_to_variants ... ok
+test key_map::tests::navigation_keys_map_to_variants ... ok
+test key_map::tests::non_ascii_single_scalars_map_to_char ... ok
+test key_map::tests::single_characters_map_to_char ... ok
+test key_map::tests::space_is_a_character ... ok
+test remote_edit::tests::applies_insertion_into_empty_document ... ok
+test remote_edit::tests::applies_replacement_and_returns_span ... ok
+test remote_edit::tests::bumps_the_document_revision ... ok
+test remote_edit::tests::cursor_after_the_edit_shifts_by_the_delta ... ok
+test remote_edit::tests::cursor_before_the_edit_is_untouched ... ok
+test remote_edit::tests::cursor_inside_the_replaced_range_collapses_to_the_start ... ok
+test remote_edit::tests::cursors_collapsing_onto_shared_ground_merge ... ok
+test remote_edit::tests::degraded_pending_state_stays_degraded_across_a_remote_edit ... ok
+test remote_edit::tests::every_cursor_of_a_multi_cursor_set_is_transformed ... ok
+test remote_edit::tests::insertion_at_the_cursor_position_keeps_it_glued_to_following_text ... ok
+test remote_edit::tests::multibyte_text_shifts_cursors_by_bytes_not_chars ... ok
+test remote_edit::tests::read_only_editor_still_applies_remote_edits ... ok
+test remote_edit::tests::redo_after_remote_edit_is_also_gone ... ok
+test remote_edit::tests::rejects_invalid_ranges_without_mutating ... ok
+test remote_edit::tests::remote_span_composes_exactly_with_a_pending_local_edit ... ok
+test remote_edit::tests::selection_straddling_the_edit_keeps_its_direction ... ok
+test remote_edit::tests::transform_offset_covers_every_region ... ok
+test remote_edit::tests::undo_after_remote_edit_does_not_revert_it ... ok
+test remote_edit::tests::validated_noop_changes_nothing ... ok
+test tests::create_editor_default ... ok
+test tests::create_editor_with_content_test ... ok
+test tests::get_language_for_extension_works ... ok
+test tests::get_supported_languages_returns_list ... ok
+test tests::version_is_set ... ok
+test text_range::tests::error_messages_name_the_offsets ... ok
+test text_range::tests::rejects_inverted_range ... ok
+test text_range::tests::rejects_mid_character_offsets ... ok
+test text_range::tests::rejects_out_of_bounds_end ... ok
+test text_range::tests::slices_ascii_range ... ok
+test text_range::tests::slices_empty_document ... ok
+test text_range::tests::slices_full_document_and_empty_range ... ok
+test text_range::tests::slices_multibyte_range_on_boundaries ... ok
+test types::tests::js_fold_info_conversion ... ok
+test types::tests::js_position_default ... ok
+test types::tests::js_range_default ... ok
+
+test result: ok. 92 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests iridium_bindings
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

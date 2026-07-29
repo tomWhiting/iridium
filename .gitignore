@@ -1,5 +1,7 @@
 # Rust
 /target/
+# Nested target dirs appear when cargo is run from inside a crate directory
+**/target/
 **/*.rs.bk
 Cargo.lock
 

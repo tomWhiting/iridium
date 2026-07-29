@@ -32,8 +32,16 @@ struct UndoNode {
     id: UndoNodeId,
     /// Parent node (None for root)
     parent: Option<UndoNodeId>,
-    /// Child nodes (branches)
+    /// Child nodes (branches), in creation order
     children: Vec<UndoNodeId>,
+    /// The child on the currently active path (Vim's `curhead`).
+    ///
+    /// Set when a branch is departed via [`UndoTree::undo`], entered via
+    /// [`UndoTree::redo_branch`], or created by [`UndoTree::push`]. A plain
+    /// [`UndoTree::redo`] returns to this child, so redo always retraces the
+    /// path the caller last travelled rather than picking a branch by index.
+    /// `None` on a leaf, or on a node reached without traversing any child.
+    preferred_child: Option<UndoNodeId>,
     /// Command that was applied to reach this state from parent
     command: Option<Command>,
     /// When this edit was made (used for edit grouping and future features)
@@ -131,6 +139,7 @@ impl UndoTree {
             id: root_id,
             parent: None,
             children: Vec::new(),
+            preferred_child: None,
             command: None,
             timestamp: Instant::now(),
             description: None,
@@ -201,14 +210,18 @@ impl UndoTree {
                 id: new_id,
                 parent: Some(self.current),
                 children: Vec::new(),
+                preferred_child: None,
                 command: Some(command),
                 timestamp: now,
                 description: None,
             };
 
-            // Add as child of current
+            // Add as child of current. The new branch becomes the active path,
+            // so a later undo/redo round-trip returns here rather than to a
+            // sibling that was abandoned earlier.
             if let Some(current_node) = self.nodes.get_mut(&self.current) {
                 current_node.children.push(new_id);
+                current_node.preferred_child = Some(new_id);
             }
 
             self.nodes.insert(new_id, new_node);
@@ -226,28 +239,64 @@ impl UndoTree {
         let parent_id = current_node.parent?;
         let command = current_node.command.clone()?;
 
+        // Remember which branch we came from so `redo` retraces this exact
+        // step instead of re-entering a sibling that was abandoned earlier.
+        let departed = self.current;
+        if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
+            parent_node.preferred_child = Some(departed);
+        }
+
         self.current = parent_id;
         self.last_edit_time = None;
 
         Some(command.inverse())
     }
 
-    /// Redoes by moving to the first child.
+    /// Redoes by moving back down the active path.
+    ///
+    /// Returns to the child recorded by the most recent [`UndoTree::undo`],
+    /// [`UndoTree::redo_branch`], or [`UndoTree::push`] at this node, so redo
+    /// always reverses the traversal that led here. When no such child is
+    /// recorded, the most recently created branch is taken — never the oldest,
+    /// which would silently resurrect abandoned work.
     ///
     /// Returns the command to apply, or `None` if no children.
     pub fn redo(&mut self) -> Option<Command> {
-        self.redo_branch(0)
+        let current_node = self.nodes.get(&self.current)?;
+
+        // Fall back to the newest branch; `preferred_child` is authoritative
+        // whenever it still names a live child of this node.
+        let child_id = current_node
+            .preferred_child
+            .filter(|id| current_node.children.contains(id))
+            .or_else(|| current_node.children.last().copied())?;
+
+        self.redo_into(child_id)
     }
 
     /// Redoes by moving to a specific child branch.
+    ///
+    /// `branch_index` indexes [`UndoTree::branch_count`] in creation order.
+    /// The chosen branch becomes the active path, so a subsequent undo/redo
+    /// round-trip returns to it.
     ///
     /// Returns the command to apply, or `None` if branch doesn't exist.
     pub fn redo_branch(&mut self, branch_index: usize) -> Option<Command> {
         let current_node = self.nodes.get(&self.current)?;
         let child_id = current_node.children.get(branch_index).copied()?;
 
-        let child_node = self.nodes.get(&child_id)?;
-        let command = child_node.command.clone()?;
+        self.redo_into(child_id)
+    }
+
+    /// Moves down into `child_id`, recording it as the active path.
+    ///
+    /// Returns the command to apply, or `None` if the child carries none.
+    fn redo_into(&mut self, child_id: UndoNodeId) -> Option<Command> {
+        let command = self.nodes.get(&child_id)?.command.clone()?;
+
+        if let Some(current_node) = self.nodes.get_mut(&self.current) {
+            current_node.preferred_child = Some(child_id);
+        }
 
         self.current = child_id;
         self.last_edit_time = None;
@@ -574,5 +623,126 @@ mod tests {
         assert!(tree.jump_to_node(UndoNodeId::new(99)).is_none());
         assert_eq!(doc.text(), "B");
         assert!(tree.can_undo());
+    }
+
+    /// Regression: `redo` must return the work that was just undone, not a
+    /// branch abandoned earlier.
+    ///
+    /// Previously `redo` was hardcoded to child index 0 while `push` appended
+    /// new branches to the end, so "undo, type something new, undo, redo"
+    /// silently restored the *old* text and left the newly typed branch
+    /// unreachable through any public API.
+    #[test]
+    fn redo_returns_to_newest_branch_not_oldest() {
+        let mut tree = UndoTree::with_timeout(0);
+        let mut doc = Document::new("");
+        let mut cursor = CursorState::at(Position::zero());
+
+        // Type "OLD".
+        let cmd_old = insert_at(0, "OLD");
+        cmd_old.apply(&mut doc, &mut cursor).expect("apply OLD");
+        tree.push(cmd_old);
+        assert_eq!(doc.text(), "OLD");
+
+        // Undo it, then type something different: this forks the tree.
+        let inv = tree.undo().expect("undo OLD");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse OLD");
+        assert_eq!(doc.text(), "");
+
+        let cmd_new = insert_at(0, "NEW");
+        cmd_new.apply(&mut doc, &mut cursor).expect("apply NEW");
+        tree.push(cmd_new);
+        assert_eq!(doc.text(), "NEW");
+
+        // Undo the new work, landing on the branch point with both siblings.
+        let inv = tree.undo().expect("undo NEW");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse NEW");
+        assert_eq!(doc.text(), "");
+        assert_eq!(tree.branch_count(), 2, "both branches must survive");
+
+        // Redo must restore "NEW" — the work we just undid.
+        let redone = tree.redo().expect("redo after fork");
+        redone.apply(&mut doc, &mut cursor).expect("apply redo");
+        assert_eq!(
+            doc.text(),
+            "NEW",
+            "redo resurrected the abandoned branch instead of the newest work"
+        );
+
+        // And the older branch is still reachable, not truncated.
+        let inv = tree.undo().expect("undo back to fork");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse");
+        let old_branch = tree.redo_branch(0).expect("older branch still present");
+        old_branch.apply(&mut doc, &mut cursor).expect("apply old");
+        assert_eq!(doc.text(), "OLD");
+    }
+
+    /// `redo` retraces the branch the caller last travelled, even when that
+    /// branch is not the most recently created one.
+    #[test]
+    fn redo_retraces_the_last_travelled_branch() {
+        let mut tree = UndoTree::with_timeout(0);
+        let mut doc = Document::new("");
+        let mut cursor = CursorState::at(Position::zero());
+
+        // Fork: branch 0 is "A", branch 1 is "B".
+        let cmd_a = insert_at(0, "A");
+        cmd_a.apply(&mut doc, &mut cursor).expect("apply A");
+        tree.push(cmd_a);
+        let inv = tree.undo().expect("undo A");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse A");
+
+        let cmd_b = insert_at(0, "B");
+        cmd_b.apply(&mut doc, &mut cursor).expect("apply B");
+        tree.push(cmd_b);
+        let inv = tree.undo().expect("undo B");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse B");
+        assert_eq!(tree.branch_count(), 2);
+
+        // Explicitly travel into the older branch. That becomes the active
+        // path, so an undo/redo round-trip must return to it — not to "B".
+        let into_a = tree.redo_branch(0).expect("enter branch 0");
+        into_a.apply(&mut doc, &mut cursor).expect("apply A");
+        assert_eq!(doc.text(), "A");
+
+        let inv = tree.undo().expect("undo A again");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse A");
+        let redone = tree.redo().expect("redo");
+        redone.apply(&mut doc, &mut cursor).expect("apply redo");
+        assert_eq!(
+            doc.text(),
+            "A",
+            "redo abandoned the branch the caller was actually on"
+        );
+    }
+
+    /// Linear redo is unaffected: with a single child there is no choice to
+    /// make, and repeated undo/redo must round-trip exactly.
+    #[test]
+    fn redo_round_trips_on_a_linear_history() {
+        let mut tree = UndoTree::with_timeout(0);
+        let mut doc = Document::new("");
+        let mut cursor = CursorState::at(Position::zero());
+
+        for (column, text) in [(0, "a"), (1, "b"), (2, "c")] {
+            let cmd = insert_at(column, text);
+            cmd.apply(&mut doc, &mut cursor).expect("apply");
+            tree.push(cmd);
+        }
+        assert_eq!(doc.text(), "abc");
+
+        for _ in 0..3 {
+            let inv = tree.undo().expect("undo");
+            inv.apply(&mut doc, &mut cursor).expect("apply inverse");
+        }
+        assert_eq!(doc.text(), "");
+        assert!(!tree.can_undo());
+
+        for _ in 0..3 {
+            let cmd = tree.redo().expect("redo");
+            cmd.apply(&mut doc, &mut cursor).expect("apply redo");
+        }
+        assert_eq!(doc.text(), "abc");
+        assert!(!tree.can_redo());
     }
 }

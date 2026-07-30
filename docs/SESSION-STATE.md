@@ -25,9 +25,9 @@ pushed. Commits on the branch, newest last:
 
 Also on `main` already: `f0e8a80` (undo-tree redo fix), `c048cf0` (gitignore).
 
-**Test baseline, all green at `75a0bce`:** 492 (`--no-default-features`), 534
-(`--no-default-features --features syntax`), 550 (`--all-features`), 92
-bindings, 30 syntax, 16 + 1 elsewhere. `cargo fmt --all --check` clean. Zero
+**Test baseline, all green at `a86f59b`:** 649 (`--no-default-features`), 691
+(`--no-default-features --features syntax`), 707 (`--all-features`), 92
+bindings, 30 syntax, 3 host-extension integration tests. `cargo fmt --all --check` clean. Zero
 clippy warnings in any file touched (99 pre-existing elsewhere in the crate).
 
 **Correction to the earlier baseline in this file:** the 576/618/634 recorded
@@ -42,32 +42,58 @@ worked: `git worktree add --detach <scratchpad>/verify-wt <commit>`, copy the
 files under test across, run the gates there. The main checkout does not
 compile at all while the workflow is mid-write.
 
-## In flight right now
+## The registry workflow has LANDED
 
-- **Workflow `wy2pfpzd2`** (run id `wf_a24837fa-2de`) — command registry +
-  keymap layer (decision D1). **STILL RUNNING as of 15:31 on 30 Jul**, and it
-  has moved on from `commands/` to splitting the 1,457-line
-  `input/keyboard/mod.rs`: `actions.rs`, `dispatch.rs`, `dispatch_tests.rs`,
-  `edits.rs`, `multi_cursor_verbs.rs`, `navigation.rs` are all untracked and
-  `input/keyboard/mod.rs` is modified. The checkout does **not** compile mid-write
-  (`dispatch_tests.rs` had an `E0596`), so do not read a red build as a real
-  failure without checking whether the workflow is between writes. Script at
-  `~/.claude/projects/-Users-tom-Developer-ablative-libs-iridium/33ce25a4-8b77-4d27-b58b-a132d9a104af/workflows/scripts/iridium-command-registry-wf_a24837fa-2de.js`.
-  Resume with `Workflow({scriptPath, resumeFromRunId: "wf_a24837fa-2de"})`.
-  It has produced `crates/iridium-editor/src/commands/` (19 files, ~5,065
-  lines, 633→634 tests) — **untracked, not yet committed, not yet reviewed.**
-  `crates/iridium-editor/src/lib.rs` is modified by it.
-  Known issues to check when it lands: `keymap_tests.rs` was 514 lines (over
-  the 500 cap), plus unused imports in `keymap_tests.rs` / `layer_tests.rs`
-  and a dead `press` fn in `validation_tests.rs`.
+Commits `967f974` (registry + keymap layer) and `a86f59b` (size cap). Its final
+`fix:findings` phase **died on a 529**, so I verified its two failing review
+gates myself rather than trusting the report. Nearly every finding had already
+been fixed by a later agent — `Editor::run_command` and `set_mode` exist,
+`KeyResult::HostCommand` carries an unimplemented command to the host,
+`CommandArgs` carries counts and captures, `FromStr for StrokePattern` parses
+`ctrl+shift+k`, `check_cross_layer_shadowing` exists, `has_continuation`
+respects cross-layer suppression, `resolve_repeat` handles auto-repeat,
+`push_validated_keymap` exists, and `abort_pending_sequence` now has callers in
+both `editor/core.rs` and `wasm.rs`.
 
-- **Norn reviews complete**, outputs in
-  `/private/tmp/claude-501/-Users-tom-Developer-ablative-libs-iridium/33ce25a4-8b77-4d27-b58b-a132d9a104af/scratchpad/norn-out/`
-  as `{correctness,architecture,mechanical,test-evidence}.json`, with session
-  ids alongside for `--resume`. Fan-out script is `../norn-fanout.sh`.
-  Verdicts: architecture `ready_with_comments` (0 majors), correctness
-  `not_ready` (1 major — **fixed** in `bce6a45`), mechanical `not_ready`
-  (4 majors), test-evidence `not_ready` (3 majors).
+**The one reported major that mattered — Ctrl+K silently eating the next typed
+character — does not reproduce.** I wrote the repro as a real integration test
+before touching anything: `step()` now retries a dead sequence from an empty
+buffer, so the stroke falls through and self-inserts. There is a committed test
+for exactly this (`a_dead_ended_sequence_replays_the_final_stroke_into_the_document`).
+Lesson: an agent's review can be stale by the time you read it — reproduce
+before you fix.
+
+Two constitution violations in the generated code were still live and I fixed
+them: `commands/stroke.rs` at 690 lines split into `stroke` / `stroke_text` /
+`binding`, and `input/keyboard/dispatch_tests.rs` at 632 split its sequence and
+user-layer tests into a child module. Then `input/keyboard/mod.rs` at 539 →
+`keymap_api.rs` + 414.
+
+### OPEN DECISION FOR TOM — live in the code right now
+
+`Ctrl+K Ctrl+D` → `multiCursor.skipLastOccurrence` is the **only** binding in
+the default keymap that is not a transcription of the old match statement. A
+differential harness over 3,424 (KeyCode × modifier) combinations found exactly
+four disagreements with pre-migration behaviour, all of them this.
+
+It makes `Ctrl+K` a chord leader, so:
+
+- Ctrl+K goes from `KeyResult::Ignored` to `Handled` at the host boundary — the
+  web face now suppresses the browser default and forces a repaint where it
+  previously passed the key through;
+- on **macOS** `translateKeyEvent`
+  (`packages/@iridium/core/src/controller/index.ts`) returns
+  `ctrl: e.metaKey || e.ctrlKey`, so Cmd+K *and* Cocoa's Ctrl+K kill-line both
+  arm the leader.
+
+It no longer loses a character, and the pending sequence is now observable by
+the host (`pendingKeySequence()` + a callback). Removal is one line from the
+`BINDINGS` table plus `DEFAULT_KEYMAP_BINDING_COUNT` 51 → 50 and one relaxed
+assertion in `every_registered_command_is_bound_except_the_typing_fall_through`.
+
+The meta/ctrl conflation is **pre-existing and affects every ctrl binding**, not
+just this one; it wants its own fix in the TypeScript translation layer, not a
+rushed patch here.
 
 ## Norn findings — ALL CLOSED
 
@@ -209,20 +235,15 @@ stack are decided; the prior workflow was stopped before writing any TUI code,
 deliberately, so the brief could be rewritten for termina and soft wrap. Note
 soft wrap changes the renderer brief substantially versus the original draft.
 
-**It should not start until the registry workflow lands**, because that
-workflow is mid-refactor of `input/keyboard/` — the exact seam the TUI's kernel
-contract sits on.
+**Unblocked as of `a86f59b`.** The registry landed, so the TUI's kernel
+contract is now stable and better than it was: the terminal face maps
+`termina::Event` → `terminput::Event` → iridium `KeyCode`/`Modifiers` and hands
+it to the same resolver the web face uses, so both faces share one keymap by
+construction. Verified stack facts are in `TERMINAL-STACK.md`.
 
 ## Immediate next steps, in order
 
-1. **Wait for workflow `wy2pfpzd2` to finish**, then review and commit its
-   output: `crates/iridium-editor/src/commands/` (19 files) plus the
-   `input/keyboard/` split. Known issues to check: `keymap_tests.rs` was 514
-   lines (over cap), unused imports in `keymap_tests.rs`/`layer_tests.rs`, a
-   dead `press` fn in `validation_tests.rs`, an unused `VerticalDirection`
-   import and a never-used `IMPLEMENTED_COMMAND_COUNT` in `actions.rs`, and an
-   `unused_mut` in `dispatch_tests.rs`. Do not trust its test counts — measure
-   in a clean worktree.
+1. **Get Tom's decision on the `Ctrl+K` chord leader** (above). It is live.
 2. **Get Tom's approval on the phase reprioritisation** in
    `THE-CORE-LOOP.md` §4 before touching PLAN's phase order. Still not given.
 3. **Ask Tom whether he wants undo-tree branch navigation bound to keys and

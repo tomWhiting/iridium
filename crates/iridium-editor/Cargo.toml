@@ -1,6 +1,6 @@
 [package]
 name = "iridium-editor"
-description = "GPU-accelerated text editor core"
+description = "Text editor core with optional GPU rendering"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,10 +12,10 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-# GPU rendering
-wgpu.workspace = true
-glyphon.workspace = true
-cosmic-text.workspace = true
+# GPU rendering (optional: enabled by the `render` feature)
+wgpu = { workspace = true, optional = true }
+glyphon = { workspace = true, optional = true }
+cosmic-text = { workspace = true, optional = true }
 
 # Text buffer
 ropey.workspace = true
@@ -35,8 +35,10 @@ regex.workspace = true
 
 # Logging
 tracing.workspace = true
-pollster = "0.4.0"
-bytemuck = { version = "1.24.0", features = ["derive"] }
+
+# GPU support crates (optional: enabled by the `render` feature)
+pollster = { version = "0.4.0", optional = true }
+bytemuck = { version = "1.24.0", features = ["derive"], optional = true }
 
 # Cross-platform time (works on WASM)
 web-time.workspace = true
@@ -49,8 +51,12 @@ js-sys = { workspace = true, optional = true }
 rust-lapper = "1.2.0"
 
 [features]
-default = ["syntax"]
+default = ["syntax", "render"]
 syntax = ["iridium-syntax"]
+# GPU rendering back end. Without it the editing kernel (document, history, input,
+# search, theme, view and the pure layout half of `render`) compiles with no GPU
+# crate anywhere in its dependency graph.
+render = ["dep:wgpu", "dep:glyphon", "dep:cosmic-text", "dep:pollster", "dep:bytemuck"]
 web = ["wasm-bindgen", "wasm-bindgen-futures", "web-sys", "js-sys"]
 
 [dev-dependencies]

@@ -86,9 +86,13 @@ crates/
                       # locals, textobjects. Used by TUI/desktop directly;
                       # compiled to WASM grammar bundles for web.
   iridium-render/     # GPU frame builder: the compositor (hoisted from
-                      # wasm.rs) + glyphon/quad/gutter/minimap primitives.
+                      # wasm.rs) + the glyphon text and quad pipelines.
                       # Takes a wgpu surface; knows nothing of canvases
                       # or windows. Shared verbatim by desktop and web.
+                      # NOT gutter/minimap/cursor/highlight/viewport —
+                      # those are pure layout and belong in the kernel,
+                      # where all three faces can share them. See
+                      # TRIPLE-FACE.md §3.
   iridium-tui/        # Terminal face: cell grid, diff renderer, crossterm,
                       # kitty keyboard protocol, synchronized output,
                       # OSC 52 clipboard, unicode-width cell math.
@@ -105,8 +109,15 @@ packages/
 ```
 
 The dependency rule that makes the trifecta real: **nothing in
-`iridium-core` may depend on a rendering or platform crate.** CI enforces
-this with a `cargo check -p iridium-core --no-default-features` gate.
+`iridium-core` may depend on a rendering or platform crate.**
+
+Until that crate exists, the gate is enforced on its precursor: CI runs
+`cargo check -p iridium-editor --no-default-features`
+(`.github/workflows/ci.yml`), which is meaningful because the GPU crates are
+already optional behind the default-on `render` feature. The gate becomes
+`-p iridium-core` when the split lands, and the check is a `cargo test` rather
+than a `cargo check` — checking a configuration whose tests never run is how
+the kernel configuration came to be unbuildable once already.
 
 ---
 

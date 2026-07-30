@@ -16,6 +16,9 @@ mod core;
 mod fold_state;
 mod history_nav;
 
+#[cfg(test)]
+mod command_api_tests;
+
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 pub use fold_state::{FoldInfo, FoldState};

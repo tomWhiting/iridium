@@ -4,12 +4,16 @@ use serde::{Deserialize, Serialize};
 
 use super::config::EditorConfig;
 use super::fold_state::{FoldInfo, FoldState};
+use crate::commands::{
+    CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyPress, Keymap, KeymapError,
+    KeymapStack, ModeName, RegistryError, builtin,
+};
 use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::{Command, UndoTree};
 use crate::input::keyboard::editing;
 use crate::input::{
-    ClipboardOperation, ImeEvent, ImeHandler, ImeResult, ImeState, KeyEvent, KeyResult,
-    KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
+    ClipboardOperation, CommandRunError, ImeEvent, ImeHandler, ImeResult, ImeState, KeyEvent,
+    KeyResult, KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
 };
 use crate::render::Viewport;
 use crate::search::{SearchOptions, SearchState, replace_all, replace_current};
@@ -90,6 +94,22 @@ pub enum EditorKeyResult {
     Clipboard(ClipboardOperation),
     /// A search action was requested.
     Search(SearchAction),
+    /// A binding resolved to a command the kernel does not implement.
+    ///
+    /// The keypress was consumed and the command named, so a host command is
+    /// reported to the host that owns it instead of vanishing. This is how a
+    /// command contributed from outside the kernel is *reached*: register its
+    /// [`CommandMeta`] with [`Editor::register_command`], bind it in a keymap
+    /// pushed with [`Editor::push_keymap`], and run it when this arrives. Any
+    /// document change the host then makes must go through
+    /// [`Editor::apply_command`], which keeps the command-sourced invariant and
+    /// the undo tree intact.
+    HostCommand {
+        /// The resolved command id.
+        command: CommandId,
+        /// The count and captured characters the key sequence carried.
+        args: CommandArgs,
+    },
 }
 
 /// Complete state of an editor instance.
@@ -289,6 +309,15 @@ pub struct Editor {
     /// Keyboard input handler
     keyboard_handler: KeyboardHandler,
 
+    /// Every command this editor exposes, kernel and host alike.
+    ///
+    /// The authority on *what exists*: a command palette enumerates this, a
+    /// keymap is validated against it, and an AI host discovers the editor's
+    /// vocabulary from it. Seeded with
+    /// [`register_builtin_commands`](crate::commands::builtin::register_builtin_commands);
+    /// a host adds its own with [`Editor::register_command`].
+    commands: CommandRegistry,
+
     /// Mouse input handler
     mouse_handler: MouseHandler,
 
@@ -316,9 +345,23 @@ impl Editor {
             },
             listeners: Vec::new(),
             keyboard_handler: KeyboardHandler::new(),
+            commands: Self::seeded_command_registry(),
             mouse_handler: MouseHandler::new(),
             ime_handler: ImeHandler::new(),
         }
+    }
+
+    /// Builds the command registry every editor starts with.
+    ///
+    /// [`builtin_registry`](crate::commands::builtin::builtin_registry) is
+    /// fallible only for a duplicated id *inside the static built-in table*, which
+    /// the registry tests rule out by asserting the registry holds exactly
+    /// [`BUILTIN_COMMAND_COUNT`](crate::commands::builtin::BUILTIN_COMMAND_COUNT)
+    /// commands. Degrading to an empty registry rather than panicking keeps
+    /// [`Editor::new`] infallible; the fallback is unreachable except through a
+    /// kernel edit the tests reject.
+    fn seeded_command_registry() -> CommandRegistry {
+        builtin::builtin_registry().unwrap_or_default()
     }
 
     /// Creates an editor with default configuration.
@@ -417,38 +460,6 @@ impl Editor {
     /// Returns an `EditorKeyResult` indicating if a clipboard or search action
     /// was requested. The caller is responsible for handling these operations.
     pub fn handle_key(&mut self, event: &KeyEvent) -> EditorKeyResult {
-        if self.state.read_only {
-            // In read-only mode, only allow navigation (no edits)
-            let result = self.keyboard_handler.handle_key(
-                event,
-                &self.state.document,
-                &self.state.cursor,
-                &self.state.history,
-                &self.state.config,
-            );
-
-            match result {
-                KeyResult::Command(cmd) => {
-                    // Only apply selection changes in read-only mode
-                    if matches!(cmd, Command::SetSelection { .. }) {
-                        self.apply_command_internal(cmd);
-                    }
-                },
-                KeyResult::Handled | KeyResult::Ignored => {},
-                KeyResult::Clipboard(clip) => {
-                    // Only allow copy in read-only mode
-                    if matches!(clip, ClipboardOperation::Copy(_)) {
-                        return EditorKeyResult::Clipboard(clip);
-                    }
-                },
-                // Search actions are allowed in read-only mode
-                KeyResult::Search(action) => {
-                    return self.handle_search_action(action);
-                },
-            }
-            return EditorKeyResult::None;
-        }
-
         let result = self.keyboard_handler.handle_key(
             event,
             &self.state.document,
@@ -456,14 +467,186 @@ impl Editor {
             &self.state.history,
             &self.state.config,
         );
+        self.consume_key_result(result)
+    }
 
+    // ========== Commands, keymaps and modes ==========
+
+    /// Every command this editor exposes, kernel and host alike.
+    ///
+    /// This is what a command palette enumerates
+    /// ([`CommandRegistry::palette_order`]) and what an AI or scripting host reads
+    /// to discover the editor's vocabulary. Pair it with [`Self::run_command`],
+    /// which invokes any entry by id.
+    #[must_use]
+    pub const fn commands(&self) -> &CommandRegistry {
+        &self.commands
+    }
+
+    /// Registers a command contributed from outside the kernel.
+    ///
+    /// The command immediately appears in [`Self::commands`], so a palette lists
+    /// it and [`Self::push_keymap`] will accept a binding naming it. Running it is
+    /// the host's: [`Self::run_command`] reports
+    /// [`CommandRunError::Unimplemented`] and a matching keypress reports
+    /// [`EditorKeyResult::HostCommand`].
+    ///
+    /// # Errors
+    ///
+    /// [`RegistryError::DuplicateId`] when the id is taken — including by a kernel
+    /// command, which a host must not shadow — and
+    /// [`RegistryError::EmptyId`] for an empty id.
+    pub fn register_command(&mut self, meta: CommandMeta) -> Result<(), RegistryError> {
+        self.commands.register(meta)
+    }
+
+    /// Runs a command by id, with no keystroke involved.
+    ///
+    /// The palette's, the macro's and the AI host's entry point: every command in
+    /// [`Self::commands`] that the kernel implements can be invoked here, and the
+    /// resulting document change is applied through the same command-sourced path
+    /// as a keypress, so it is undoable and read-only mode is honoured.
+    ///
+    /// `args` carries a count and captured characters for commands that read them;
+    /// pass [`CommandArgs::NONE`] otherwise.
+    ///
+    /// Returns the same [`EditorKeyResult`] a keypress would, so a clipboard or
+    /// search request still reaches the host.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandRunError::Unimplemented`] when the kernel implements no command
+    /// with that id — which is exactly the case for a host command, and the signal
+    /// for the caller to run its own implementation.
+    pub fn run_command(
+        &mut self,
+        id: &str,
+        args: CommandArgs,
+    ) -> Result<EditorKeyResult, CommandRunError> {
+        let result = self.keyboard_handler.run_command(
+            id,
+            args,
+            &self.state.document,
+            &self.state.cursor,
+            &self.state.history,
+            &self.state.config,
+        )?;
+        Ok(self.consume_key_result(result))
+    }
+
+    /// Returns `true` when the kernel itself implements `id`.
+    ///
+    /// Lets a host split [`Self::commands`] into "the editor runs these" and "I run
+    /// these" without invoking anything.
+    #[must_use]
+    pub fn implements_command(id: &str) -> bool {
+        KeyboardHandler::implements_command(id)
+    }
+
+    /// The binding layers this editor resolves keys against, lowest precedence
+    /// first.
+    #[must_use]
+    pub const fn keymap(&self) -> &KeymapStack {
+        self.keyboard_handler.keymap()
+    }
+
+    /// Pushes a user keymap layer, validated against [`Self::commands`].
+    ///
+    /// This is decision D1 made reachable: bindings are swappable data, and a host
+    /// swaps them here rather than by abandoning [`Editor`] and driving its own
+    /// [`KeyboardHandler`] — which would duplicate the sticky-column and
+    /// addition-order state whose staleness has bitten this codebase twice.
+    ///
+    /// The layer is canonicalized (so resolution stays allocation free) and the
+    /// whole stack validated, so an unknown command id, an unreachable binding, and
+    /// a bare prefix that would strand a chord in the default keymap are all
+    /// reported here instead of becoming keys that quietly misbehave. The stack is
+    /// unchanged when validation fails.
+    ///
+    /// # Errors
+    ///
+    /// The first [`KeymapError`] canonicalization or validation reports.
+    pub fn push_keymap(&mut self, keymap: Keymap) -> Result<(), KeymapError> {
+        self.keyboard_handler
+            .push_validated_keymap(keymap, &self.commands)
+    }
+
+    /// Removes and returns the highest-precedence keymap layer.
+    ///
+    /// Returns `None` when no layer is left. Popping the base default keymap is
+    /// permitted — a face that ships its own complete keymap wants exactly that —
+    /// so the caller owns the consequence.
+    pub fn pop_keymap(&mut self) -> Option<Keymap> {
+        self.keyboard_handler.pop_keymap()
+    }
+
+    /// The strokes typed so far in an incomplete key sequence.
+    ///
+    /// A host renders this, together with [`Self::pending_key_count`], as the
+    /// "waiting for another key" indicator. Surfacing it is not cosmetic: a chord
+    /// leader consumes the keypress, so without an indicator the editor looks
+    /// unresponsive.
+    #[must_use]
+    pub fn pending_key_sequence(&self) -> &[KeyPress] {
+        self.keyboard_handler.pending_sequence()
+    }
+
+    /// The count typed so far into an incomplete key sequence, if any.
+    #[must_use]
+    pub const fn pending_key_count(&self) -> Option<u32> {
+        self.keyboard_handler.pending_count()
+    }
+
+    /// Cancels any half-typed key sequence, returning `true` when one was
+    /// cancelled.
+    ///
+    /// Call this on **focus loss**. Every cursor-invalidating host path
+    /// (`set_cursor`, mouse, IME, paste, search navigation) already does it, which
+    /// covers a click elsewhere; a blur with no click does not, and a chord left
+    /// pending across it would eat the first keystroke after the user returns.
+    pub fn abort_pending_key_sequence(&mut self) -> bool {
+        self.keyboard_handler.abort_pending_sequence()
+    }
+
+    /// The active editing mode, or `None` for a non-modal keymap.
+    #[must_use]
+    pub const fn mode(&self) -> Option<&ModeName> {
+        self.keyboard_handler.mode()
+    }
+
+    /// Sets the active editing mode, discarding any half-typed key sequence.
+    ///
+    /// A modal keymap normally switches modes itself, as data
+    /// ([`KeyBinding::then_enter_mode`](crate::KeyBinding::then_enter_mode)); this
+    /// is for the host paths a keymap cannot see, such as forcing insert mode when
+    /// a widget takes focus.
+    pub fn set_mode(&mut self, mode: Option<ModeName>) {
+        self.keyboard_handler.set_mode(mode);
+    }
+
+    /// Applies a [`KeyResult`] to the editor state, as `handle_key` does.
+    ///
+    /// Shared by [`Self::handle_key`] and [`Self::run_command`] so a command
+    /// invoked by id and the same command invoked by its key sequence cannot
+    /// diverge.
+    fn consume_key_result(&mut self, result: KeyResult) -> EditorKeyResult {
         match result {
             KeyResult::Command(cmd) => {
-                self.apply_command_internal(cmd);
+                if !self.state.read_only || matches!(cmd, Command::SetSelection { .. }) {
+                    self.apply_command_internal(cmd);
+                }
                 EditorKeyResult::None
             },
-            KeyResult::Clipboard(clip) => EditorKeyResult::Clipboard(clip),
+            KeyResult::Clipboard(clip) => {
+                if self.state.read_only && !matches!(clip, ClipboardOperation::Copy(_)) {
+                    return EditorKeyResult::None;
+                }
+                EditorKeyResult::Clipboard(clip)
+            },
             KeyResult::Search(action) => self.handle_search_action(action),
+            KeyResult::HostCommand { command, args } => {
+                EditorKeyResult::HostCommand { command, args }
+            },
             KeyResult::Handled | KeyResult::Ignored => EditorKeyResult::None,
         }
     }
@@ -489,6 +672,7 @@ impl Editor {
             },
             KeyResult::Handled
             | KeyResult::Ignored
+            | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
             | KeyResult::Search(_) => false,
         }

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::commands::{CommandArgs, CommandId};
 use crate::history::Command;
 
 /// Key codes for keyboard input.
@@ -207,8 +208,44 @@ pub enum KeyResult {
     /// The event triggered a search action (T121, T122)
     Search(SearchAction),
 
+    /// A binding resolved to a command this kernel does not implement.
+    ///
+    /// The keypress was **consumed** and the command named: it is the caller's to
+    /// run. This is the whole extensibility path for commands contributed from
+    /// outside the kernel — a host registers a [`CommandMeta`](crate::CommandMeta)
+    /// so the palette lists it, binds it in a pushed
+    /// [`Keymap`](crate::Keymap), and receives this when the binding fires.
+    ///
+    /// Reporting it is not optional politeness. Before this variant existed the id
+    /// was dropped and the key reported as [`Self::Ignored`], which is
+    /// indistinguishable from a meaningless keypress; for a multi-stroke sequence
+    /// the earlier strokes had already returned [`Self::Handled`], so the host
+    /// could not even reconstruct which sequence had completed.
+    HostCommand {
+        /// The resolved command id.
+        command: CommandId,
+        /// The count and captured characters the key sequence carried.
+        args: CommandArgs,
+    },
+
     /// The event was not handled (pass to next handler)
     Ignored,
+}
+
+/// Why a command named by id could not be run.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CommandRunError {
+    /// The kernel implements no command with this id.
+    ///
+    /// Not necessarily a mistake: the id may be a host command, registered in the
+    /// [`CommandRegistry`](crate::CommandRegistry) and implemented outside the
+    /// kernel. The caller is the one that knows, which is why this is an error
+    /// value rather than a silent no-op.
+    #[error("the editing kernel implements no command with id `{id}`")]
+    Unimplemented {
+        /// The id that has no kernel implementation.
+        id: String,
+    },
 }
 
 /// Clipboard operation requested by keyboard handler.

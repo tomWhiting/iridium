@@ -45,6 +45,8 @@ interface WasmEditInfo {
  *
  * - `handled`      — key consumed, no content change
  * - `handled:edit` — key consumed, document changed (fetch `takeLastEdit`)
+ * - `handled:command` — key consumed, resolved to a host command (fetch
+ *   `takePendingHostCommand`)
  * - `copy` / `cut` — clipboard text pending in `getPendingClipboardText`
  * - `search:*`     — search UI actions requested by the core
  * - `ignored`      — leave the event to the browser
@@ -52,6 +54,7 @@ interface WasmEditInfo {
 type KeyEventAction =
   | "handled"
   | "handled:edit"
+  | "handled:command"
   | "copy"
   | "cut"
   | "search:open"
@@ -65,7 +68,12 @@ export type SearchAction = "open" | "next" | "prev" | "close";
 
 // Types for the low-level WASM editor
 interface WebEditor {
-  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean): KeyEventAction;
+  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): KeyEventAction;
+  pendingKeySequence(): string;
+  abortPendingKeySequence(): boolean;
+  takePendingHostCommand(): string | undefined;
+  setUserKeymap(json: string): string | undefined;
+  clearUserKeymap(): void;
   takeLastEdit(): WasmEditInfo | undefined;
   getPendingClipboardText(): string | undefined;
   copyText(): string | undefined;
@@ -184,6 +192,46 @@ export interface IridiumEditorOptions {
    * applied to the editor's search state when this fires).
    */
   onSearchAction?: (action: SearchAction) => void;
+  /**
+   * Called when a key sequence resolves to a command the editing kernel does not
+   * implement — i.e. one the host registered itself. The key was consumed; running
+   * the command is the host's, and any document change must go back through the
+   * editor's own methods so it stays undoable.
+   */
+  onHostCommand?: (request: HostCommandRequest) => void;
+  /**
+   * Called whenever the half-typed key sequence changes, with the text form of the
+   * strokes so far (`""` when nothing is pending).
+   *
+   * A chord leader such as `Ctrl+K` — or, on macOS, `Cmd+K`, which this layer
+   * forwards as `ctrl` — consumes the keypress. Without an indicator the editor
+   * simply looks unresponsive, so a host that enables chords should render this.
+   */
+  onPendingKeySequence?: (sequence: string) => void;
+}
+
+/**
+ * The option keys that stay optional after defaults are applied: every host
+ * callback. Named once so adding a callback cannot silently make it required.
+ */
+type OptionalCallback =
+  | "onChange"
+  | "onSelectionChange"
+  | "onMouseHover"
+  | "onScroll"
+  | "onBeforeKeyDown"
+  | "onSearchAction"
+  | "onHostCommand"
+  | "onPendingKeySequence";
+
+/** A command a key sequence resolved to that the host must run itself. */
+export interface HostCommandRequest {
+  /** The registered command id the binding named. */
+  command: string;
+  /** The numeric prefix the user typed, if any. */
+  count?: number;
+  /** Characters captured by wildcard strokes, in sequence order. */
+  captures: string[];
 }
 
 export interface EditorState {
@@ -209,7 +257,7 @@ export class IridiumEditor {
   private canvas: HTMLCanvasElement;
   private editor: WebEditor;
   private syntaxWorker: SyntaxHighlightClient | null = null;
-  private options: Required<Omit<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown" | "onSearchAction">> & Pick<IridiumEditorOptions, "onChange" | "onSelectionChange" | "onMouseHover" | "onScroll" | "onBeforeKeyDown" | "onSearchAction">;
+  private options: Required<Omit<IridiumEditorOptions, OptionalCallback>> & Pick<IridiumEditorOptions, OptionalCallback>;
   private currentLanguage: string;
   private isDragging = false;
   private animationFrameId = 0;
@@ -390,6 +438,18 @@ export class IridiumEditor {
     const handleKeyDown = this.handleKeyDown.bind(this);
     this.canvas.addEventListener("keydown", handleKeyDown);
     this.eventCleanup.push(() => this.canvas.removeEventListener("keydown", handleKeyDown));
+
+    // Focus loss. A half-typed chord must not survive it: the core would hold the
+    // leader pending indefinitely and consume the first keystroke after the user
+    // came back. Every cursor-moving path already aborts the sequence, which covers
+    // a click elsewhere on the page; a Cmd-Tab away with no click does not.
+    const handleBlur = (): void => {
+      if (this.editor.abortPendingKeySequence()) {
+        this.notifyPendingKeySequence();
+      }
+    };
+    this.canvas.addEventListener("blur", handleBlur);
+    this.eventCleanup.push(() => this.canvas.removeEventListener("blur", handleBlur));
 
     // Clipboard events - critical for Safari compatibility
     // Safari requires direct paste event handling rather than intercepting Ctrl/Cmd+V
@@ -611,7 +671,9 @@ export class IridiumEditor {
     // (e) Translate the DOM event into the Rust core's key vocabulary and
     // forward it (see the mapping table in translateKeyEvent).
     const t = this.translateKeyEvent(e);
-    const action = this.editor.handleKeyEvent(t.key, t.ctrl, t.shift, t.alt, t.meta, t.altGraph);
+    const action = this.editor.handleKeyEvent(
+      t.key, t.ctrl, t.shift, t.alt, t.meta, t.altGraph, e.repeat,
+    );
 
     if (action === "ignored") {
       // The editor does not handle this key; leave it to the browser.
@@ -620,7 +682,18 @@ export class IridiumEditor {
 
     e.preventDefault();
 
-    if (action === "copy" || action === "cut") {
+    // A consumed key may have left a chord leader pending (Ctrl+K, and on macOS
+    // Cmd+K, which this layer forwards as ctrl). The core consumes it, so without
+    // an indicator the editor looks unresponsive; surface it every time so the
+    // indicator also clears when the sequence completes or is abandoned.
+    this.notifyPendingKeySequence();
+
+    if (action === "handled:command") {
+      const request = this.editor.takePendingHostCommand();
+      if (request) {
+        this.options.onHostCommand?.(JSON.parse(request) as HostCommandRequest);
+      }
+    } else if (action === "copy" || action === "cut") {
       // Defensive path for synthesized key events: real Cmd/Ctrl+C/X went
       // through the native clipboard passthrough above.
       const text = this.editor.getPendingClipboardText();
@@ -1073,6 +1146,35 @@ export class IridiumEditor {
   /** Toggle fold at the current cursor line. */
   toggleFoldAtCursor(): boolean {
     return this.toggleFold(this.editor.getCursorLine());
+  }
+
+  /**
+   * Replace the user keymap layer from a JSON keymap.
+   *
+   * The layer sits on top of the built-in defaults, so it overrides exactly the
+   * sequences it names and nothing else; a second call replaces it rather than
+   * stacking. Returns `undefined` on success, or the diagnostic text when the
+   * keymap is rejected — an unknown command id, a binding whose bare prefix would
+   * strand a default chord, or malformed JSON. Nothing changes on failure.
+   */
+  setUserKeymap(json: string): string | undefined {
+    return this.editor.setUserKeymap(json);
+  }
+
+  /** Drop the user keymap layer, restoring the built-in defaults. */
+  clearUserKeymap(): void {
+    this.editor.clearUserKeymap();
+    this.notifyPendingKeySequence();
+  }
+
+  /** The half-typed key sequence, as text; `""` when nothing is pending. */
+  pendingKeySequence(): string {
+    return this.editor.pendingKeySequence();
+  }
+
+  /** Reports the current half-typed key sequence to the host. */
+  private notifyPendingKeySequence(): void {
+    this.options.onPendingKeySequence?.(this.editor.pendingKeySequence());
   }
 
   /** Enable or disable the gutter (line numbers). */

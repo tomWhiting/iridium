@@ -80,8 +80,13 @@ crates/
   iridium-core/       # THE KERNEL. Document (ropey), commands, undo tree,
                       # cursors/selections, input handling (incl. auto-pairs,
                       # auto-indent, pair-skip — repatriated from TS),
-                      # search/replace, fold state, viewport MATH,
-                      # config, themes. NO wgpu. NO web. Compiles anywhere.
+                      # search/replace, fold state, config, themes, and ALL
+                      # pure layout: viewport, gutter, cursor, highlight,
+                      # simple_highlight and the whole render/minimap/ module
+                      # (six module groups — minimap is load-bearing here
+                      # because public MouseHandler methods take
+                      # MinimapRenderer/MinimapDimensions).
+                      # NO wgpu. NO web. Compiles anywhere.
   iridium-syntax/     # Native tree-sitter: highlights, injections, folds,
                       # locals, textobjects. Used by TUI/desktop directly;
                       # compiled to WASM grammar bundles for web.
@@ -186,6 +191,13 @@ document-state assertions that would have caught every bug above.
   hard dependency of editing logic (`Viewport` math moves kernel-side).
 - Compositor hoisted from `wasm.rs` into `iridium-render` as a
   platform-neutral frame builder; `iridium-web` becomes an event translator.
+- GPU failure authority moves out of the kernel. `IridiumError` currently owns
+  `GpuInitFailed`, `ShaderCompileFailed` and `FontLoadFailed`, and `ErrorCode`
+  mirrors them, even though they are unreachable in a GPU-free build; render
+  gets its own `RenderError` and the kernel keeps only kernel failures, with
+  `iridium-bindings` mapping both to host-facing errors. (No concrete wgpu,
+  glyphon or cosmic-text type leaks through an ungated public signature today
+  — this is about which crate owns the vocabulary, not a type leak.)
 - Performance cliffs removed while the code is open:
   - Per-frame O(document) `doc_to_visual` rebuild → incremental/cached
     (fold state already has the O(log n) machinery; use it).

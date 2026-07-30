@@ -354,8 +354,14 @@ pub async fn create_web_editor(
     let cursor_renderer = CursorRenderer::default();
     let gutter_renderer = GutterRenderer::new();
     let highlighter = SimpleHighlighter::new();
-    // Initialize fold state with the placeholder language (enables brace-based folding)
-    let fold_state = FoldState::for_language(Language::_Placeholder);
+    // The web surface has no way to declare a language yet, so folding starts
+    // brace-based. `Language::C` is the stand-in for "fold on braces": without
+    // the `syntax` feature every language routes to the same brace scanner, and
+    // with it C's fold queries are themselves brace blocks — so the behaviour is
+    // the same in both configurations. This replaced a `_Placeholder` variant
+    // that existed only to be passed here; the stub now mirrors the real
+    // language set, so a build without `syntax` behaves like one with it.
+    let fold_state = FoldState::for_language(Language::C);
 
     log("[Iridium] WebEditor ready");
     Ok(WebEditor {

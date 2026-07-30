@@ -57,7 +57,16 @@ syntax = ["iridium-syntax"]
 # search, theme, view and the pure layout half of `render`) compiles with no GPU
 # crate anywhere in its dependency graph.
 render = ["dep:wgpu", "dep:glyphon", "dep:cosmic-text", "dep:pollster", "dep:bytemuck"]
-web = ["wasm-bindgen", "wasm-bindgen-futures", "web-sys", "js-sys"]
+# Browser surface. Implies `render`, because every item the feature exposes
+# (`render::web`, `WebSurface`) is gated on `all(feature = "render", feature =
+# "web")` — selecting `web` alone would enable four dependencies and no API.
+web = [
+    "render",
+    "wasm-bindgen",
+    "wasm-bindgen-futures",
+    "web-sys",
+    "js-sys",
+]
 
 [dev-dependencies]
 criterion.workspace = true

@@ -98,6 +98,7 @@ mod args;
 mod binding;
 mod default_keymap;
 mod error;
+mod hints;
 mod id;
 mod keymap;
 mod keynames;
@@ -137,6 +138,7 @@ pub use default_keymap::{
     DEFAULT_KEYMAP_BINDING_COUNT, default_keymap_stack, default_non_modal_keymap,
 };
 pub use error::{KeymapError, RegistryError};
+pub use hints::{KeyHint, KeyHintIndex, KeyLabelStyle};
 pub use id::CommandId;
 pub use keymap::Keymap;
 pub use keynames::{key_from_name, name_of};

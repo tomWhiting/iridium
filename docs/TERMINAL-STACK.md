@@ -1,0 +1,171 @@
+# Terminal stack — verified API facts
+
+Decision (30 Jul 2026, Tom's call): **`termina` 0.3.3 + `terminput` 0.5.15 +
+`terminput-termina` 0.3.1**.
+
+Everything here was verified by compiling — and where noted, *running* — spikes
+against these crates on this toolchain (Rust 1.97.1) on 30 Jul 2026. It is
+proven, not guessed. Do not re-derive it; correct it if a version bump proves
+it wrong.
+
+## termina 0.3.3
+
+- Crate: `termina = { version = "0.3", features = ["event-stream"] }`
+  `github.com/helix-editor/termina`, by Michael Davis (Helix maintainer).
+  MIT OR MPL-2.0. 8,379 lines. edition 2021, rust-version 1.71.
+  Norn pins the identical version in `norn-cli` and `norn-tui`.
+- Dep tree is 19 packages total: bitflags, parking_lot, rustix (std/stdio/termios/event,
+  no libc on the hot path), signal-hook, optional futures-core. Compiles in ~4s.
+- Self-described as *"based on termwiz's terminal API, but Termina keeps feature setup
+  outside the terminal type and mirrors crossterm's synchronous event-reader shape for
+  `poll` and `read`."*
+
+## No competing layout model — this is why it was chosen
+
+`grep 'pub struct (Surface|Screen|Cell|Buffer)'` returns **nothing**. `Terminal` is
+`pub trait Terminal: io::Write`. It is a pure VT manipulation library: it gives events in
+and escape sequences out. Iridium's kernel keeps sole ownership of layout geometry
+(~4,750 lines of pure layout logic). termwiz was rejected precisely because its
+damage-tracked surface model would duplicate and compete with that.
+
+## Verified public API
+
+```rust
+use termina::{PlatformTerminal, Terminal, PlatformHandle, EventReader, Event};
+use termina::escape::csi::{Csi, DecPrivateMode, DecPrivateModeCode, Mode};
+use termina::escape::osc::{Osc, Selection};
+
+let mut term = PlatformTerminal::new()?;          // io::Result<PlatformTerminal>
+term.set_panic_hook(|handle: &mut PlatformHandle| { /* write cleanup sequences */ });
+let dims = term.get_dimensions()?;                 // io::Result<WindowSize>
+```
+
+`trait Terminal: io::Write` methods (all verified present):
+- `enter_raw_mode() -> io::Result<()>`
+- `enter_cooked_mode() -> io::Result<()>` — restores the termios state captured at open
+- `get_dimensions() -> io::Result<WindowSize>`
+- `event_reader() -> EventReader` — cloneable
+- `poll<F: Fn(&Event) -> bool>(filter, timeout: Option<Duration>) -> io::Result<bool>`
+  **`timeout: None` blocks** → zero-CPU idle event loop falls straight out, no poll hack.
+- `read<F: Fn(&Event) -> bool>(filter) -> io::Result<Event>`
+- `set_panic_hook(impl Fn(&mut PlatformHandle) + Send + Sync + 'static)`
+  Receives a stdout handle; termina restores platform mode as if `enter_cooked_mode` ran
+  **after** the hook. This covers the worst TUI failure mode (terminal left in raw mode
+  after a panic) as a library guarantee rather than by our own discipline. The hook is
+  where we must undo *application*-level state: leave the alternate screen, disable
+  bracketed paste, pop keyboard-enhancement flags, re-show the cursor.
+- Unix `PlatformTerminal` also has a `Drop` impl (terminal/unix.rs:237) that restores.
+
+Escape sequences are values implementing `Display` — write them with `write!`:
+
+```rust
+Csi::Mode(Mode::SetDecPrivateMode(DecPrivateMode::Code(
+    DecPrivateModeCode::ClearAndEnableAlternateScreen)))   // alt screen on
+Csi::Mode(Mode::SetDecPrivateMode(DecPrivateMode::Code(
+    DecPrivateModeCode::SynchronizedOutput)))              // tear-free repaint
+Csi::Mode(Mode::SetDecPrivateMode(DecPrivateMode::Code(
+    DecPrivateModeCode::BracketedPaste)))                  // paste as one op
+Osc::SetSelection(Selection::CLIPBOARD, "text")            // OSC 52, ships own base64
+```
+Use `Mode::ResetDecPrivateMode` to turn each off. All four verified to compile and format.
+
+Event model lives in `termina::event`: `Event`, `KeyEvent`, `Modifiers` (bitflags, u8),
+`KeyEventState`, `KeyCode`. Kitty keyboard protocol is supported
+(`KeyboardEnhancementFlags`, incl. `REPORT_ASSOCIATED_TEXT`) — this is the only way
+Ctrl+Shift+Z is distinguishable from Ctrl+Z at all. There is a `detect-features` example
+for capability negotiation, and `escape/csi.rs` is 2,399 lines of typed CSI modelling.
+
+## Fork posture
+
+MIT lets us fork freely; 8.4K lines with a clean module split (escape/, event/, parse/,
+terminal/, style) makes it genuinely tractable. **Do not fork yet.** The things that would
+tempt a fork — capability negotiation and a damage/cell layer — belong in `iridium-tui`
+anyway, since termina deliberately omits them. The real fork signal is needing to change
+VT *parsing* behaviour, or an upstream stall on a protocol change we need. Flag it if hit.
+
+## Caveats to carry
+
+- Pre-1.0 (0.3.x): API churn is a real risk. Mitigated by pinning the same version Norn
+  already uses — one terminal stack across the whole ablative estate beats two.
+- Lower-level than crossterm: we emit escape sequences ourselves. Acceptable because they
+  are *typed* values, not string literals, and because the kernel must own layout anyway.
+
+## terminput 0.5.15
+
+`terminput` is the reason the input path can be tested without a pty. It ships
+a parser **and an encoder**, so a test can synthesise the exact bytes a real
+terminal would send, feed them through the same parse used in production, and
+assert on the resulting kernel command. No pty, no timing, no flake.
+
+`no_std` by default with an `alloc` requirement; the `std` feature (on by
+default) is what enables the parser and encoder modules. 
+
+```rust
+use terminput::{Encoding, Event, KeyCode, KeyEvent, KeyModifiers, KittyFlags};
+
+// Parse: an associated function on Event, not a free function.
+let event: Option<Event> = Event::parse_from(b"\x1b[A").ok().flatten();
+// => Some(Key(KeyEvent { code: Up, .. }))
+
+// Encode: 16 bytes of buffer is stated by the crate to be always sufficient.
+let ev = Event::Key(KeyEvent::new(KeyCode::Char('z')).modifiers(KeyModifiers::CTRL));
+let mut buf = [0u8; 16];
+let n = ev.encode(&mut buf, Encoding::Xterm)?;                  // 1 byte:  [26]
+let n = ev.encode(&mut buf, Encoding::Kitty(KittyFlags::all()))?; // 8 bytes: ESC [ 1 2 2 ; 5 u
+```
+
+Those two encodings are the whole kitty-protocol argument in one line, and both
+outputs above were **observed, not predicted**. Under legacy xterm, Ctrl+Z is
+the single byte `26` — byte-identical to Ctrl+Shift+Z, so the two can never be
+told apart. Under the kitty protocol it is `ESC[122;5u`, carrying the base
+keycode and a modifier bitmask, so they can. Any editor that wants
+Ctrl+Shift+something as a distinct binding needs the kitty protocol; there is
+no cleverness that recovers it from the legacy stream.
+
+`Encoding` has exactly two variants — `Xterm` and `Kitty(KittyFlags)` — so
+tests can pin behaviour under both, which is what a legacy-fallback path
+requires.
+
+## terminput-termina 0.3.1
+
+The bridge. Free functions in both directions, **behind a default-on
+`termina_0_3` feature** — with `default-features = false` the crate compiles to
+nothing at all and the conversions silently vanish. Keep the default on.
+
+```rust
+terminput_termina::to_terminput(termina_event) -> Result<Event, UnsupportedEvent>
+terminput_termina::to_termina(terminput_event) -> Result<termina::Event, UnsupportedEvent>
+```
+
+`to_terminput` covers focus in/out, key, mouse, paste and resize. It returns
+`UnsupportedEvent` for raw `Dcs`/`Csi`/`Osc` events, which is correct: those are
+capability replies, not user input, and they belong to the terminal-negotiation
+layer in `iridium-tui`, not to the kernel's input path. **Do not discard that
+error** — it is the signal that a capability reply arrived, and swallowing it is
+how feature detection silently stops working.
+
+Verified round-trip: `termina::Event::Key(Ctrl+'a')` converts to
+`terminput::Event::Key(KeyEvent { code: Char('a'), modifiers: CTRL, kind: Press })`.
+
+## How the three compose
+
+```text
+  terminal bytes
+        │
+        ▼
+  termina::EventReader        VT parsing, raw mode, panic-safe restore
+        │  termina::Event
+        ▼
+  terminput_termina::to_terminput     one small, testable conversion
+        │  terminput::Event
+        ▼
+  iridium-tui input adapter   terminput::Event -> iridium KeyCode + Modifiers
+        │
+        ▼
+  kernel command registry     platform-neutral, already exists
+```
+
+Two conversions, each independently testable, and only the last one is ours.
+The kernel's `KeyCode`/`Modifiers` types are already platform-neutral, so the
+adapter is a pure mapping function with no state — which means the whole input
+path above the terminal can be tested with `Event::encode` and zero I/O.

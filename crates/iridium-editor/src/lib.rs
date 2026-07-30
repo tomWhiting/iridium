@@ -1,9 +1,8 @@
 //! # Iridium Editor
 //!
-//! A GPU-accelerated text editor core built with Rust and wgpu.
+//! The Iridium editing kernel: a text editor core with **no graphics dependency**.
 //!
 //! Iridium provides professional-grade text editing capabilities including:
-//! - 120fps rendering performance
 //! - Sub-8ms input latency
 //! - Multi-cursor editing
 //! - Tree-structured undo/redo history
@@ -16,6 +15,20 @@
 //!
 //! The editor follows a command-sourced architecture where all mutations
 //! go through reversible [`Command`] objects, enabling the undo tree.
+//!
+//! ## Features
+//!
+//! - `render` *(default)* — the GPU rendering back end, built on `wgpu` and
+//!   `glyphon`, targeting 120fps. This is the **only** feature that pulls a graphics
+//!   stack into the dependency graph. With `default-features = false` the kernel —
+//!   document, history, input, search, theme, view and the pure layout half of
+//!   [`render`] (viewport, gutter, cursor, selection and minimap geometry) — builds
+//!   with no GPU crate present at all, which is what lets non-GPU faces such as a
+//!   terminal front end reuse it verbatim.
+//! - `syntax` *(default)* — tree-sitter syntax highlighting via `iridium-syntax`.
+//!   Without it, the `syntax_stubs` module supplies the minimal language surface.
+//! - `web` — browser/WASM helpers. Combined with `render` it also provides the
+//!   canvas-backed GPU surface.
 //!
 //! ## Example
 //!

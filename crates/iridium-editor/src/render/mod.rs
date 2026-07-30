@@ -1,18 +1,36 @@
-//! GPU rendering subsystem.
+//! Rendering subsystem: pure layout, plus an optional GPU back end.
 //!
-//! This module handles all rendering using wgpu and glyphon.
+//! The module is split along a hard seam:
+//!
+//! - **Pure layout** — the `cursor`, `gutter`, `highlight`, `minimap`,
+//!   `simple_highlight` and `viewport` submodules compute geometry, spans and
+//!   rectangles from document state alone. They depend only on the text buffer and
+//!   have no graphics API in their dependency graph, so they are always compiled and
+//!   are equally usable by a GPU face, a terminal face or a test.
+//! - **GPU back end** — the `pipeline`, `quad`, `text` and `web` submodules wrap
+//!   `wgpu` and `glyphon`. They are compiled only when the `render` feature is
+//!   enabled (it is on by default), and `web` additionally requires the `web`
+//!   feature.
+//!
+//! Consumers that only need layout — a terminal front end, a headless test harness,
+//! a server-side indexer — should depend on this crate with `default-features = false`
+//! and pay no GPU cost at all.
 
 mod cursor;
 mod gutter;
 mod highlight;
 mod minimap;
-mod pipeline;
-mod quad;
 mod simple_highlight;
-mod text;
 mod viewport;
 
-#[cfg(feature = "web")]
+#[cfg(feature = "render")]
+mod pipeline;
+#[cfg(feature = "render")]
+mod quad;
+#[cfg(feature = "render")]
+mod text;
+
+#[cfg(all(feature = "render", feature = "web"))]
 mod web;
 
 pub use cursor::{BlinkState, CursorConfig, CursorRect, CursorRenderer, CursorStyle};
@@ -30,17 +48,21 @@ pub use minimap::{
     MinimapDimensions, MinimapDragState, MinimapInteraction, MinimapLine, MinimapPosition,
     MinimapRect, MinimapRenderer, MinimapSegment, ViewportIndicator,
 };
+pub use simple_highlight::{HighlightSpan, SimpleHighlighter, SyntaxColors, TokenType};
+pub use viewport::{Viewport, ViewportConfig};
+
+#[cfg(feature = "render")]
 pub use pipeline::{
     DEFAULT_TEXTURE_FORMAT, GpuInfo, MinimapRenderData, RenderConfig, RenderPipeline,
     SyntaxUniforms, ThemeUniforms,
 };
+#[cfg(feature = "render")]
 pub use quad::{Quad, QuadRenderer};
-pub use simple_highlight::{HighlightSpan, SimpleHighlighter, SyntaxColors, TokenType};
+#[cfg(feature = "render")]
 pub use text::{TextRenderConfig, TextRenderer};
-pub use viewport::{Viewport, ViewportConfig};
 
-#[cfg(feature = "web")]
+#[cfg(all(feature = "render", feature = "web"))]
 pub use web::WebRenderConfig;
 
-#[cfg(all(feature = "web", target_arch = "wasm32"))]
+#[cfg(all(feature = "render", feature = "web", target_arch = "wasm32"))]
 pub use web::{WebSurface, performance_now, request_animation_frame};

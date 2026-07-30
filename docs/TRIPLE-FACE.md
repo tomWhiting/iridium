@@ -43,10 +43,19 @@ Inside `render/`, only four files carry GPU types:
 | `gutter.rs` | 920 | **pure layout** |
 | `viewport.rs` | 695 | **pure layout** |
 | `simple_highlight.rs` | 494 | **pure layout** |
+| `minimap/types.rs` | 462 | **pure layout** |
 | `cursor.rs` | 454 | **pure layout** |
+| `minimap/renderer.rs` | 388 | **pure layout** |
+| `minimap/tests.rs` | 291 | **pure layout** |
+| `minimap/mod.rs` | 33 | **pure layout** |
 
-**≈2,250 lines of actual GPU code against ≈3,575 lines of pure layout
-logic that every face needs.**
+**≈2,250 lines of actual GPU code against ≈4,750 lines of pure layout
+logic that every face needs.** (`render/mod.rs` names wgpu and glyphon
+only in its own doc comment; it contains no GPU code.)
+
+The whole minimap is pure geometry — which means D2's "wire it or delete
+it" question is not GPU-bound, and a cell-grid minimap in the terminal is
+technically free if wanted.
 
 The entire kernel→render coupling is three references to *pure* types:
 

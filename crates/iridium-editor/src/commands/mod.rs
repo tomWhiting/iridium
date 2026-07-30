@@ -119,6 +119,8 @@ mod keymap_tests;
 #[cfg(test)]
 mod layer_tests;
 #[cfg(test)]
+mod reachability_tests;
+#[cfg(test)]
 mod registry_tests;
 #[cfg(test)]
 mod resolver_tests;

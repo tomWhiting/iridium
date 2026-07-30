@@ -45,6 +45,7 @@
 #![doc(html_root_url = "https://docs.rs/iridium-editor/0.1.0")]
 
 // Module declarations only - no implementation here
+pub mod commands;
 pub mod document;
 pub mod editor;
 pub mod history;
@@ -63,11 +64,18 @@ pub mod view;
 pub mod span_index;
 
 // Re-exports for convenient access
+pub use commands::{
+    CommandArgs, CommandCategory, CommandId, CommandInvocation, CommandMeta, CommandRegistry,
+    KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver, KeymapStack, ModeName,
+    ModifierPattern, ModifierState, RegistryError, Resolution, StrokeCapture, StrokePattern,
+};
 pub use document::{CursorState, Document, Position, Range, Selection};
-pub use editor::{Editor, EditorConfig, EditorEvent, EditorState, IridiumError};
+pub use editor::{Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError};
 pub use history::{Command, UndoTree};
 pub use input::ImeHandler;
-pub use input::{ClipboardOperation, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers};
+pub use input::{
+    ClipboardOperation, CommandRunError, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers,
+};
 pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
 pub use render::{CurrentLineRenderer, CursorRenderer, SelectionRenderer};
 #[cfg(feature = "syntax")]

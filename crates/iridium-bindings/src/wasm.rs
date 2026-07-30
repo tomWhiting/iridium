@@ -14,7 +14,7 @@ use crate::key_map::key_code_from_dom_key;
 use crate::text_range::text_range;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
-    EditorConfig, Position, Range,
+    EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
     editor::{Editor, FoldState},
     history::Command,
     input::{
@@ -127,6 +127,21 @@ impl JsEditInfo {
 }
 
 /// Maximum expected lines in viewport (for pre-allocation sizing).
+/// One host command a binding resolved to, on its way to JavaScript.
+///
+/// Serialized rather than returned as separate accessors so the id and the
+/// arguments a key sequence captured cannot be read out of step with each other.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostCommandRequest {
+    /// The registered command id the binding named.
+    command: String,
+    /// The numeric prefix the user typed, if any.
+    count: Option<u32>,
+    /// Characters captured by wildcard strokes, in sequence order.
+    captures: Vec<char>,
+}
+
 /// Typical: 50 lines visible + 20 overscan = 70 lines.
 const MAX_VIEWPORT_LINES: usize = 128;
 
@@ -275,6 +290,13 @@ pub struct WebEditor {
     /// by `getPendingClipboardText` (the text never rides in the
     /// `handleKeyEvent` return value).
     pending_clipboard_text: Option<String>,
+
+    /// The host command a binding last resolved to, awaiting
+    /// `takePendingHostCommand`.
+    ///
+    /// Held rather than returned directly because `handleKeyEvent` answers with a
+    /// status string; the id and its arguments would not fit that shape.
+    pending_host_command: Option<HostCommandRequest>,
     /// Edit accumulated since the last `takeLastEdit` call.
     pending_edit: PendingEdit,
 }
@@ -418,6 +440,7 @@ pub async fn create_web_editor(
         // Raw key event handling
         keyboard_handler: KeyboardHandler::new(),
         pending_clipboard_text: None,
+        pending_host_command: None,
         pending_edit: PendingEdit::None,
     })
 }
@@ -512,6 +535,7 @@ impl WebEditor {
         alt: bool,
         meta: bool,
         alt_graph: bool,
+        is_repeat: bool,
     ) -> String {
         let Some(key_code) = key_code_from_dom_key(key) else {
             // Unknown key: never reaches the Rust core.
@@ -547,7 +571,7 @@ impl WebEditor {
                 meta,
                 alt_graph,
             },
-            is_repeat: false,
+            is_repeat,
         };
 
         // `keyboard_handler` and `editor` are disjoint fields, so the
@@ -573,6 +597,113 @@ impl WebEditor {
             KeyResult::Command(cmd) => self.apply_key_command(cmd),
             KeyResult::Clipboard(operation) => self.apply_clipboard_result(operation),
             KeyResult::Search(action) => self.apply_search_result(&action),
+            // A binding named a command the kernel does not implement — a host
+            // command. The key was consumed and the id is reported so the host can
+            // run it; the caller reads `takePendingHostCommand` for the id.
+            KeyResult::HostCommand { command, args } => {
+                self.pending_host_command = Some(HostCommandRequest {
+                    command: command.as_str().to_owned(),
+                    count: args.count(),
+                    captures: args.captures().to_vec(),
+                });
+                self.cursor_renderer.reset_blink();
+                self.needs_redraw = true;
+                "handled:command".to_string()
+            },
+        }
+    }
+
+    /// The strokes typed so far in an incomplete key sequence, rendered as text.
+    ///
+    /// Empty when nothing is pending. A host shows this so a chord leader
+    /// (`Ctrl+K`, which consumes the keypress) does not look like an unresponsive
+    /// editor; the count typed so far is included, so `2d` reads as `2d`.
+    #[wasm_bindgen(js_name = pendingKeySequence)]
+    #[must_use]
+    pub fn pending_key_sequence(&self) -> String {
+        let mut out = String::new();
+        if let Some(count) = self.keyboard_handler.pending_count() {
+            out.push_str(&count.to_string());
+        }
+        for press in self.keyboard_handler.pending_sequence() {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(
+                &StrokePattern::new(press.key, ModifierPattern::exact(press.modifiers)).to_string(),
+            );
+        }
+        out
+    }
+
+    /// Cancels any half-typed key sequence, returning `true` when one was
+    /// cancelled.
+    ///
+    /// Call this on **blur**. Every cursor-moving host path already does it, which
+    /// covers a click elsewhere in the page; a focus loss with no click does not,
+    /// and a chord left pending across it would consume the first keystroke after
+    /// the user came back.
+    #[wasm_bindgen(js_name = abortPendingKeySequence)]
+    pub fn abort_pending_key_sequence(&mut self) -> bool {
+        self.keyboard_handler.abort_pending_sequence()
+    }
+
+    /// Takes the host command a binding last resolved to, if any.
+    ///
+    /// Take semantics: the request is cleared by this call. Returned as JSON so the
+    /// command id, its count and its captured characters cross the boundary
+    /// together.
+    #[wasm_bindgen(js_name = takePendingHostCommand)]
+    pub fn take_pending_host_command(&mut self) -> Option<String> {
+        let request = self.pending_host_command.take()?;
+        serde_json::to_string(&request).ok()
+    }
+
+    /// Replaces the user keymap layer from a JSON keymap, validated against the
+    /// command registry.
+    ///
+    /// This is how bindings become swappable in the web face: the JSON is the
+    /// serde shape of [`Keymap`], and the layer sits *on top* of the default so a
+    /// user rebinds one key without forking the defaults. Any previously pushed
+    /// user layer is replaced.
+    ///
+    /// Returns `None` on success and the diagnostic text on failure — an unknown
+    /// command id, a binding whose bare prefix would strand a default chord, or
+    /// malformed JSON — so a typo in a configuration file is a startup error rather
+    /// than a key that silently does nothing.
+    #[wasm_bindgen(js_name = setUserKeymap)]
+    pub fn set_user_keymap(&mut self, json: &str) -> Option<String> {
+        let keymap = match serde_json::from_str::<Keymap>(json) {
+            Ok(keymap) => keymap,
+            Err(error) => return Some(error.to_string()),
+        };
+        // Replace, not stack: a second call must not leave the first layer buried
+        // where the user can no longer reach or remove it.
+        let previous = if self.keyboard_handler.keymap().len() > 1 {
+            self.keyboard_handler.pop_keymap()
+        } else {
+            None
+        };
+        match self
+            .keyboard_handler
+            .push_validated_keymap(keymap, self.editor.commands())
+        {
+            Ok(()) => None,
+            Err(error) => {
+                // The rejected layer changed nothing; put the working one back.
+                if let Some(previous) = previous {
+                    self.keyboard_handler.push_keymap(previous);
+                }
+                Some(error.to_string())
+            },
+        }
+    }
+
+    /// Drops the user keymap layer, restoring the built-in defaults.
+    #[wasm_bindgen(js_name = clearUserKeymap)]
+    pub fn clear_user_keymap(&mut self) {
+        if self.keyboard_handler.keymap().len() > 1 {
+            self.keyboard_handler.pop_keymap();
         }
     }
 

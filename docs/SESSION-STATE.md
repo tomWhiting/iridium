@@ -18,17 +18,40 @@ pushed. Commits on the branch, newest last:
 | `2e72ecd` | docs: chiron syntax/LSP build-vs-adopt verdict |
 | `bce6a45` | **fix: `jump_to_node` must record the branch it travelled** |
 | `b017a15` | **fix: GPU-free kernel configuration actually testable** |
+| `391d15d` | docs: this baton |
+| `a782af7` | **feat: undo-tree branch navigation reachable from `Editor`** + grouping-timeout wiring |
+| `cddc4ad` | fix: PLAN crate boundary + CI now *tests* both GPU-free configurations |
+| `75a0bce` | **fix: repaired the wasm build**; `web` feature now implies `render` |
 
 Also on `main` already: `f0e8a80` (undo-tree redo fix), `c048cf0` (gitignore).
 
-**Test baseline, all green:** 576 (`--no-default-features`), 618
-(`--no-default-features --features syntax`), 634 (`--all-features`), 92
-bindings, 30 syntax. `cargo fmt --all --check` clean.
+**Test baseline, all green at `75a0bce`:** 492 (`--no-default-features`), 534
+(`--no-default-features --features syntax`), 550 (`--all-features`), 92
+bindings, 30 syntax, 16 + 1 elsewhere. `cargo fmt --all --check` clean. Zero
+clippy warnings in any file touched (99 pre-existing elsewhere in the crate).
+
+**Correction to the earlier baseline in this file:** the 576/618/634 recorded
+against `b017a15` were measured in a working tree that already contained the
+registry workflow's uncommitted `commands/` module, so ~91 of those tests were
+not on the branch at all. The numbers above were measured in a clean worktree
+at `391d15d` plus the committed changes, which is the only way to get an
+honest count while the workflow is writing to this checkout.
+
+**Verify in an isolated worktree while the workflow runs.** The recipe that
+worked: `git worktree add --detach <scratchpad>/verify-wt <commit>`, copy the
+files under test across, run the gates there. The main checkout does not
+compile at all while the workflow is mid-write.
 
 ## In flight right now
 
 - **Workflow `wy2pfpzd2`** (run id `wf_a24837fa-2de`) — command registry +
-  keymap layer (decision D1). Script at
+  keymap layer (decision D1). **STILL RUNNING as of 15:31 on 30 Jul**, and it
+  has moved on from `commands/` to splitting the 1,457-line
+  `input/keyboard/mod.rs`: `actions.rs`, `dispatch.rs`, `dispatch_tests.rs`,
+  `edits.rs`, `multi_cursor_verbs.rs`, `navigation.rs` are all untracked and
+  `input/keyboard/mod.rs` is modified. The checkout does **not** compile mid-write
+  (`dispatch_tests.rs` had an `E0596`), so do not read a red build as a real
+  failure without checking whether the workflow is between writes. Script at
   `~/.claude/projects/-Users-tom-Developer-ablative-libs-iridium/33ce25a4-8b77-4d27-b58b-a132d9a104af/workflows/scripts/iridium-command-registry-wf_a24837fa-2de.js`.
   Resume with `Workflow({scriptPath, resumeFromRunId: "wf_a24837fa-2de"})`.
   It has produced `crates/iridium-editor/src/commands/` (19 files, ~5,065
@@ -46,53 +69,81 @@ bindings, 30 syntax. `cargo fmt --all --check` clean.
   `not_ready` (1 major — **fixed** in `bce6a45`), mechanical `not_ready`
   (4 majors), test-evidence `not_ready` (3 majors).
 
-## Outstanding Norn majors — NOT yet done
+## Norn findings — ALL CLOSED
 
-Two of four mechanical majors and two of three test-evidence majors remain.
+Every major and every non-major from the four review lenses is now fixed and
+committed. What they were, and what closing them turned up:
 
-1. **`PLAN.md` is factually wrong in two places** (mechanical #2). §3 lines
-   88–91 assign `gutter/minimap primitives` to `iridium-render`, but the
-   ratified boundary (`TRIPLE-FACE.md` §3, and `render/mod.rs` as built) puts
-   gutter/minimap/cursor/highlight/viewport in the **kernel** — they are pure
-   layout. Lines 107–109 claim CI enforces
-   `cargo check -p iridium-core --no-default-features`; **`iridium-core` does
-   not exist** and `.github/workflows/ci.yml:23-26` actually checks
-   `iridium-editor --no-default-features`. Fix the factual errors. Do **not**
-   apply the phase reprioritisation in `THE-CORE-LOOP.md` §4 — that needs
-   Tom's explicit approval and he has not given it.
+1. **`PLAN.md` factually wrong in two places** — fixed in `cddc4ad`. It routed
+   pure layout into `iridium-render` and cited a CI gate on a nonexistent
+   `iridium-core`. Closing it also fixed the *gate*: CI was running
+   `cargo check` on the GPU-free configuration, and checking a configuration
+   whose tests never run is precisely how that configuration became
+   unbuildable in test mode without anyone noticing. CI now tests it.
+2. **Four non-test `#[allow(dead_code)]`** in the undo module — gone in
+   `a782af7`, by making the fields live rather than deleting them.
+   `UndoTree::node_info` reports id, parent, children, active child, age and
+   description: what an undo-tree view needs to draw itself.
+3. **`redo_retraces_the_last_travelled_branch` did not discriminate** — fixed
+   in `a782af7`. It used `redo_branch(0)` while the pre-fix `redo` was
+   hard-coded to index 0, so it passed against the bug it was written for. It
+   now forks three ways and travels into the middle branch, and I verified it
+   fails against both wrong answers by neutralising the fix twice: `children
+   .first()` yields "A", `children.last()` yields "C", both against an expected
+   "B".
+4. **No `Editor`-level branching test, no cursor-topology assertion** — fixed
+   in `a782af7`, seven tests in `editor/history_nav/tests.rs`. Covering it
+   properly meant building the API first (see below), because the only
+   `Editor`-level way to switch branches went through `state_mut` and desynced
+   the document.
 
-2. **Four non-test `#[allow(dead_code)]` remain in the touched undo module**
-   (mechanical #4), now at `history/undo_tree/mod.rs` lines ~31, 48, 51, 57 —
-   on `UndoNode.id`, `UndoNode.timestamp`, `UndoNode.description` and
-   `UndoNodeInfo`. Zero non-test `#[allow]` is a hard gate. These are
-   pre-existing but the constitution requires a touched module brought to
-   standard. **Preferred fix:** implement `node_info()` returning
-   `UndoNodeInfo`, which makes all four live *and* delivers a piece of the
-   undo-tree branch-navigation API Tom wants. `description` is never set to
-   anything but `None`; `timestamp` is currently write-only; `id` duplicates
-   the `HashMap` key. Deleting them is the alternative but loses future
-   capability.
+The four non-major architecture comments are also closed, in `75a0bce`:
+`web` now implies `render` (it was enabling four dependencies and no API);
+`render/minimap/` is named in the kernel manifest (it is load-bearing — public
+`MouseHandler` methods take `MinimapRenderer`/`MinimapDimensions`); moving GPU
+failure authority out of `IridiumError` is now a Phase 2 item; and the
+`--no-default-features --all-targets` failure Norn saw was already fixed by
+`b017a15`, re-verified clean.
 
-3. **`redo_retraces_the_last_travelled_branch` does not discriminate**
-   (test-evidence #2). It uses `redo_branch(0)`, and the pre-fix
-   implementation was hardcoded to index 0, so **the test passes against the
-   unfixed code**. It would also still pass if the `preferred_child` write in
-   `redo_into` were deleted. Rewrite it to travel into a branch that is *not*
-   index 0, and verify it fails against the old behaviour. A test that passes
-   either way proves nothing — the same standard applied to the workflow
-   agents applies here.
+## Found while closing them — three defects nobody had reported
 
-4. **No `Editor`-level branching test, and no test asserts cursor topology
-   across a branch switch** (test-evidence #3). All undo-tree regressions
-   drive `UndoTree` directly with a single zero-position cursor and assert only
-   `doc.text()`. Production goes through `Editor::undo`/`Editor::redo`
-   (`editor/core.rs:678`, `:703`) which also run `finish_history_replay`.
-   `redo_branch` and `jump_to_node` **bypass** that entirely — no cursor
-   restoration, no `invalidate_cursor_order`, no `revalidate_vertical_columns`.
-   Add an `Editor`-level fork test asserting full cursor state.
+- **`EditorConfig::undo_group_timeout_ms` did nothing.** Plumbed all the way
+  from TypeScript through `JsEditorConfig` into `EditorConfig`, then never
+  read: every editor got the hard-coded 500 ms. `Editor::new` now builds the
+  history from it and `set_undo_group_timeout_ms` keeps the two in step. This
+  closes the "dead `undoGroupTimeoutMs` config" open question.
+- **`EditorState::set_content` reverted that timeout** to the default on every
+  file open, by replacing the history with `UndoTree::new()`. Replacing the
+  tree is correct; losing the configured timeout is not.
+- **`b017a15` broke the wasm build.** Removing the `_Placeholder` variant
+  orphaned its only use, `wasm.rs:358`. `wasm.rs` is `cfg(target_arch =
+  "wasm32")` gated so no native check type-checks it, and I had not run the
+  wasm target after the change — CI's existing wasm step would have failed.
+  Fixed in `75a0bce`. **Lesson: after touching anything the wasm surface
+  consumes, run `cargo check -p iridium-bindings --no-default-features
+  --features web --target wasm32-unknown-unknown`.**
 
-Architecture lens returned 4 non-major comments not yet read in detail — read
-`norn-out/architecture.json`.
+## Undo-tree branch navigation — now real, and Tom's question answered
+
+Tom asked for "undo a couple of things, make a change, and then go back up and
+down the tree". The engine existed; nothing outside the kernel could reach it.
+`crates/iridium-editor/src/editor/history_nav.rs` adds `Editor::redo_branch`,
+`jump_to_history_node`, `history_branches`, `history_node` and
+`current_history_node`, all routed through the same `finish_history_replay` as
+`undo`/`redo`, so cursor restoration, multi-cursor invalidation, search refresh
+and event emission are identical however the tree was traversed. A jump across
+four edges emits **one** content-changed event, because it has one destination.
+
+`undo_tree/mod.rs` hit 563 lines, so the reporting types and queries moved to
+`undo_tree/info.rs` (154). Everything is under the cap.
+
+**Still needs Tom, and is not built:** the *UI*. Keybindings, a visual panel,
+and the wasm/napi exposure of these methods. The kernel capability is done and
+tested; nothing binds it to a keystroke yet. `UndoNodeInfo` is deliberately
+string-keyed for ids so a JavaScript host cannot lose precision on a u64.
+`iridium_editor::history::{UndoNodeId, UndoNodeInfo}` are reachable
+(`pub mod history`); a convenience re-export from `lib.rs` was left out on
+purpose because the registry workflow is rewriting that file.
 
 ## Decisions taken (do not relitigate)
 
@@ -157,3 +208,23 @@ wants to play with. Blocked on nothing now that soft wrap and the terminal
 stack are decided; the prior workflow was stopped before writing any TUI code,
 deliberately, so the brief could be rewritten for termina and soft wrap. Note
 soft wrap changes the renderer brief substantially versus the original draft.
+
+**It should not start until the registry workflow lands**, because that
+workflow is mid-refactor of `input/keyboard/` — the exact seam the TUI's kernel
+contract sits on.
+
+## Immediate next steps, in order
+
+1. **Wait for workflow `wy2pfpzd2` to finish**, then review and commit its
+   output: `crates/iridium-editor/src/commands/` (19 files) plus the
+   `input/keyboard/` split. Known issues to check: `keymap_tests.rs` was 514
+   lines (over cap), unused imports in `keymap_tests.rs`/`layer_tests.rs`, a
+   dead `press` fn in `validation_tests.rs`, an unused `VerticalDirection`
+   import and a never-used `IMPLEMENTED_COMMAND_COUNT` in `actions.rs`, and an
+   `unused_mut` in `dispatch_tests.rs`. Do not trust its test counts — measure
+   in a clean worktree.
+2. **Get Tom's approval on the phase reprioritisation** in
+   `THE-CORE-LOOP.md` §4 before touching PLAN's phase order. Still not given.
+3. **Ask Tom whether he wants undo-tree branch navigation bound to keys and
+   drawn**, now that the API underneath it exists and is tested.
+4. **Then the terminal face.**

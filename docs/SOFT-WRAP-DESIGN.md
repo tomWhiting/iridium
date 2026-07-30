@@ -562,6 +562,73 @@ Every claim below is a named `#[test]` in `layout/tests/`, with the one permitte
 
 **12. Sub-row scrolling remains structurally supported and unexercised.** `RowViewport::row_offset_px` mirrors `Viewport::scroll_offset_y`, which today is never assigned a non-zero value anywhere in the crate. I have kept the field and the sign convention, so the same dormant-and-untested state now exists in two places rather than one.
 
+## Verified by hand before implementation — corrections to the map
+
+The workflow's map is evidence-grounded and reliable on *what the code says*.
+Two of its conclusions needed correcting, and one turned out to be worse than
+reported. Verified by reproduction, not by reading.
+
+### 1. Nested folds — REAL, worse than reported, and now FIXED (`d1a71f0`)
+
+The map said `FoldState`'s prefix sums double-count under nested folds. True,
+and the consequence was not merely a wrong count: the inflated total made
+`document_to_visual` compute `doc_line - hidden_before` as `5 - 6`, which
+**panics in debug and silently wraps in release**. `visible_line_count`
+returned 0 where the truth was 2. Reachable from `fold_all` on any nested
+block.
+
+Fixed by coalescing overlapping and nested folds into disjoint hidden intervals
+before counting. Three regression tests, two of which I confirmed fail against
+the unfixed build. Adjacent folds deliberately do **not** merge — the line
+between two folds is visible.
+
+The design's decision to compose rows from `is_line_hidden` plus coalesced
+intervals, rather than through `visual_to_document_line`, was the right call and
+remains right; the underlying prefix sums are now correct too.
+
+### 2. `Viewport.first_line`'s two meanings — REAL but LATENT, not a live bug
+
+The map is correct that `first_line` is read as a fold-visual row by the
+fold-aware methods and as a document line by `contains_line`,
+`scroll_to_position`, `ensure_cursor_visible` and `last_visible_line`, and that
+these diverge as soon as anything is folded. I reproduced it: with lines 1..=4
+folded and `first_line == 2`, `contains_line(6)` returns `false` while
+`is_line_visible_with_folds(6)` returns `true` for the same on-screen line.
+
+**But it is not currently reachable.** Every one of the document-semantics
+methods is dead:
+
+- `Viewport::contains_line` has no callers anywhere (the `contains_line` hits in
+  `iridium-syntax/src/folding.rs` are `FoldRegion::contains_line`, an unrelated
+  method on a different type).
+- `Editor::scroll_to_line` (`editor/core.rs:808`) sets `state.scroll_line`
+  directly and never touches `Viewport`.
+- `WasmEditor::ensure_cursor_visible` (`wasm.rs:1498`) is its own method doing
+  its own fold-aware arithmetic; it is not `Viewport::ensure_cursor_visible`.
+
+So this is a loaded gun rather than a fired one, and its first caller would
+silently get wrong answers. Fix it as the **first task** of the implementation,
+by renaming for unambiguity rather than by picking a meaning quietly: a method
+taking a screen row and a method taking a document line plus the fold state
+should not be able to be confused, and a caller passing the wrong one should
+fail to compile.
+
+### 3. The web face already has an ad-hoc soft wrap
+
+Worth stating plainly because it changes what "implement soft wrap" means.
+`wasm.rs:1505` comments that its cached cursor position "accounts for wrapping
+within this line", and the design already identified `cached_visual_line_map`,
+`visual_lines_per_logical_line` and `extra_wrap_lines` in that file. The web
+face also owns a `fold_state` **separate from** `Editor`'s (`wasm.rs:177`),
+which is why one judge's fatal flaw against the winning design — that its
+invalidation hook fires on `Editor`'s fold mutators, which the web face does not
+use — is correct and must be resolved before implementation.
+
+So kernel soft wrap is not a greenfield feature. It is a *consolidation*: one
+correct implementation replacing an ad-hoc one that only one face has, and which
+is invisible to the kernel that owns the undo tree and the cursor.
+
+
 ## Judge verdicts on the winner — fix these before implementing
 
 ### Scores: correctness 5, blast radius 9, feel 6, performance 8, hygiene 9

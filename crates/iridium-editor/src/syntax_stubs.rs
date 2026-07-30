@@ -188,13 +188,13 @@ impl FoldDetector {
         let mut brace_stack: Vec<(usize, usize)> = Vec::new(); // (line, char_index)
         let mut in_string = false;
         let mut string_char = '"';
-        let mut in_line_comment = false;
         let mut in_block_comment = false;
         let mut prev_char = '\0';
 
+        // A line comment always runs to the end of its line, so the scan
+        // breaks out rather than tracking a flag that could never be read
+        // again before being reset.
         for (line_num, line) in source.lines().enumerate() {
-            in_line_comment = false; // Reset at start of each line
-
             let chars: Vec<char> = line.chars().collect();
             let mut i = 0;
 
@@ -203,12 +203,7 @@ impl FoldDetector {
                 let next_char = chars.get(i + 1).copied().unwrap_or('\0');
 
                 // Handle block comment start
-                if !in_string
-                    && !in_line_comment
-                    && !in_block_comment
-                    && ch == '/'
-                    && next_char == '*'
-                {
+                if !in_string && !in_block_comment && ch == '/' && next_char == '*' {
                     in_block_comment = true;
                     i += 2;
                     continue;
@@ -229,12 +224,11 @@ impl FoldDetector {
 
                 // Handle line comment start
                 if !in_string && ch == '/' && next_char == '/' {
-                    in_line_comment = true;
                     break; // Rest of line is comment
                 }
 
                 // Handle string literals (basic - doesn't handle all escape sequences)
-                if !in_line_comment && (ch == '"' || ch == '\'') {
+                if ch == '"' || ch == '\'' {
                     if !in_string {
                         in_string = true;
                         string_char = ch;

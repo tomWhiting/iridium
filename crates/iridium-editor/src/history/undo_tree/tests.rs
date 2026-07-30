@@ -258,35 +258,49 @@ fn redo_retraces_the_last_travelled_branch() {
     let mut doc = Document::new("");
     let mut cursor = CursorState::at(Position::zero());
 
-    // Fork: branch 0 is "A", branch 1 is "B".
-    let cmd_a = insert_at(0, "A");
-    cmd_a.apply(&mut doc, &mut cursor).expect("apply A");
-    tree.push(cmd_a);
-    let inv = tree.undo().expect("undo A");
-    inv.apply(&mut doc, &mut cursor).expect("apply inverse A");
+    // Three siblings at the root: branch 0 is "A", 1 is "B", 2 is "C".
+    // The middle branch is the target deliberately — it is neither the
+    // oldest child (which the pre-fix `redo` hard-coded) nor the newest
+    // (which is the fallback when no branch has been travelled), so this
+    // test fails against both wrong answers instead of only one.
+    for text in ["A", "B", "C"] {
+        let cmd = insert_at(0, text);
+        cmd.apply(&mut doc, &mut cursor).expect("apply branch");
+        tree.push(cmd);
+        let inv = tree.undo().expect("undo branch");
+        inv.apply(&mut doc, &mut cursor)
+            .expect("apply inverse branch");
+    }
+    assert_eq!(tree.branch_count(), 3);
 
-    let cmd_b = insert_at(0, "B");
-    cmd_b.apply(&mut doc, &mut cursor).expect("apply B");
-    tree.push(cmd_b);
-    let inv = tree.undo().expect("undo B");
+    // Explicitly travel into the middle branch. That becomes the active
+    // path, so an undo/redo round-trip must return to it.
+    let into_b = tree.redo_branch(1).expect("enter branch 1");
+    into_b.apply(&mut doc, &mut cursor).expect("apply B");
+    assert_eq!(doc.text(), "B");
+
+    let inv = tree.undo().expect("undo B again");
     inv.apply(&mut doc, &mut cursor).expect("apply inverse B");
-    assert_eq!(tree.branch_count(), 2);
-
-    // Explicitly travel into the older branch. That becomes the active
-    // path, so an undo/redo round-trip must return to it — not to "B".
-    let into_a = tree.redo_branch(0).expect("enter branch 0");
-    into_a.apply(&mut doc, &mut cursor).expect("apply A");
-    assert_eq!(doc.text(), "A");
-
-    let inv = tree.undo().expect("undo A again");
-    inv.apply(&mut doc, &mut cursor).expect("apply inverse A");
     let redone = tree.redo().expect("redo");
     redone.apply(&mut doc, &mut cursor).expect("apply redo");
     assert_eq!(
         doc.text(),
-        "A",
+        "B",
         "redo abandoned the branch the caller was actually on"
     );
+
+    // Every sibling survives the round-trip: nothing was pruned to make
+    // the active path unambiguous.
+    let inv = tree.undo().expect("undo B once more");
+    inv.apply(&mut doc, &mut cursor).expect("apply inverse B");
+    assert_eq!(tree.branch_count(), 3);
+    for (index, expected) in [(0, "A"), (1, "B"), (2, "C")] {
+        let cmd = tree.redo_branch(index).expect("enter branch");
+        cmd.apply(&mut doc, &mut cursor).expect("apply branch");
+        assert_eq!(doc.text(), expected, "branch {index} was not preserved");
+        let inv = tree.undo().expect("leave branch");
+        inv.apply(&mut doc, &mut cursor).expect("apply inverse");
+    }
 }
 
 /// Regression: a jump must record the branch it travelled, so a later

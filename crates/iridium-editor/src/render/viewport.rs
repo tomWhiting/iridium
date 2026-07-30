@@ -409,8 +409,10 @@ mod tests {
     use super::*;
     use ropey::Rope;
 
-    #[cfg(feature = "syntax")]
-    use iridium_syntax::Language;
+    // The crate re-exports `Language` from `iridium_syntax` or `syntax_stubs`
+    // depending on the `syntax` feature, so these tests run in both
+    // configurations rather than silently vanishing from the GPU-free build.
+    use crate::Language;
 
     #[test]
     fn viewport_contains_line() {
@@ -443,7 +445,6 @@ mod tests {
         assert_eq!(viewport.first_line, 31);
     }
 
-    #[cfg(feature = "syntax")]
     fn setup_fold_state() -> FoldState {
         let code = r"line 0
 fn foo() {

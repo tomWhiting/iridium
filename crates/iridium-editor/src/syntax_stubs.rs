@@ -2,37 +2,110 @@
 //!
 //! These types provide API compatibility without requiring tree-sitter.
 
-/// Stub Language type - no languages available without syntax feature.
+/// Language identity, available without the `syntax` feature.
+///
+/// Mirrors the variants of `iridium_syntax::Language`. Only *parsing* needs
+/// tree-sitter; language **identity** is pure data, and the kernel depends on
+/// it for behaviour that has nothing to do with highlighting — comment
+/// toggling, indent rules, and auto-pairs all key off the active language. A
+/// stub that reported no languages would silently change those behaviours
+/// between feature configurations, which is worse than having no stub at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
-    /// Placeholder variant to make the enum non-empty
-    #[doc(hidden)]
-    _Placeholder,
+    /// Rust
+    Rust,
+    /// Python
+    Python,
+    /// TypeScript
+    TypeScript,
+    /// JavaScript
+    JavaScript,
+    /// TSX
+    Tsx,
+    /// Go
+    Go,
+    /// JSON
+    Json,
+    /// YAML
+    Yaml,
+    /// Markdown
+    Markdown,
+    /// CSS
+    Css,
+    /// Bash
+    Bash,
+    /// C
+    C,
+    /// C++
+    Cpp,
 }
 
 impl Language {
-    /// Returns all available languages (empty without syntax feature).
+    /// Every language identity the kernel understands.
     #[must_use]
     pub fn all() -> &'static [Language] {
-        &[]
+        &[
+            Self::Rust,
+            Self::Python,
+            Self::TypeScript,
+            Self::JavaScript,
+            Self::Tsx,
+            Self::Go,
+            Self::Json,
+            Self::Yaml,
+            Self::Markdown,
+            Self::Css,
+            Self::Bash,
+            Self::C,
+            Self::Cpp,
+        ]
     }
 
-    /// Returns the language ID (always None without syntax feature).
+    /// Returns the stable language ID.
     #[must_use]
-    pub fn id(&self) -> &'static str {
-        ""
+    pub const fn id(&self) -> &'static str {
+        match self {
+            Self::Rust => "rust",
+            Self::Python => "python",
+            Self::TypeScript => "typescript",
+            Self::JavaScript => "javascript",
+            Self::Tsx => "tsx",
+            Self::Go => "go",
+            Self::Json => "json",
+            Self::Yaml => "yaml",
+            Self::Markdown => "markdown",
+            Self::Css => "css",
+            Self::Bash => "bash",
+            Self::C => "c",
+            Self::Cpp => "cpp",
+        }
     }
 
-    /// Detects language from file extension (always None without syntax feature).
+    /// Detects a language from a file extension.
     #[must_use]
-    pub fn from_extension(_ext: &str) -> Option<Language> {
-        None
+    pub fn from_extension(ext: &str) -> Option<Language> {
+        match ext.to_ascii_lowercase().as_str() {
+            "rs" => Some(Self::Rust),
+            "py" | "pyi" => Some(Self::Python),
+            "ts" | "mts" | "cts" => Some(Self::TypeScript),
+            "js" | "mjs" | "cjs" | "jsx" => Some(Self::JavaScript),
+            "tsx" => Some(Self::Tsx),
+            "go" => Some(Self::Go),
+            "json" | "jsonc" => Some(Self::Json),
+            "yaml" | "yml" => Some(Self::Yaml),
+            "md" | "markdown" => Some(Self::Markdown),
+            "css" => Some(Self::Css),
+            "sh" | "bash" | "zsh" => Some(Self::Bash),
+            "c" | "h" => Some(Self::C),
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some(Self::Cpp),
+            _ => None,
+        }
     }
 
-    /// Gets language from ID (always None without syntax feature).
+    /// Resolves a language from its stable ID.
     #[must_use]
-    pub fn from_id(_id: &str) -> Option<Language> {
-        None
+    pub fn from_id(id: &str) -> Option<Language> {
+        Self::all().iter().copied().find(|lang| lang.id() == id)
     }
 }
 

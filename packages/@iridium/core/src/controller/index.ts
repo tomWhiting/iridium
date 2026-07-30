@@ -224,6 +224,20 @@ type OptionalCallback =
   | "onHostCommand"
   | "onPendingKeySequence";
 
+/**
+ * The host callbacks as stored on the controller: every key **present**, its
+ * value still allowed to be `undefined`.
+ *
+ * Deliberately not `Pick<IridiumEditorOptions, OptionalCallback>`, which keeps
+ * the properties optional and so lets the constructor omit one entirely. That
+ * is not hypothetical: `onHostCommand` and `onPendingKeySequence` were declared,
+ * read, and never assigned, which silently discarded every host command the
+ * kernel resolved. Requiring the key makes forgetting one a compile error.
+ */
+type HostCallbacks = {
+  [K in OptionalCallback]: IridiumEditorOptions[K];
+};
+
 /** A command a key sequence resolved to that the host must run itself. */
 export interface HostCommandRequest {
   /** The registered command id the binding named. */
@@ -257,7 +271,7 @@ export class IridiumEditor {
   private canvas: HTMLCanvasElement;
   private editor: WebEditor;
   private syntaxWorker: SyntaxHighlightClient | null = null;
-  private options: Required<Omit<IridiumEditorOptions, OptionalCallback>> & Pick<IridiumEditorOptions, OptionalCallback>;
+  private options: Required<Omit<IridiumEditorOptions, OptionalCallback>> & HostCallbacks;
   private currentLanguage: string;
   private isDragging = false;
   private animationFrameId = 0;
@@ -294,6 +308,8 @@ export class IridiumEditor {
       onScroll: options.onScroll,
       onBeforeKeyDown: options.onBeforeKeyDown,
       onSearchAction: options.onSearchAction,
+      onHostCommand: options.onHostCommand,
+      onPendingKeySequence: options.onPendingKeySequence,
     };
     this.currentLanguage = this.options.language;
   }

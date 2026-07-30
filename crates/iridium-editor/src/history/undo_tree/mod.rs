@@ -306,7 +306,14 @@ impl UndoTree {
 
     /// Jumps to a specific node in the tree.
     ///
-    /// Returns the sequence of commands needed to reach that node.
+    /// Returns the sequence of commands needed to reach that node, which the
+    /// caller MUST apply to the document — this method moves the tree pointer
+    /// but does not touch document state.
+    ///
+    /// Every edge traversed is recorded as the active path, so a subsequent
+    /// [`UndoTree::redo`] retraces the jump rather than re-entering a branch
+    /// abandoned earlier. Where the upward and downward walks meet, the
+    /// downward step wins, because that is the branch the caller ends up on.
     pub fn jump_to_node(&mut self, target_id: UndoNodeId) -> Option<Vec<Command>> {
         if !self.nodes.contains_key(&target_id) {
             return None;
@@ -324,6 +331,9 @@ impl UndoTree {
             .copied()?;
 
         let mut commands = Vec::new();
+        // (parent, child) edges traversed, applied only once the whole walk
+        // succeeds so a failed jump leaves no partial preference behind.
+        let mut traversed = Vec::new();
 
         // Undo from current to common ancestor
         let mut node = self.current;
@@ -332,7 +342,9 @@ impl UndoTree {
                 if let Some(cmd) = &current_node.command {
                     commands.push(cmd.inverse());
                 }
-                node = current_node.parent?;
+                let parent = current_node.parent?;
+                traversed.push((parent, node));
+                node = parent;
             } else {
                 break;
             }
@@ -344,11 +356,20 @@ impl UndoTree {
             .take_while(|id| *id != common_ancestor)
             .collect();
 
+        let mut parent = common_ancestor;
         for node_id in redo_path.into_iter().rev() {
             if let Some(node_data) = self.nodes.get(&node_id) {
                 if let Some(cmd) = &node_data.command {
                     commands.push(cmd.clone());
                 }
+            }
+            traversed.push((parent, node_id));
+            parent = node_id;
+        }
+
+        for (parent_id, child_id) in traversed {
+            if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
+                parent_node.preferred_child = Some(child_id);
             }
         }
 
@@ -426,323 +447,4 @@ impl UndoTree {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::panic)]
-mod tests {
-    use super::*;
-    use crate::document::{CursorState, Document, Position};
-
-    fn insert_cmd(text: &str) -> Command {
-        Command::Insert {
-            position: Position::new(0, 0),
-            text: text.to_string(),
-        }
-    }
-
-    /// Builds an insert command at the given column on line 0.
-    fn insert_at(column: usize, text: &str) -> Command {
-        Command::Insert {
-            position: Position::new(0, column),
-            text: text.to_string(),
-        }
-    }
-
-    #[test]
-    fn new_tree() {
-        let tree = UndoTree::new();
-        assert!(!tree.can_undo());
-        assert!(!tree.can_redo());
-        assert_eq!(tree.branch_count(), 0);
-    }
-
-    #[test]
-    fn push_and_undo() {
-        let mut tree = UndoTree::with_timeout(0); // Disable grouping
-        tree.push(insert_cmd("Hello"));
-
-        assert!(tree.can_undo());
-        assert!(!tree.can_redo());
-
-        let undo_cmd = tree.undo();
-        assert!(undo_cmd.is_some());
-        assert!(!tree.can_undo());
-        assert!(tree.can_redo());
-    }
-
-    #[test]
-    fn undo_redo() {
-        let mut tree = UndoTree::with_timeout(0);
-        tree.push(insert_cmd("Hello"));
-
-        tree.undo();
-        assert!(tree.can_redo());
-
-        let redo_cmd = tree.redo();
-        assert!(redo_cmd.is_some());
-        assert!(!tree.can_redo());
-    }
-
-    #[test]
-    fn branching() {
-        let mut tree = UndoTree::with_timeout(0);
-
-        // Initial edit
-        tree.push(insert_cmd("A"));
-        tree.undo();
-
-        // Create branch
-        tree.push(insert_cmd("B"));
-
-        // Should have 2 branches at root
-        tree.undo();
-        assert_eq!(tree.branch_count(), 2);
-    }
-
-    #[test]
-    fn grouped_pushes_produce_flat_compound() {
-        // Large timeout so all pushes fall inside the group window.
-        let mut tree = UndoTree::with_timeout(10_000);
-
-        tree.push(insert_at(0, "a"));
-        tree.push(insert_at(1, "b"));
-        tree.push(insert_at(2, "c"));
-        tree.push(insert_at(3, "d"));
-        tree.push(insert_at(4, "e"));
-
-        // Grouping must not create extra nodes: root plus one edit node.
-        assert_eq!(tree.get_tree_info().node_count, 2);
-
-        // A single undo must revert all five grouped commands.
-        let inverse = tree.undo().expect("undo should return inverse command");
-        assert!(!tree.can_undo(), "one undo should reach the root");
-
-        // The inverse must be a flat compound with 5 direct, non-compound
-        // children — the old implementation nested one level per keystroke.
-        match inverse {
-            Command::Compound { commands } => {
-                assert_eq!(commands.len(), 5, "expected 5 flat children");
-                for child in &commands {
-                    assert!(
-                        !matches!(child, Command::Compound { .. }),
-                        "grouped compound must not be nested"
-                    );
-                }
-            },
-            other => panic!("expected Command::Compound, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn undo_after_grouped_typing_restores_document() {
-        let mut tree = UndoTree::with_timeout(10_000);
-        let mut doc = Document::new("");
-        let mut cursor = CursorState::at(Position::zero());
-
-        // Simulate a fast typing burst: apply each keystroke and push it.
-        for (column, ch) in ["h", "e", "l", "l", "o"].iter().enumerate() {
-            let cmd = insert_at(column, ch);
-            cmd.apply(&mut doc, &mut cursor).expect("apply keystroke");
-            tree.push(cmd);
-        }
-        assert_eq!(doc.text(), "hello");
-
-        // One undo must restore the original (empty) document text.
-        let inverse = tree.undo().expect("undo should return inverse command");
-        inverse.apply(&mut doc, &mut cursor).expect("apply inverse");
-        assert_eq!(doc.text(), "");
-
-        // Redo must reapply the full burst.
-        let redo = tree.redo().expect("redo should return command");
-        redo.apply(&mut doc, &mut cursor).expect("apply redo");
-        assert_eq!(doc.text(), "hello");
-    }
-
-    #[test]
-    fn push_after_timeout_creates_new_node() {
-        // Zero timeout: elapsed time is never strictly less than the
-        // timeout, so consecutive pushes must never group.
-        let mut tree = UndoTree::with_timeout(0);
-
-        tree.push(insert_at(0, "a"));
-        tree.push(insert_at(1, "b"));
-
-        // Root plus two distinct edit nodes.
-        assert_eq!(tree.get_tree_info().node_count, 3);
-
-        // Two separate undos are required to reach the root.
-        assert!(tree.undo().is_some());
-        assert!(tree.can_undo(), "second edit node should remain");
-        assert!(tree.undo().is_some());
-        assert!(!tree.can_undo());
-    }
-
-    #[test]
-    fn jump_to_node_across_branch() {
-        let mut tree = UndoTree::with_timeout(0);
-        let mut doc = Document::new("");
-        let mut cursor = CursorState::at(Position::zero());
-
-        // Branch 1: insert "A" (node id 1).
-        let cmd_a = insert_at(0, "A");
-        cmd_a.apply(&mut doc, &mut cursor).expect("apply A");
-        tree.push(cmd_a);
-
-        // Undo back to root, then create branch 2: insert "B" (node id 2).
-        let inv_a = tree.undo().expect("undo A");
-        inv_a.apply(&mut doc, &mut cursor).expect("apply inverse A");
-        let cmd_b = insert_at(0, "B");
-        cmd_b.apply(&mut doc, &mut cursor).expect("apply B");
-        tree.push(cmd_b);
-        assert_eq!(doc.text(), "B");
-
-        // Jump across the branch point: from node 2 to node 1.
-        let commands = tree
-            .jump_to_node(UndoNodeId::new(1))
-            .expect("jump to sibling branch");
-        assert_eq!(commands.len(), 2, "expected undo of B then redo of A");
-        for cmd in &commands {
-            cmd.apply(&mut doc, &mut cursor)
-                .expect("apply jump command");
-        }
-        assert_eq!(doc.text(), "A");
-        assert!(tree.can_undo());
-        assert!(!tree.can_redo(), "node 1 is a leaf");
-        assert_eq!(tree.branch_count(), 0);
-
-        // Jump back across to node 2 and verify the document follows.
-        let commands = tree
-            .jump_to_node(UndoNodeId::new(2))
-            .expect("jump back to other branch");
-        assert_eq!(commands.len(), 2, "expected undo of A then redo of B");
-        for cmd in &commands {
-            cmd.apply(&mut doc, &mut cursor)
-                .expect("apply jump command");
-        }
-        assert_eq!(doc.text(), "B");
-
-        // Jumping to a nonexistent node must fail without moving.
-        assert!(tree.jump_to_node(UndoNodeId::new(99)).is_none());
-        assert_eq!(doc.text(), "B");
-        assert!(tree.can_undo());
-    }
-
-    /// Regression: `redo` must return the work that was just undone, not a
-    /// branch abandoned earlier.
-    ///
-    /// Previously `redo` was hardcoded to child index 0 while `push` appended
-    /// new branches to the end, so "undo, type something new, undo, redo"
-    /// silently restored the *old* text and left the newly typed branch
-    /// unreachable through any public API.
-    #[test]
-    fn redo_returns_to_newest_branch_not_oldest() {
-        let mut tree = UndoTree::with_timeout(0);
-        let mut doc = Document::new("");
-        let mut cursor = CursorState::at(Position::zero());
-
-        // Type "OLD".
-        let cmd_old = insert_at(0, "OLD");
-        cmd_old.apply(&mut doc, &mut cursor).expect("apply OLD");
-        tree.push(cmd_old);
-        assert_eq!(doc.text(), "OLD");
-
-        // Undo it, then type something different: this forks the tree.
-        let inv = tree.undo().expect("undo OLD");
-        inv.apply(&mut doc, &mut cursor).expect("apply inverse OLD");
-        assert_eq!(doc.text(), "");
-
-        let cmd_new = insert_at(0, "NEW");
-        cmd_new.apply(&mut doc, &mut cursor).expect("apply NEW");
-        tree.push(cmd_new);
-        assert_eq!(doc.text(), "NEW");
-
-        // Undo the new work, landing on the branch point with both siblings.
-        let inv = tree.undo().expect("undo NEW");
-        inv.apply(&mut doc, &mut cursor).expect("apply inverse NEW");
-        assert_eq!(doc.text(), "");
-        assert_eq!(tree.branch_count(), 2, "both branches must survive");
-
-        // Redo must restore "NEW" — the work we just undid.
-        let redone = tree.redo().expect("redo after fork");
-        redone.apply(&mut doc, &mut cursor).expect("apply redo");
-        assert_eq!(
-            doc.text(),
-            "NEW",
-            "redo resurrected the abandoned branch instead of the newest work"
-        );
-
-        // And the older branch is still reachable, not truncated.
-        let inv = tree.undo().expect("undo back to fork");
-        inv.apply(&mut doc, &mut cursor).expect("apply inverse");
-        let old_branch = tree.redo_branch(0).expect("older branch still present");
-        old_branch.apply(&mut doc, &mut cursor).expect("apply old");
-        assert_eq!(doc.text(), "OLD");
-    }
-
-    /// `redo` retraces the branch the caller last travelled, even when that
-    /// branch is not the most recently created one.
-    #[test]
-    fn redo_retraces_the_last_travelled_branch() {
-        let mut tree = UndoTree::with_timeout(0);
-        let mut doc = Document::new("");
-        let mut cursor = CursorState::at(Position::zero());
-
-        // Fork: branch 0 is "A", branch 1 is "B".
-        let cmd_a = insert_at(0, "A");
-        cmd_a.apply(&mut doc, &mut cursor).expect("apply A");
-        tree.push(cmd_a);
-        let inv = tree.undo().expect("undo A");
-        inv.apply(&mut doc, &mut cursor).expect("apply inverse A");
-
-        let cmd_b = insert_at(0, "B");
-        cmd_b.apply(&mut doc, &mut cursor).expect("apply B");
-        tree.push(cmd_b);
-        let inv = tree.undo().expect("undo B");
-        inv.apply(&mut doc, &mut cursor).expect("apply inverse B");
-        assert_eq!(tree.branch_count(), 2);
-
-        // Explicitly travel into the older branch. That becomes the active
-        // path, so an undo/redo round-trip must return to it — not to "B".
-        let into_a = tree.redo_branch(0).expect("enter branch 0");
-        into_a.apply(&mut doc, &mut cursor).expect("apply A");
-        assert_eq!(doc.text(), "A");
-
-        let inv = tree.undo().expect("undo A again");
-        inv.apply(&mut doc, &mut cursor).expect("apply inverse A");
-        let redone = tree.redo().expect("redo");
-        redone.apply(&mut doc, &mut cursor).expect("apply redo");
-        assert_eq!(
-            doc.text(),
-            "A",
-            "redo abandoned the branch the caller was actually on"
-        );
-    }
-
-    /// Linear redo is unaffected: with a single child there is no choice to
-    /// make, and repeated undo/redo must round-trip exactly.
-    #[test]
-    fn redo_round_trips_on_a_linear_history() {
-        let mut tree = UndoTree::with_timeout(0);
-        let mut doc = Document::new("");
-        let mut cursor = CursorState::at(Position::zero());
-
-        for (column, text) in [(0, "a"), (1, "b"), (2, "c")] {
-            let cmd = insert_at(column, text);
-            cmd.apply(&mut doc, &mut cursor).expect("apply");
-            tree.push(cmd);
-        }
-        assert_eq!(doc.text(), "abc");
-
-        for _ in 0..3 {
-            let inv = tree.undo().expect("undo");
-            inv.apply(&mut doc, &mut cursor).expect("apply inverse");
-        }
-        assert_eq!(doc.text(), "");
-        assert!(!tree.can_undo());
-
-        for _ in 0..3 {
-            let cmd = tree.redo().expect("redo");
-            cmd.apply(&mut doc, &mut cursor).expect("apply redo");
-        }
-        assert_eq!(doc.text(), "abc");
-        assert!(!tree.can_redo());
-    }
-}
+mod tests;

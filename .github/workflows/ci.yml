@@ -42,6 +42,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --all-features
+      - name: Run kernel tests without default features
+        # `cargo check` on this configuration is not enough: it once compiled
+        # while the test target did not, because a stub type the tests needed
+        # was missing. A configuration whose tests never run is a
+        # configuration nobody can rely on.
+        run: cargo test -p iridium-editor --no-default-features
+      - name: Run kernel tests with syntax but no GPU
+        # The configuration a terminal face actually ships in.
+        run: cargo test -p iridium-editor --no-default-features --features syntax
 
   clippy:
     name: Clippy

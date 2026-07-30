@@ -63,12 +63,46 @@ impl LineMapping {
             .collect();
         active_folds.sort_by_key(|(start, _)| *start);
 
+        // Coalesce folds that overlap or nest before counting anything.
+        //
+        // A fold hides the lines `(start_line, end_line]`, so two folds whose
+        // spans touch hide an overlapping set of lines. Summing their spans
+        // independently counts the shared lines twice: fold `0..=10` with a
+        // nested fold `3..=5` hides ten lines, not twelve. That overcount is
+        // not merely cosmetic — `document_to_visual` subtracts
+        // `hidden_before` from a document line, so an inflated total made the
+        // subtraction underflow and panic on the first visible line after the
+        // folds. `fold_all` folds every region including nested ones, so any
+        // nested block reached it.
+        //
+        // Merging is sound because the outermost fold's `start_line` is
+        // visible and every line it hides is also hidden by the merged
+        // interval: a fold strictly inside another contributes no new hidden
+        // line, and two partially overlapping folds hide exactly the union of
+        // their spans.
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(active_folds.len());
+        for (start_line, end_line) in active_folds {
+            match merged.last_mut() {
+                // `start_line <= current_end` means this fold begins at or
+                // inside the hidden run already accumulated, so it extends it
+                // rather than starting a new one. A fold beginning exactly at
+                // `current_end + 1` does NOT merge: that line is visible.
+                Some((_, current_end)) if start_line <= *current_end => {
+                    *current_end = (*current_end).max(end_line);
+                },
+                _ => merged.push((start_line, end_line)),
+            }
+        }
+
         // Build boundaries with cumulative hidden counts
-        let mut boundaries = Vec::with_capacity(active_folds.len());
+        let mut boundaries = Vec::with_capacity(merged.len());
         let mut cumulative_hidden = 0;
 
-        for (start_line, end_line) in active_folds {
-            let hidden_count = end_line - start_line; // Lines after start, up to and including end
+        for (start_line, end_line) in merged {
+            // Lines after start, up to and including end. `end_line` is always
+            // greater than `start_line` for a real region, and `saturating_sub`
+            // keeps a malformed one from wrapping instead of producing zero.
+            let hidden_count = end_line.saturating_sub(start_line);
             boundaries.push(FoldBoundary {
                 start_line,
                 end_line,
@@ -551,7 +585,7 @@ impl FoldState {
 
     /// Returns the visible lines count (total lines minus hidden lines).
     #[must_use]
-    pub fn visible_line_count(&self, total_lines: usize) -> usize {
+    pub const fn visible_line_count(&self, total_lines: usize) -> usize {
         total_lines.saturating_sub(self.hidden_line_count())
     }
 
@@ -731,5 +765,120 @@ line 5";
         state.set_language(Language::Python);
         assert!(state.regions().is_empty());
         assert!(!state.is_folded(0));
+    }
+
+    /// Regression: a fold nested inside another must not have its lines counted
+    /// twice.
+    ///
+    /// `fold_all` folds every detected region, including nested ones, and
+    /// `LineMapping::build` used to sum each fold's span independently. For an
+    /// outer fold hiding four lines and an inner fold hiding two of the same
+    /// four, that reported six hidden lines out of six — so
+    /// `visible_line_count` returned 0 while `is_line_hidden` correctly
+    /// reported two visible lines, and `document_to_visual_line` underflowed
+    /// `doc_line - hidden_before` and panicked on the first line after the
+    /// folds. Any nested block reached it.
+    #[test]
+    fn nested_folds_do_not_double_count_hidden_lines() {
+        let source = "fn a() {\n    if x {\n        y();\n    }\n}\nend\n";
+        let mut state = setup_rust_fold_state(source);
+        let total_lines = 6;
+
+        state.fold_all();
+
+        let visible: Vec<usize> = (0..total_lines)
+            .filter(|&line| !state.is_line_hidden(line))
+            .collect();
+        assert_eq!(visible, vec![0, 5], "the wrong lines are hidden");
+        assert_eq!(
+            state.visible_line_count(total_lines),
+            visible.len(),
+            "visible_line_count disagrees with is_line_hidden"
+        );
+
+        // The mapping must be total over every line: hidden lines report None,
+        // visible ones report their row, and nothing panics.
+        assert_eq!(state.document_to_visual_line(0), Some(0));
+        for hidden_line in 1..=4 {
+            assert_eq!(state.document_to_visual_line(hidden_line), None);
+        }
+        assert_eq!(
+            state.document_to_visual_line(5),
+            Some(1),
+            "the first line after a nested fold is misplaced"
+        );
+        assert_eq!(state.visual_to_document_line(1), 5);
+    }
+
+    /// Two folds that merely sit next to each other must stay separate: the
+    /// line between them is visible, so coalescing them would hide it.
+    #[test]
+    fn adjacent_folds_are_not_merged() {
+        // Lines 0-2 are one block, 3-5 another; line 3 is visible.
+        let source = "fn a() {\n    x();\n}\nfn b() {\n    y();\n}\nend\n";
+        let mut state = setup_rust_fold_state(source);
+        let total_lines = 7;
+
+        state.fold_all();
+
+        let visible: Vec<usize> = (0..total_lines)
+            .filter(|&line| !state.is_line_hidden(line))
+            .collect();
+        assert_eq!(
+            visible,
+            vec![0, 3, 6],
+            "the line between two folds must stay visible"
+        );
+        assert_eq!(state.visible_line_count(total_lines), visible.len());
+        assert_eq!(state.document_to_visual_line(3), Some(1));
+        assert_eq!(state.document_to_visual_line(6), Some(2));
+    }
+
+    /// Every line of a document must map without panicking, whatever is folded.
+    /// This is the property the underflow violated.
+    #[test]
+    fn every_line_maps_under_every_combination_of_folds() {
+        let source = "fn a() {\n    if x {\n        y();\n    }\n}\nend\n";
+        let total_lines = 6;
+
+        // Every pair, so nested and disjoint combinations are both covered —
+        // folding one line at a time can never nest, and nesting is where the
+        // accounting broke.
+        for first in 0..total_lines {
+            for second in 0..total_lines {
+                let mut state = setup_rust_fold_state(source);
+                if !state.fold_at(first) {
+                    continue;
+                }
+                state.fold_at(second);
+
+                let mut rows = Vec::new();
+                for line in 0..total_lines {
+                    if let Some(row) = state.document_to_visual_line(line) {
+                        rows.push(row);
+                    }
+                }
+                assert_eq!(
+                    rows.len(),
+                    state.visible_line_count(total_lines),
+                    "folding {first} then {second} disagrees on how many lines are visible"
+                );
+                // Rows must be a gap-free 0..n sequence, or a renderer would
+                // skip or repeat a screen line.
+                assert!(
+                    rows.iter().copied().eq(0..rows.len()),
+                    "folding {first} then {second} produced non-contiguous rows: {rows:?}"
+                );
+                // And the round-trip must land back on a visible line.
+                for (row, &line) in rows.iter().enumerate() {
+                    let _ = line;
+                    let doc = state.visual_to_document_line(row);
+                    assert!(
+                        !state.is_line_hidden(doc),
+                        "row {row} maps to hidden line {doc} after folding {first} then {second}"
+                    );
+                }
+            }
+        }
     }
 }

@@ -35,17 +35,37 @@ survives a nuclear bomb.**
 
 ## 2. The reframe: this is not primarily a code editor
 
-The single most important sentence for prioritisation:
+The single most important sentence for **prioritisation**:
 
 > *"90 million times out of ten I'm not writing code. What I'm doing is pulling stuff out
 > of text files, markdown files."*
 
-He is a **structured-text extractor**, not a code author. Roughly **half** of his editor
-time is spent in **JSON and JSONL**, mining data out of it. Markdown conversion is much of
-the rest.
+By volume he is a **structured-text extractor**, not a code author. Roughly **half** of his
+editor time is spent in **JSON and JSONL**, mining data out of it. Markdown conversion is
+much of the rest.
 
-This does not change the identity or the architecture. It changes **which features are
-core and which are garnish**, and the current plan has some of them filed as garnish.
+### 2.1 But extraction is the volume, not the point
+
+This correction came directly from Tom after an earlier draft of this document
+over-indexed on extraction, and it is the more important half:
+
+> *"I don't want to get lost in there that... I want to enjoy writing again. I used to quite
+> enjoy writing and I don't really anymore. I don't want to feel like, oh, this is going to
+> be longer than four sentences, so I'm going to dictate it or have an AI write it up for
+> me. I want to enjoy doing that again."*
+
+So the goal is not a data-mining tool that also edits text. **The goal is a writing surface
+good enough that writing stops being a chore he routes around** — and the structural
+manipulation is what makes it powerful enough to be worth living in.
+
+The practical test for any decision: *does this make writing four-plus sentences feel
+inviting rather than avoidable?* A feature that speeds up JSON extraction but makes prose
+feel worse has failed. This is also the sharpest statement yet of why AI stays out of the
+kernel: the point is to want to write, not to delegate writing.
+
+Neither half changes the identity or the architecture. Together they change **which
+features are core and which are garnish**, and the current plan has some of them filed as
+garnish.
 
 ---
 
@@ -64,15 +84,37 @@ Ordered by how much he actually uses it.
 | 7 | **Fuzzy file open** | **NOT BUILT** |
 | 8 | **Lightweight and fast, forever** | architectural — the whole point vs Zed |
 
-### 3.1 Feature 1 is the daily driver
+### 3.1 Feature 1 is the daily driver — and it is bigger than one command
 
 *"Select the largest syntax node — I use that almost every single day."* The concrete loop,
 in his words: cursor lands somewhere in the middle of a JSON string field, boundaries
 unknown. Press a key: the whole field is selected. Press again: the enclosing object.
 Again: the array. Again: the document.
 
-This is expand-selection / shrink-selection over the tree-sitter tree, and it is the
-feature that makes the editor worth opening.
+**Do not scope this to that one example.** Tom was explicit on the point:
+
+> *"I don't want that one example to be pulled out as the whole thing. It is the entire
+> abstract syntax tree control thing... It's not just that I want to be able to select the
+> largest node, I want to be able to navigate everything by syntax node."*
+
+So the requirement is a **full AST navigation and selection model**, of which
+expand/shrink is one verb. The verb set to design for:
+
+- expand selection to the enclosing node; shrink back along the exact path taken
+- move to next / previous **named sibling**
+- ascend to **parent**, descend to **first child**
+- jump to next / previous node **of a given kind**
+- select a node's **inner** vs **outer** range (the textobject distinction — `i"` vs `a"`)
+
+Every one of these is a registry command (§3.2), which is another argument for building the
+registry first.
+
+**Shrink is the trap.** It must retrace the exact path expand took, or it drifts into a
+different node than the one you came from. This is structurally the same bug as `redo`
+picking the wrong branch of the undo tree, which was found and fixed in this repo on
+2026-07-30 (commit `f0e8a80`). The fix there was a `preferred_child` pointer recording the
+active path. An expand/shrink selection stack needs the same discipline. Do not re-make
+that mistake in a new place.
 
 **What it needs:** `iridium-syntax` must expose the parse tree for positional queries. The
 good news is the tree is **already retained** — `Highlighter` holds `self.tree: Option<Tree>`
@@ -158,17 +200,89 @@ placed.
 
 ---
 
-## 6. Open questions
+## 6. Decisions taken 2026-07-30
 
-- **Soft wrap.** He did not mention it, and it is the one genuinely structural feature
-  that would be expensive to retrofit — it breaks the one-document-line-equals-one-screen-row
-  assumption currently baked into `Viewport` and all the cell math. JSONL in particular is
-  single enormous lines. Needs an answer before the terminal renderer is finalised.
-- **Mouse mode in the terminal.** He referenced a tool that "does it really well" but the
-  name did not survive voice transcription. Worth identifying before deciding how far
-  mouse support goes.
-- **File browsing.** He wants something oil.nvim-shaped — directories edited *as a text
-  buffer* — rather than a sidebar tree widget. Very much in keeping with the identity, and
-  notable because it is a file manager made of the editor's own primitives, which means it
-  costs little once the buffer and the registry exist.
-- **Which transformations**, concretely, beyond title/camel/snake case.
+### 6.1 Soft wrap — YES, on by default, toggleable
+
+> *"Text wrap, yeah, 100%. It'd be nice to be able to turn it off, but text wrap is pretty
+> essential. It's just a nightmare having to scroll all the way across a page just to see
+> the end of something. Definitely text wrap as probably for me the default, but
+> customizable for whoever."*
+
+**This is the structurally expensive one and it must be designed in from the start**, not
+retrofitted. Soft wrap breaks the assumption that one document line equals one screen row —
+an assumption currently baked into `Viewport` (`render/viewport.rs`) and every piece of the
+cell math, which derives all of its geometry from `line_height`.
+
+What it forces, concretely:
+
+- A **visual-line vs document-line** distinction throughout the viewport layer. Scrolling,
+  `visible_line_range`, `document_line_at_y`, `screen_y_for_line` and cursor motion all
+  become operations over *visual* rows that map many-to-one onto document lines. Vertical
+  cursor motion moves by visual row (what a writer expects), not document line.
+- Wrap is a **layout** concern, so it belongs in the kernel's pure layout half, not in a
+  face. All three faces must agree on where lines wrap, or the terminal and GPU faces will
+  disagree about what line the cursor is on. This is a direct argument for the shared
+  backend-neutral paint model in `TRIPLE-FACE.md` §4.
+- It interacts with folds (already supported) — the composition of wrap and fold is the
+  fiddly part, and existing fold-aware viewport methods must keep working.
+- Wrap width, wrap-at-word-boundary vs character, and indent continuation are all config.
+- Turning it off must restore the current horizontal-scroll behaviour exactly.
+
+### 6.2 Terminal input — `terminput` + `terminput-termina`
+
+The tool Tom could not name in transcription is
+[`terminput-termina`](https://crates.io/crates/terminput-termina). Resolved and compiled
+against locally: `terminput` 0.5.15 (2,311 lines) plus the adapter
+`terminput-termina` 0.3.1 (435 lines, two conversion functions each way for events, keys and
+mouse). Both compile clean on this toolchain.
+
+Adopted, for one decisive reason beyond Tom's preference. `terminput` ships not just an
+event model but a **parser** (824 lines) *and* an **encoder** (661 lines) — it can turn
+events back into terminal byte sequences. That means **the entire terminal input path
+becomes testable headlessly and deterministically**: synthesise key events, encode to bytes,
+feed them through the real parser. No pty, no live terminal, no flaky integration harness.
+Given that the analogous gap on the web face (no DOM test infrastructure) is a known,
+logged weakness, buying deterministic input tests for ~400 lines of adapter is cheap.
+
+The secondary benefit is churn insurance: termina is pre-1.0 at 0.3.x, and the adapter
+absorbs its API changes.
+
+The one honest cost: it is a second neutral event representation, since Iridium's kernel
+already defines its own platform-neutral `KeyCode` + `Modifiers`. The chain becomes
+`termina::Event` → `terminput::Event` → kernel `KeyCode`+`Modifiers`. That extra hop is one
+mapping file and no measurable latency, and it buys the test harness. Worth it, but it
+should be a deliberate choice rather than an accident — the kernel contract remains the
+authority, and `terminput` must not leak past `iridium-tui`.
+
+### 6.3 Mouse — supported, toggleable
+
+Wanted, but must be switchable on and off. Capture has to be released on teardown along
+with raw mode and the alternate screen.
+
+## 7. Still open
+
+- **File browsing**, oil.nvim-shaped: directories edited *as a text buffer* rather than a
+  sidebar tree widget. Confirmed as the intent, not yet scheduled. Notable because it is a
+  file manager built from the editor's own primitives, so it costs little once the buffer
+  and the registry exist.
+- **Which transformations** concretely, beyond title/camel/snake case. Tom had written a
+  transformations crate previously; it is lost some thousands of commits back in another
+  repo's history and is not worth recovering — *"not exactly rocket science"*.
+- **Whether to adopt `chiron/crates/syntax`** — see §8.
+
+## 8. An existing, better syntax implementation
+
+Tom has a tree-sitter implementation he rates well above `iridium-syntax`, at
+`/Users/tom/Developer/ablative/dev-ops/chiron/crates/syntax`: *"my tree-sitter chops and
+implementation have gotten significantly better... it's used in a couple of other things and
+it's been through the ringer a couple of times."* It uses Zed's tree-sitter queries. There is
+an **LSP implementation in the same directory**, which is relevant because LSP is currently
+Phase 6 and entirely unbuilt in Iridium.
+
+Given that full AST navigation (§3.1) is the headline requirement and `iridium-syntax`
+exposes no node-level API at all, this is a live build-vs-adopt decision rather than a
+curiosity. Under evaluation: adopt wholesale, port the node-navigation capability across, or
+extract a crate both projects consume. Pending, with the quality bar (zero
+unwrap/expect/panic and `#[allow]` outside tests, ~500-line modules, documented public
+items, wasm32-compatible for the web face) as the gate.

@@ -241,7 +241,43 @@ contract is now stable and better than it was: the terminal face maps
 it to the same resolver the web face uses, so both faces share one keymap by
 construction. Verified stack facts are in `TERMINAL-STACK.md`.
 
-## In flight: soft-wrap design workflow
+## Soft wrap: designed, not yet implemented
+
+`docs/SOFT-WRAP-DESIGN.md` is the output of a 16-agent design workflow (run
+`wf_37d58d87-805`, all 16 agents succeeded), plus my own verification on top.
+**Read its "Verified by hand" section first** — it corrects the map in two
+places and records what is real versus latent.
+
+Winner: **`new-vocabulary`** (108 points vs 94 and 91). Soft wrap gets a new
+coordinate space, the **screen row**, in a new `crate::layout` module. The
+existing fold "visual line" keeps its exact name, signature, meaning and
+serialized shape, so the web face does not break. Rows compose directly from
+document lines via `is_line_hidden` plus coalesced fold intervals, never through
+`visual_to_document_line`. Widths are measured in **cells** (`unicode-width`
+plus tab stops), which is the only unit that lets the terminal and GPU faces
+agree on break points by construction — and it lets the GPU faces set
+`Wrap::None` and delete the ad-hoc wrap model now living in `wasm.rs`.
+
+**Every judge found a real flaw in the winning design. They are listed in the
+doc and must be fixed before implementation.** The two that matter most:
+
+1. The `RowIndex` invalidation hook fires on `Editor`'s fold mutators, but the
+   **web face does not use `Editor`'s fold state** — `WasmEditor` owns a private
+   `fold_state` (`wasm.rs:177`). The hook would never fire for the web face.
+2. `RowIndex::apply_edit` takes a single contiguous line splice, but every
+   multi-cursor edit and every paste hands it a `Command::Compound` with N
+   edits in reverse order.
+
+**First task of the implementation** is the latent `Viewport.first_line`
+ambiguity (see the doc): reproduce-confirmed, currently unreachable because
+every document-semantics method on `Viewport` is dead, and it must be made
+impossible-to-misuse before anything new is built on it.
+
+**Soft wrap is a consolidation, not a greenfield feature.** The web face already
+wraps, ad hoc, in `wasm.rs`, invisibly to the kernel that owns the undo tree and
+the cursor.
+
+## (former) In flight: soft-wrap design workflow
 
 **Workflow `wv59grbl1`** (run id `wf_37d58d87-805`), script at
 `~/.claude/projects/-Users-tom-Developer-ablative-libs-iridium/33ce25a4-8b77-4d27-b58b-a132d9a104af/workflows/scripts/iridium-soft-wrap-design-wf_37d58d87-805.js`.

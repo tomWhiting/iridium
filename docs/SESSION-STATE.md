@@ -308,15 +308,76 @@ workflow rather than an implementation one:
   with no GPU dependency — kernel code despite the directory name. It should be
   split as part of this work, not after.
 
-## Immediate next steps, in order
+## Decisions Tom has now given (2026-07-31)
 
-1. **Get Tom's decision on the `Ctrl+K` chord leader** (above). It is live.
-2. **Get Tom's approval on the phase reprioritisation** in
-   `THE-CORE-LOOP.md` §4 before touching PLAN's phase order. Still not given.
-3. **Ask Tom whether he wants undo-tree branch navigation bound to keys and
-   drawn**, now that the API underneath it exists and is tested.
-4. **Review the soft-wrap design, then implement it**, then the terminal face
-   on top. Soft wrap first is deliberate: retrofitting it into a finished TUI
-   renderer is worse than building the renderer against it, and without it the
-   terminal face is useless for the owner's actual work (long JSON/JSONL lines
-   and prose).
+Three questions this document was holding open are answered:
+
+1. **What next → features, not the terminal face.** Build the things he uses
+   daily, kernel-side, so they appear in the web demo immediately and the
+   terminal face inherits them.
+2. **`Ctrl+K` chord leader → drop it.** `Ctrl+K` becomes the command-palette
+   key. The `Ctrl+K Ctrl+D` chord goes; `multiCursor.skipLastOccurrence`
+   becomes palette-only.
+3. **Undo tree → both.** Key bindings *and* a visual panel.
+
+Still **not** given, and still must not be acted on: approval for the phase
+reprioritisation in `THE-CORE-LOOP.md` §4. Do not touch PLAN.md's phase order
+without it.
+
+## The approved plan
+
+`~/.claude/plans/immutable-stargazing-moler.md` — approved 2026-07-31. Order of
+work: **command palette → text transformations → undo-tree keys and panel →
+syntax-node navigation.** Soft wrap and the terminal face are explicitly out of
+this stint (the soft-wrap design notes above stay valid for whenever it starts).
+
+Three findings in that plan were verified by hand and are worth repeating here,
+because each contradicts a reasonable assumption:
+
+- **The web face's Rust has tree-sitter switched off.** `wasm.rs:27` imports
+  `syntax_stubs`; the real tree-sitter lives in a JS worker behind a span-only
+  protocol. Kernel AST navigation will not appear in the browser without a
+  further decision (plan §4.5 prices the three options).
+- **`onHostCommand` was dead in TypeScript.** Declared, read, never assigned in
+  the constructor — so every host command the kernel resolved was silently
+  dropped. Fixed; see below.
+- **The kernel's folds go stale after every edit.** `update_regions` is called
+  only from `set_content` and `set_language`, never from
+  `apply_command_internal`. The web face drives its own `fold_state` so it is
+  unaffected; this bites the terminal face and any native embedder. Plan §4.6
+  step 4 fixes it.
+
+## Progress against the plan
+
+Palette build order, steps 1–11 (plan §1.7). Done so far:
+
+1. ✅ **`onHostCommand`/`onPendingKeySequence` now assigned**
+   (`controller/index.ts`). The stored-callback type changed from
+   `Pick<…>` — which keeps properties optional and so permitted the omission —
+   to a mapped `HostCallbacks` type that *requires* every key. Verified the
+   guard discriminates: removing the assignment again is now a compile error.
+2. ✅ **`KeymapStack::binding_is_reachable`** (`commands/stack.rs`) plus
+   `commands/reachability_tests.rs` (13 tests).
+
+   The method answers "does pressing this binding's own keys run this binding?"
+   by synthesizing the minimal keypress for each stroke and asking the resolver,
+   rather than re-deriving the precedence rules. **It must check prefixes as well
+   as the whole sequence**: `KeymapResolver::resolve` tests `exact_match` at
+   `resolver.rs:357` *before* `has_continuation` at `:383`, so a complete binding
+   on `Ctrl+K` fires immediately and `Ctrl+K Ctrl+D` never gets its second
+   keystroke. The first implementation compared whole sequences only and reported
+   the stranded chord as reachable; the test
+   `a_leader_bound_in_a_higher_layer_strands_the_chord_below_it` caught it.
+
+   Wildcard (`AnyChar`) bindings need a witness *character*, and a literal
+   binding always outranks a wildcard on the character it claims, so candidates
+   are tried until one resolves — a single fixed character would report a live
+   wildcard as dead.
+
+Test counts after these two: **723** all-features (was 710), **665** GPU-free
+(was 652), **707** syntax-without-GPU. `cargo fmt --check` clean; no new clippy
+warnings.
+
+Next: step 3, `commands/hints/` — the `CommandId → key sequence` reverse index,
+whose presentation formatter is mandatory because `display_sequence()` renders
+*Select All* as `ctrl+~shift+~altgraph+a`.

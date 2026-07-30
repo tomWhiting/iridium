@@ -241,6 +241,37 @@ contract is now stable and better than it was: the terminal face maps
 it to the same resolver the web face uses, so both faces share one keymap by
 construction. Verified stack facts are in `TERMINAL-STACK.md`.
 
+## In flight: soft-wrap design workflow
+
+**Workflow `wv59grbl1`** (run id `wf_37d58d87-805`), script at
+`~/.claude/projects/-Users-tom-Developer-ablative-libs-iridium/33ce25a4-8b77-4d27-b58b-a132d9a104af/workflows/scripts/iridium-soft-wrap-design-wf_37d58d87-805.js`.
+Resume with `Workflow({scriptPath, resumeFromRunId: "wf_37d58d87-805"})`.
+
+**It is read-only** — map and design only, no implementation — so it does not
+conflict with anything else in the checkout. Four parallel readers map the
+viewport/fold/motion/consumer contract, then three designers argue three
+angles (new vocabulary / unified mapping / lazy windowed), each judged by three
+adversarial lenses. It returns a ranking, the winner, and the best ideas from
+the losers.
+
+**Review the design before anyone implements it.** The reason it is a design
+workflow rather than an implementation one:
+
+- The kernel already has a `visual line` concept and it means *folds* —
+  `fold_state.rs` `document_to_visual_line` returns `Option<usize>`, a
+  1:1-or-hidden mapping. Soft wrap makes the same relationship **1:N**, so the
+  name is taken by a different meaning and the signature no longer fits.
+- `document_to_visual_line` is **public API** re-exported through
+  `iridium-bindings/src/editor.rs` to the web face. Changing its meaning while
+  keeping its signature is the dangerous kind of change: it keeps compiling.
+- `EditorConfig::word_wrap` (`editor/config.rs:89`) is **dead** — declared,
+  defaulted to `false`, never read. That is the third dead config found in this
+  crate, after `undo_group_timeout_ms` and its `set_content` sibling. Treat "a
+  config field exists" as zero evidence that anything honours it.
+- `render/viewport.rs` is 696 lines, already over the cap, and is pure layout
+  with no GPU dependency — kernel code despite the directory name. It should be
+  split as part of this work, not after.
+
 ## Immediate next steps, in order
 
 1. **Get Tom's decision on the `Ctrl+K` chord leader** (above). It is live.
@@ -248,4 +279,8 @@ construction. Verified stack facts are in `TERMINAL-STACK.md`.
    `THE-CORE-LOOP.md` §4 before touching PLAN's phase order. Still not given.
 3. **Ask Tom whether he wants undo-tree branch navigation bound to keys and
    drawn**, now that the API underneath it exists and is tested.
-4. **Then the terminal face.**
+4. **Review the soft-wrap design, then implement it**, then the terminal face
+   on top. Soft wrap first is deliberate: retrofitting it into a finished TUI
+   renderer is worse than building the renderer against it, and without it the
+   terminal face is useless for the owner's actual work (long JSON/JSONL lines
+   and prose).

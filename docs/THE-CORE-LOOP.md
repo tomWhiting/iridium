@@ -280,9 +280,84 @@ it's been through the ringer a couple of times."* It uses Zed's tree-sitter quer
 an **LSP implementation in the same directory**, which is relevant because LSP is currently
 Phase 6 and entirely unbuilt in Iridium.
 
-Given that full AST navigation (§3.1) is the headline requirement and `iridium-syntax`
-exposes no node-level API at all, this is a live build-vs-adopt decision rather than a
-curiosity. Under evaluation: adopt wholesale, port the node-navigation capability across, or
-extract a crate both projects consume. Pending, with the quality bar (zero
-unwrap/expect/panic and `#[allow]` outside tests, ~500-line modules, documented public
-items, wasm32-compatible for the web face) as the gate.
+**Evaluated 2026-07-30. Verdict: port the syntax crate's query layer, adopt the LSP crate.**
+Every decisive claim below was verified directly, not taken on report.
+
+### 8.1 `chiron/crates/syntax` — port the query layer, do not adopt
+
+The crate does **not** contain the thing it was evaluated for. Verified:
+
+- **Zero node-navigation code.** `grep` for `next_sibling|prev_sibling|descendant_for|named_child|.parent()|walk()` across its `src/` returns **0 call sites**. It is a *batch analysis* crate — parse a file, run a query, return flat tree-free captures. `capture.rs` states tree-freedom as an explicit design goal, which is the opposite of what navigation needs.
+- **Zero incremental reparse.** 0 references to `InputEdit`/`Tree::edit`/`changed_ranges`; `parse.rs:106` unconditionally passes `None` as the old tree, and `ParsedSource` owns a `String` copy of the whole source. Adopting it would be a **regression** — `iridium-syntax` already does incremental reparse correctly (`highlight.rs:508-535`).
+- **No highlighting and no folding at all.** `HighlightType`, `HighlightSpan`, span ordering and `FoldDetector` would all have to be rebuilt.
+- **Hard dependency blocker.** iridium resolves `tree-sitter 0.26.3`; chiron resolves `0.25.10`. `tree-sitter` declares `links = "tree-sitter"`, so Cargo **refuses** a graph containing both. Adoption forces a version migration across 32 grammar crates including 6 git-pinned ones.
+- **Licensing.** chiron is `MIT`; iridium is `MIT OR Apache-2.0`. Adopting MIT-only code weakens the Apache half.
+
+**What is genuinely worth taking (~750 lines):** its query infrastructure. iridium vendors
+~180 `.scm` files and loads exactly one kind (`highlights.scm`, 13 languages); chiron
+registers **221 `(language, kind)` pairs across 19 kinds** with a compile-time `include_str!`
+registry, a process-wide compile-once `Arc` cache, and a zero-copy capture path. That turns a
+corpus iridium already ships into live capability. Also worth taking: its `Language` shape
+(33 languages incl. Zig, TOML, SQL, HTML, JSONC) and its internal injection dialects
+(`MarkdownInline`, `JsDoc`, `Regex`), which are the right foundation for markdown code-fence
+highlighting. Keep iridium's `Option`-returning detection and its serde derives, which chiron
+lacks and the wasm/napi bindings need.
+
+**Node navigation must be written from scratch — nobody has written it.** ~400-500 lines in
+a new `iridium-syntax/src/navigate.rs`. Design constraints established:
+
+- Work in **byte offsets**. chiron's byte ranges are rope-compatible; its `start_column` is a
+  *byte* offset within the line and is **not** iridium's `Position.column`, which is UTF-8
+  code points (`document/position.rs:25`). Converting via the field instead of the rope is
+  silently wrong on any line containing non-ASCII.
+- `expand` must **skip ancestors whose byte range equals the current one**. That is the detail
+  that makes expand-selection feel right, and the usual thing people get wrong.
+- Keep an explicit expand/shrink **stack** so shrink is exact rather than re-derived — see the
+  §3.1 warning.
+- **For JSON, write direct node-kind logic, not queries.** `queries/json/textobjects.scm` is
+  the single line `(comment)+ @comment.around` — verified byte-identical in *both* repos. The
+  verbs that matter for JSONL mining (next/previous `pair`, select a pair's key or value,
+  enclosing `object`/`array`, next array element) are trivial against tree-sitter-json's node
+  kinds and unobtainable from the vendored query. Highest-leverage ~150 lines in the crate.
+- Query-driven text objects can then layer on top for the 27 languages that have real ones.
+  Note chiron never built this either: nothing consumes `QueryKind::TextObjects`.
+
+**Rejected: extracting a shared crate.** The two projects want opposite things (tree-free
+owned captures from disk vs a long-lived mutable tree over a rope), and a shared crate would
+impose a cross-repo `tree-sitter` version-coordination obligation — precisely the thing
+already blocking adoption. If the `.scm` corpus starts drifting between repos, extract a
+**queries-only** crate: data, no Rust API, no tree-sitter dependency, therefore no version
+conflict.
+
+### 8.2 `chiron/crates/lsp` — adopt, when Phase 6 arrives
+
+The better find of the two, and it changes the Phase 6 estimate substantially. Verified:
+**16,148 source lines, 432 test functions, zero `unwrap`/`expect`/`panic` in production code,
+and zero internal chiron dependencies.** Five clean layers (transport → client → server →
+features → extension) behind an `LspWorkspace` façade with hover, completion,
+goto-definition/implementation/type-definition, find-references, document and workspace
+symbols, pull and push diagnostics, call hierarchy and call graphs, multi-server routing,
+crash recovery with document re-sync, and health monitoring. That is essentially all of
+Phase 6, already built and tested.
+
+Plan around three things:
+
+- **stdio + `tokio::process` only.** Gate it `#[cfg(not(target_arch = "wasm32"))]` — spawning
+  `rust-analyzer` in a browser is meaningless anyway. The `Transport` trait
+  (`transport/mod.rs:41`) is correctly shaped for a websocket impl (`async fn send/receive`
+  on `&self`), so the web face is an unwritten impl rather than a redesign. It also needs
+  iridium's tokio features widened from `["rt", "rt-multi-thread", "sync"]`.
+- **9 `#[allow(deprecated)]` are imposed by `lsp-types 0.97`** and cannot be removed. They
+  need either a documented carve-out in the standards or a wrapper module that concentrates
+  them.
+- **Real 500-line-cap violations:** `server/registry.rs` at 2,066 lines and `client/sync.rs`
+  at 1,370 need splitting. Mechanical, and 432 tests cover the work.
+
+Three Meridian-specific strings to rename (`lib.rs:1`, `server/builtin.rs:54`,
+`client/lifecycle.rs:47`).
+
+### 8.3 Separately: the `.scm` files need a NOTICE file
+
+The vendored query corpus is Zed's, and Zed's editor tree is GPL-3.0. **Neither repo carries
+a LICENSE, NOTICE, or attribution file for it.** This is pre-existing in iridium and adoption
+creates no delta, but it wants resolving on its own merits before anything ships.

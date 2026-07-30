@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use super::commands::Command;
 
+mod info;
+
+pub use info::{UndoNodeInfo, UndoTreeInfo};
+
 /// Opaque identifier for undo nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UndoNodeId(u64);
@@ -22,13 +26,23 @@ impl UndoNodeId {
     pub const fn as_u64(self) -> u64 {
         self.0
     }
+
+    /// Rebuilds an identifier from its raw value.
+    ///
+    /// Round-trips [`UndoNodeId::as_u64`], so a host that persisted or
+    /// serialized an id can navigate back to it. The value is not validated
+    /// here — an id belonging to no node is simply refused by
+    /// [`UndoTree::jump_to_node`] and [`UndoTree::node_info`].
+    #[must_use]
+    pub const fn from_u64(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 /// A node in the undo tree representing a document state.
 #[derive(Debug, Clone)]
 struct UndoNode {
-    /// Unique identifier (used for debugging and future serialization)
-    #[allow(dead_code)]
+    /// Unique identifier, also this node's key in [`UndoTree::nodes`]
     id: UndoNodeId,
     /// Parent node (None for root)
     parent: Option<UndoNodeId>,
@@ -44,45 +58,11 @@ struct UndoNode {
     preferred_child: Option<UndoNodeId>,
     /// Command that was applied to reach this state from parent
     command: Option<Command>,
-    /// When this edit was made (used for edit grouping and future features)
-    #[allow(dead_code)]
+    /// When this edit was made, used for edit grouping and reported as
+    /// [`UndoNodeInfo::elapsed_ms`]
     timestamp: Instant,
-    /// Optional description for this edit (reserved for future features)
-    #[allow(dead_code)]
+    /// Human-readable label for this edit, shown by an undo-tree view
     description: Option<String>,
-}
-
-/// Information about an undo node for external use.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct UndoNodeInfo {
-    /// Unique node identifier
-    pub id: String,
-    /// Parent node ID (null for root)
-    pub parent_id: Option<String>,
-    /// Child node IDs
-    pub child_ids: Vec<String>,
-    /// When this edit was made (milliseconds since epoch)
-    pub timestamp: u64,
-    /// Optional description
-    pub description: Option<String>,
-}
-
-/// Information about the undo tree structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UndoTreeInfo {
-    /// Current node ID
-    pub current_id: String,
-    /// Root node ID
-    pub root_id: String,
-    /// Total number of nodes
-    pub node_count: usize,
-    /// Can undo from current position
-    pub can_undo: bool,
-    /// Can redo from current position
-    pub can_redo: bool,
-    /// Number of branches at current node
-    pub branch_count: usize,
 }
 
 /// Tree-structured undo history.
@@ -165,6 +145,15 @@ impl UndoTree {
             group_timeout_ms,
             ..Self::new()
         }
+    }
+
+    /// Sets how long consecutive edits keep merging into one undo step.
+    ///
+    /// Zero disables grouping. Only affects subsequent pushes: nodes already
+    /// merged stay merged, because splitting a compound command back into its
+    /// parts would invent undo steps the user never saw.
+    pub const fn set_group_timeout_ms(&mut self, timeout_ms: u64) {
+        self.group_timeout_ms = timeout_ms;
     }
 
     /// Pushes a new command onto the tree.
@@ -401,19 +390,6 @@ impl UndoTree {
         self.nodes
             .get(&self.current)
             .map_or(0, |n| n.children.len())
-    }
-
-    /// Returns information about the undo tree structure.
-    #[must_use]
-    pub fn get_tree_info(&self) -> UndoTreeInfo {
-        UndoTreeInfo {
-            current_id: self.current.as_u64().to_string(),
-            root_id: self.root.as_u64().to_string(),
-            node_count: self.nodes.len(),
-            can_undo: self.can_undo(),
-            can_redo: self.can_redo(),
-            branch_count: self.branch_count(),
-        }
     }
 
     /// Returns the path from a node to the root.

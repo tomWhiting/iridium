@@ -188,7 +188,11 @@ impl EditorState {
         self.document = Document::new(content);
         self.document.set_language(language_id);
         self.cursor = CursorState::at(Position::zero());
-        self.history = UndoTree::new();
+        // Replacing the content replaces the history — the old tree describes
+        // a document that no longer exists — but the *configured* grouping
+        // timeout must survive, or opening a file would silently revert the
+        // host's `undo_group_timeout_ms` to the built-in default.
+        self.history = UndoTree::with_timeout(self.config.undo_group_timeout_ms);
         self.scroll_line = 0;
         self.scroll_x = 0.0;
         // Update fold regions for the new content
@@ -271,8 +275,13 @@ impl EditorState {
 /// ```
 #[allow(clippy::type_complexity)]
 pub struct Editor {
-    /// The editor state
-    state: EditorState,
+    /// The editor state.
+    ///
+    /// Visible to sibling modules of `editor` (see `history_nav`) so they can
+    /// mutate it without going through [`Editor::state_mut`], which eagerly
+    /// discards the keyboard handler's transient state. History replay must
+    /// *preserve* that state — see [`Editor::finish_history_replay`].
+    pub(super) state: EditorState,
 
     /// Event listeners
     listeners: Vec<Box<dyn Fn(&EditorEvent) + Send + Sync>>,
@@ -289,10 +298,19 @@ pub struct Editor {
 
 impl Editor {
     /// Creates a new editor with the given configuration.
+    ///
+    /// [`EditorConfig::undo_group_timeout_ms`] is applied to the undo history
+    /// here; it is the only configuration value the history reads, and it
+    /// cannot be honoured after the fact without discarding the tree, so
+    /// changing it later goes through
+    /// [`Editor::set_undo_group_timeout_ms`].
     #[must_use]
     pub fn new(config: EditorConfig) -> Self {
+        let history = UndoTree::with_timeout(config.undo_group_timeout_ms);
+
         Self {
             state: EditorState {
+                history,
                 config,
                 ..EditorState::default()
             },
@@ -313,6 +331,17 @@ impl Editor {
     #[must_use]
     pub const fn state(&self) -> &EditorState {
         &self.state
+    }
+
+    /// Sets how long consecutive edits keep merging into one undo step.
+    ///
+    /// Kept in sync with [`EditorConfig::undo_group_timeout_ms`] so the
+    /// configured value and the history's behaviour cannot disagree. Zero
+    /// disables grouping, making every edit individually undoable. Existing
+    /// history is untouched; the new timeout applies to subsequent edits.
+    pub const fn set_undo_group_timeout_ms(&mut self, timeout_ms: u64) {
+        self.state.config.undo_group_timeout_ms = timeout_ms;
+        self.state.history.set_group_timeout_ms(timeout_ms);
     }
 
     /// Returns a mutable reference to the editor state.
@@ -442,9 +471,9 @@ impl Editor {
     /// Drops the most recently added occurrence cursor and selects the next
     /// occurrence instead, wrapping around the document.
     ///
-    /// This is the "skip occurrence" verb (VS Code's Ctrl+K Ctrl+D). Because
-    /// this codebase has no chord infrastructure yet, it is exposed as a
-    /// direct method rather than a key binding; see
+    /// This is the "skip occurrence" verb, bound to the chord `Ctrl+K Ctrl+D` in
+    /// the default keymap and also exposed here so a host that drives the editor
+    /// without a keyboard can reach it; see
     /// [`KeyboardHandler::skip_last_added_occurrence`] for the exact behavior.
     ///
     /// Produces only a selection change, so it is permitted in read-only mode.
@@ -731,7 +760,7 @@ impl Editor {
     /// a multi-cursor block built by add-above/below keeps its preferred
     /// columns across an undone edit. A stale sticky column cannot leak,
     /// because any other restored state simply fails the identity check.
-    fn finish_history_replay(&mut self, cmd: &Command) {
+    pub(super) fn finish_history_replay(&mut self, cmd: &Command) {
         if !command_restores_selection(cmd) {
             if let Some(position) = replayed_command_caret(cmd) {
                 let clamped = self.state.document.clamp_position(position);
@@ -794,7 +823,7 @@ impl Editor {
     }
 
     /// Emits an event to all listeners.
-    fn emit(&self, event: &EditorEvent) {
+    pub(super) fn emit(&self, event: &EditorEvent) {
         for listener in &self.listeners {
             listener(event);
         }

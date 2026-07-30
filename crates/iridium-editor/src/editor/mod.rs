@@ -7,10 +7,14 @@
 //! - [`EditorEvent`] - Events emitted to the host
 //! - [`IridiumError`] - Error types
 //! - [`FoldState`] - Code folding state management
+//!
+//! Undo-tree navigation on [`Editor`] lives in `history_nav`; it extends the
+//! same type rather than introducing another.
 
 mod config;
 mod core;
 mod fold_state;
+mod history_nav;
 
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};

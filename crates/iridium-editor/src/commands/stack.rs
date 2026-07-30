@@ -3,7 +3,50 @@
 use serde::{Deserialize, Serialize};
 
 use super::keymap::shadows;
-use super::{CommandRegistry, KeyBinding, KeyPress, Keymap, KeymapError, ModeName};
+use super::{
+    CommandRegistry, KeyBinding, KeyPress, Keymap, KeymapError, ModeName, ModifierPattern,
+    ModifierState, StrokePattern,
+};
+use crate::input::{KeyCode, Modifiers};
+
+/// Characters tried when deciding whether a wildcard binding can fire.
+///
+/// A wildcard is reachable as soon as *one* character resolves to it, so this
+/// only has to be wide enough that a keymap cannot bind every entry literally.
+/// The ASCII letters and digits cover the printable keys a modal grammar
+/// realistically binds; `'~'` is the tail escape for the pathological keymap that
+/// binds all of them.
+const WILDCARD_WITNESS_CHARS: [char; 37] = [
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
+    't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '~',
+];
+
+/// The keypress that satisfies `stroke` while holding as little as possible.
+///
+/// [`ModifierState::Any`] renders as *released*: it accepts either, and a
+/// released modifier is the one a key hint displays. See
+/// [`KeymapStack::binding_is_reachable`] for why the minimal form is the correct
+/// witness rather than a convenient one.
+const fn minimal_press(stroke: &StrokePattern) -> KeyPress {
+    KeyPress::new(stroke.key, minimal_modifiers(stroke.modifiers))
+}
+
+/// The modifier state that satisfies `pattern` while holding as little as
+/// possible.
+const fn minimal_modifiers(pattern: ModifierPattern) -> Modifiers {
+    Modifiers {
+        shift: is_required(pattern.shift),
+        ctrl: is_required(pattern.ctrl),
+        alt: is_required(pattern.alt),
+        meta: is_required(pattern.meta),
+        alt_graph: is_required(pattern.alt_graph),
+    }
+}
+
+/// Returns `true` only for [`ModifierState::Required`].
+const fn is_required(state: ModifierState) -> bool {
+    matches!(state, ModifierState::Required)
+}
 
 /// An ordered stack of [`Keymap`] layers, highest precedence last.
 ///
@@ -188,6 +231,111 @@ impl KeymapStack {
             }
         }
         Ok(())
+    }
+
+    /// Returns `true` when pressing `binding`'s own key sequence actually runs
+    /// `binding`.
+    ///
+    /// `binding` must be borrowed from this stack; identity is compared by
+    /// pointer, so a structurally equal binding from elsewhere always answers
+    /// `false`.
+    ///
+    /// # Why this exists
+    ///
+    /// A binding being *present* in the stack does not mean it can ever fire.
+    /// Four things can take it away, and all four are invisible from the binding
+    /// alone:
+    ///
+    /// - a higher layer [`suppresses`](KeyBinding::unbound) its sequence;
+    /// - a higher layer binds the same sequence and mode to something else;
+    /// - a binding in the *same* layer outranks it (see [`Keymap::exact_match`]);
+    /// - **a shorter binding claims one of its prefixes**, in any layer.
+    ///
+    /// Rather than re-derive those rules — and drift from them — this asks the
+    /// resolver directly: it synthesizes the keypresses the binding describes and
+    /// checks that [`Self::exact_match`] hands back this very binding.
+    ///
+    /// The prefix case needs its own check, because `exact_match` only ever
+    /// compares whole sequences and so cannot see it. `KeymapResolver::resolve`
+    /// tests for an exact match *before* it tests for a continuation, so a
+    /// complete binding on `Ctrl+K` fires the moment `Ctrl+K` is pressed and
+    /// `Ctrl+K Ctrl+D` never gets a second keystroke. This is the same defect
+    /// [`Self::validate`] rejects at load time as
+    /// [`KeymapError::CrossLayerShadowedSequence`]; a stack assembled without
+    /// validation must still report the truth about it.
+    ///
+    /// # The synthesized keypress is the one a hint promises
+    ///
+    /// Each stroke becomes the *minimal* keypress that satisfies it: every
+    /// [`ModifierState::Required`](super::ModifierState::Required) modifier held,
+    /// every other one released — including
+    /// [`Any`](super::ModifierState::Any), which accepts either.
+    ///
+    /// That is deliberately not an approximation. A key hint shown in a palette
+    /// is a promise about one exact keypress: *press these modifiers and this
+    /// key, and this command runs*. So the binding that must win is the one that
+    /// wins for exactly those modifiers and no others. A binding outranked at its
+    /// own minimal keypress may still fire under some *additional* modifier, but
+    /// displaying the minimal form for it would be a lie, and no hint is better
+    /// than a wrong one.
+    ///
+    /// A [`StrokeCapture::AnyChar`](super::StrokeCapture::AnyChar) stroke has no
+    /// single key to synthesize, so candidate characters are tried until one
+    /// resolves to this binding. A literal binding on a character always outranks
+    /// a wildcard there (`Keymap::exact_match` ranks non-capturing bindings
+    /// higher), so testing one fixed character would report a live wildcard as
+    /// unreachable whenever that character happened to be bound.
+    #[must_use]
+    pub fn binding_is_reachable(&self, binding: &KeyBinding) -> bool {
+        let strokes = binding.sequence();
+        // `KeyBinding` always carries a first stroke, so this is defensive only.
+        if strokes.is_empty() {
+            return false;
+        }
+
+        // Wildcards need a character no higher-ranked literal binding claims;
+        // everything else has exactly one minimal witness.
+        let capture_positions: Vec<usize> = strokes
+            .iter()
+            .enumerate()
+            .filter(|(_, stroke)| stroke.captures())
+            .map(|(index, _)| index)
+            .collect();
+
+        let mut presses: Vec<KeyPress> = strokes.iter().map(minimal_press).collect();
+        if capture_positions.is_empty() {
+            return self.resolves_to(&presses, binding.mode(), binding);
+        }
+
+        // One character is substituted into *every* capture stroke at once: a
+        // sequence such as `f{char}{char}` is reachable iff some character makes
+        // the whole sequence resolve here, and trying each independently would
+        // multiply the search for no gain in coverage.
+        WILDCARD_WITNESS_CHARS.iter().any(|&candidate| {
+            for &index in &capture_positions {
+                presses[index].key = KeyCode::Char(candidate);
+            }
+            self.resolves_to(&presses, binding.mode(), binding)
+        })
+    }
+
+    /// Returns `true` when typing `presses` in `mode` runs exactly `binding`.
+    ///
+    /// Both halves of "runs" are checked: no proper prefix may resolve first —
+    /// which would fire that shorter binding and swallow the rest — and the whole
+    /// sequence must then resolve here.
+    fn resolves_to(
+        &self,
+        presses: &[KeyPress],
+        mode: Option<&ModeName>,
+        binding: &KeyBinding,
+    ) -> bool {
+        if (1..presses.len()).any(|len| self.exact_match(&presses[..len], mode).is_some()) {
+            return false;
+        }
+
+        self.exact_match(presses, mode)
+            .is_some_and(|winner| std::ptr::eq(winner, binding))
     }
 
     /// Returns `true` when a layer above `index` explicitly unbinds `binding`'s

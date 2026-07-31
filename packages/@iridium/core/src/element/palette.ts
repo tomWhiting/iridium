@@ -14,7 +14,11 @@
  */
 
 import type { PaletteCommand } from "../controller/index.ts";
-import { type CommandPalette, highlightSegments } from "../palette/index.ts";
+import {
+  applyPaletteKey,
+  type CommandPalette,
+  highlightSegments,
+} from "../palette/index.ts";
 
 const STYLES = `
   .ip-backdrop {
@@ -221,39 +225,12 @@ export class PaletteView {
   }
 
   #onKeyDown(event: KeyboardEvent): void {
-    switch (event.key) {
-      case "Escape":
-        event.preventDefault();
-        this.#palette.close();
-        break;
-      case "Enter":
-        event.preventDefault();
-        this.#palette.run();
-        break;
-      case "ArrowDown":
-        event.preventDefault();
-        this.#palette.moveSelection(1);
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        this.#palette.moveSelection(-1);
-        break;
-      case "n":
-      case "N":
-        if (event.ctrlKey) {
-          event.preventDefault();
-          this.#palette.moveSelection(1);
-        }
-        break;
-      case "p":
-      case "P":
-        if (event.ctrlKey) {
-          event.preventDefault();
-          this.#palette.moveSelection(-1);
-        }
-        break;
-      default:
-        break;
+    // Shared with the React overlay, so the two faces cannot drift. A claimed key
+    // always suppresses the default: every one of them has a browser behaviour
+    // underneath, from caret motion to the kill-to-end-of-line macOS puts on
+    // Ctrl+K.
+    if (applyPaletteKey(this.#palette, event)) {
+      event.preventDefault();
     }
   }
 

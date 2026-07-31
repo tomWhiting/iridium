@@ -3,7 +3,7 @@
 //! This module provides comprehensive napi-rs bindings for the Iridium editor,
 //! exposing all editor operations to TypeScript consumers.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -14,8 +14,36 @@ use iridium_syntax::Language;
 use crate::events::{EventCallback, EventEmitter};
 use crate::types::{
     JsEditorConfig, JsFoldInfo, JsPosition, JsRange, JsSearchOptions, JsSearchResult, JsSelection,
-    JsUndoInfo,
+    JsUndoInfo, usize_to_u32,
 };
+use crate::with_napi_str;
+
+/// Converts a JavaScript viewport dimension to the renderer's pixel type.
+fn viewport_dimension(value: f64, name: &str) -> Result<f32> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("viewport {name} must be a finite, non-negative number"),
+        ));
+    }
+    if value > f64::from(f32::MAX) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("viewport {name} exceeds the renderer's supported range"),
+        ));
+    }
+
+    // napi-rs exposes JavaScript numbers as f64 but the renderer stores pixel
+    // dimensions as f32. After validating the range, decimal parsing performs
+    // defined nearest-f32 rounding; that rounding is appropriate for f32-based
+    // sub-pixel rendering and avoids an unchecked narrowing cast.
+    value.to_string().parse::<f32>().map_err(|error| {
+        Error::new(
+            Status::InvalidArg,
+            format!("viewport {name} cannot be represented by the renderer: {error}"),
+        )
+    })
+}
 
 /// The Iridium editor instance exposed to TypeScript.
 ///
@@ -82,7 +110,7 @@ impl IridiumEditor {
     /// Gets the current content.
     #[napi]
     pub fn get_content(&self) -> String {
-        self.with_editor(|editor| editor.content())
+        self.with_editor(Editor::content)
     }
 
     /// Sets the content, replacing everything.
@@ -90,16 +118,18 @@ impl IridiumEditor {
     /// This resets the cursor position and clears the undo history.
     #[napi]
     pub fn set_content(&self, content: String) {
-        self.with_editor_mut(|editor| {
-            editor.set_content(&content);
+        with_napi_str(content, |content| {
+            self.with_editor_mut(|editor| editor.set_content(content));
+            self.emit_event("contentChanged", content);
         });
-        self.emit_event("contentChanged", &content);
     }
 
     /// Gets the current line count.
     #[napi]
-    pub fn get_line_count(&self) -> u32 {
-        self.with_editor(|editor| editor.state().document.line_count() as u32)
+    pub fn get_line_count(&self) -> Result<u32> {
+        self.with_editor(|editor| {
+            usize_to_u32(editor.state().document.line_count(), "document line count")
+        })
     }
 
     /// Gets a specific line by number (0-indexed).
@@ -110,13 +140,14 @@ impl IridiumEditor {
 
     /// Gets the length of a specific line (in characters).
     #[napi]
-    pub fn get_line_length(&self, line_number: u32) -> Option<u32> {
+    pub fn get_line_length(&self, line_number: u32) -> Result<Option<u32>> {
         self.with_editor(|editor| {
             editor
                 .state()
                 .document
                 .line(line_number as usize)
-                .map(|line| line.chars().count() as u32)
+                .map(|line| usize_to_u32(line.chars().count(), "line character count"))
+                .transpose()
         })
     }
 
@@ -135,20 +166,20 @@ impl IridiumEditor {
 
     /// Gets the current cursor position (primary cursor).
     #[napi]
-    pub fn get_cursor(&self) -> JsPosition {
-        self.with_editor(|editor| editor.cursor().into())
+    pub fn get_cursor(&self) -> Result<JsPosition> {
+        self.with_editor(|editor| editor.cursor().try_into())
     }
 
     /// Gets the cursor line (0-indexed).
     #[napi]
-    pub fn get_cursor_line(&self) -> u32 {
-        self.with_editor(|editor| editor.cursor().line as u32)
+    pub fn get_cursor_line(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.cursor().line, "cursor line index"))
     }
 
     /// Gets the cursor column (0-indexed).
     #[napi]
-    pub fn get_cursor_column(&self) -> u32 {
-        self.with_editor(|editor| editor.cursor().column as u32)
+    pub fn get_cursor_column(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.cursor().column, "cursor column index"))
     }
 
     /// Sets the cursor position.
@@ -168,19 +199,20 @@ impl IridiumEditor {
 
     /// Gets the current selection (primary selection).
     #[napi]
-    pub fn get_selection(&self) -> JsSelection {
-        self.with_editor(|editor| editor.state().cursor.primary.into())
+    pub fn get_selection(&self) -> Result<JsSelection> {
+        self.with_editor(|editor| editor.state().cursor.primary.try_into())
     }
 
     /// Gets all selections (for multi-cursor support).
     #[napi]
-    pub fn get_all_selections(&self) -> Vec<JsSelection> {
+    pub fn get_all_selections(&self) -> Result<Vec<JsSelection>> {
         self.with_editor(|editor| {
             editor
                 .state()
                 .cursor
                 .all_selections()
-                .map(|s| (*s).into())
+                .copied()
+                .map(JsSelection::try_from)
                 .collect()
         })
     }
@@ -210,8 +242,7 @@ impl IridiumEditor {
                 .state()
                 .document
                 .line(last_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+                .map_or(0, |line| line.chars().count());
 
             // Editor::set_selection clamps and resets keyboard vertical state.
             editor.set_selection(Position::zero(), Position::new(last_line, last_col));
@@ -240,8 +271,10 @@ impl IridiumEditor {
 
     /// Gets the number of cursors (1 for single cursor, >1 for multi-cursor).
     #[napi]
-    pub fn get_cursor_count(&self) -> u32 {
-        self.with_editor(|editor| editor.state().cursor.cursor_count() as u32)
+    pub fn get_cursor_count(&self) -> Result<u32> {
+        self.with_editor(|editor| {
+            usize_to_u32(editor.state().cursor.cursor_count(), "cursor count")
+        })
     }
 
     /// Collapses all cursors to the primary cursor.
@@ -275,7 +308,7 @@ impl IridiumEditor {
     /// Performs undo. Returns true if an action was undone.
     #[napi]
     pub fn undo(&self) -> bool {
-        let result = self.with_editor_mut(|editor| editor.undo());
+        let result = self.with_editor_mut(Editor::undo);
         if result {
             self.emit_content_and_selection_changed();
         }
@@ -285,7 +318,7 @@ impl IridiumEditor {
     /// Performs redo. Returns true if an action was redone.
     #[napi]
     pub fn redo(&self) -> bool {
-        let result = self.with_editor_mut(|editor| editor.redo());
+        let result = self.with_editor_mut(Editor::redo);
         if result {
             self.emit_content_and_selection_changed();
         }
@@ -294,17 +327,17 @@ impl IridiumEditor {
 
     /// Gets undo tree information.
     #[napi]
-    pub fn get_undo_info(&self) -> JsUndoInfo {
+    pub fn get_undo_info(&self) -> Result<JsUndoInfo> {
         self.with_editor(|editor| {
             let info = editor.state().history.get_tree_info();
-            JsUndoInfo {
-                node_count: info.node_count as u32,
-                branch_count: info.branch_count as u32,
+            Ok(JsUndoInfo {
+                node_count: usize_to_u32(info.node_count, "undo node count")?,
+                branch_count: usize_to_u32(info.branch_count, "undo branch count")?,
                 can_undo: info.can_undo,
                 can_redo: info.can_redo,
-                current_id: info.current_id.clone(),
-                root_id: info.root_id.clone(),
-            }
+                current_id: info.current_id,
+                root_id: info.root_id,
+            })
         })
     }
 
@@ -319,20 +352,25 @@ impl IridiumEditor {
     pub fn find(&self, query: String, options: Option<JsSearchOptions>) -> Result<JsSearchResult> {
         let opts: SearchOptions = options.map(SearchOptions::from).unwrap_or_default();
 
-        self.with_editor_mut(|editor| {
-            editor
-                .find(&query, &opts)
-                .map_err(|e| Error::from_reason(e))?;
+        with_napi_str(query, |query| {
+            self.with_editor_mut(|editor| {
+                editor.find(query, &opts).map_err(Error::from_reason)?;
 
-            Ok(JsSearchResult {
-                match_count: editor.search_match_count() as u32,
-                current_index: editor.current_match_index().map(|i| i as u32),
-                matches: editor
+                let matches = editor
                     .search_state()
                     .all_matches()
                     .iter()
-                    .map(|r| (*r).into())
-                    .collect(),
+                    .copied()
+                    .map(JsRange::try_from)
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(JsSearchResult {
+                    match_count: usize_to_u32(editor.search_match_count(), "search match count")?,
+                    current_index: editor
+                        .current_match_index()
+                        .map(|index| usize_to_u32(index, "current search match index"))
+                        .transpose()?,
+                    matches,
+                })
             })
         })
     }
@@ -340,10 +378,8 @@ impl IridiumEditor {
     /// Updates the search query (for incremental search).
     #[napi]
     pub fn update_search(&self, query: String) -> Result<bool> {
-        self.with_editor_mut(|editor| {
-            editor
-                .update_search(&query)
-                .map_err(|e| Error::from_reason(e))
+        with_napi_str(query, |query| {
+            self.with_editor_mut(|editor| editor.update_search(query).map_err(Error::from_reason))
         })
     }
 
@@ -367,14 +403,19 @@ impl IridiumEditor {
 
     /// Gets the current search match count.
     #[napi]
-    pub fn get_match_count(&self) -> u32 {
-        self.with_editor(|editor| editor.search_match_count() as u32)
+    pub fn get_match_count(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.search_match_count(), "search match count"))
     }
 
     /// Gets the current match index (0-based).
     #[napi]
-    pub fn get_current_match_index(&self) -> Option<u32> {
-        self.with_editor(|editor| editor.current_match_index().map(|i| i as u32))
+    pub fn get_current_match_index(&self) -> Result<Option<u32>> {
+        self.with_editor(|editor| {
+            editor
+                .current_match_index()
+                .map(|index| usize_to_u32(index, "current search match index"))
+                .transpose()
+        })
     }
 
     /// Replaces the current match with the replacement text.
@@ -382,7 +423,9 @@ impl IridiumEditor {
     /// Returns true if a replacement was made.
     #[napi]
     pub fn replace_current(&self, replacement: String) -> bool {
-        let result = self.with_editor_mut(|editor| editor.replace_current_match(&replacement));
+        let result = with_napi_str(replacement, |replacement| {
+            self.with_editor_mut(|editor| editor.replace_current_match(replacement))
+        });
         if result {
             self.emit_content_and_selection_changed();
         }
@@ -393,12 +436,14 @@ impl IridiumEditor {
     ///
     /// This is a single undoable operation. Returns the number of replacements made.
     #[napi]
-    pub fn replace_all(&self, replacement: String) -> u32 {
-        let count = self.with_editor_mut(|editor| editor.replace_all_matches(&replacement));
-        if count > 0 {
-            self.emit_content_and_selection_changed();
-        }
-        count as u32
+    pub fn replace_all(&self, replacement: String) -> Result<u32> {
+        with_napi_str(replacement, |replacement| {
+            let count = self.with_editor_mut(|editor| editor.replace_all_matches(replacement));
+            if count > 0 {
+                self.emit_content_and_selection_changed();
+            }
+            usize_to_u32(count, "replacement count")
+        })
     }
 
     /// Closes/clears the current search.
@@ -412,7 +457,7 @@ impl IridiumEditor {
     /// Returns true if a search is currently active.
     #[napi]
     pub fn is_searching(&self) -> bool {
-        self.with_editor(|editor| editor.is_searching())
+        self.with_editor(Editor::is_searching)
     }
 
     // =========================================================================
@@ -479,42 +524,46 @@ impl IridiumEditor {
 
     /// Gets the number of currently folded regions.
     #[napi]
-    pub fn get_folded_count(&self) -> u32 {
-        self.with_editor(|editor| editor.folded_count() as u32)
+    pub fn get_folded_count(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.folded_count(), "folded region count"))
     }
 
     /// Gets the total number of foldable regions.
     #[napi]
-    pub fn get_fold_region_count(&self) -> u32 {
-        self.with_editor(|editor| editor.fold_region_count() as u32)
+    pub fn get_fold_region_count(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.fold_region_count(), "foldable region count"))
     }
 
     /// Gets the visible line count (total minus hidden lines).
     #[napi]
-    pub fn get_visible_line_count(&self) -> u32 {
-        self.with_editor(|editor| editor.visible_line_count() as u32)
+    pub fn get_visible_line_count(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.visible_line_count(), "visible line count"))
     }
 
     /// Maps a visual line to a document line.
     #[napi]
-    pub fn visual_to_document_line(&self, visual_line: u32) -> u32 {
-        self.with_editor(|editor| editor.visual_to_document_line(visual_line as usize) as u32)
+    pub fn visual_to_document_line(&self, visual_line: u32) -> Result<u32> {
+        self.with_editor(|editor| {
+            let document_line = editor.visual_to_document_line(visual_line as usize);
+            usize_to_u32(document_line, "document line index")
+        })
     }
 
     /// Maps a document line to a visual line (None if hidden).
     #[napi]
-    pub fn document_to_visual_line(&self, doc_line: u32) -> Option<u32> {
+    pub fn document_to_visual_line(&self, doc_line: u32) -> Result<Option<u32>> {
         self.with_editor(|editor| {
             editor
                 .document_to_visual_line(doc_line as usize)
-                .map(|l| l as u32)
+                .map(|line| usize_to_u32(line, "visual line index"))
+                .transpose()
         })
     }
 
     /// Exports fold information for persistence.
     #[napi]
-    pub fn export_fold_info(&self) -> JsFoldInfo {
-        self.with_editor(|editor| editor.export_fold_info().into())
+    pub fn export_fold_info(&self) -> Result<JsFoldInfo> {
+        self.with_editor(|editor| editor.export_fold_info().try_into())
     }
 
     /// Imports fold information (e.g., from a saved session).
@@ -532,7 +581,7 @@ impl IridiumEditor {
     /// Returns true if the current theme is dark.
     #[napi]
     pub fn is_dark_theme(&self) -> bool {
-        self.with_editor(|editor| editor.is_dark_theme())
+        self.with_editor(Editor::is_dark_theme)
     }
 
     /// Switches to the default dark theme.
@@ -566,16 +615,14 @@ impl IridiumEditor {
     /// Sets the language for syntax highlighting and folding.
     #[napi]
     pub fn set_language(&self, language: String) -> bool {
-        let lang = Language::from_extension(&language).or_else(|| Language::from_id(&language));
-
-        if let Some(lang) = lang {
-            self.with_editor_mut(|editor| {
-                editor.set_language(lang);
-            });
-            true
-        } else {
-            false
-        }
+        with_napi_str(language, |language| {
+            Language::from_extension(language)
+                .or_else(|| Language::from_id(language))
+                .is_some_and(|language| {
+                    self.with_editor_mut(|editor| editor.set_language(language));
+                    true
+                })
+        })
     }
 
     /// Gets the current language ID (if set).
@@ -634,13 +681,11 @@ impl IridiumEditor {
     ///
     /// This should be called when the editor's container is resized.
     #[napi]
-    pub fn resize(&self, width: f64, height: f64) {
-        self.with_editor_mut(|editor| {
-            editor
-                .state_mut()
-                .viewport
-                .resize(width as f32, height as f32);
-        });
+    pub fn resize(&self, width: f64, height: f64) -> Result<()> {
+        let width = viewport_dimension(width, "width")?;
+        let height = viewport_dimension(height, "height")?;
+        self.with_editor_mut(|editor| editor.state_mut().viewport.resize(width, height));
+        Ok(())
     }
 
     // =========================================================================
@@ -649,8 +694,8 @@ impl IridiumEditor {
 
     /// Gets the current scroll position (first visible line).
     #[napi]
-    pub fn get_scroll_line(&self) -> u32 {
-        self.with_editor(|editor| editor.state().scroll_line as u32)
+    pub fn get_scroll_line(&self) -> Result<u32> {
+        self.with_editor(|editor| usize_to_u32(editor.state().scroll_line, "scroll line index"))
     }
 
     /// Scrolls to a specific line.
@@ -686,7 +731,7 @@ impl IridiumEditor {
     /// Returns a subscription ID that can be used to unsubscribe.
     #[napi]
     pub fn on(&self, event: String, callback: EventCallback) -> u32 {
-        self.event_emitter.subscribe(&event, callback)
+        self.event_emitter.subscribe(event, callback)
     }
 
     /// Unsubscribes from an editor event.
@@ -727,7 +772,7 @@ impl IridiumEditor {
     where
         F: FnOnce(&Editor) -> T,
     {
-        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         f(&guard)
     }
 
@@ -736,7 +781,7 @@ impl IridiumEditor {
     where
         F: FnOnce(&mut Editor) -> T,
     {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         f(&mut guard)
     }
 
@@ -747,10 +792,17 @@ impl IridiumEditor {
 
     /// Emits a selection changed event.
     fn emit_selection_changed(&self) {
-        // Serialize selection info
-        let selection = self.get_selection();
-        let json = serde_json::to_string(&selection).unwrap_or_default();
-        self.event_emitter.emit("selectionChanged", &json);
+        let serialized = self.get_selection().and_then(|selection| {
+            serde_json::to_string(&selection).map_err(|error| Error::from_reason(error.to_string()))
+        });
+        match serialized {
+            Ok(json) => self.event_emitter.emit("selectionChanged", json),
+            Err(error) => {
+                // A selection outside the JavaScript u32 coordinate space must not be
+                // misreported as a different location. Surface the conversion failure.
+                self.event_emitter.emit("error", error.to_string());
+            },
+        }
     }
 
     /// Emits both content and selection changed events.
@@ -776,7 +828,7 @@ impl Default for IridiumEditor {
 
 impl From<JsEditorConfig> for EditorConfig {
     fn from(config: JsEditorConfig) -> Self {
-        let mut editor_config = EditorConfig::default();
+        let mut editor_config = Self::default();
 
         if let Some(tw) = config.tab_width {
             editor_config.tab_width = tw as usize;
@@ -806,7 +858,7 @@ impl From<JsEditorConfig> for EditorConfig {
 
 impl From<JsSearchOptions> for SearchOptions {
     fn from(opts: JsSearchOptions) -> Self {
-        SearchOptions {
+        Self {
             case_sensitive: opts.case_sensitive.unwrap_or(false),
             whole_word: opts.whole_word.unwrap_or(false),
             regex: opts.regex.unwrap_or(false),
@@ -816,40 +868,46 @@ impl From<JsSearchOptions> for SearchOptions {
 
 impl From<JsPosition> for Position {
     fn from(pos: JsPosition) -> Self {
-        Position::new(pos.line as usize, pos.column as usize)
+        Self::new(pos.line as usize, pos.column as usize)
     }
 }
 
-impl From<Position> for JsPosition {
-    fn from(pos: Position) -> Self {
-        JsPosition {
-            line: pos.line as u32,
-            column: pos.column as u32,
-        }
+impl TryFrom<Position> for JsPosition {
+    type Error = Error;
+
+    fn try_from(pos: Position) -> Result<Self> {
+        Ok(Self {
+            line: usize_to_u32(pos.line, "position line index")?,
+            column: usize_to_u32(pos.column, "position column index")?,
+        })
     }
 }
 
 impl From<JsRange> for Range {
     fn from(range: JsRange) -> Self {
-        Range::new(range.start.into(), range.end.into())
+        Self::new(range.start.into(), range.end.into())
     }
 }
 
-impl From<Range> for JsRange {
-    fn from(range: Range) -> Self {
-        JsRange {
-            start: range.start.into(),
-            end: range.end.into(),
-        }
+impl TryFrom<Range> for JsRange {
+    type Error = Error;
+
+    fn try_from(range: Range) -> Result<Self> {
+        Ok(Self {
+            start: range.start.try_into()?,
+            end: range.end.try_into()?,
+        })
     }
 }
 
-impl From<Selection> for JsSelection {
-    fn from(sel: Selection) -> Self {
-        JsSelection {
-            anchor: sel.anchor.into(),
-            head: sel.head.into(),
-        }
+impl TryFrom<Selection> for JsSelection {
+    type Error = Error;
+
+    fn try_from(selection: Selection) -> Result<Self> {
+        Ok(Self {
+            anchor: selection.anchor.try_into()?,
+            head: selection.head.try_into()?,
+        })
     }
 }
 
@@ -858,10 +916,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn viewport_dimensions_are_checked_before_narrowing() {
+        let expected_width = 640.5_f32;
+        let actual_width = viewport_dimension(640.5, "width").unwrap();
+        // One relative f32 epsilon verifies renderer-level rounding without requiring
+        // bit-identical floating-point values.
+        assert!((actual_width - expected_width).abs() <= f32::EPSILON * expected_width);
+        assert!(viewport_dimension(-1.0, "width").is_err());
+        assert!(viewport_dimension(f64::NAN, "width").is_err());
+        assert!(viewport_dimension(f64::INFINITY, "height").is_err());
+        assert!(viewport_dimension(f64::from(f32::MAX) * 2.0, "height").is_err());
+    }
+
+    #[test]
     fn editor_creation() {
         let editor = IridiumEditor::new().unwrap();
         assert_eq!(editor.get_content(), "");
-        assert_eq!(editor.get_line_count(), 1);
+        assert_eq!(editor.get_line_count().unwrap(), 1);
     }
 
     #[test]
@@ -870,7 +941,7 @@ mod tests {
         editor.set_content("Hello\nWorld".to_string());
 
         assert_eq!(editor.get_content(), "Hello\nWorld");
-        assert_eq!(editor.get_line_count(), 2);
+        assert_eq!(editor.get_line_count().unwrap(), 2);
         // line() returns content without trailing newlines
         assert_eq!(editor.get_line(0), Some("Hello".to_string()));
         assert_eq!(editor.get_line(1), Some("World".to_string()));
@@ -882,8 +953,8 @@ mod tests {
         editor.set_content("Hello\nWorld".to_string());
 
         editor.set_cursor(1, 3);
-        assert_eq!(editor.get_cursor_line(), 1);
-        assert_eq!(editor.get_cursor_column(), 3);
+        assert_eq!(editor.get_cursor_line().unwrap(), 1);
+        assert_eq!(editor.get_cursor_column().unwrap(), 3);
     }
 
     #[test]

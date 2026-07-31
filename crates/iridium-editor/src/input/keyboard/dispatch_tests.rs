@@ -386,3 +386,79 @@ fn an_edit_that_round_trips_does_not_revive_the_addition_order_stack() {
 
 #[cfg(test)]
 mod sequence_tests;
+
+/// Adding a cursor vertically **by id** must do exactly what the key does.
+///
+/// Reported from the running web demo: "add cursor above and below isn't wired
+/// up" from the palette. Both ids are registered *and* present in the action
+/// table, so nothing static catches a divergence — only running both routes over
+/// the same document and comparing every resulting caret does.
+///
+/// This is the failure mode a palette makes easy to ship: a command that works
+/// perfectly from its key and does nothing from its name is invisible to every
+/// test that only presses keys.
+#[test]
+fn adding_a_cursor_vertically_by_id_matches_the_key() {
+    let text = "Hello World\nSecond Line\nThird Line";
+    // Bound to `let` first: `CommandId::as_str` borrows, so calling it inline
+    // inside the array would drop the temporary at the end of the statement.
+    let below = crate::commands::builtin::MULTI_CURSOR_ADD_CURSOR_BELOW;
+    let above = crate::commands::builtin::MULTI_CURSOR_ADD_CURSOR_ABOVE;
+    let cases = [
+        (
+            below.as_str(),
+            KeyEvent::new(KeyCode::Down, CTRL_ALT),
+            (1_usize, 4_usize),
+        ),
+        (above.as_str(), KeyEvent::new(KeyCode::Up, CTRL_ALT), (1, 4)),
+    ];
+
+    for (id, event, start) in cases {
+        // The key route.
+        let mut key_doc = Document::new(text);
+        let mut key_cursor = cursors_at(&[start]);
+        let mut key_handler = KeyboardHandler::new();
+        let key_result = key_handler.handle_key(
+            &event,
+            &key_doc,
+            &key_cursor,
+            &UndoTree::new(),
+            &EditorConfig::default(),
+        );
+        if let KeyResult::Command(cmd) = key_result {
+            cmd.apply(&mut key_doc, &mut key_cursor)
+                .expect("command must apply");
+        }
+
+        // The palette route: same command, named instead of typed.
+        let mut id_doc = Document::new(text);
+        let mut id_cursor = cursors_at(&[start]);
+        let mut id_handler = KeyboardHandler::new();
+        let id_result = id_handler
+            .run_command(
+                id,
+                CommandArgs::NONE,
+                &id_doc,
+                &id_cursor,
+                &UndoTree::new(),
+                &EditorConfig::default(),
+            )
+            .expect("the kernel implements this command");
+        if let KeyResult::Command(cmd) = id_result {
+            cmd.apply(&mut id_doc, &mut id_cursor)
+                .expect("command must apply");
+        }
+
+        assert_eq!(
+            heads(&id_cursor),
+            heads(&key_cursor),
+            "`{id}` disagreed between the key route and the palette route"
+        );
+        assert_eq!(
+            heads(&id_cursor).len(),
+            2,
+            "`{id}` must leave two carets, not {:?}",
+            heads(&id_cursor)
+        );
+    }
+}

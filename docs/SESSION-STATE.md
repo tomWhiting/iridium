@@ -542,8 +542,23 @@ syntax-without-GPU, **110** bindings, 30 syntax, **43** bun (26 new). `cargo fmt
     listed ahead of `"@iridium/core/syntax"` and `"/element"` was already
     shadowing them. Longest prefix now comes first.
 
+    **Found and fixed in a self-review afterwards: `Ctrl+K` killed the query it
+    opened.** macOS binds `Ctrl+K` in a text field to kill-to-end-of-line, and
+    `Ctrl+K` is the palette's own open key — so pressing it again while open
+    deleted the rest of what the user had typed and looked like nothing had
+    happened. It now closes. `Meta` counts alongside `Control` throughout,
+    because the web face forwards macOS `Cmd` as the kernel's `ctrl`, so `Cmd+K`
+    opens the palette and must close it too.
+
+    That fix moved key handling into `palette/keys.ts` as a pure function over a
+    key description, called by **both** faces — it had been a duplicated switch
+    in each, which is precisely how they would have drifted, and being pure makes
+    it testable with no DOM, which the views are not. 12 tests, verified against
+    four deliberate breaks. **The views themselves still have no test harness**
+    at all; that is why anything behavioural is pushed out of them.
+
 Gates run for step 11: `deno check` clean across the whole core package,
-**43 bun tests** (17 new), `npx tsc --noEmit` clean on `examples/web`, and
+**55 bun tests** (29 new), `npx tsc --noEmit` clean on `examples/web`, and
 `npx vite build` succeeds. No Rust changed, so the cargo baselines above stand.
 
 ## Step 11 is parked in a worktree — NOT on the working branch

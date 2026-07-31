@@ -235,13 +235,30 @@ pub enum HistoryRequest {
 /// performs it — in exactly one place, reached identically by a keystroke and
 /// by a command invoked from the palette.
 ///
-/// Every one of these ends as a [`Command::SetSelection`], which is why
-/// structural navigation is undoable without any new history machinery.
+/// Every one of these ends as a [`Command::SetSelection`]. That does **not**
+/// make them undo steps: `apply_command_internal` records a command only when it
+/// changes content, so a selection-only command is applied and never pushed. It
+/// is the right behaviour — [`Self::ShrinkSelection`] is the inverse of an
+/// expansion, not `Ctrl+Z` — but it is the opposite of what the plan that
+/// commissioned this work predicted, so it is written down here rather than left
+/// to be rediscovered.
 ///
 /// When the document has no language set, or the tree has not parsed, each of
 /// these does nothing at all. That is not an error: it is what "this file has
 /// no structure to navigate" looks like, and a key that quietly does nothing is
 /// better than one that reports a failure the person cannot act on.
+///
+/// # Three kinds of request
+///
+/// The distinction matters because it decides what happens to the expansion
+/// stack, and getting it wrong makes shrinking jump somewhere nobody asked for.
+///
+/// - **Widening** ([`Self::SelectNode`], [`Self::ExpandSelection`]) pushes the
+///   state it left onto the stack, so a later shrink can restore it exactly.
+/// - **Retracing** ([`Self::ShrinkSelection`]) pops one.
+/// - **Moving** — everything else — *clears* the stack. Once the selection has
+///   walked sideways to a sibling or down into a child, the state expansion
+///   started from is no longer where the person wants "back" to go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AstRequest {
     /// Snap every selection to the smallest node that covers it.
@@ -250,6 +267,42 @@ pub enum AstRequest {
     ExpandSelection,
     /// Undo one expansion, restoring the selections exactly as they were.
     ShrinkSelection,
+
+    /// Select the next node beside the current one, climbing when it is last.
+    SelectNextSibling,
+    /// Select the previous node beside the current one, climbing when it is first.
+    SelectPreviousSibling,
+    /// Select the first child of the node under each selection.
+    SelectFirstChild,
+    /// Select the last child of the node under each selection.
+    SelectLastChild,
+
+    /// Grow each selection to also cover the node after it.
+    ///
+    /// Distinct from [`Self::SelectNextSibling`], which moves. This is the verb
+    /// for picking up three array elements one press at a time.
+    ExtendNextSibling,
+    /// Grow each selection to also cover the node before it.
+    ExtendPreviousSibling,
+
+    /// Collapse each selection to the start of the node it sits in.
+    ///
+    /// Repeated presses walk outward — token, expression, statement — because
+    /// the node chosen is the smallest one starting *strictly* before the caret.
+    CursorNodeStart,
+    /// Collapse each selection to the end of the node it sits in, walking
+    /// outward on repeated presses in the same way.
+    CursorNodeEnd,
+
+    /// Put a cursor on every node beside the current one, including it.
+    ///
+    /// The verb for editing every element of an array at once. Siblings are
+    /// disjoint, so the auto-merge in
+    /// [`CursorState::add_cursor`](crate::document::CursorState::add_cursor)
+    /// has nothing to do and the cursor count is exactly the sibling count.
+    CursorOnEverySibling,
+    /// Put a cursor on every child of the node under each selection.
+    CursorOnEveryChild,
 }
 
 /// Result of handling a keyboard event.

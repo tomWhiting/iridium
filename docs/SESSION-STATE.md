@@ -1316,6 +1316,74 @@ Gate after step 6: **895** editor lib, **82** syntax, 101 bindings, 810 kernel,
 879 kernel+syntax. Workspace clippy **138** warnings (baseline was 201; step 6
 cleared 12). `fmt` clean; wasm32 has only the two known pre-existing warnings.
 
+### Step 7 is DONE (1 Aug) — the rest of the `ast.*` verb set
+
+Ten new verbs, all palette-only: `ast.selectNextSibling`,
+`selectPreviousSibling`, `selectFirstChild`, `selectLastChild`,
+`extendNextSibling`, `extendPreviousSibling`, `cursorNodeStart`,
+`cursorNodeEnd`, `cursorOnEverySibling`, `cursorOnEveryChild`.
+
+**New in `iridium-syntax`:** `navigate::node_starting_before` and
+`node_ending_after` — the smallest covering node beginning/ending *strictly*
+past one edge of the range. Strictly is the whole rule: without it the second
+press of a jump-to-node-start key does nothing, and a key that dies on every
+second press reads as broken rather than as finished. With it, repeated presses
+walk the ladder outward — token, expression, statement, block — and terminate at
+the document edge.
+
+**New in `iridium-editor`:** `editor/ast/walk.rs`, the layer that turns "which
+node" into "which bytes". It exists because two verbs do not land on a node at
+all: extending covers the selection *and* a sibling, and the caret motions
+collapse onto one edge. Every walk is `fn(Node, &Range) -> Option<Range>`, so
+`map_selections` applies them uniformly and `None` uniformly means "this cursor
+stays put".
+
+**The one real design flaw found, and it was found by a failing test.**
+`extend_next_sibling` first asked `node_at(range)` then `next_sibling`. That is
+right for the first press and wrong for every one after it: once a selection
+covers two array elements it no longer *is* a node, it resolves to the array
+containing them, and the array's next sibling is somewhere else entirely. The
+second press would jump out of the array instead of picking up its third
+element. `walk::beyond` replaces it — a range matching a node exactly steps
+outward from that node; a range spanning part of one looks *inside* for the
+first child clear of the range's edge. `extending_picks_up_the_commas_between_
+the_elements` is the test that caught it and the proof it is fixed.
+
+**Three stack effects, not two.** `AstRequest` now classifies into widening
+(push a frame), retracing (pop one) and **moving** (clear the stack). The third
+is new and load-bearing: after walking sideways to a sibling, the state
+expansion started from is no longer where "back" leads, and a shrink that
+retraced it would land on a range the person never looked at. Note the ordering
+— a verb that returns `None` (nothing moved) never reaches the clear, which is
+why the no-op guard in `fan_out` matters and is tested.
+
+**Bindings: none, deliberately, and this is Tom's to decide.** The four arrow
+directions that read as structural are all spent — `Alt`+vertical moves lines,
+`Shift+Alt`+vertical duplicates them, `Ctrl+Alt`+vertical adds cursors, and
+`Shift+Alt`+horizontal is expand/shrink. What is left is four-modifier chords,
+which are worse than no chord. The exception list in `default_keymap_tests.rs`
+went 22 → **32**, each entry documented. `DEFAULT_KEYMAP_BINDING_COUNT` is
+unchanged at 58.
+
+**Discrimination: 9 of 9 breaks caught** (`scratchpad/breaks7.sh`) — the
+pre-fix extend; a union that replaces instead of grows; a sibling walk that
+refuses to climb; a last-child that lands on punctuation; the `<` → `<=` that
+kills the caret ladder; frames surviving a sideways step; the primary cursor
+jumping to the first sibling; a no-op spread claiming it moved; a caret motion
+leaving a selection behind.
+
+B8 needed a second attempt and the reason generalises: **comparing cursor states
+cannot catch a verb that returns the state it was given**, because applying it
+is a no-op and the cursors look identical either way. What differs is the
+*claim* — `perform_ast_request`'s `bool` — and the cost of a false claim is the
+expansion stack, which every moving verb clears. The test now asserts the bool
+and the surviving stack depth, not the cursors.
+
+Gate after step 7: **916** editor all-features, **810** kernel, **900**
+kernel+syntax, **87** syntax, 101 bindings. Workspace clippy **138** (flat —
+step 7 added none). `fmt` clean; wasm32 has only the two known pre-existing
+warnings.
+
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 
 Everything below was read off the tree, not remembered.

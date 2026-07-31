@@ -8,11 +8,17 @@
 
 use iridium_syntax::Language;
 
-use crate::commands::CommandArgs;
-use crate::commands::builtin::{AST_EXPAND_SELECTION, AST_SELECT_NODE, AST_SHRINK_SELECTION};
+use crate::commands::builtin::{
+    AST_CURSOR_NODE_END, AST_CURSOR_NODE_START, AST_CURSOR_ON_EVERY_CHILD,
+    AST_CURSOR_ON_EVERY_SIBLING, AST_EXPAND_SELECTION, AST_EXTEND_NEXT_SIBLING,
+    AST_EXTEND_PREVIOUS_SIBLING, AST_SELECT_FIRST_CHILD, AST_SELECT_LAST_CHILD,
+    AST_SELECT_NEXT_SIBLING, AST_SELECT_NODE, AST_SELECT_PREVIOUS_SIBLING, AST_SHRINK_SELECTION,
+};
+use crate::commands::{CommandArgs, CommandId};
 use crate::document::{Position, Selection};
 use crate::editor::{Editor, EditorConfig};
 use crate::history::Command;
+use crate::input::keyboard::AstRequest;
 use crate::input::{KeyCode, KeyEvent, Modifiers};
 
 const JSON: &str = "{\"items\": [{\"name\": \"first\"}, {\"name\": \"second\"}]}";
@@ -447,4 +453,460 @@ fn expanding_forgets_the_sticky_preferred_column() {
         "`Down` after an expansion returned to column 30, which is where the \
          caret was before the expansion moved it"
     );
+}
+
+// ===== Step 7: siblings, children, caret motions, multi-cursor =====
+
+/// The JSON these tests walk along.
+///
+/// Three array elements of different widths, so a walk landing on the wrong one
+/// is visible in the assertion rather than coincidentally right — and a second
+/// pair after the array, so that climbing out of its last element has somewhere
+/// to arrive. Without the tail, "the last sibling climbs" would be untestable:
+/// the array would be the only thing in the object and the honest answer would
+/// be that there is nowhere to go.
+const ARRAY: &str = "{\"values\": [111, 22, 3333], \"tail\": 9}";
+
+/// Runs a structural verb by id, failing loudly if the kernel does not have it.
+fn ast(editor: &mut Editor, id: &CommandId) {
+    editor
+        .run_command(id.as_str(), CommandArgs::default())
+        .unwrap_or_else(|error| panic!("the kernel implements `{}`: {error}", id.as_str()));
+}
+
+/// Where each caret sits, as byte offsets, primary first.
+fn carets(editor: &Editor) -> Vec<usize> {
+    editor
+        .state()
+        .cursor
+        .all_selections()
+        .map(|selection| {
+            editor
+                .state()
+                .document
+                .position_to_offset(selection.cursor_position())
+                .expect("a live caret resolves")
+        })
+        .collect()
+}
+
+#[test]
+fn walking_to_the_next_sibling_crosses_the_array_one_element_at_a_time() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    ast(&mut editor, &AST_SELECT_NODE);
+    assert_eq!(selected(&editor, ARRAY), vec!["111"]);
+
+    ast(&mut editor, &AST_SELECT_NEXT_SIBLING);
+    assert_eq!(selected(&editor, ARRAY), vec!["22"]);
+
+    ast(&mut editor, &AST_SELECT_NEXT_SIBLING);
+    assert_eq!(selected(&editor, ARRAY), vec!["3333"]);
+}
+
+#[test]
+fn the_last_sibling_climbs_rather_than_stopping_dead() {
+    // A walk that refuses to leave the array is a walk that strands the person
+    // at its end. Climbing means the key keeps meaning "onward".
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "3333");
+    ast(&mut editor, &AST_SELECT_NODE);
+    assert_eq!(selected(&editor, ARRAY), vec!["3333"]);
+
+    ast(&mut editor, &AST_SELECT_NEXT_SIBLING);
+    assert_ne!(
+        selected(&editor, ARRAY),
+        vec!["3333"],
+        "the last element of an array must still have somewhere to go"
+    );
+}
+
+#[test]
+fn the_sibling_walks_are_inverses_of_each_other() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "22");
+    ast(&mut editor, &AST_SELECT_NODE);
+    let start = selected(&editor, ARRAY);
+
+    ast(&mut editor, &AST_SELECT_NEXT_SIBLING);
+    ast(&mut editor, &AST_SELECT_PREVIOUS_SIBLING);
+
+    assert_eq!(selected(&editor, ARRAY), start);
+}
+
+#[test]
+fn descending_to_a_child_and_back_out_reaches_the_same_place() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    // Two, not three: from a caret the ladder is `111`, then the array. A third
+    // press would already be out at the enclosing `"values": [...]` pair.
+    for _ in 0..2 {
+        expand(&mut editor);
+    }
+    assert_eq!(selected(&editor, ARRAY), vec!["[111, 22, 3333]"]);
+
+    ast(&mut editor, &AST_SELECT_FIRST_CHILD);
+    assert_eq!(selected(&editor, ARRAY), vec!["111"]);
+}
+
+#[test]
+fn the_last_child_is_the_last_named_one_not_the_closing_brace() {
+    // Anonymous nodes are the grammar's punctuation. Landing on `]` would be a
+    // selection nobody can do anything with.
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    // Two, not three: from a caret the ladder is `111`, then the array. A third
+    // press would already be out at the enclosing `"values": [...]` pair.
+    for _ in 0..2 {
+        expand(&mut editor);
+    }
+
+    ast(&mut editor, &AST_SELECT_LAST_CHILD);
+    assert_eq!(selected(&editor, ARRAY), vec!["3333"]);
+}
+
+#[test]
+fn a_node_with_no_children_leaves_the_selection_alone() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    ast(&mut editor, &AST_SELECT_NODE);
+    let before = editor.state().cursor.clone();
+
+    ast(&mut editor, &AST_SELECT_FIRST_CHILD);
+
+    assert_eq!(
+        editor.state().cursor,
+        before,
+        "a number has no parts, and a key that cannot move must not pretend to"
+    );
+}
+
+#[test]
+fn extending_picks_up_the_commas_between_the_elements() {
+    // The distinction that makes extend worth having separately from select:
+    // the result must be a range that can be cut and pasted, which means the
+    // punctuation holding the elements apart comes with it.
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    ast(&mut editor, &AST_SELECT_NODE);
+
+    ast(&mut editor, &AST_EXTEND_NEXT_SIBLING);
+    assert_eq!(selected(&editor, ARRAY), vec!["111, 22"]);
+
+    ast(&mut editor, &AST_EXTEND_NEXT_SIBLING);
+    assert_eq!(selected(&editor, ARRAY), vec!["111, 22, 3333"]);
+}
+
+#[test]
+fn extending_backwards_grows_from_the_other_end() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "3333");
+    ast(&mut editor, &AST_SELECT_NODE);
+
+    ast(&mut editor, &AST_EXTEND_PREVIOUS_SIBLING);
+
+    assert_eq!(selected(&editor, ARRAY), vec!["22, 3333"]);
+}
+
+#[test]
+fn extending_never_shrinks_what_is_already_selected() {
+    // The property a held key rests on. `union` is what guarantees it, and a
+    // sibling step that returned something narrower would silently drop text
+    // from a selection the person was building up.
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "22");
+    ast(&mut editor, &AST_SELECT_NODE);
+
+    let mut widest = 0;
+    for _ in 0..6 {
+        ast(&mut editor, &AST_EXTEND_NEXT_SIBLING);
+        let length = selected(&editor, ARRAY)[0].len();
+        assert!(
+            length >= widest,
+            "an extend shrank the selection from {widest} to {length} characters"
+        );
+        widest = length;
+    }
+}
+
+#[test]
+fn the_caret_motions_walk_outward_on_repeated_presses() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "22");
+
+    // Pressed until it stops rather than a fixed count: where the ladder ends is
+    // the thing being measured, so a hard-coded number of presses would be
+    // asserting the answer it was given.
+    let mut seen = Vec::new();
+    loop {
+        let before = carets(&editor);
+        ast(&mut editor, &AST_CURSOR_NODE_START);
+        let after = carets(&editor);
+        if after == before {
+            break;
+        }
+        seen.push(after[0]);
+        assert!(seen.len() < 32, "the walk is not converging: {seen:?}");
+    }
+
+    assert!(
+        seen.windows(2).all(|pair| pair[0] > pair[1]),
+        "each press must move further left, but the walk went {seen:?}"
+    );
+    assert_eq!(
+        seen.last().copied(),
+        Some(0),
+        "walking outward far enough must reach the start of the document"
+    );
+}
+
+#[test]
+fn the_end_motion_reaches_the_end_of_the_document() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "22");
+
+    for _ in 0..6 {
+        ast(&mut editor, &AST_CURSOR_NODE_END);
+    }
+
+    assert_eq!(carets(&editor), vec![ARRAY.len()]);
+}
+
+#[test]
+fn a_caret_motion_collapses_the_selection_it_started_from() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    // Two, not three: from a caret the ladder is `111`, then the array. A third
+    // press would already be out at the enclosing `"values": [...]` pair.
+    for _ in 0..2 {
+        expand(&mut editor);
+    }
+    assert_eq!(selected(&editor, ARRAY), vec!["[111, 22, 3333]"]);
+
+    ast(&mut editor, &AST_CURSOR_NODE_END);
+
+    assert_eq!(
+        selected(&editor, ARRAY),
+        vec![""],
+        "a go-to-position verb must leave a caret, not a selection"
+    );
+}
+
+#[test]
+fn a_cursor_lands_on_every_element_of_the_array() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "22");
+    ast(&mut editor, &AST_SELECT_NODE);
+
+    ast(&mut editor, &AST_CURSOR_ON_EVERY_SIBLING);
+
+    let mut texts = selected(&editor, ARRAY);
+    texts.sort_unstable();
+    assert_eq!(texts, vec!["111", "22", "3333"]);
+    assert_eq!(
+        editor.state().cursor.cursor_count(),
+        3,
+        "siblings are disjoint, so none of them may merge away"
+    );
+}
+
+#[test]
+fn the_primary_cursor_stays_on_the_node_it_started_from() {
+    // Without this the primary silently becomes the first element, and the next
+    // `Escape` collapses to somewhere the person was not.
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "22");
+    ast(&mut editor, &AST_SELECT_NODE);
+
+    ast(&mut editor, &AST_CURSOR_ON_EVERY_SIBLING);
+
+    assert_eq!(
+        selected(&editor, ARRAY)[0],
+        "22",
+        "the spread moved the primary off the node it was launched from"
+    );
+}
+
+#[test]
+fn a_cursor_lands_on_every_child_of_the_selected_node() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    // Two, not three: from a caret the ladder is `111`, then the array. A third
+    // press would already be out at the enclosing `"values": [...]` pair.
+    for _ in 0..2 {
+        expand(&mut editor);
+    }
+    assert_eq!(selected(&editor, ARRAY), vec!["[111, 22, 3333]"]);
+
+    ast(&mut editor, &AST_CURSOR_ON_EVERY_CHILD);
+
+    let mut texts = selected(&editor, ARRAY);
+    texts.sort_unstable();
+    assert_eq!(texts, vec!["111", "22", "3333"]);
+}
+
+#[test]
+fn spreading_onto_a_node_that_is_already_the_only_cursor_changes_nothing() {
+    let mut editor = editor(Language::Json, "[1]");
+    caret_before(&mut editor, "[1]", "1");
+    ast(&mut editor, &AST_SELECT_NODE);
+    let before = editor.state().cursor.clone();
+
+    ast(&mut editor, &AST_CURSOR_ON_EVERY_CHILD);
+
+    assert_eq!(
+        editor.state().cursor,
+        before,
+        "a number has no children, and a spread with nothing to spread must not \
+         report a change"
+    );
+}
+
+#[test]
+fn a_spread_that_lands_where_it_started_reports_that_nothing_happened() {
+    // Comparing cursor states is not enough to catch this: a spread that returns
+    // the state it was given still *applies* it, and the cursors look identical
+    // either way. What differs is the claim — and the cost of a false claim is
+    // the expansion stack, which every moving verb clears. So a lone element
+    // whose only sibling is itself would silently destroy the ability to shrink
+    // back, from a key that visibly did nothing.
+    let mut editor = editor(Language::Json, "[1]");
+    caret_before(&mut editor, "[1]", "1");
+    expand(&mut editor);
+    expand(&mut editor);
+    let depth = editor.state().syntax.expansion_depth();
+    assert!(
+        depth > 0,
+        "there must be frames for this test to protect them"
+    );
+    let before = editor.state().cursor.clone();
+
+    let moved = editor.perform_ast_request(AstRequest::CursorOnEverySibling);
+
+    assert!(
+        !moved,
+        "the spread reported a change it did not make; every caller that acts on \
+         that answer is now acting on a lie"
+    );
+    assert_eq!(editor.state().cursor, before);
+    assert_eq!(
+        editor.state().syntax.expansion_depth(),
+        depth,
+        "a verb that did nothing threw away the frames a shrink needs"
+    );
+}
+
+#[test]
+fn a_sideways_step_throws_away_the_expansion_stack() {
+    // The rule that keeps shrink honest. After walking to a sibling, the state
+    // expansion started from is no longer where "back" leads — and a shrink that
+    // jumped there would land on a range the person never looked at.
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    expand(&mut editor);
+    expand(&mut editor);
+    assert!(
+        editor.state().syntax.expansion_depth() > 0,
+        "the expansions must have been recorded for this test to mean anything"
+    );
+
+    ast(&mut editor, &AST_SELECT_NEXT_SIBLING);
+
+    assert_eq!(
+        editor.state().syntax.expansion_depth(),
+        0,
+        "walking sideways left frames behind that a later shrink would retrace"
+    );
+}
+
+#[test]
+fn shrinking_after_a_sideways_step_narrows_rather_than_jumping_back() {
+    let mut editor = editor(Language::Json, ARRAY);
+    caret_before(&mut editor, ARRAY, "111");
+    // Two, not three: from a caret the ladder is `111`, then the array. A third
+    // press would already be out at the enclosing `"values": [...]` pair.
+    for _ in 0..2 {
+        expand(&mut editor);
+    }
+    assert_eq!(selected(&editor, ARRAY), vec!["[111, 22, 3333]"]);
+
+    ast(&mut editor, &AST_SELECT_NEXT_SIBLING);
+    let after_step = selected(&editor, ARRAY);
+    shrink(&mut editor);
+
+    assert_ne!(
+        selected(&editor, ARRAY),
+        after_step,
+        "the shrink did nothing at all"
+    );
+    assert_ne!(
+        selected(&editor, ARRAY),
+        vec!["111"],
+        "the shrink retraced an expansion that the sideways step should have \
+         invalidated"
+    );
+}
+
+#[test]
+fn every_structural_verb_is_silent_on_a_document_with_no_language() {
+    // The whole set, not a sample: a verb that panics or misbehaves without a
+    // tree is a verb that breaks the editor on any file whose language has no
+    // grammar, which is most of them.
+    for id in [
+        &AST_SELECT_NEXT_SIBLING,
+        &AST_SELECT_PREVIOUS_SIBLING,
+        &AST_SELECT_FIRST_CHILD,
+        &AST_SELECT_LAST_CHILD,
+        &AST_EXTEND_NEXT_SIBLING,
+        &AST_EXTEND_PREVIOUS_SIBLING,
+        &AST_CURSOR_NODE_START,
+        &AST_CURSOR_NODE_END,
+        &AST_CURSOR_ON_EVERY_SIBLING,
+        &AST_CURSOR_ON_EVERY_CHILD,
+    ] {
+        let mut editor = Editor::new(EditorConfig::default());
+        editor.set_content(ARRAY);
+        caret_before(&mut editor, ARRAY, "22");
+        let before = editor.state().cursor.clone();
+
+        ast(&mut editor, id);
+
+        assert_eq!(
+            editor.state().cursor,
+            before,
+            "`{}` moved the cursor in a document with no parse tree",
+            id.as_str()
+        );
+    }
+}
+
+#[test]
+fn every_structural_verb_leaves_the_document_untouched() {
+    // None of these is `.mutating()`, which is what keeps them available in a
+    // read-only buffer. If one of them ever edited text that claim would be a
+    // lie, and the lie would only surface in a read-only file.
+    for id in [
+        &AST_SELECT_NEXT_SIBLING,
+        &AST_SELECT_PREVIOUS_SIBLING,
+        &AST_SELECT_FIRST_CHILD,
+        &AST_SELECT_LAST_CHILD,
+        &AST_EXTEND_NEXT_SIBLING,
+        &AST_EXTEND_PREVIOUS_SIBLING,
+        &AST_CURSOR_NODE_START,
+        &AST_CURSOR_NODE_END,
+        &AST_CURSOR_ON_EVERY_SIBLING,
+        &AST_CURSOR_ON_EVERY_CHILD,
+    ] {
+        let mut editor = editor(Language::Json, ARRAY);
+        caret_before(&mut editor, ARRAY, "22");
+
+        ast(&mut editor, id);
+
+        assert_eq!(
+            editor.state().document.text(),
+            ARRAY,
+            "`{}` changed the document",
+            id.as_str()
+        );
+    }
 }

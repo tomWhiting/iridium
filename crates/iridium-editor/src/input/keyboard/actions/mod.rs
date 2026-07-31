@@ -260,6 +260,24 @@ pub(super) enum KeyboardAction {
     AstCursorOnEverySibling,
     /// Put a cursor on every child of the node under each selection.
     AstCursorOnEveryChild,
+    /// Select the body of the function each selection sits in.
+    AstSelectFunctionInside,
+    /// Select the whole function each selection sits in.
+    AstSelectFunctionAround,
+    /// Select the body of the class each selection sits in.
+    AstSelectClassInside,
+    /// Select the whole class each selection sits in.
+    AstSelectClassAround,
+    /// Select the whole comment each selection sits in.
+    AstSelectCommentAround,
+    /// Move each caret to the start of the next function.
+    AstNextFunction,
+    /// Move each caret to the start of the previous function.
+    AstPreviousFunction,
+    /// Move each caret to the start of the next class.
+    AstNextClass,
+    /// Move each caret to the start of the previous class.
+    AstPreviousClass,
 
     // ----- General -----
     /// Consume the keypress and do nothing.
@@ -447,6 +465,30 @@ static ACTIONS: &[(CommandId, KeyboardAction)] = &[
         builtin::AST_CURSOR_ON_EVERY_CHILD,
         Action::AstCursorOnEveryChild,
     ),
+    (
+        builtin::AST_SELECT_FUNCTION_INSIDE,
+        Action::AstSelectFunctionInside,
+    ),
+    (
+        builtin::AST_SELECT_FUNCTION_AROUND,
+        Action::AstSelectFunctionAround,
+    ),
+    (
+        builtin::AST_SELECT_CLASS_INSIDE,
+        Action::AstSelectClassInside,
+    ),
+    (
+        builtin::AST_SELECT_CLASS_AROUND,
+        Action::AstSelectClassAround,
+    ),
+    (
+        builtin::AST_SELECT_COMMENT_AROUND,
+        Action::AstSelectCommentAround,
+    ),
+    (builtin::AST_NEXT_FUNCTION, Action::AstNextFunction),
+    (builtin::AST_PREVIOUS_FUNCTION, Action::AstPreviousFunction),
+    (builtin::AST_NEXT_CLASS, Action::AstNextClass),
+    (builtin::AST_PREVIOUS_CLASS, Action::AstPreviousClass),
     // Search.
     (builtin::SEARCH_OPEN, Action::SearchOpen),
     (builtin::SEARCH_NEXT_MATCH, Action::SearchNextMatch),

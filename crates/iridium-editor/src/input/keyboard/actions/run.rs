@@ -222,6 +222,15 @@ impl KeyboardHandler {
             Action::AstCursorNodeEnd => KeyResult::Ast(AstRequest::CursorNodeEnd),
             Action::AstCursorOnEverySibling => KeyResult::Ast(AstRequest::CursorOnEverySibling),
             Action::AstCursorOnEveryChild => KeyResult::Ast(AstRequest::CursorOnEveryChild),
+            Action::AstSelectFunctionInside => KeyResult::Ast(AstRequest::SelectFunctionInside),
+            Action::AstSelectFunctionAround => KeyResult::Ast(AstRequest::SelectFunctionAround),
+            Action::AstSelectClassInside => KeyResult::Ast(AstRequest::SelectClassInside),
+            Action::AstSelectClassAround => KeyResult::Ast(AstRequest::SelectClassAround),
+            Action::AstSelectCommentAround => KeyResult::Ast(AstRequest::SelectCommentAround),
+            Action::AstNextFunction => KeyResult::Ast(AstRequest::NextFunction),
+            Action::AstPreviousFunction => KeyResult::Ast(AstRequest::PreviousFunction),
+            Action::AstNextClass => KeyResult::Ast(AstRequest::NextClass),
+            Action::AstPreviousClass => KeyResult::Ast(AstRequest::PreviousClass),
 
             // ----- General -----
             Action::NoOp => KeyResult::Handled,

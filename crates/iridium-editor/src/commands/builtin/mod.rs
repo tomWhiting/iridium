@@ -571,6 +571,92 @@ pub static BUILTIN: &[CommandMeta] = &[
         "select all children",
         "multi cursor children",
     ]),
+    CommandMeta::described(
+        AST_SELECT_FUNCTION_INSIDE,
+        "Select Inside Function",
+        "Selects the body of the function under each selection, leaving the \
+         signature behind. Pressing again walks out to the function holding it.",
+        SYNTAX,
+    )
+    .with_aliases(&["inner function", "function body", "select function body"]),
+    CommandMeta::described(
+        AST_SELECT_FUNCTION_AROUND,
+        "Select Function",
+        "Selects the whole function under each selection, signature and body \
+         together. Pressing again walks out to the function holding it.",
+        SYNTAX,
+    )
+    .with_aliases(&["around function", "outer function", "select whole function"]),
+    CommandMeta::described(
+        AST_SELECT_CLASS_INSIDE,
+        "Select Inside Class",
+        "Selects the body of the class, struct, enum or interface under each \
+         selection, leaving the declaration behind.",
+        SYNTAX,
+    )
+    .with_aliases(&["inner class", "class body", "select struct body"]),
+    CommandMeta::described(
+        AST_SELECT_CLASS_AROUND,
+        "Select Class",
+        "Selects the whole class, struct, enum or interface under each \
+         selection — or, in Markdown, the whole section.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "around class",
+        "outer class",
+        "select whole class",
+        "select struct",
+        "select section",
+    ]),
+    CommandMeta::described(
+        AST_SELECT_COMMENT_AROUND,
+        "Select Comment",
+        "Selects the whole comment under each selection, including every line \
+         of a run of line comments. There is no inside variant: no vendored \
+         query defines one.",
+        SYNTAX,
+    )
+    .with_aliases(&["around comment", "select whole comment"]),
+    CommandMeta::described(
+        AST_NEXT_FUNCTION,
+        "Go To Next Function",
+        "Moves each caret to the start of the next function.",
+        SYNTAX,
+    )
+    .with_aliases(&["next function", "next method", "jump to next function"]),
+    CommandMeta::described(
+        AST_PREVIOUS_FUNCTION,
+        "Go To Previous Function",
+        "Moves each caret to the start of the previous function.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "previous function",
+        "previous method",
+        "jump to previous function",
+    ]),
+    CommandMeta::described(
+        AST_NEXT_CLASS,
+        "Go To Next Class",
+        "Moves each caret to the start of the next class, struct, enum or \
+         interface — or, in Markdown, the next section heading.",
+        SYNTAX,
+    )
+    .with_aliases(&["next class", "next struct", "next section", "next heading"]),
+    CommandMeta::described(
+        AST_PREVIOUS_CLASS,
+        "Go To Previous Class",
+        "Moves each caret to the start of the previous class, struct, enum or \
+         interface — or, in Markdown, the previous section heading.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "previous class",
+        "previous struct",
+        "previous section",
+        "previous heading",
+    ]),
     // ----- Search -----
     CommandMeta::from_static(SEARCH_OPEN, "Find", SEARCH).with_aliases(&["search"]),
     CommandMeta::from_static(SEARCH_NEXT_MATCH, "Find Next", SEARCH).with_aliases(&["search next"]),

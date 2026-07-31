@@ -32,12 +32,14 @@ use crate::document::{CursorState, Document};
 use crate::input::keyboard::AstRequest;
 
 #[cfg(feature = "syntax")]
+use super::textobject::{Region, Source};
+#[cfg(feature = "syntax")]
 use super::walk;
 #[cfg(feature = "syntax")]
-use iridium_syntax::{Node, Tree};
+use iridium_syntax::{Language, Node, Tree};
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::Tree;
+use crate::syntax_stubs::{Language, Tree};
 
 /// The cursor states an expansion walked out through, newest last.
 #[derive(Debug, Default, Clone)]
@@ -127,9 +129,14 @@ impl ExpandStack {
 /// on the outermost node, a shrink with nothing left to shrink, a document whose
 /// language has no grammar. Each of those is a key that quietly does nothing,
 /// which is the right behaviour for a key held down.
+///
+/// `language` is `None` when the document has none set. Only the named-region
+/// verbs need it — the vendored queries are per-language files — and they are
+/// the only ones that consult it.
 #[cfg(feature = "syntax")]
 pub(super) fn selection_for(
     request: AstRequest,
+    language: Option<Language>,
     tree: &Tree,
     document: &Document,
     cursor: &CursorState,
@@ -182,6 +189,37 @@ pub(super) fn selection_for(
         AstRequest::CursorNodeEnd => map_selections(root, document, cursor, walk::node_end)?,
         AstRequest::CursorOnEverySibling => fan_out(root, document, cursor, walk::every_sibling)?,
         AstRequest::CursorOnEveryChild => fan_out(root, document, cursor, walk::every_child)?,
+
+        // ----- Moving, by named region rather than by tree shape -----
+        //
+        // One arm for all nine: they are the same operation with different
+        // constants, and `Region::of` is the single place that mapping lives.
+        // Moving in the taxonomy on `AstRequest`, and deliberately so — a text
+        // object is a jump to somewhere the grammar names, not a rung on the
+        // expansion ladder, so a shrink afterwards must narrow rather than
+        // retrace an expansion that no longer describes where the person is.
+        AstRequest::SelectFunctionInside
+        | AstRequest::SelectFunctionAround
+        | AstRequest::SelectClassInside
+        | AstRequest::SelectClassAround
+        | AstRequest::SelectCommentAround
+        | AstRequest::NextFunction
+        | AstRequest::PreviousFunction
+        | AstRequest::NextClass
+        | AstRequest::PreviousClass => {
+            // Materialised here and nowhere else. A query matches captures
+            // against source bytes, so the text is unavoidable for these nine —
+            // and building a copy of the document for the twelve verbs that
+            // never look at it would be a cost paid on every structural
+            // keypress to no end.
+            let text = document.text();
+            let source = Source {
+                language: language?,
+                tree,
+                text: &text,
+            };
+            map_regions(&source, document, cursor, Region::of(request)?)?
+        },
     };
 
     // Every verb that reaches here has walked sideways or downwards, and the
@@ -203,6 +241,7 @@ pub(super) fn selection_for(
 #[cfg(not(feature = "syntax"))]
 pub(super) const fn selection_for(
     _request: AstRequest,
+    _language: Option<Language>,
     _tree: &Tree,
     _document: &Document,
     _cursor: &CursorState,
@@ -242,6 +281,67 @@ fn map_selections(
     // should happen when two cursors expand onto the same node — and precisely
     // why the stack keeps whole states rather than one stack per cursor.
     gather(next.into_iter())
+}
+
+/// Applies one named-region step to every cursor, or `None` if none moved.
+///
+/// The counterpart of [`map_selections`] for the query-driven verbs, and a
+/// separate function for the reason given in [`super::textobject`]: the step it
+/// applies needs a language, the source text and a direction, none of which a
+/// [`walk::Walk`] carries. Everything downstream of the step is shared —
+/// [`to_selection`] keeps the direction, [`gather`] merges what now overlaps —
+/// so the two paths cannot disagree about how a range becomes a cursor state.
+///
+/// Cursors the step has no answer for are left exactly where they are, for the
+/// same reason as in [`map_selections`]: one caret inside a function while
+/// another sits at the top level is a normal mixed result, and losing the second
+/// would be far worse than failing to move it.
+#[cfg(feature = "syntax")]
+fn map_regions(
+    source: &Source<'_>,
+    document: &Document,
+    cursor: &CursorState,
+    region: Region,
+) -> Option<CursorState> {
+    let mut moved = false;
+    let mut next = Vec::with_capacity(cursor.cursor_count());
+
+    for &selection in cursor.all_selections() {
+        let located = region_one(source, document, selection, region);
+        moved |= located != selection;
+        next.push(located);
+    }
+
+    if !moved {
+        return None;
+    }
+
+    gather(next.into_iter())
+}
+
+/// Moves one selection to the region a query locates for it.
+///
+/// The caret is resolved alongside the two edges because a jump travels from it
+/// rather than from either end of the selection; see [`Region::locate`].
+#[cfg(feature = "syntax")]
+fn region_one(
+    source: &Source<'_>,
+    document: &Document,
+    selection: Selection,
+    region: Region,
+) -> Selection {
+    let (Some(start), Some(end), Some(caret)) = (
+        document.position_to_offset(selection.start()),
+        document.position_to_offset(selection.end()),
+        document.position_to_offset(selection.cursor_position()),
+    ) else {
+        return selection;
+    };
+
+    region
+        .locate(source, &(start..end), caret)
+        .and_then(|range| to_selection(document, &range, selection.is_backward()))
+        .unwrap_or(selection)
 }
 
 /// Applies a one-to-many walk, putting a cursor on every range it returns.

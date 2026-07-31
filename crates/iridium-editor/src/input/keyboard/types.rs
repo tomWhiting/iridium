@@ -303,6 +303,49 @@ pub enum AstRequest {
     CursorOnEverySibling,
     /// Put a cursor on every child of the node under each selection.
     CursorOnEveryChild,
+
+    /// Select the body of the function each selection sits in.
+    ///
+    /// The first of nine verbs answered by the vendored `textobjects.scm` files
+    /// rather than by the shape of the tree, and the distinction is not an
+    /// implementation detail: "the function I am in" is `function_item` in Rust,
+    /// `function_declaration` in Go and `function_definition` in Python, so it
+    /// is a fact about the *grammar's* vocabulary and not about tree structure.
+    ///
+    /// A language whose queries lack the capture — JSON has neither functions
+    /// nor classes — answers with no movement, exactly as a caret outside every
+    /// function does. All nine are **moving** verbs: they clear the expansion
+    /// stack.
+    SelectFunctionInside,
+    /// Select the whole function each selection sits in, signature included.
+    SelectFunctionAround,
+    /// Select the body of the class, struct, enum or interface each selection
+    /// sits in.
+    SelectClassInside,
+    /// Select the whole class, struct, enum or interface each selection sits in
+    /// — or, in Markdown, the whole section.
+    SelectClassAround,
+    /// Select the whole comment each selection sits in.
+    ///
+    /// There is no inside variant, and that is a statement about the vendored
+    /// queries rather than an omission here: none of them defines
+    /// `@comment.inside`.
+    SelectCommentAround,
+
+    /// Move each caret to the start of the next function.
+    ///
+    /// A caret motion, not a selection: the four jump verbs collapse onto the
+    /// start of the region they find. Selecting it instead would make
+    /// [`Self::NextFunction`] indistinguishable from
+    /// [`Self::SelectFunctionAround`] after one press, and leave no verb that
+    /// simply *goes* somewhere.
+    NextFunction,
+    /// Move each caret to the start of the previous function.
+    PreviousFunction,
+    /// Move each caret to the start of the next class or Markdown section.
+    NextClass,
+    /// Move each caret to the start of the previous class or Markdown section.
+    PreviousClass,
 }
 
 /// Result of handling a keyboard event.

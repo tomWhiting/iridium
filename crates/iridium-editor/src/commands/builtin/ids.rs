@@ -240,6 +240,35 @@ pub const AST_CURSOR_ON_EVERY_SIBLING: CommandId =
 /// Put a cursor on every child of the syntax node under each selection.
 pub const AST_CURSOR_ON_EVERY_CHILD: CommandId = CommandId::from_static("ast.cursorOnEveryChild");
 
+// The named-region verbs, driven by the vendored `textobjects.scm` files rather
+// than by the shape of the tree. They carry no default binding either, and for
+// the same reason: the chords that read as structural are all spent. There is no
+// `ast.selectCommentInside`, and its absence is not an oversight — no vendored
+// query defines `@comment.inside`, which
+// [`TextObject::capture`](iridium_syntax::query::TextObject::capture) states
+// once so that no caller has to remember it.
+
+/// Select the body of the function under each selection.
+pub const AST_SELECT_FUNCTION_INSIDE: CommandId =
+    CommandId::from_static("ast.selectFunctionInside");
+/// Select the whole function under each selection, signature included.
+pub const AST_SELECT_FUNCTION_AROUND: CommandId =
+    CommandId::from_static("ast.selectFunctionAround");
+/// Select the body of the class under each selection.
+pub const AST_SELECT_CLASS_INSIDE: CommandId = CommandId::from_static("ast.selectClassInside");
+/// Select the whole class under each selection, declaration included.
+pub const AST_SELECT_CLASS_AROUND: CommandId = CommandId::from_static("ast.selectClassAround");
+/// Select the whole comment under each selection.
+pub const AST_SELECT_COMMENT_AROUND: CommandId = CommandId::from_static("ast.selectCommentAround");
+/// Move each caret to the start of the next function.
+pub const AST_NEXT_FUNCTION: CommandId = CommandId::from_static("ast.nextFunction");
+/// Move each caret to the start of the previous function.
+pub const AST_PREVIOUS_FUNCTION: CommandId = CommandId::from_static("ast.previousFunction");
+/// Move each caret to the start of the next class.
+pub const AST_NEXT_CLASS: CommandId = CommandId::from_static("ast.nextClass");
+/// Move each caret to the start of the previous class.
+pub const AST_PREVIOUS_CLASS: CommandId = CommandId::from_static("ast.previousClass");
+
 // ===== Search =====
 
 /// Open the search panel.

@@ -36,17 +36,17 @@
 //!   [`builtin::host`](super::builtin) for why the id lives in the kernel.
 
 use super::builtin::{
-    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, COMMENT_TOGGLE_BLOCK, COMMENT_TOGGLE_LINE,
-    CURSOR_CHAR_LEFT, CURSOR_CHAR_LEFT_SELECT, CURSOR_CHAR_RIGHT, CURSOR_CHAR_RIGHT_SELECT,
-    CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START,
-    CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_DOWN, CURSOR_LINE_DOWN_SELECT, CURSOR_LINE_END,
-    CURSOR_LINE_END_SELECT, CURSOR_LINE_START, CURSOR_LINE_START_SELECT, CURSOR_LINE_UP,
-    CURSOR_LINE_UP_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT,
-    CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_BACKWARD, EDIT_DELETE_FORWARD, EDIT_DELETE_WORD_BACKWARD,
-    EDIT_DELETE_WORD_FORWARD, EDIT_INSERT_NEWLINE, EDIT_OUTDENT, EDIT_TAB, HISTORY_NEXT_BRANCH,
-    HISTORY_PREVIOUS_BRANCH, HISTORY_REDO, HISTORY_TOGGLE_PANEL, HISTORY_UNDO, LINES_DELETE,
-    LINES_DUPLICATE_DOWN, LINES_DUPLICATE_UP, LINES_JOIN, LINES_MOVE_DOWN, LINES_MOVE_UP,
-    MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
+    AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE,
+    COMMENT_TOGGLE_BLOCK, COMMENT_TOGGLE_LINE, CURSOR_CHAR_LEFT, CURSOR_CHAR_LEFT_SELECT,
+    CURSOR_CHAR_RIGHT, CURSOR_CHAR_RIGHT_SELECT, CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT,
+    CURSOR_DOCUMENT_START, CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_DOWN, CURSOR_LINE_DOWN_SELECT,
+    CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START, CURSOR_LINE_START_SELECT,
+    CURSOR_LINE_UP, CURSOR_LINE_UP_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT,
+    CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_BACKWARD, EDIT_DELETE_FORWARD,
+    EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, EDIT_INSERT_NEWLINE, EDIT_OUTDENT,
+    EDIT_TAB, HISTORY_NEXT_BRANCH, HISTORY_PREVIOUS_BRANCH, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
+    HISTORY_UNDO, LINES_DELETE, LINES_DUPLICATE_DOWN, LINES_DUPLICATE_UP, LINES_JOIN,
+    LINES_MOVE_DOWN, LINES_MOVE_UP, MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
     MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_NEXT_MATCH, SEARCH_OPEN,
     SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
@@ -59,7 +59,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 56;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 58;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -110,6 +110,19 @@ const ADD_CURSOR: ModifierPattern = pattern(Forbidden, Required, Required, Forbi
 
 /// `Shift+Alt` letter chord: the block-comment toggle.
 const SHIFT_ALT: ModifierPattern = pattern(Required, Forbidden, Required, Forbidden, Any);
+
+/// `Shift+Alt`+arrow: grow and shrink the selection by syntax node.
+///
+/// Deliberately the same shape as [`LINE_DUPLICATE`], one axis over. `Shift+Alt`
+/// already reads as "the structural version of" on the vertical arrows, where it
+/// duplicates whole lines; on the horizontal arrows it widens and narrows the
+/// selection by node, with right meaning outward. That is also what VS Code
+/// binds *Expand Selection* and *Shrink Selection* to, so the muscle memory is
+/// not invented here.
+///
+/// More specific than the plain horizontal patterns — which ignore `Alt` — so it
+/// wins where it applies and character motion keeps `Alt+Left` elsewhere.
+const SYNTAX_SELECT: ModifierPattern = pattern(Required, Forbidden, Required, Forbidden, Any);
 
 /// A `Ctrl`+letter chord that fires with or without `Shift`.
 const CTRL_ANY_SHIFT: ModifierPattern = pattern(Any, Required, Forbidden, Forbidden, Any);
@@ -300,6 +313,22 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
     // `MULTI_CURSOR_SKIP_LAST_OCCURRENCE` deliberately has no binding here: it
     // held `Ctrl+K Ctrl+D`, and `Ctrl+K` is now reserved as the command-palette
     // leader. See the module documentation.
+    // ----- Syntax selection -----
+    //
+    // `AST_SELECT_NODE` is deliberately palette-only: from a caret it lands
+    // where one expansion lands, so it earns a key only for the "snap this
+    // selection to node boundaries" case, and that is a question about daily use
+    // rather than a technical one.
+    (
+        StrokePattern::new(KeyCode::Right, SYNTAX_SELECT),
+        CHORD,
+        AST_EXPAND_SELECTION,
+    ),
+    (
+        StrokePattern::new(KeyCode::Left, SYNTAX_SELECT),
+        CHORD,
+        AST_SHRINK_SELECTION,
+    ),
     // ----- Editing -----
     (
         StrokePattern::new(KeyCode::Enter, ANY_MODS),

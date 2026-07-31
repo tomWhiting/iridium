@@ -77,8 +77,8 @@ mod tests;
 mod transform_tests;
 
 pub use types::{
-    ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult, Modifiers,
-    SearchAction,
+    AstRequest, ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
+    Modifiers, SearchAction,
 };
 
 use crate::commands::{

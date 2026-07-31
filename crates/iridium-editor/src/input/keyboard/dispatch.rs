@@ -221,6 +221,7 @@ impl KeyboardHandler {
             // the editor reports it. Answering `true` here would mark the
             // sticky columns dormant on an undo that had nothing to undo.
             KeyResult::History(_)
+            | KeyResult::Ast(_)
             | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }
@@ -240,6 +241,11 @@ impl KeyboardHandler {
             KeyResult::Clipboard(ClipboardOperation::Cut { command, .. }) => {
                 command.modifies_content()
             },
+            // Unlike a history traversal, a structural selection genuinely
+            // moves the cursors and has no recorded sticky state to restore —
+            // so the preferred columns must go, exactly as they would for any
+            // other selection change.
+            KeyResult::Ast(_) => true,
             // As above: an undo restores the *exact* cursor state recorded at
             // its destination, sticky columns included, so treating it as a
             // cursor mutation here would discard the very state it restores.

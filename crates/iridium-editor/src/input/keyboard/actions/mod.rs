@@ -233,6 +233,14 @@ pub(super) enum KeyboardAction {
     /// Move the most recently added occurrence cursor to the next match.
     SkipLastOccurrence,
 
+    // ----- Syntax -----
+    /// Snap every selection to the smallest node covering it.
+    AstSelectNode,
+    /// Widen every selection to the smallest node strictly containing it.
+    AstExpandSelection,
+    /// Undo one expansion, restoring the previous selections exactly.
+    AstShrinkSelection,
+
     // ----- General -----
     /// Consume the keypress and do nothing.
     NoOp,
@@ -387,6 +395,10 @@ static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     ),
     // General.
     (builtin::COMMAND_NO_OP, Action::NoOp),
+    // Syntax.
+    (builtin::AST_SELECT_NODE, Action::AstSelectNode),
+    (builtin::AST_EXPAND_SELECTION, Action::AstExpandSelection),
+    (builtin::AST_SHRINK_SELECTION, Action::AstShrinkSelection),
     // Search.
     (builtin::SEARCH_OPEN, Action::SearchOpen),
     (builtin::SEARCH_NEXT_MATCH, Action::SearchNextMatch),

@@ -612,6 +612,18 @@ impl WebEditor {
             KeyResult::Clipboard(operation) => self.apply_clipboard_result(operation),
             KeyResult::Search(action) => self.apply_search_result(&action),
             KeyResult::History(request) => self.apply_history_result(request),
+            // Routed to the kernel rather than answered here, even though this
+            // build has no tree for it to read: `syntax` is off for wasm32, so
+            // `perform_ast_request` returns `false` and the key does nothing.
+            // Calling it anyway is what makes turning the feature on the only
+            // change needed, instead of a second implementation living here.
+            KeyResult::Ast(request) => {
+                if self.editor.perform_ast_request(request) {
+                    self.cursor_renderer.reset_blink();
+                    self.needs_redraw = true;
+                }
+                "handled".to_string()
+            },
             // A binding named a command the kernel does not implement — a host
             // command. The key was consumed and the id is reported so the host can
             // run it; the caller reads `takePendingHostCommand` for the id.

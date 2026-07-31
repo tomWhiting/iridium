@@ -15,7 +15,7 @@ use crate::text::case::CaseStyle;
 use super::super::motions;
 use super::super::motions::VerticalDirection::{Down, Up};
 use super::super::transform::{CaseVerb, LineVerb};
-use super::super::types::{ClipboardOperation, KeyCode, KeyResult, SearchAction};
+use super::super::types::{AstRequest, ClipboardOperation, KeyCode, KeyResult, SearchAction};
 use super::super::{KeyboardHandler, line_ops};
 use super::{CommandContext, KeyboardAction};
 
@@ -203,6 +203,15 @@ impl KeyboardHandler {
             Action::AddCursorAbove => self.handle_add_cursor_vertical(document, cursor, Up),
             Action::AddCursorBelow => self.handle_add_cursor_vertical(document, cursor, Down),
             Action::SkipLastOccurrence => self.skip_last_added_occurrence(document, cursor),
+
+            // ----- Syntax -----
+            //
+            // Named, not performed: the answer lives in the editor's parse tree
+            // and its expansion stack, neither of which the keyboard layer can
+            // see. See `AstRequest`.
+            Action::AstSelectNode => KeyResult::Ast(AstRequest::SelectNode),
+            Action::AstExpandSelection => KeyResult::Ast(AstRequest::ExpandSelection),
+            Action::AstShrinkSelection => KeyResult::Ast(AstRequest::ShrinkSelection),
 
             // ----- General -----
             Action::NoOp => KeyResult::Handled,

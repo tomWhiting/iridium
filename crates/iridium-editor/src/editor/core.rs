@@ -13,8 +13,8 @@ use crate::document::{CursorState, Document, Position, Selection, compute_edit_s
 use crate::history::{Command, UndoTree};
 use crate::input::keyboard::editing;
 use crate::input::{
-    ClipboardOperation, CommandRunError, ImeEvent, ImeHandler, ImeResult, ImeState, KeyEvent,
-    KeyResult, KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
+    AstRequest, ClipboardOperation, CommandRunError, ImeEvent, ImeHandler, ImeResult, ImeState,
+    KeyEvent, KeyResult, KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
 };
 use crate::render::Viewport;
 use crate::search::{SearchOptions, SearchState, replace_all, replace_current};
@@ -711,11 +711,50 @@ impl Editor {
                 self.perform_history_request(request);
                 EditorKeyResult::None
             },
+            KeyResult::Ast(request) => {
+                // The one place a structural selection is performed, whether it
+                // arrived as a keystroke or by id. It ends as a
+                // `Command::SetSelection`, so it is undoable and read-only-safe
+                // for the same reasons every other selection change is.
+                self.perform_ast_request(request);
+                EditorKeyResult::None
+            },
             KeyResult::HostCommand { command, args } => {
                 EditorKeyResult::HostCommand { command, args }
             },
             KeyResult::Handled | KeyResult::Ignored => EditorKeyResult::None,
         }
+    }
+
+    /// Applies a structural selection change, if the tree has one to give.
+    ///
+    /// Returns whether the selection moved. Public so a face driving the editor
+    /// without the kernel's own key handling — the web binding does — reaches the
+    /// same implementation rather than growing a second one.
+    ///
+    /// In a build without tree-sitter this always returns `false`, which is why
+    /// the web face can call it today and simply get nothing.
+    ///
+    /// Silent when the document has no language, when the tree cannot parse, or
+    /// when the selection is already where the request would put it. All three
+    /// are "nothing to do", and a key that quietly does nothing is better than
+    /// one reporting a failure the person cannot act on.
+    pub fn perform_ast_request(&mut self, request: AstRequest) -> bool {
+        let next =
+            self.state
+                .syntax
+                .apply_ast_request(&self.state.document, &self.state.cursor, request);
+
+        let Some(new_state) = next else {
+            return false;
+        };
+
+        let old_state = self.state.cursor.clone();
+        self.apply_command_internal(Command::SetSelection {
+            old_state,
+            new_state,
+        });
+        true
     }
 
     /// Drops the most recently added occurrence cursor and selects the next
@@ -740,6 +779,7 @@ impl Editor {
             KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::History(_)
+            | KeyResult::Ast(_)
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
             | KeyResult::Search(_) => false,

@@ -546,25 +546,40 @@ Gates run for step 11: `deno check` clean across the whole core package,
 **43 bun tests** (17 new), `npx tsc --noEmit` clean on `examples/web`, and
 `npx vite build` succeeds. No Rust changed, so the cargo baselines above stand.
 
-## Step 11 is parked in a worktree — NOT on `main`
+## Step 11 is parked in a worktree — NOT on the working branch
 
-Commit `4f6edf9` is on branch **`feature/palette-web-face`**, in a worktree at
-`<scratchpad>/step11-wt`. It is deliberately not in this checkout.
+Branch **`feature/palette-web-face`** — one commit, in a worktree at
+`<scratchpad>/step11-wt`. It is deliberately not in this checkout. Refer to it by
+**branch name, not commit hash**: it has been rebased once already and may be
+again, so any hash written down goes stale.
 
 **Why:** the vite dev server on 12223 was live for the visitor demo when step 11
 was written, and every file step 11 touches is in vite's module graph — editing
 them in place would have hot-reloaded the guests' browsers mid-demo.
 
-**To land it** once the demo is over:
+**To land it** once the demo is over — note the target is
+**`feature/terminal-face`**, the working branch, *not* `main`:
 
 ```bash
-git merge --ff-only feature/palette-web-face      # or cherry-pick 4f6edf9
+git switch feature/terminal-face
+git merge feature/palette-web-face        # plain merge: see the note below
 git worktree remove <scratchpad>/step11-wt
+git branch -d feature/palette-web-face
 ```
+
+Use a **plain merge, not `--ff-only`**. The palette branch forked from the tip as
+it stood before the step-11 doc commit, so every further commit on
+`feature/terminal-face` re-diverges the two and `--ff-only` starts failing. That
+already happened once. A plain merge fast-forwards when nothing else has moved
+and merges cleanly when it has; there is no reason to demand the stricter form.
+
+Neither branch has an upstream, so all of this is local and reversible.
 
 The worktree has `node_modules` and `crates/iridium-bindings/pkg` symlinked in
 from this checkout so it can typecheck and build; both are untracked and were
-removed before committing. Recreate with `ln -sfn` if you go back to it.
+removed before committing. Recreate with `ln -sfn` if you go back to it. **Do not
+let a wasm build write through that `pkg` symlink** — it points at the bundle the
+demo is serving. Delete the symlink before building anything.
 
 **Step 11 has NOT been verified in a browser, and cannot be until the demo
 ends.** The live bundle at `crates/iridium-bindings/pkg` was built at 10:04;

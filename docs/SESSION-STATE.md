@@ -506,22 +506,85 @@ Test counts now: **789** all-features, **731** GPU-free, **773**
 syntax-without-GPU, **110** bindings, 30 syntax, **43** bun (26 new). `cargo fmt
 --check` clean, wasm target compiles, `deno check` clean, no new clippy warnings.
 
-**Next: step 11** — the last one. `examples/web/src/CommandPalette.tsx` using
-`createPortal` to `document.body` with inline styles matching `App.tsx`;
-`Iridium.tsx` gains the `onHostCommand` prop it currently lacks (it forwards only
-`onChange`/`onSelectionChange`); then the web component, where **the shadow root
-means a `document.body` portal gets no styles** — render inside the shadow root
-with `position: fixed` and append CSS to the existing `<style>` block in
-`element/index.ts`.
+11. ✅ **Both web faces draw the palette** — `4f6edf9`, and it is **not on
+    `main`**: see "Step 11 is parked in a worktree" below. `CommandPalette.tsx`
+    (React, portalled to `document.body`), `element/palette.ts` (vanilla DOM,
+    inside the shadow root), `Iridium.tsx` gains `onHostCommand`, `App.tsx` and
+    the web component wire `palette.open` → `CommandPalette.open()`.
 
-Wire it to `palette.open`: the host receives it through `onHostCommand` and calls
-`CommandPalette.open()`. Overlay keys all live on the input's `onKeyDown` —
-`Escape` closes, `ArrowDown`/`Ctrl+N` and `ArrowUp`/`Ctrl+P` move with
-`preventDefault`, `Enter` runs — and rows need
-`onMouseDown={e => e.preventDefault()}` so a click does not blur the input first.
+    **Match highlighting is shared code, not per-face** — new
+    `@iridium/core/src/palette/highlight.ts`, 17 tests. The kernel's offsets are
+    UTF-16 and point at where each matched *character* starts, so a run is not
+    one code unit wide: an astral character spans two, and the obvious
+    "one offset, one unit" loop splits the surrogate pair. The failure is silent
+    — a lone surrogate is a valid JS string that renders as a replacement glyph
+    — which is exactly why it is not left to each face to rediscover. Verified
+    against three deliberate breaks (naive one-unit runs, no coalescing, clamping
+    instead of dropping out-of-range offsets).
 
-Then the end-to-end pass in the browser on port **12223** (rebuild the wasm
-bundle first), and after that the plan's sections 2–4.
+    **The web component cannot portal to `document.body`** — a shadow root's CSS
+    does not reach outside it. The overlay mounts *inside* the root with
+    `position: fixed`. It carries its own `<style>` element rather than being
+    appended to the template literal in `element/index.ts` as the plan said; same
+    effect, and it keeps that file inside the size cap (321 lines).
+
+    `Iridium.tsx` routes **all three** callbacks through a ref. The editor
+    captures its callbacks once at construction while props change every render,
+    so a callback closing over component state would fire against the first
+    render's snapshot. Latent today; a real bug the moment anyone uses it.
+
+    Both faces build their `PaletteHost` to delegate through the editor ref
+    rather than capture an editor, so the palette works from the first render and
+    lists nothing until wasm is ready.
+
+    Also fixed a **latent vite alias bug**: a string alias matches `find` *or*
+    anything under `find/`, first match wins, so the bare `"@iridium/core"` entry
+    listed ahead of `"@iridium/core/syntax"` and `"/element"` was already
+    shadowing them. Longest prefix now comes first.
+
+Gates run for step 11: `deno check` clean across the whole core package,
+**43 bun tests** (17 new), `npx tsc --noEmit` clean on `examples/web`, and
+`npx vite build` succeeds. No Rust changed, so the cargo baselines above stand.
+
+## Step 11 is parked in a worktree — NOT on `main`
+
+Commit `4f6edf9` is on branch **`feature/palette-web-face`**, in a worktree at
+`<scratchpad>/step11-wt`. It is deliberately not in this checkout.
+
+**Why:** the vite dev server on 12223 was live for the visitor demo when step 11
+was written, and every file step 11 touches is in vite's module graph — editing
+them in place would have hot-reloaded the guests' browsers mid-demo.
+
+**To land it** once the demo is over:
+
+```bash
+git merge --ff-only feature/palette-web-face      # or cherry-pick 4f6edf9
+git worktree remove <scratchpad>/step11-wt
+```
+
+The worktree has `node_modules` and `crates/iridium-bindings/pkg` symlinked in
+from this checkout so it can typecheck and build; both are untracked and were
+removed before committing. Recreate with `ln -sfn` if you go back to it.
+
+**Step 11 has NOT been verified in a browser, and cannot be until the demo
+ends.** The live bundle at `crates/iridium-bindings/pkg` was built at 10:04;
+step 8's palette exports (`listCommands`, `searchCommands`, `runCommand`,
+`keyHintFor`) landed at 14:17 and are **not in it** — `grep -c listCommands
+crates/iridium-bindings/pkg/iridium_bindings.d.ts` returns 0. So:
+
+- the running demo is unaffected by any of this work, and
+- the end-to-end pass needs a wasm rebuild first, which today's standing
+  instruction forbids.
+
+The wasm rebuild was also **not** run in the worktree: a cold wasm32 build of
+this tree is CPU-heavy and would risk making the live demo stutter.
+
+**The outstanding end-to-end checks**, once rebuilt: `Ctrl+K` opens the palette,
+arrows clamp at both ends, `Enter` runs, `Escape` restores focus to the canvas,
+and every entry shows the key that runs it.
+
+After that, the plan's sections 2–4 (text transformations → undo-tree keys and
+panel → syntax-node navigation).
 
 **Unresolved and NOT silently deferred:** registry-level validation of
 *host-registered* aliases (empty, whitespace, colliding with a command id). The
@@ -535,6 +598,13 @@ The vite dev server on **12223** is being shown to guests today. Standing
 instruction from that thread: **nobody rebuilds, pulls, or restarts it.** The
 wasm bundle was rebuilt at 10:04 with the `Ctrl+K` fix in it, verified serving,
 and the demo typechecks against it.
+
+**This instruction is why step 11 is in a worktree** (see above). It also
+constrains anyone picking this up: vite hot-reloads on save, so *any* edit under
+`examples/web/src/`, `packages/@iridium/core/src/` or `examples/web/vite.config.ts`
+reaches the guests' browsers immediately. Rust and `docs/` are safe — neither is
+in vite's module graph — but a `cargo build` is CPU-heavy enough to be worth
+avoiding while the demo is on screen.
 
 Known rough edges the demo has, told to the demo runner so they steer around
 them rather than discover them live:

@@ -6,13 +6,43 @@
 //! swapping bindings at runtime is a distinct concern from turning a keypress
 //! into a command, and the two together took the root past the module cap.
 
+use std::mem;
+
 use super::{KeyPress, KeyboardHandler, Keymap, KeymapError, KeymapStack, ModeName};
-use crate::commands::CommandRegistry;
+use crate::commands::{CommandRegistry, KeyHintIndex};
 
 impl KeyboardHandler {
     /// The binding layers this handler resolves against, lowest precedence first.
     pub const fn keymap(&self) -> &KeymapStack {
         &self.keymap
+    }
+
+    /// Which key sequence runs each command, for the current layer stack.
+    ///
+    /// The reverse of resolution, and what a command palette shows beside each
+    /// entry. Kept in step with [`Self::keymap`] automatically — see
+    /// [`Self::install_keymap`].
+    pub const fn key_hints(&self) -> &KeyHintIndex {
+        &self.key_hints
+    }
+
+    /// Replaces the layer stack and everything derived from it.
+    ///
+    /// **Every** mutation of the keymap goes through here, and the field is
+    /// private to this module so none can avoid it. That is deliberate: the hint
+    /// index is derived state, and derived state updated by four separate call
+    /// sites is derived state that will eventually be stale at one of them. A
+    /// stale index means a palette showing a key that no longer runs the command
+    /// beside it — a wrong answer, not a missing one.
+    ///
+    /// Rebuilding eagerly rather than on demand keeps [`Self::key_hints`] a
+    /// `&self` read with no interior mutability. It costs an allocation per
+    /// keymap change, which happens at startup and on configuration reload; the
+    /// palette reads the result on every filter keystroke.
+    fn install_keymap(&mut self, keymap: KeymapStack) {
+        self.key_hints = KeyHintIndex::build(&keymap);
+        self.keymap = keymap;
+        self.resolver.abort_pending();
     }
 
     /// Replaces the whole layer stack, discarding any pending key sequence.
@@ -26,8 +56,7 @@ impl KeyboardHandler {
     /// [`KeymapStack::validate`] against a registry) at load time to turn a *typo*
     /// into a diagnostic instead.
     pub fn set_keymap(&mut self, keymap: KeymapStack) {
-        self.keymap = keymap;
-        self.resolver.abort_pending();
+        self.install_keymap(keymap);
     }
 
     /// Pushes `keymap` as the new highest-precedence layer, discarding any
@@ -39,8 +68,9 @@ impl KeyboardHandler {
     /// implements, and every matched binding clones an owned id on the keystroke
     /// path.
     pub fn push_keymap(&mut self, keymap: Keymap) {
-        self.keymap.push(keymap);
-        self.resolver.abort_pending();
+        let mut next = mem::take(&mut self.keymap);
+        next.push(keymap);
+        self.install_keymap(next);
     }
 
     /// Canonicalizes and validates `keymap` against `registry`, then pushes it.
@@ -73,16 +103,17 @@ impl KeyboardHandler {
         let mut candidate = self.keymap.clone();
         candidate.push(keymap);
         candidate.validate(registry)?;
-        self.keymap = candidate;
-        self.resolver.abort_pending();
+        self.install_keymap(candidate);
         Ok(())
     }
 
     /// Removes and returns the highest-precedence layer, discarding any pending
     /// key sequence.
     pub fn pop_keymap(&mut self) -> Option<Keymap> {
-        self.resolver.abort_pending();
-        self.keymap.pop()
+        let mut next = mem::take(&mut self.keymap);
+        let popped = next.pop();
+        self.install_keymap(next);
+        popped
     }
 
     /// The strokes typed so far in an incomplete key sequence, normalized.

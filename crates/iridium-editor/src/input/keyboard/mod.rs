@@ -76,8 +76,8 @@ pub use types::{
 };
 
 use crate::commands::{
-    CommandArgs, KeyPress, Keymap, KeymapError, KeymapResolver, KeymapStack, ModeName,
-    default_keymap_stack,
+    CommandArgs, KeyHintIndex, KeyPress, Keymap, KeymapError, KeymapResolver, KeymapStack,
+    ModeName, default_keymap_stack,
 };
 use crate::document::{CursorState, Document, Selection};
 use crate::editor::EditorConfig;
@@ -106,6 +106,13 @@ pub struct KeyboardHandler {
     /// with [`Self::push_keymap`], which overrides the default without editing
     /// it.
     keymap: KeymapStack,
+
+    /// Which key sequence runs each command, derived from [`Self::keymap`].
+    ///
+    /// Cached because a command palette re-reads it on every filter keystroke
+    /// while it changes only when a layer is pushed or popped. Kept in step by
+    /// `install_keymap`, the single funnel every keymap mutation passes through.
+    key_hints: KeyHintIndex,
 
     /// The key-sequence state machine: the strokes typed so far in an incomplete
     /// sequence, plus the active mode.
@@ -230,8 +237,10 @@ impl KeyboardHandler {
     /// recorded here rather than left to be discovered.
     #[must_use]
     pub fn new() -> Self {
+        let keymap = default_keymap_stack();
         Self {
-            keymap: default_keymap_stack(),
+            key_hints: KeyHintIndex::build(&keymap),
+            keymap,
             resolver: KeymapResolver::new(),
             preferred_columns: None,
             sticky_state: None,

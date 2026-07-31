@@ -32,7 +32,9 @@ use crate::document::{CursorState, Document};
 use crate::input::keyboard::AstRequest;
 
 #[cfg(feature = "syntax")]
-use iridium_syntax::{Node, Tree, navigate};
+use super::walk;
+#[cfg(feature = "syntax")]
+use iridium_syntax::{Node, Tree};
 
 #[cfg(not(feature = "syntax"))]
 use crate::syntax_stubs::Tree;
@@ -136,33 +138,58 @@ pub(super) fn selection_for(
     stack.refresh(document.revision(), cursor);
     let root = tree.root_node();
 
-    let (next, widening) = match request {
-        AstRequest::SelectNode => (
-            map_selections(root, document, cursor, navigate::node_at)?,
-            true,
-        ),
-        AstRequest::ExpandSelection => (
-            map_selections(root, document, cursor, navigate::expand)?,
-            true,
-        ),
+    let next = match request {
+        // ----- Widening: the state left behind becomes a frame -----
+        AstRequest::SelectNode => {
+            let next = map_selections(root, document, cursor, walk::select_node)?;
+            stack.push(cursor.clone(), &next);
+            return Some(next);
+        },
+        AstRequest::ExpandSelection => {
+            let next = map_selections(root, document, cursor, walk::expand)?;
+            stack.push(cursor.clone(), &next);
+            return Some(next);
+        },
+
+        // ----- Retracing: a recorded frame if there is one, a walk if not -----
         AstRequest::ShrinkSelection => {
             if let Some(frame) = stack.pop() {
                 return Some(frame);
             }
-            (
-                map_selections(root, document, cursor, navigate::shrink)?,
-                false,
-            )
+            // A downward walk must not become a frame: pushing here would make
+            // the *next* shrink widen the selection again.
+            let next = map_selections(root, document, cursor, walk::shrink)?;
+            stack.record(&next);
+            return Some(next);
         },
+
+        // ----- Moving: see below -----
+        AstRequest::SelectNextSibling => {
+            map_selections(root, document, cursor, walk::next_sibling)?
+        },
+        AstRequest::SelectPreviousSibling => {
+            map_selections(root, document, cursor, walk::previous_sibling)?
+        },
+        AstRequest::SelectFirstChild => map_selections(root, document, cursor, walk::first_child)?,
+        AstRequest::SelectLastChild => map_selections(root, document, cursor, walk::last_child)?,
+        AstRequest::ExtendNextSibling => {
+            map_selections(root, document, cursor, walk::extend_next_sibling)?
+        },
+        AstRequest::ExtendPreviousSibling => {
+            map_selections(root, document, cursor, walk::extend_previous_sibling)?
+        },
+        AstRequest::CursorNodeStart => map_selections(root, document, cursor, walk::node_start)?,
+        AstRequest::CursorNodeEnd => map_selections(root, document, cursor, walk::node_end)?,
+        AstRequest::CursorOnEverySibling => fan_out(root, document, cursor, walk::every_sibling)?,
+        AstRequest::CursorOnEveryChild => fan_out(root, document, cursor, walk::every_child)?,
     };
 
-    if widening {
-        stack.push(cursor.clone(), &next);
-    } else {
-        // A downward walk must not become a frame: pushing here would make the
-        // *next* shrink widen the selection again.
-        stack.record(&next);
-    }
+    // Every verb that reaches here has walked sideways or downwards, and the
+    // state expansion started from is no longer where "back" should lead. The
+    // frames are dropped rather than kept: keeping them would let a shrink after
+    // a sibling step jump to a range nobody was ever looking at.
+    stack.clear();
+    stack.record(&next);
 
     Some(next)
 }
@@ -192,20 +219,17 @@ pub(super) const fn selection_for(
 /// one caret at the top level has nothing left to expand into while its
 /// companions still do.
 #[cfg(feature = "syntax")]
-fn map_selections<'tree, F>(
-    root: Node<'tree>,
+fn map_selections(
+    root: Node<'_>,
     document: &Document,
     cursor: &CursorState,
-    walk: F,
-) -> Option<CursorState>
-where
-    F: Fn(Node<'tree>, &std::ops::Range<usize>) -> Option<Node<'tree>>,
-{
+    walk: walk::Walk,
+) -> Option<CursorState> {
     let mut moved = false;
     let mut next = Vec::with_capacity(cursor.cursor_count());
 
     for &selection in cursor.all_selections() {
-        let walked = walk_one(root, document, selection, &walk);
+        let walked = walk_one(root, document, selection, walk);
         moved |= walked != selection;
         next.push(walked);
     }
@@ -217,29 +241,79 @@ where
     // `add_cursor` merges anything that now overlaps, which is exactly what
     // should happen when two cursors expand onto the same node — and precisely
     // why the stack keeps whole states rather than one stack per cursor.
-    let (&primary, rest) = next.split_first()?;
-    let mut state = CursorState::new(primary);
-    for &selection in rest {
-        state.add_cursor(selection);
+    gather(next.into_iter())
+}
+
+/// Applies a one-to-many walk, putting a cursor on every range it returns.
+///
+/// The primary cursor is kept meaningful rather than becoming whichever node
+/// happens to come first in the source: the range covering the old primary leads
+/// the result when one of them does. Without that, spreading cursors across an
+/// array would silently move the primary to the first element, and the next
+/// `Escape` would collapse to somewhere the person was not.
+#[cfg(feature = "syntax")]
+fn fan_out(
+    root: Node<'_>,
+    document: &Document,
+    cursor: &CursorState,
+    spread: fn(Node<'_>, &std::ops::Range<usize>) -> Vec<std::ops::Range<usize>>,
+) -> Option<CursorState> {
+    let primary = cursor.primary;
+    let mut leading = None;
+    let mut rest = Vec::new();
+
+    for &selection in cursor.all_selections() {
+        let (Some(start), Some(end)) = (
+            document.position_to_offset(selection.start()),
+            document.position_to_offset(selection.end()),
+        ) else {
+            // Unresolvable against the document: keep the cursor rather than
+            // drop it. Losing a cursor is worse than failing to spread it.
+            rest.push(selection);
+            continue;
+        };
+
+        for range in spread(root, &(start..end)) {
+            let Some(spread) = to_selection(document, &range, selection.is_backward()) else {
+                continue;
+            };
+            if leading.is_none() && selection == primary && range.contains(&start) {
+                leading = Some(spread);
+            } else {
+                rest.push(spread);
+            }
+        }
     }
 
+    let next = gather(leading.into_iter().chain(rest))?;
+    (next != *cursor).then_some(next)
+}
+
+/// Builds a cursor state from selections in order, merging overlaps.
+///
+/// The first is the primary. Returns `None` for an empty iterator, which is the
+/// one case where there is no state to build.
+#[cfg(feature = "syntax")]
+fn gather(selections: impl Iterator<Item = Selection>) -> Option<CursorState> {
+    let mut selections = selections;
+    let mut state = CursorState::new(selections.next()?);
+    for selection in selections {
+        state.add_cursor(selection);
+    }
     Some(state)
 }
 
-/// Moves one selection to the node a walk returns for it.
+/// Moves one selection to the range a walk returns for it.
 ///
 /// The selection's direction is preserved, so extending with `Shift` after an
 /// expansion still grows from the end the person was working at.
 #[cfg(feature = "syntax")]
-fn walk_one<'tree, F>(
-    root: Node<'tree>,
+fn walk_one(
+    root: Node<'_>,
     document: &Document,
     selection: Selection,
-    walk: &F,
-) -> Selection
-where
-    F: Fn(Node<'tree>, &std::ops::Range<usize>) -> Option<Node<'tree>>,
-{
+    walk: walk::Walk,
+) -> Selection {
     let (Some(start), Some(end)) = (
         document.position_to_offset(selection.start()),
         document.position_to_offset(selection.end()),
@@ -247,23 +321,28 @@ where
         return selection;
     };
 
-    let Some(node) = walk(root, &(start..end)) else {
-        return selection;
-    };
+    walk(root, &(start..end))
+        .and_then(|range| to_selection(document, &range, selection.is_backward()))
+        .unwrap_or(selection)
+}
 
-    let range = node.byte_range();
-    let (Some(from), Some(to)) = (
-        document.offset_to_position(range.start),
-        document.offset_to_position(range.end),
-    ) else {
-        return selection;
-    };
+/// Turns a byte range into a selection, keeping the direction it came from.
+#[cfg(feature = "syntax")]
+fn to_selection(
+    document: &Document,
+    range: &std::ops::Range<usize>,
+    backward: bool,
+) -> Option<Selection> {
+    let (from, to) = (
+        document.offset_to_position(range.start)?,
+        document.offset_to_position(range.end)?,
+    );
 
-    if selection.is_backward() {
+    Some(if backward {
         Selection::new(to, from)
     } else {
         Selection::new(from, to)
-    }
+    })
 }
 
 #[cfg(test)]

@@ -210,6 +210,36 @@ pub const AST_EXPAND_SELECTION: CommandId = CommandId::from_static("ast.expandSe
 /// Undo one expansion, restoring the selections exactly as they were.
 pub const AST_SHRINK_SELECTION: CommandId = CommandId::from_static("ast.shrinkSelection");
 
+// The verbs below carry no default binding. Chords are the scarce resource, not
+// commands: the four arrow keys that read as structural are already spoken for
+// by line move, line duplicate, add-cursor and expand/shrink. Rather than invent
+// ten four-modifier chords nobody asked for, these are reachable from the
+// palette and from any keymap a host pushes — which is what the palette is for.
+
+/// Select the next syntax node beside the current one.
+pub const AST_SELECT_NEXT_SIBLING: CommandId = CommandId::from_static("ast.selectNextSibling");
+/// Select the previous syntax node beside the current one.
+pub const AST_SELECT_PREVIOUS_SIBLING: CommandId =
+    CommandId::from_static("ast.selectPreviousSibling");
+/// Select the first child of the syntax node under each selection.
+pub const AST_SELECT_FIRST_CHILD: CommandId = CommandId::from_static("ast.selectFirstChild");
+/// Select the last child of the syntax node under each selection.
+pub const AST_SELECT_LAST_CHILD: CommandId = CommandId::from_static("ast.selectLastChild");
+/// Grow each selection to also cover the syntax node after it.
+pub const AST_EXTEND_NEXT_SIBLING: CommandId = CommandId::from_static("ast.extendNextSibling");
+/// Grow each selection to also cover the syntax node before it.
+pub const AST_EXTEND_PREVIOUS_SIBLING: CommandId =
+    CommandId::from_static("ast.extendPreviousSibling");
+/// Move each caret to the start of the syntax node it sits in.
+pub const AST_CURSOR_NODE_START: CommandId = CommandId::from_static("ast.cursorNodeStart");
+/// Move each caret to the end of the syntax node it sits in.
+pub const AST_CURSOR_NODE_END: CommandId = CommandId::from_static("ast.cursorNodeEnd");
+/// Put a cursor on every syntax node beside the current one, including it.
+pub const AST_CURSOR_ON_EVERY_SIBLING: CommandId =
+    CommandId::from_static("ast.cursorOnEverySibling");
+/// Put a cursor on every child of the syntax node under each selection.
+pub const AST_CURSOR_ON_EVERY_CHILD: CommandId = CommandId::from_static("ast.cursorOnEveryChild");
+
 // ===== Search =====
 
 /// Open the search panel.

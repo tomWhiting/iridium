@@ -482,6 +482,95 @@ pub static BUILTIN: &[CommandMeta] = &[
         "select child",
         "contract selection",
     ]),
+    CommandMeta::described(
+        AST_SELECT_NEXT_SIBLING,
+        "Select Next Sibling Node",
+        "Selects the next syntax node beside the current one, climbing to the \
+         enclosing node when there is none.",
+        SYNTAX,
+    )
+    .with_aliases(&["next sibling", "next node", "select next element"]),
+    CommandMeta::described(
+        AST_SELECT_PREVIOUS_SIBLING,
+        "Select Previous Sibling Node",
+        "Selects the previous syntax node beside the current one, climbing to \
+         the enclosing node when there is none.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "previous sibling",
+        "previous node",
+        "select previous element",
+    ]),
+    CommandMeta::described(
+        AST_SELECT_FIRST_CHILD,
+        "Select First Child Node",
+        "Selects the first child of the syntax node under each selection.",
+        SYNTAX,
+    )
+    .with_aliases(&["first child", "descend", "select inner"]),
+    CommandMeta::described(
+        AST_SELECT_LAST_CHILD,
+        "Select Last Child Node",
+        "Selects the last child of the syntax node under each selection.",
+        SYNTAX,
+    )
+    .with_aliases(&["last child"]),
+    CommandMeta::described(
+        AST_EXTEND_NEXT_SIBLING,
+        "Extend Selection To Next Sibling",
+        "Grows each selection to also cover the syntax node after it, including \
+         the punctuation between them.",
+        SYNTAX,
+    )
+    .with_aliases(&["extend next", "add next node", "grow to next sibling"]),
+    CommandMeta::described(
+        AST_EXTEND_PREVIOUS_SIBLING,
+        "Extend Selection To Previous Sibling",
+        "Grows each selection to also cover the syntax node before it, including \
+         the punctuation between them.",
+        SYNTAX,
+    )
+    .with_aliases(&["extend previous", "add previous node"]),
+    CommandMeta::described(
+        AST_CURSOR_NODE_START,
+        "Go To Node Start",
+        "Moves each caret to the start of the syntax node it sits in. Pressing \
+         again walks outward to the enclosing node.",
+        SYNTAX,
+    )
+    .with_aliases(&["node start", "beginning of node", "jump to node start"]),
+    CommandMeta::described(
+        AST_CURSOR_NODE_END,
+        "Go To Node End",
+        "Moves each caret to the end of the syntax node it sits in. Pressing \
+         again walks outward to the enclosing node.",
+        SYNTAX,
+    )
+    .with_aliases(&["node end", "end of node", "jump to node end"]),
+    CommandMeta::described(
+        AST_CURSOR_ON_EVERY_SIBLING,
+        "Cursor On Every Sibling Node",
+        "Puts a cursor on every syntax node beside the current one, including \
+         it — one per element of the array or field of the object.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "cursor per sibling",
+        "select all siblings",
+        "multi cursor siblings",
+    ]),
+    CommandMeta::described(
+        AST_CURSOR_ON_EVERY_CHILD,
+        "Cursor On Every Child Node",
+        "Puts a cursor on every child of the syntax node under each selection.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "cursor per child",
+        "select all children",
+        "multi cursor children",
+    ]),
     // ----- Search -----
     CommandMeta::from_static(SEARCH_OPEN, "Find", SEARCH).with_aliases(&["search"]),
     CommandMeta::from_static(SEARCH_NEXT_MATCH, "Find Next", SEARCH).with_aliases(&["search next"]),

@@ -171,6 +171,48 @@ pub fn siblings(node: Node<'_>) -> Vec<Node<'_>> {
     node.parent().map_or_else(|| vec![node], children)
 }
 
+/// Returns the smallest covering node that begins strictly before `range`.
+///
+/// The node whose *start* a caret should jump to. Strictly before, so a caret
+/// already sitting on a node's start moves out to the enclosing node instead of
+/// staying put — which is what makes the key useful held down: token, then
+/// expression, then statement, then block.
+///
+/// Returns `None` at the start of the document, where nothing begins earlier.
+#[must_use]
+pub fn node_starting_before<'tree>(root: Node<'tree>, range: &Range<usize>) -> Option<Node<'tree>> {
+    let range = clamped(root, range);
+    let mut candidate = Some(resolve(root, &range)?);
+
+    while let Some(node) = candidate {
+        if node.is_named() && node.start_byte() < range.start {
+            return Some(node);
+        }
+        candidate = node.parent();
+    }
+
+    None
+}
+
+/// Returns the smallest covering node that ends strictly after `range`.
+///
+/// The mirror of [`node_starting_before`], and the node whose *end* a caret
+/// should jump to. Returns `None` at the end of the document.
+#[must_use]
+pub fn node_ending_after<'tree>(root: Node<'tree>, range: &Range<usize>) -> Option<Node<'tree>> {
+    let range = clamped(root, range);
+    let mut candidate = Some(resolve(root, &range)?);
+
+    while let Some(node) = candidate {
+        if node.is_named() && node.end_byte() > range.end {
+            return Some(node);
+        }
+        candidate = node.parent();
+    }
+
+    None
+}
+
 /// Resolves a byte range to the smallest named node covering it.
 ///
 /// For a non-empty range this is tree-sitter's own answer. For an empty range —

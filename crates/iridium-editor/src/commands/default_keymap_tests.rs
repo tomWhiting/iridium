@@ -18,7 +18,10 @@
 use std::collections::HashSet;
 
 use super::builtin::{
-    AST_SELECT_NODE, BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END,
+    AST_CURSOR_NODE_END, AST_CURSOR_NODE_START, AST_CURSOR_ON_EVERY_CHILD,
+    AST_CURSOR_ON_EVERY_SIBLING, AST_EXTEND_NEXT_SIBLING, AST_EXTEND_PREVIOUS_SIBLING,
+    AST_SELECT_FIRST_CHILD, AST_SELECT_LAST_CHILD, AST_SELECT_NEXT_SIBLING, AST_SELECT_NODE,
+    AST_SELECT_PREVIOUS_SIBLING, BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END,
     EDIT_DELETE_TO_LINE_START, EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL,
     HOST_COMMAND_COUNT, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE,
     TRANSFORM_DEDUPE_LINES, TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE,
@@ -197,8 +200,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Twenty-two commands are intentionally unbound by the *non-modal* default,
-    // and a twenty-third entry here would mean a feature silently lost:
+    // Thirty-two commands are intentionally unbound by the *non-modal* default,
+    // and a thirty-third entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -240,6 +243,17 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   boundaries" — worth having, not worth a chord until someone finds
     //   themselves reaching for it.
     //
+    // - The ten remaining `ast.*` verbs — the sibling and child walks, the two
+    //   extend verbs, the two caret motions and the two multi-cursor spreads —
+    //   are palette-only for the same reason as the transforms, and for one
+    //   more that is specific to them. The arrow keys are where structural
+    //   navigation wants to live, and all four are already spent: `Alt`+vertical
+    //   moves lines, `Shift+Alt`+vertical duplicates them, `Ctrl+Alt`+vertical
+    //   adds cursors, and `Shift+Alt`+horizontal is expand/shrink. What is left
+    //   is four-modifier chords, which are worse than no chord at all. Which of
+    //   these earn keys — and what the keymap gives up for them — is Tom's call,
+    //   not a technical one.
+    //
     // This list is *ordered* and matches `registry.commands()` iteration order,
     // so a new entry goes where its id is registered, not at the end.
     assert_eq!(
@@ -266,12 +280,22 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             HISTORY_REDO_BRANCH.as_str(),
             MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
             AST_SELECT_NODE.as_str(),
+            AST_SELECT_NEXT_SIBLING.as_str(),
+            AST_SELECT_PREVIOUS_SIBLING.as_str(),
+            AST_SELECT_FIRST_CHILD.as_str(),
+            AST_SELECT_LAST_CHILD.as_str(),
+            AST_EXTEND_NEXT_SIBLING.as_str(),
+            AST_EXTEND_PREVIOUS_SIBLING.as_str(),
+            AST_CURSOR_NODE_START.as_str(),
+            AST_CURSOR_NODE_END.as_str(),
+            AST_CURSOR_ON_EVERY_SIBLING.as_str(),
+            AST_CURSOR_ON_EVERY_CHILD.as_str(),
             COMMAND_NO_OP.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 22);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 32);
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 

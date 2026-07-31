@@ -9,6 +9,8 @@
 
 mod expand;
 mod state;
+#[cfg(feature = "syntax")]
+mod walk;
 
 pub use expand::ExpandStack;
 pub use state::SyntaxState;

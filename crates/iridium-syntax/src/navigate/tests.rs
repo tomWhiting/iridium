@@ -10,8 +10,8 @@ use std::ops::Range;
 use tree_sitter::Node;
 
 use super::{
-    children, expand, first_child, last_child, next_sibling, node_at, previous_sibling, shrink,
-    siblings,
+    children, expand, first_child, last_child, next_sibling, node_at, node_ending_after,
+    node_starting_before, previous_sibling, shrink, siblings,
 };
 use crate::{Language, SyntaxTree};
 
@@ -422,5 +422,119 @@ fn navigation_still_works_inside_a_broken_document() {
     assert!(
         expand(fixture.root(), &fixture.at("value")).is_some(),
         "an unparseable tail must not make the rest of the file unnavigable"
+    );
+}
+
+#[test]
+fn a_caret_inside_a_token_finds_that_token_in_both_directions() {
+    let fixture = Fixture::new(Language::Json, JSON_NESTED);
+    let word = fixture.at("first");
+    let middle = word.start + 2..word.start + 2;
+
+    let start = node_starting_before(fixture.root(), &middle).expect("something begins earlier");
+    let end = node_ending_after(fixture.root(), &middle).expect("something ends later");
+
+    assert_eq!(start.start_byte(), word.start);
+    assert_eq!(end.end_byte(), word.end);
+}
+
+#[test]
+fn a_caret_already_on_a_boundary_moves_out_rather_than_standing_still() {
+    // The whole point of "strictly before". Without it the second press of a
+    // jump-to-node-start key does nothing, and a key that does nothing on every
+    // second press reads as broken rather than as finished.
+    let fixture = Fixture::new(Language::Json, JSON_NESTED);
+    let root = fixture.root();
+
+    let mut caret = fixture.at("first").start;
+    let mut starts = Vec::new();
+    while let Some(node) = node_starting_before(root, &(caret..caret)) {
+        assert!(
+            node.start_byte() < caret,
+            "the walk must strictly decrease or it will not terminate"
+        );
+        caret = node.start_byte();
+        starts.push(caret);
+        assert!(starts.len() < 64, "the walk is not converging on the root");
+    }
+
+    assert_eq!(
+        starts,
+        vec![
+            // Not `first` itself: the caret already sits on its start, which is
+            // exactly the case this rule exists for. The opening quote one byte
+            // earlier is the first thing that genuinely begins before the caret.
+            fixture.at("\"first\"").start,
+            fixture.at("\"name\": \"first\"").start,
+            fixture.at("{\"name\": \"first\"}").start,
+            fixture.at("[").start,
+            fixture.at("\"items\"").start,
+            0,
+        ],
+        "each press should leave the caret one structural level further out"
+    );
+}
+
+#[test]
+fn the_end_walk_climbs_the_same_ladder_the_other_way() {
+    let fixture = Fixture::new(Language::Json, JSON_NESTED);
+    let root = fixture.root();
+
+    let mut caret = fixture.at("first").end;
+    let mut ends = Vec::new();
+    while let Some(node) = node_ending_after(root, &(caret..caret)) {
+        assert!(
+            node.end_byte() > caret,
+            "the walk must strictly increase or it will not terminate"
+        );
+        caret = node.end_byte();
+        ends.push(caret);
+        assert!(ends.len() < 64, "the walk is not converging on the root");
+    }
+
+    assert_eq!(
+        ends.last().copied(),
+        Some(JSON_NESTED.len()),
+        "walking outward from any point must reach the end of the document"
+    );
+    assert!(
+        ends.windows(2).all(|pair| pair[0] < pair[1]),
+        "every step must be further right than the last"
+    );
+}
+
+#[test]
+fn the_edges_of_the_document_have_nowhere_further_to_go() {
+    let fixture = Fixture::new(Language::Json, JSON_NESTED);
+    let end = JSON_NESTED.len();
+
+    assert!(
+        node_starting_before(fixture.root(), &(0..0)).is_none(),
+        "nothing begins before the first byte"
+    );
+    assert!(
+        node_ending_after(fixture.root(), &(end..end)).is_none(),
+        "nothing ends after the last byte"
+    );
+}
+
+#[test]
+fn the_boundary_walks_step_out_of_a_whole_selection() {
+    // A selection that already covers a node exactly: its own start is not
+    // strictly before itself, so the answer has to come from the parent.
+    let fixture = Fixture::new(Language::Rust, RUST_TWO_FUNCTIONS);
+    let statement = fixture.at("let a = 1;");
+
+    let start = node_starting_before(fixture.root(), &statement)
+        .expect("a statement sits inside something");
+    assert!(
+        start.start_byte() < statement.start,
+        "a selection on a node boundary must move out, not report where it already is"
+    );
+    assert!(
+        fixture.text(start).starts_with('{'),
+        "the enclosing block is the next thing that begins earlier, but the walk \
+         landed on {:?}",
+        fixture.text(start)
     );
 }

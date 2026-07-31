@@ -212,6 +212,16 @@ impl KeyboardHandler {
             Action::AstSelectNode => KeyResult::Ast(AstRequest::SelectNode),
             Action::AstExpandSelection => KeyResult::Ast(AstRequest::ExpandSelection),
             Action::AstShrinkSelection => KeyResult::Ast(AstRequest::ShrinkSelection),
+            Action::AstSelectNextSibling => KeyResult::Ast(AstRequest::SelectNextSibling),
+            Action::AstSelectPreviousSibling => KeyResult::Ast(AstRequest::SelectPreviousSibling),
+            Action::AstSelectFirstChild => KeyResult::Ast(AstRequest::SelectFirstChild),
+            Action::AstSelectLastChild => KeyResult::Ast(AstRequest::SelectLastChild),
+            Action::AstExtendNextSibling => KeyResult::Ast(AstRequest::ExtendNextSibling),
+            Action::AstExtendPreviousSibling => KeyResult::Ast(AstRequest::ExtendPreviousSibling),
+            Action::AstCursorNodeStart => KeyResult::Ast(AstRequest::CursorNodeStart),
+            Action::AstCursorNodeEnd => KeyResult::Ast(AstRequest::CursorNodeEnd),
+            Action::AstCursorOnEverySibling => KeyResult::Ast(AstRequest::CursorOnEverySibling),
+            Action::AstCursorOnEveryChild => KeyResult::Ast(AstRequest::CursorOnEveryChild),
 
             // ----- General -----
             Action::NoOp => KeyResult::Handled,

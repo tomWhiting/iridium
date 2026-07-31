@@ -240,6 +240,26 @@ pub(super) enum KeyboardAction {
     AstExpandSelection,
     /// Undo one expansion, restoring the previous selections exactly.
     AstShrinkSelection,
+    /// Select the next node beside the current one.
+    AstSelectNextSibling,
+    /// Select the previous node beside the current one.
+    AstSelectPreviousSibling,
+    /// Select the first child of the node under each selection.
+    AstSelectFirstChild,
+    /// Select the last child of the node under each selection.
+    AstSelectLastChild,
+    /// Grow each selection to also cover the node after it.
+    AstExtendNextSibling,
+    /// Grow each selection to also cover the node before it.
+    AstExtendPreviousSibling,
+    /// Move each caret to the start of the node it sits in.
+    AstCursorNodeStart,
+    /// Move each caret to the end of the node it sits in.
+    AstCursorNodeEnd,
+    /// Put a cursor on every node beside the current one, including it.
+    AstCursorOnEverySibling,
+    /// Put a cursor on every child of the node under each selection.
+    AstCursorOnEveryChild,
 
     // ----- General -----
     /// Consume the keypress and do nothing.
@@ -399,6 +419,34 @@ static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     (builtin::AST_SELECT_NODE, Action::AstSelectNode),
     (builtin::AST_EXPAND_SELECTION, Action::AstExpandSelection),
     (builtin::AST_SHRINK_SELECTION, Action::AstShrinkSelection),
+    (
+        builtin::AST_SELECT_NEXT_SIBLING,
+        Action::AstSelectNextSibling,
+    ),
+    (
+        builtin::AST_SELECT_PREVIOUS_SIBLING,
+        Action::AstSelectPreviousSibling,
+    ),
+    (builtin::AST_SELECT_FIRST_CHILD, Action::AstSelectFirstChild),
+    (builtin::AST_SELECT_LAST_CHILD, Action::AstSelectLastChild),
+    (
+        builtin::AST_EXTEND_NEXT_SIBLING,
+        Action::AstExtendNextSibling,
+    ),
+    (
+        builtin::AST_EXTEND_PREVIOUS_SIBLING,
+        Action::AstExtendPreviousSibling,
+    ),
+    (builtin::AST_CURSOR_NODE_START, Action::AstCursorNodeStart),
+    (builtin::AST_CURSOR_NODE_END, Action::AstCursorNodeEnd),
+    (
+        builtin::AST_CURSOR_ON_EVERY_SIBLING,
+        Action::AstCursorOnEverySibling,
+    ),
+    (
+        builtin::AST_CURSOR_ON_EVERY_CHILD,
+        Action::AstCursorOnEveryChild,
+    ),
     // Search.
     (builtin::SEARCH_OPEN, Action::SearchOpen),
     (builtin::SEARCH_NEXT_MATCH, Action::SearchNextMatch),

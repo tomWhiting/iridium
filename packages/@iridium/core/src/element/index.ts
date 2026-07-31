@@ -17,9 +17,17 @@
  *   - iridium-change: Fired when content changes, detail contains { content: string }
  *   - iridium-selection: Fired when selection changes, detail contains { line, column }
  *   - iridium-ready: Fired when editor is initialized
+ *   - iridium-host-command: Fired for a command the kernel resolved but does not
+ *     implement and this element does not handle itself, detail is the request
  */
 
-import { IridiumEditor, type EditorState } from "../controller/index.ts";
+import {
+  type HostCommandRequest,
+  IridiumEditor,
+  type EditorState,
+} from "../controller/index.ts";
+import { CommandPalette, type PaletteHost } from "../palette/index.ts";
+import { PaletteView } from "./palette.ts";
 
 /**
  * Custom element for the Iridium editor.
@@ -29,6 +37,8 @@ export class IridiumEditorElement extends HTMLElement {
   private canvas: HTMLCanvasElement | null = null;
   private shadow: ShadowRoot;
   private initialized = false;
+  private palette: CommandPalette | null = null;
+  private paletteView: PaletteView | null = null;
 
   // Observed attributes
   static get observedAttributes(): string[] {
@@ -46,6 +56,9 @@ export class IridiumEditorElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    this.paletteView?.destroy();
+    this.paletteView = null;
+    this.palette = null;
     this.editor?.destroy();
     this.editor = null;
     this.initialized = false;
@@ -123,6 +136,54 @@ export class IridiumEditorElement extends HTMLElement {
     `;
 
     this.canvas = this.shadow.querySelector("canvas");
+
+    // Mounted *inside* the shadow root, and after the markup above, because
+    // setting `innerHTML` replaces everything the root holds. A palette portalled
+    // to `document.body` — what the React example does — would render here with
+    // no styles at all, since a shadow root's CSS does not reach outside it.
+    this.palette = new CommandPalette(this.paletteHost());
+    this.paletteView = new PaletteView(this.shadow, this.palette);
+  }
+
+  /**
+   * The editor surface the palette drives.
+   *
+   * Delegates through `this.editor` rather than capturing it, so the palette can
+   * be built before the wasm module has loaded; until then it simply lists
+   * nothing, which is honest — no command is reachable yet either.
+   */
+  private paletteHost(): PaletteHost {
+    const element = this;
+    return {
+      searchCommands: (query, limit) => element.editor?.searchCommands(query, limit) ?? [],
+      runCommand: (id) => element.editor?.runCommand(id),
+      blurEditor: () => element.editor?.blurEditor(),
+      focus: () => element.editor?.focus(),
+      get usesMacKeyLabels(): boolean {
+        return element.editor?.usesMacKeyLabels ?? false;
+      },
+    };
+  }
+
+  /**
+   * Runs a command the kernel named but left to the host.
+   *
+   * `palette.open` is handled here because this element owns the palette;
+   * anything else goes out as an event, so a host that adds its own host
+   * commands is never silently ignored.
+   */
+  private handleHostCommand(request: HostCommandRequest): void {
+    if (request.command === "palette.open") {
+      this.palette?.open();
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent("iridium-host-command", {
+        detail: request,
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private async initEditor(): Promise<void> {
@@ -158,6 +219,7 @@ export class IridiumEditorElement extends HTMLElement {
             })
           );
         },
+        onHostCommand: (request) => this.handleHostCommand(request),
       });
 
       // Hide loading indicator
@@ -238,6 +300,16 @@ export class IridiumEditorElement extends HTMLElement {
   /** Focus the editor. */
   override focus(): void {
     this.editor?.focus();
+  }
+
+  /** Opens the command palette, as `Ctrl+K` does. */
+  openCommandPalette(): void {
+    this.palette?.open();
+  }
+
+  /** Closes the command palette and returns the keyboard to the editor. */
+  closeCommandPalette(): void {
+    this.palette?.close();
   }
 }
 

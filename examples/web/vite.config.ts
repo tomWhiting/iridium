@@ -10,10 +10,16 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // New @iridium/core package (recommended)
-      "@iridium/core": resolve(__dirname, "../../packages/@iridium/core/src/controller/index.ts"),
+      // New @iridium/core package (recommended).
+      //
+      // Longest prefix first: a string alias matches `find` *or* anything under
+      // `find/`, and the first match wins — so a bare "@iridium/core" listed
+      // ahead of these would swallow every subpath and rewrite it to a path
+      // underneath controller/index.ts.
       "@iridium/core/syntax": resolve(__dirname, "../../packages/@iridium/core/src/syntax/index.ts"),
       "@iridium/core/element": resolve(__dirname, "../../packages/@iridium/core/src/element/index.ts"),
+      "@iridium/core/palette": resolve(__dirname, "../../packages/@iridium/core/src/palette/index.ts"),
+      "@iridium/core": resolve(__dirname, "../../packages/@iridium/core/src/controller/index.ts"),
       // Legacy iridium-bindings (still supported)
       "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/ts/controller/index.ts"),
       "iridium-bindings/wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),

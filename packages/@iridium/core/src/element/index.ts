@@ -28,6 +28,8 @@ import {
 } from "../controller/index.ts";
 import { CommandPalette, type PaletteHost } from "../palette/index.ts";
 import { PaletteView } from "./palette.ts";
+import { UndoTreePanel, type UndoTreeHost } from "../history/index.ts";
+import { UndoTreeView } from "./tree.ts";
 
 /**
  * Custom element for the Iridium editor.
@@ -39,6 +41,8 @@ export class IridiumEditorElement extends HTMLElement {
   private initialized = false;
   private palette: CommandPalette | null = null;
   private paletteView: PaletteView | null = null;
+  private undoTree: UndoTreePanel | null = null;
+  private undoTreeView: UndoTreeView | null = null;
 
   // Observed attributes
   static get observedAttributes(): string[] {
@@ -59,6 +63,9 @@ export class IridiumEditorElement extends HTMLElement {
     this.paletteView?.destroy();
     this.paletteView = null;
     this.palette = null;
+    this.undoTreeView?.destroy();
+    this.undoTreeView = null;
+    this.undoTree = null;
     this.editor?.destroy();
     this.editor = null;
     this.initialized = false;
@@ -143,6 +150,8 @@ export class IridiumEditorElement extends HTMLElement {
     // no styles at all, since a shadow root's CSS does not reach outside it.
     this.palette = new CommandPalette(this.paletteHost());
     this.paletteView = new PaletteView(this.shadow, this.palette);
+    this.undoTree = new UndoTreePanel(this.undoTreeHost());
+    this.undoTreeView = new UndoTreeView(this.shadow, this.undoTree);
   }
 
   /**
@@ -166,15 +175,47 @@ export class IridiumEditorElement extends HTMLElement {
   }
 
   /**
+   * The editor surface the undo-tree panel drives.
+   *
+   * Delegates through `this.editor` for the same reason the palette's host
+   * does, and reports an empty tree until the wasm module has loaded — which is
+   * honest, since there is no history to show before there is a document.
+   */
+  private undoTreeHost(): UndoTreeHost {
+    const element = this;
+    return {
+      historySnapshot: () =>
+        element.editor?.historySnapshot() ?? {
+          nodes: [],
+          info: {
+            currentId: "",
+            rootId: "",
+            nodeCount: 0,
+            canUndo: false,
+            canRedo: false,
+            branchCount: 0,
+          },
+        },
+      jumpToHistoryNode: (nodeId) => element.editor?.jumpToHistoryNode(nodeId) ?? false,
+      blurEditor: () => element.editor?.blurEditor(),
+      focus: () => element.editor?.focus(),
+    };
+  }
+
+  /**
    * Runs a command the kernel named but left to the host.
    *
-   * `palette.open` is handled here because this element owns the palette;
-   * anything else goes out as an event, so a host that adds its own host
-   * commands is never silently ignored.
+   * `palette.open` and `history.togglePanel` are handled here because this
+   * element owns both overlays; anything else goes out as an event, so a host
+   * that adds its own host commands is never silently ignored.
    */
   private handleHostCommand(request: HostCommandRequest): void {
     if (request.command === "palette.open") {
       this.palette?.open();
+      return;
+    }
+    if (request.command === "history.togglePanel") {
+      this.undoTree?.toggle();
       return;
     }
     this.dispatchEvent(
@@ -202,6 +243,9 @@ export class IridiumEditorElement extends HTMLElement {
         darkTheme: theme,
         content,
         onChange: (newContent) => {
+          // The tree grows on every edit, and a panel showing the tree as it
+          // was would offer a jump to a node the editor has moved past.
+          this.undoTree?.refresh();
           this.dispatchEvent(
             new CustomEvent("iridium-change", {
               detail: { content: newContent },
@@ -310,6 +354,16 @@ export class IridiumEditorElement extends HTMLElement {
   /** Closes the command palette and returns the keyboard to the editor. */
   closeCommandPalette(): void {
     this.palette?.close();
+  }
+
+  /** Shows or hides the undo-tree panel, as `Ctrl+Alt+H` does. */
+  toggleUndoTree(): void {
+    this.undoTree?.toggle();
+  }
+
+  /** Closes the undo-tree panel and returns the keyboard to the editor. */
+  closeUndoTree(): void {
+    this.undoTree?.close();
   }
 }
 

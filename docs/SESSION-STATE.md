@@ -987,3 +987,24 @@ command from the gate list.
 **§4.5 is still Tom's to decide** and nothing above depends on it: the
 recommendation in the plan is (a) native-only now, then a one-day timeboxed
 spike on (c) getting tree-sitter to compile for `wasm32`. Do **not** build (b).
+
+### Tom's correction, 31 Jul — the verb set is the deliverable
+
+He pushed back on my framing of section 4 around
+`expandSelection`/`shrinkSelection`: *"it's not just a select largest syntax
+node... it's really really important to me that the syntax selection is general,
+not just those things that I mentioned in that example... that would be a really
+quick way to ruin something."*
+
+**"Select larger syntax node" was an example, not the scope.** The deliverable is
+the whole `ast.*` set in plan §4.2 — sibling and child walks, caret motions to
+node boundaries, text objects, jump-by-kind, multi-cursor from structure. Landing
+expand/shrink first is fine as *sequencing*, because it is the smallest testable
+slice; it is not the goal, and steps 7 and 8 are not optional polish.
+
+The one honest limit, already verified and unchanged: the vendored
+`textobjects.scm` files carry exactly five captures — `@function.around/.inside`,
+`@class.around/.inside`, `@comment.around`. There is no parameter, argument,
+block or call text object and no `@comment.inside`. Richer objects mean authoring
+new `.scm` per language, which is outside the plan. Say so rather than quietly
+shipping five and calling text objects done.

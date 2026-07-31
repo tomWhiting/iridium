@@ -16,6 +16,9 @@
 
 import type { PaletteCommand } from "../controller/index.ts";
 
+export { type HighlightSegment, highlightSegments } from "./highlight.ts";
+export { applyPaletteKey, type PaletteKeyAction, type PaletteKeyEvent, paletteKeyAction } from "./keys.ts";
+
 /**
  * The editor surface a palette needs.
  *

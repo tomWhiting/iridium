@@ -477,4 +477,6 @@ impl UndoTree {
 }
 
 #[cfg(test)]
+mod branch_tests;
+#[cfg(test)]
 mod tests;

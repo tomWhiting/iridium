@@ -8,8 +8,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
+use crate::commands::{CommandArgs, builtin};
 use crate::document::Selection;
-use crate::input::{KeyCode, KeyEvent, Modifiers};
+use crate::input::{HistoryRequest, KeyCode, KeyEvent, Modifiers};
 use crate::{EditorConfig, Position};
 
 /// An editor with edit grouping disabled, so one keystroke is one undo step
@@ -27,6 +28,32 @@ fn editor_with_ungrouped_history() -> Editor {
 /// carries the trailing `SetSelection` that real edits carry.
 fn type_char(editor: &mut Editor, ch: char) {
     editor.handle_key(&KeyEvent::new(KeyCode::Char(ch), Modifiers::default()));
+}
+
+/// Runs a command the way a palette does — by id, with no keystroke involved —
+/// and fails loudly if the kernel does not implement it.
+fn run_by_id(editor: &mut Editor, id: &str, args: CommandArgs) {
+    editor
+        .run_command(id, args)
+        .unwrap_or_else(|e| panic!("the kernel must implement {id}: {e}"));
+}
+
+/// Forks the history three ways at the root — "a", "Z" and "Q", in creation
+/// order — and leaves the editor sitting on the fork point.
+///
+/// Three branches, not two, and every branch test here uses this: with a
+/// two-way fork, stepping forward and stepping backward land on the same
+/// branch, so such a test cannot tell `nextBranch` from `previousBranch` and
+/// would pass with the two wired to each other.
+fn editor_forked_three_ways() -> Editor {
+    let mut editor = editor_with_ungrouped_history();
+    for ch in ['a', 'Z', 'Q'] {
+        type_char(&mut editor, ch);
+        assert!(editor.undo());
+    }
+    assert_eq!(editor.content(), "");
+    assert_eq!(editor.history_branches().len(), 3);
+    editor
 }
 
 fn cursor_heads(editor: &Editor) -> Vec<Position> {
@@ -281,6 +308,290 @@ fn navigation_to_a_missing_target_changes_nothing() {
     assert_eq!(editor.content(), "a");
     assert_eq!(editor.current_history_node(), here);
     assert!(editor.history_node(unknown).is_none());
+}
+
+/// Every [`HistoryRequest`] performs its own traversal, and refuses rather than
+/// substituting a different one when it cannot.
+///
+/// This is the funnel `Ctrl+Z`, the palette and a host's `run_command` all go
+/// through, so a variant wired to the wrong verb — or one that quietly falls
+/// back to plain redo when a branch index is out of range — would be wrong on
+/// all three faces at once. Each variant is therefore checked for what it does
+/// *and* for what it does when it cannot.
+#[test]
+fn every_history_request_performs_its_own_traversal() {
+    let mut editor = editor_with_ungrouped_history();
+
+    // Nothing to undo at the root, and nothing to redo from a leaf.
+    assert!(!editor.perform_history_request(HistoryRequest::Undo));
+    type_char(&mut editor, 'a');
+    assert!(!editor.perform_history_request(HistoryRequest::Redo));
+
+    // The linear pair.
+    assert!(editor.perform_history_request(HistoryRequest::Undo));
+    assert_eq!(editor.content(), "");
+    assert!(editor.perform_history_request(HistoryRequest::Redo));
+    assert_eq!(editor.content(), "a");
+
+    // The rest needs a real fork, and a three-way one so the two cycling
+    // directions are distinguishable.
+    let mut editor = editor_forked_three_ways();
+
+    // RedoBranch names its fork explicitly, in creation order.
+    for (index, expected) in [(0, "a"), (1, "Z"), (2, "Q")] {
+        assert!(editor.perform_history_request(HistoryRequest::RedoBranch(index)));
+        assert_eq!(editor.content(), expected, "branch {index} was not entered");
+        assert!(editor.perform_history_request(HistoryRequest::Undo));
+    }
+
+    // An index naming no branch is refused, not clamped onto a real one.
+    assert!(!editor.perform_history_request(HistoryRequest::RedoBranch(3)));
+    assert_eq!(editor.content(), "");
+
+    // Cycling redirects redo without moving. Branch 2 is active, having just
+    // been departed, so stepping forward wraps onto branch 0 — and stepping
+    // backward from there returns to branch 2, not to branch 1.
+    assert!(editor.perform_history_request(HistoryRequest::NextBranch));
+    assert_eq!(editor.content(), "", "cycling must not edit the document");
+    assert!(editor.perform_history_request(HistoryRequest::Redo));
+    assert_eq!(editor.content(), "a", "NextBranch did not redirect redo");
+
+    assert!(editor.perform_history_request(HistoryRequest::Undo));
+    assert!(editor.perform_history_request(HistoryRequest::PreviousBranch));
+    assert!(editor.perform_history_request(HistoryRequest::Redo));
+    assert_eq!(
+        editor.content(),
+        "Q",
+        "PreviousBranch did not redirect redo"
+    );
+
+    // On a leaf there is no fork to choose between, and both directions say so.
+    assert!(!editor.perform_history_request(HistoryRequest::NextBranch));
+    assert!(!editor.perform_history_request(HistoryRequest::PreviousBranch));
+}
+
+/// Cycling a branch is the one history request that changes nothing a content
+/// listener would see — so it needs its own signal, and must not fake the
+/// other one.
+///
+/// A panel showing "branch 2 of 3" has no other way to learn the answer moved.
+/// Emitting `ContentChanged` instead would make every host re-read a document
+/// that did not change, and emitting nothing would leave the panel stale.
+#[test]
+fn cycling_a_branch_notifies_the_host_without_touching_the_document() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut editor = editor_with_ungrouped_history();
+
+    // Fork, and come back to the branch point.
+    type_char(&mut editor, 'a');
+    assert!(editor.undo());
+    type_char(&mut editor, 'Z');
+    assert!(editor.undo());
+    assert_eq!(editor.history_branches().len(), 2);
+
+    let content_events = Arc::new(AtomicUsize::new(0));
+    let branch_events = Arc::new(AtomicUsize::new(0));
+    let content_counter = Arc::clone(&content_events);
+    let branch_counter = Arc::clone(&branch_events);
+    editor.add_listener(move |event| match event {
+        EditorEvent::ContentChanged { .. } => {
+            content_counter.fetch_add(1, Ordering::SeqCst);
+        },
+        EditorEvent::HistoryBranchChanged => {
+            branch_counter.fetch_add(1, Ordering::SeqCst);
+        },
+        _ => {},
+    });
+
+    let here = editor.current_history_node();
+    assert!(editor.cycle_history_branch(true));
+    assert_eq!(
+        branch_events.load(Ordering::SeqCst),
+        1,
+        "a panel has no other way to learn the active branch moved"
+    );
+    assert_eq!(
+        content_events.load(Ordering::SeqCst),
+        0,
+        "cycling told the host the document changed when it did not"
+    );
+    assert_eq!(editor.content(), "");
+    assert_eq!(editor.current_history_node(), here);
+
+    // A refused cycle must announce nothing at all: on a leaf this key is a
+    // no-op, and a panel repainting on it would flicker on every press.
+    // Descending into a branch is a real edit and does announce itself; the
+    // counters are reset so the refusal below is measured on its own.
+    assert!(editor.redo());
+    assert_eq!(content_events.load(Ordering::SeqCst), 1);
+    branch_events.store(0, Ordering::SeqCst);
+    content_events.store(0, Ordering::SeqCst);
+    assert!(!editor.cycle_history_branch(true));
+    assert!(!editor.cycle_history_branch(false));
+    assert_eq!(branch_events.load(Ordering::SeqCst), 0);
+    assert_eq!(content_events.load(Ordering::SeqCst), 0);
+}
+
+/// The defect this whole path exists to fix: running *Undo* by id — which is
+/// what a command palette, a macro and an AI host all do — must undo.
+///
+/// It did not. `history.undo` resolved to a bare acknowledgement, and each face
+/// undid through its own private route, so the palette entry was inert and no
+/// keymap could rebind the verb. Asserting the document here, rather than the
+/// returned tag, is the point: the old code returned a perfectly successful
+/// result and changed nothing.
+#[test]
+fn running_a_history_command_by_id_performs_it() {
+    let mut editor = editor_with_ungrouped_history();
+
+    type_char(&mut editor, 'a');
+    type_char(&mut editor, 'b');
+    assert_eq!(editor.content(), "ab");
+
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_UNDO.as_str(),
+        CommandArgs::NONE,
+    );
+    assert_eq!(editor.content(), "a", "running Undo by id did nothing");
+
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_REDO.as_str(),
+        CommandArgs::NONE,
+    );
+    assert_eq!(editor.content(), "ab", "running Redo by id did nothing");
+
+    // Fork three ways below "a", so the branch verbs have a choice to make and
+    // the two cycling directions are distinguishable.
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_UNDO.as_str(),
+        CommandArgs::NONE,
+    );
+    for ch in ['Z', 'Q'] {
+        type_char(&mut editor, ch);
+        run_by_id(
+            &mut editor,
+            builtin::HISTORY_UNDO.as_str(),
+            CommandArgs::NONE,
+        );
+    }
+    assert_eq!(editor.content(), "a");
+    assert_eq!(editor.history_branches().len(), 3);
+
+    // The count is one-based, as a count always is: `1` is the first branch.
+    for (count, expected) in [(1, "ab"), (2, "aZ"), (3, "aQ")] {
+        run_by_id(
+            &mut editor,
+            builtin::HISTORY_REDO_BRANCH.as_str(),
+            CommandArgs::with_count(count),
+        );
+        assert_eq!(
+            editor.content(),
+            expected,
+            "count {count} did not enter that branch"
+        );
+        run_by_id(
+            &mut editor,
+            builtin::HISTORY_UNDO.as_str(),
+            CommandArgs::NONE,
+        );
+    }
+
+    // A missing count defaults to the first branch rather than refusing, so the
+    // palette can offer the command with no argument at all.
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_REDO_BRANCH.as_str(),
+        CommandArgs::NONE,
+    );
+    assert_eq!(editor.content(), "ab");
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_UNDO.as_str(),
+        CommandArgs::NONE,
+    );
+
+    // And the cycling verbs redirect redo from the palette too. Branch 0 is
+    // active, so forward reaches branch 1 and backward wraps to branch 2.
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_NEXT_BRANCH.as_str(),
+        CommandArgs::NONE,
+    );
+    assert_eq!(editor.content(), "a", "cycling edited the document");
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_REDO.as_str(),
+        CommandArgs::NONE,
+    );
+    assert_eq!(editor.content(), "aZ", "nextBranch did not redirect redo");
+
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_UNDO.as_str(),
+        CommandArgs::NONE,
+    );
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_PREVIOUS_BRANCH.as_str(),
+        CommandArgs::NONE,
+    );
+    run_by_id(
+        &mut editor,
+        builtin::HISTORY_REDO.as_str(),
+        CommandArgs::NONE,
+    );
+    assert_eq!(
+        editor.content(),
+        "ab",
+        "previousBranch did not redirect redo"
+    );
+}
+
+/// The whole-tree description an undo-tree panel draws from, taken through the
+/// editor rather than the tree, so it reflects what the editor actually did.
+#[test]
+fn the_editor_reports_the_whole_tree_for_a_panel() {
+    let mut editor = editor_with_ungrouped_history();
+
+    type_char(&mut editor, 'a');
+    type_char(&mut editor, 'b');
+    assert!(editor.undo());
+    type_char(&mut editor, 'Z');
+
+    let snapshot = editor.history_snapshot();
+    assert_eq!(snapshot.nodes.len(), snapshot.info.node_count);
+    assert_eq!(snapshot.nodes.len(), 4, "root, a, ab and aZ");
+    assert_eq!(
+        snapshot.info.current_id,
+        editor.current_history_node().as_u64().to_string()
+    );
+
+    // The fork is visible in the shape, which is what the panel draws: the "a"
+    // node carries both the "ab" and the "aZ" branches.
+    let forked = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.child_ids.len() == 2)
+        .expect("the fork must appear in the snapshot");
+    assert_eq!(
+        forked.preferred_child_id.as_deref(),
+        Some(snapshot.info.current_id.as_str()),
+        "the active path does not lead to where the editor is"
+    );
+
+    // Each node the snapshot describes is the node the editor describes.
+    for node in &snapshot.nodes {
+        let raw = node.id.parse::<u64>().expect("ids are decimal strings");
+        let direct = editor
+            .history_node(UndoNodeId::from_u64(raw))
+            .expect("the snapshot named a node the editor does not have");
+        assert_eq!(*node, direct);
+    }
 }
 
 /// The reported node metadata describes the tree that was actually built.

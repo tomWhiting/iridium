@@ -24,6 +24,10 @@
       "types": "./src/palette/index.ts",
       "default": "./src/palette/index.ts"
     },
+    "./history": {
+      "types": "./src/history/index.ts",
+      "default": "./src/history/index.ts"
+    },
     "./worker-client": {
       "types": "./src/worker/client.ts",
       "default": "./src/worker/client.ts"

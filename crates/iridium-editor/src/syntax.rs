@@ -6,7 +6,9 @@
 use crate::theme::{Color, SyntaxColors};
 
 // Re-export core syntax types
-pub use iridium_syntax::{HighlightSpan, HighlightType, Highlighter, Language, SyntaxError};
+pub use iridium_syntax::{
+    HighlightSpan, HighlightType, Highlighter, Language, SyntaxError, SyntaxTree,
+};
 
 /// Converts a `HighlightType` to a `Color` using the theme's syntax colors.
 ///
@@ -82,6 +84,12 @@ pub const fn highlight_to_color(highlight: HighlightType, syntax: &SyntaxColors)
 pub struct DocumentHighlighter {
     /// The underlying highlighter (if language is supported)
     highlighter: Option<Highlighter>,
+    /// The parse tree the spans are read from.
+    ///
+    /// Owned here only until the editor owns one tree for the whole document.
+    /// The highlighter itself holds no tree, so this is the only copy on this
+    /// path and there is nothing for it to disagree with.
+    tree: Option<SyntaxTree>,
     /// The detected language
     language: Option<Language>,
     /// Cached highlight spans
@@ -102,6 +110,7 @@ impl DocumentHighlighter {
     pub const fn new() -> Self {
         Self {
             highlighter: None,
+            tree: None,
             language: None,
             cached_spans: Vec::new(),
             cache_valid: false,
@@ -117,6 +126,7 @@ impl DocumentHighlighter {
     pub fn set_language(&mut self, language: Language) -> Result<(), SyntaxError> {
         self.language = Some(language);
         self.highlighter = Some(Highlighter::new(language)?);
+        self.tree = Some(SyntaxTree::new(language)?);
         self.cache_valid = false;
         Ok(())
     }
@@ -138,6 +148,7 @@ impl DocumentHighlighter {
     /// Clears the language, disabling highlighting.
     pub fn clear_language(&mut self) {
         self.highlighter = None;
+        self.tree = None;
         self.language = None;
         self.cached_spans.clear();
         self.cache_valid = false;
@@ -159,11 +170,12 @@ impl DocumentHighlighter {
     ///
     /// If no language is set, returns an empty slice.
     pub fn highlight(&mut self, source: &str) -> &[HighlightSpan] {
-        if let Some(ref mut highlighter) = self.highlighter {
-            if !self.cache_valid {
-                self.cached_spans = highlighter.highlight(source);
-                self.cache_valid = true;
-            }
+        if !self.cache_valid
+            && let (Some(highlighter), Some(tree)) = (&self.highlighter, &mut self.tree)
+            && let Some(parsed) = tree.parse(source)
+        {
+            self.cached_spans = highlighter.spans_in(parsed, source);
+            self.cache_valid = true;
         }
         &self.cached_spans
     }
@@ -185,8 +197,10 @@ impl DocumentHighlighter {
         old_end_byte: usize,
         new_end_byte: usize,
     ) {
-        if let Some(ref mut highlighter) = self.highlighter {
-            self.cached_spans = highlighter.update(source, start_byte, old_end_byte, new_end_byte);
+        if let (Some(highlighter), Some(tree)) = (&self.highlighter, &mut self.tree)
+            && let Some(parsed) = tree.edit_bytes(source, start_byte, old_end_byte, new_end_byte)
+        {
+            self.cached_spans = highlighter.spans_in(parsed, source);
             self.cache_valid = true;
         }
     }
@@ -291,6 +305,7 @@ impl<'a> Iterator for ColoredSpanIterator<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "assertions in tests")]
 mod tests {
     use super::*;
 

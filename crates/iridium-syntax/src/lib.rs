@@ -37,10 +37,12 @@ mod grammar;
 mod highlight;
 pub mod languages;
 pub mod query;
+mod tree;
 
 pub use folding::{FoldDetector, FoldKind, FoldRegion};
 pub use highlight::{HighlightSpan, HighlightType, Highlighter};
 pub use query::QueryKind;
+pub use tree::{SyntaxTree, byte_point};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

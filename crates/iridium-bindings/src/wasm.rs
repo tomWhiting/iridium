@@ -16,7 +16,7 @@ use crate::text_range::text_range;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
     CommandArgs, CommandId, EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
-    commands::palette::CommandMru,
+    commands::{builtin, palette::CommandMru},
     editor::{Editor, FoldState},
     history::Command,
     input::{
@@ -3246,82 +3246,84 @@ impl WebEditor {
         }
     }
 
-    /// Deletes from the primary cursor to the start of its line
-    /// (Cmd+Backspace on Mac). Acts on the primary cursor only.
+    /// Deletes each caret's selection, or the text back to the start of its own
+    /// line (Cmd+Backspace on Mac).
     ///
-    /// Returns whether content changed: `false` in read-only mode or when
-    /// the cursor is already at the line start.
+    /// Returns whether content changed: `false` in read-only mode or when no
+    /// caret has anything to remove.
     #[wasm_bindgen(js_name = deleteToLineStart)]
     pub fn delete_to_line_start(&mut self) -> bool {
-        if self.read_only {
-            return false;
-        }
-        let cursor = self.editor.cursor();
-        if cursor.column == 0 {
-            return false;
-        }
-        let line_start = Position::new(cursor.line, 0);
-        let cmd = Command::Delete {
-            range: Range::new(line_start, cursor),
-            deleted_text: self
-                .editor
-                .state()
-                .document
-                .slice(Range::new(line_start, cursor)),
-        };
-        // track_and_apply records the edit span, refreshes folds, and
-        // resets blink; set_cursor moves the caret outside handle_key.
-        self.track_and_apply(cmd);
-        self.keyboard_handler.reset_vertical_state();
-        self.editor.set_cursor(line_start);
-        true
+        self.run_editing_command(builtin::EDIT_DELETE_TO_LINE_START.as_str())
     }
 
-    /// Deletes from the primary cursor to the end of its line (Cmd+Delete /
-    /// Ctrl+K on Mac). Acts on the primary cursor only.
+    /// Deletes each caret's selection, or the text through to the end of its own
+    /// line (Cmd+Delete on Mac).
     ///
-    /// Returns whether content changed: `false` in read-only mode or when
-    /// the cursor is already at the line end.
+    /// Returns whether content changed: `false` in read-only mode or when no
+    /// caret has anything to remove.
     #[wasm_bindgen(js_name = deleteToLineEnd)]
     pub fn delete_to_line_end(&mut self) -> bool {
+        self.run_editing_command(builtin::EDIT_DELETE_TO_LINE_END.as_str())
+    }
+
+    /// Runs a kernel editing command by id and reports whether it changed the
+    /// document.
+    ///
+    /// These two verbs have no place in the platform-neutral default keymap —
+    /// `Ctrl+Backspace` and `Ctrl+Delete` are already word-wise delete — so this
+    /// face reaches them by id from its own macOS `Cmd` handling. Routing
+    /// through `keyboard_handler` rather than reimplementing the edit is what
+    /// makes them multi-cursor: they were hand-written here against the primary
+    /// caret alone, which both spared the other carets' lines and collapsed the
+    /// multi-cursor state, and no native build compiles this file to catch it.
+    fn run_editing_command(&mut self, id: &str) -> bool {
         if self.read_only {
             return false;
         }
-        let cursor = self.editor.cursor();
-        let line_len = self
-            .editor
-            .state()
-            .document
-            .line(cursor.line)
-            .map_or(0, |l| l.chars().count());
-
-        if cursor.column >= line_len {
+        // `keyboard_handler` and `editor` are disjoint fields, so the mutable
+        // handler borrow coexists with the immutable state borrows.
+        let state = self.editor.state();
+        let outcome = self.keyboard_handler.run_command(
+            id,
+            CommandArgs::NONE,
+            &state.document,
+            &state.cursor,
+            &state.history,
+            &state.config,
+        );
+        let Ok(KeyResult::Command(command)) = outcome else {
+            // `Handled` means every caret produced an empty edit; an error can
+            // only mean the id left the registry, which the kernel's own tests
+            // would have caught first. Neither changed the document.
             return false;
-        }
-        let line_end = Position::new(cursor.line, line_len);
-        let cmd = Command::Delete {
-            range: Range::new(cursor, line_end),
-            deleted_text: self
-                .editor
-                .state()
-                .document
-                .slice(Range::new(cursor, line_end)),
         };
-        // track_and_apply records the edit span, refreshes folds, and
-        // resets blink; the edit invalidates sticky columns.
+        let changed = command.modifies_content();
+        // The caret moves outside handle_key, so the sticky vertical column
+        // this handler keeps must be dropped.
         self.keyboard_handler.reset_vertical_state();
-        self.track_and_apply(cmd);
-        true
+        // track_and_apply records the edit span for takeLastEdit, refreshes
+        // fold regions, and resets blink.
+        self.track_and_apply(command);
+        changed
     }
 
     // ==========================================================================
     // Selection Methods
     // ==========================================================================
 
-    /// Returns true if there is a non-empty selection.
+    /// Returns true if *any* caret has a non-empty selection.
+    ///
+    /// Any, not the primary's: with three carets selecting words and the
+    /// primary collapsed, there is plainly a selection, and a host that gated
+    /// its copy button on the primary alone would grey it out over three
+    /// selected words.
     #[wasm_bindgen(js_name = hasSelection)]
     pub fn has_selection(&self) -> bool {
-        !self.editor.state().cursor.primary.is_collapsed()
+        self.editor
+            .state()
+            .cursor
+            .all_selections()
+            .any(|sel| !sel.is_collapsed())
     }
 
     /// How many carets there are — `1` unless multi-cursor is in play.
@@ -3337,46 +3339,68 @@ impl WebEditor {
         u32::try_from(self.editor.state().cursor.all_selections().count()).unwrap_or(u32::MAX)
     }
 
-    /// Gets the selected text, or empty string if no selection.
+    /// Gets the selected text across **every** caret, or an empty string when
+    /// nothing is selected.
+    ///
+    /// Multiple selections are joined with the document's line ending, in
+    /// document order — the same shape `copyText` produces, because "what is
+    /// selected" and "what a copy would put on the clipboard" must not be two
+    /// different answers.
     #[wasm_bindgen(js_name = getSelectedText)]
     pub fn get_selected_text(&self) -> String {
-        let selection = &self.editor.state().cursor.primary;
-        if selection.is_collapsed() {
-            String::new()
-        } else {
-            self.editor.state().document.slice(selection.range())
+        let state = self.editor.state();
+        if !self.has_selection() {
+            return String::new();
         }
+        let mut selections: Vec<_> = state.cursor.all_selections().copied().collect();
+        selections.sort_by_key(iridium_editor::document::Selection::start);
+        let line_ending = state.document.line_ending().as_str();
+        selections
+            .iter()
+            .map(|sel| state.document.slice(sel.range()))
+            .collect::<Vec<_>>()
+            .join(line_ending)
     }
 
-    /// Gets selection start line (for JS interop).
+    /// Gets the **primary** selection's start line (for JS interop).
+    ///
+    /// These four accessors are singular by design: they answer "where is the
+    /// selection?", and with several the only coherent singular answer is the
+    /// primary's. A host that needs the others reads `cursorCount` first and
+    /// then works with whole selections rather than four loose numbers.
     #[wasm_bindgen(js_name = getSelectionStartLine)]
     pub fn get_selection_start_line(&self) -> u32 {
         self.editor.state().cursor.primary.start().line as u32
     }
 
-    /// Gets selection start column (for JS interop).
+    /// Gets the primary selection's start column (for JS interop).
     #[wasm_bindgen(js_name = getSelectionStartColumn)]
     pub fn get_selection_start_column(&self) -> u32 {
         self.editor.state().cursor.primary.start().column as u32
     }
 
-    /// Gets selection end line (for JS interop).
+    /// Gets the primary selection's end line (for JS interop).
     #[wasm_bindgen(js_name = getSelectionEndLine)]
     pub fn get_selection_end_line(&self) -> u32 {
         self.editor.state().cursor.primary.end().line as u32
     }
 
-    /// Gets selection end column (for JS interop).
+    /// Gets the primary selection's end column (for JS interop).
     #[wasm_bindgen(js_name = getSelectionEndColumn)]
     pub fn get_selection_end_column(&self) -> u32 {
         self.editor.state().cursor.primary.end().column as u32
     }
 
-    /// Clears selection, leaving cursor at the head position.
+    /// Drops every secondary caret and collapses the primary selection to its
+    /// head — the same thing `Escape` does through the keyboard.
+    ///
+    /// Collapsing to *one* caret rather than clearing each caret's selection in
+    /// place is deliberate and matches the kernel verb this now routes to: a
+    /// host calling "clear the selection" wants the editor back to a plain
+    /// caret, and leaving three carets behind would not be that.
     #[wasm_bindgen(js_name = clearSelection)]
     pub fn clear_selection(&mut self) {
-        let head = self.editor.state().cursor.primary.head;
-        self.set_selection_internal(head, head);
+        self.run_selection_command(builtin::SELECTION_COLLAPSE_TO_PRIMARY.as_str());
     }
 
     /// Sets the selection (for internal use).
@@ -3391,209 +3415,114 @@ impl WebEditor {
         self.needs_redraw = true;
     }
 
-    /// Extends selection left by one character (Shift+Left).
+    /// Extends every selection left by one character (Shift+Left).
     #[wasm_bindgen(js_name = extendSelectionLeft)]
     pub fn extend_selection_left(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-
-        let new_head = if head.column > 0 {
-            Position::new(head.line, head.column - 1)
-        } else if head.line > 0 {
-            let prev_line_len = self
-                .editor
-                .state()
-                .document
-                .line(head.line - 1)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
-            Position::new(head.line - 1, prev_line_len)
-        } else {
-            head
-        };
-
-        if new_head != head {
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_CHAR_LEFT_SELECT.as_str());
     }
 
-    /// Extends selection right by one character (Shift+Right).
+    /// Extends every selection right by one character (Shift+Right).
     #[wasm_bindgen(js_name = extendSelectionRight)]
     pub fn extend_selection_right(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-
-        let line_len = self
-            .editor
-            .state()
-            .document
-            .line(head.line)
-            .map(|l| l.chars().count())
-            .unwrap_or(0);
-        let line_count = self.editor.state().document.line_count();
-
-        let new_head = if head.column < line_len {
-            Position::new(head.line, head.column + 1)
-        } else if head.line < line_count.saturating_sub(1) {
-            Position::new(head.line + 1, 0)
-        } else {
-            head
-        };
-
-        if new_head != head {
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_CHAR_RIGHT_SELECT.as_str());
     }
 
-    /// Extends selection up by one line (Shift+Up).
+    /// Extends every selection up by one line (Shift+Up).
     #[wasm_bindgen(js_name = extendSelectionUp)]
     pub fn extend_selection_up(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-
-        if head.line > 0 {
-            let target_line_len = self
-                .editor
-                .state()
-                .document
-                .line(head.line - 1)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
-            let new_column = head.column.min(target_line_len);
-            let new_head = Position::new(head.line - 1, new_column);
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_LINE_UP_SELECT.as_str());
     }
 
-    /// Extends selection down by one line (Shift+Down).
+    /// Extends every selection down by one line (Shift+Down).
     #[wasm_bindgen(js_name = extendSelectionDown)]
     pub fn extend_selection_down(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-        let line_count = self.editor.state().document.line_count();
-
-        if head.line < line_count.saturating_sub(1) {
-            let target_line_len = self
-                .editor
-                .state()
-                .document
-                .line(head.line + 1)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
-            let new_column = head.column.min(target_line_len);
-            let new_head = Position::new(head.line + 1, new_column);
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_LINE_DOWN_SELECT.as_str());
     }
 
-    /// Extends selection to previous word boundary (Shift+Option+Left).
+    /// Extends every selection to the previous word boundary
+    /// (Shift+Option+Left).
     #[wasm_bindgen(js_name = extendSelectionWordLeft)]
     pub fn extend_selection_word_left(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-        let new_head = self.find_word_boundary_left(head);
-
-        if new_head != head {
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_WORD_LEFT_SELECT.as_str());
     }
 
-    /// Extends selection to next word boundary (Shift+Option+Right).
+    /// Extends every selection to the next word boundary (Shift+Option+Right).
     #[wasm_bindgen(js_name = extendSelectionWordRight)]
     pub fn extend_selection_word_right(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-        let new_head = self.find_word_boundary_right(head);
-
-        if new_head != head {
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_WORD_RIGHT_SELECT.as_str());
     }
 
-    /// Extends selection to line start (Shift+Cmd+Left or Shift+Home).
+    /// Extends every selection to its line start (Shift+Cmd+Left or
+    /// Shift+Home).
+    ///
+    /// This is *smart* home, matching what the same chord does through the
+    /// keyboard: the first stop is the first non-whitespace character, and
+    /// column zero only from there. The hand-rolled version this replaced went
+    /// straight to column zero, so the mouse-driven and key-driven routes
+    /// disagreed about where a line starts.
     #[wasm_bindgen(js_name = extendSelectionLineStart)]
     pub fn extend_selection_line_start(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-        let new_head = Position::new(head.line, 0);
-
-        if new_head != head {
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_LINE_START_SELECT.as_str());
     }
 
-    /// Extends selection to line end (Shift+Cmd+Right or Shift+End).
+    /// Extends every selection to its line end (Shift+Cmd+Right or Shift+End).
     #[wasm_bindgen(js_name = extendSelectionLineEnd)]
     pub fn extend_selection_line_end(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let head = cursor_state.primary.head;
-        let line_len = self
-            .editor
-            .state()
-            .document
-            .line(head.line)
-            .map(|l| l.chars().count())
-            .unwrap_or(0);
-        let new_head = Position::new(head.line, line_len);
-
-        if new_head != head {
-            self.set_selection_internal(anchor, new_head);
-        }
+        self.run_selection_command(builtin::CURSOR_LINE_END_SELECT.as_str());
     }
 
-    /// Extends selection to document start (Shift+Cmd+Up).
+    /// Extends the selection to the document start (Shift+Cmd+Up), merging
+    /// every caret into one.
     #[wasm_bindgen(js_name = extendSelectionDocStart)]
     pub fn extend_selection_doc_start(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let new_head = Position::new(0, 0);
-        self.set_selection_internal(anchor, new_head);
+        self.run_selection_command(builtin::CURSOR_DOCUMENT_START_SELECT.as_str());
     }
 
-    /// Extends selection to document end (Shift+Cmd+Down).
+    /// Extends the selection to the document end (Shift+Cmd+Down), merging
+    /// every caret into one.
     #[wasm_bindgen(js_name = extendSelectionDocEnd)]
     pub fn extend_selection_doc_end(&mut self) {
-        let cursor_state = &self.editor.state().cursor;
-        let anchor = cursor_state.primary.anchor;
-        let line_count = self.editor.state().document.line_count();
-        let new_head = if line_count > 0 {
-            let last_line = line_count - 1;
-            let last_line_len = self
-                .editor
-                .state()
-                .document
-                .line(last_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
-            Position::new(last_line, last_line_len)
-        } else {
-            Position::new(0, 0)
-        };
-        self.set_selection_internal(anchor, new_head);
+        self.run_selection_command(builtin::CURSOR_DOCUMENT_END_SELECT.as_str());
     }
 
     /// Selects all text (Cmd+A).
     #[wasm_bindgen(js_name = selectAll)]
     pub fn select_all(&mut self) {
-        let doc = &self.editor.state().document;
-        let line_count = doc.line_count();
-        let start = Position::new(0, 0);
-        let end = if line_count > 0 {
-            let last_line = line_count - 1;
-            let last_line_len = doc.line(last_line).map(|l| l.chars().count()).unwrap_or(0);
-            Position::new(last_line, last_line_len)
-        } else {
-            Position::new(0, 0)
-        };
-        self.set_selection_internal(start, end);
+        self.run_selection_command(builtin::SELECTION_SELECT_ALL.as_str());
+    }
+
+    /// Runs a kernel selection command by id.
+    ///
+    /// Every method above used to compute its own motion against
+    /// `cursor.primary` and hand the result to `Editor::set_selection`, which
+    /// *replaces all cursors with a single selection* — so a host-driven
+    /// Shift+Left both moved one caret and destroyed the rest. The kernel
+    /// already owns each of these motions, multi-cursor and sticky-column
+    /// correct, and already runs them for the identical keystroke; this routes
+    /// to that one implementation so the two entry points cannot disagree.
+    ///
+    /// Not gated on read-only: moving a selection changes no text, and the
+    /// keyboard path does not gate it either.
+    fn run_selection_command(&mut self, id: &str) {
+        // `keyboard_handler` and `editor` are disjoint fields, so the mutable
+        // handler borrow coexists with the immutable state borrows.
+        let state = self.editor.state();
+        let outcome = self.keyboard_handler.run_command(
+            id,
+            CommandArgs::NONE,
+            &state.document,
+            &state.cursor,
+            &state.history,
+            &state.config,
+        );
+        // A motion at the document edge legitimately produces `Handled` and no
+        // command; an error can only mean the id left the registry, which the
+        // kernel's own tests would have caught first.
+        if let Ok(KeyResult::Command(command)) = outcome {
+            self.track_and_apply(command);
+        }
+        self.cursor_renderer.reset_blink();
+        self.needs_redraw = true;
     }
 
     /// Sets cursor position for click (collapses selection to clicked position).

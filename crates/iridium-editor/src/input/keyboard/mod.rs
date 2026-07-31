@@ -65,6 +65,8 @@ mod comment_tests;
 #[cfg(test)]
 mod dispatch_tests;
 #[cfg(test)]
+mod line_boundary_tests;
+#[cfg(test)]
 mod line_ops_tests;
 #[cfg(test)]
 mod multi_cursor_tests;

@@ -186,6 +186,37 @@ impl KeyboardHandler {
             .map_or(KeyResult::Handled, KeyResult::Command)
     }
 
+    /// Deletes the selection, or the text between each caret and the start of
+    /// its own line (macOS `Cmd+Backspace`).
+    ///
+    /// Every cursor acts on *its own* line. The web face used to implement
+    /// this verb by hand against the primary cursor alone, which both spared
+    /// the other carets' lines and collapsed the multi-cursor state; routing it
+    /// through the same builder as every other delete is what makes the three
+    /// faces agree.
+    pub(super) fn handle_delete_to_line_start(
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
+        let edits = editing::delete_to_line_start_edits(cursor);
+        editing::build_multi_cursor_command(document, cursor, edits)
+            .map_or(KeyResult::Handled, KeyResult::Command)
+    }
+
+    /// Deletes the selection, or the text between each caret and the end of its
+    /// own line (macOS `Cmd+Delete`).
+    ///
+    /// The line ending survives, so the line is emptied rather than joined to
+    /// the next.
+    pub(super) fn handle_delete_to_line_end(
+        document: &Document,
+        cursor: &CursorState,
+    ) -> KeyResult {
+        let edits = editing::delete_to_line_end_edits(document, cursor);
+        editing::build_multi_cursor_command(document, cursor, edits)
+            .map_or(KeyResult::Handled, KeyResult::Command)
+    }
+
     /// Inserts text at every cursor, replacing any selections.
     ///
     /// Per-cursor position accounting (same-line byte shifts, inserted newlines,

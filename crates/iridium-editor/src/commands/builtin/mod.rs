@@ -167,6 +167,22 @@ pub static BUILTIN: &[CommandMeta] = &[
     .mutating()
     .with_aliases(&["del", "erase"]),
     CommandMeta::from_static(EDIT_DELETE_WORD_FORWARD, "Delete Word Forward", EDIT).mutating(),
+    CommandMeta::described(
+        EDIT_DELETE_TO_LINE_START,
+        "Delete to Line Start",
+        "Deletes the selection, or from each caret back to the start of its line.",
+        EDIT,
+    )
+    .mutating()
+    .with_aliases(&["kill line backward", "erase"]),
+    CommandMeta::described(
+        EDIT_DELETE_TO_LINE_END,
+        "Delete to Line End",
+        "Deletes the selection, or from each caret to the end of its line.",
+        EDIT,
+    )
+    .mutating()
+    .with_aliases(&["kill line", "erase"]),
     // ----- Lines -----
     CommandMeta::from_static(LINES_MOVE_UP, "Move Line Up", LINES)
         .mutating()

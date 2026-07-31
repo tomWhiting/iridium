@@ -38,6 +38,7 @@
 //! | [`KeymapStack`] | layers, highest precedence last |
 //! | [`KeymapResolver`] | the pending-sequence state machine; produces [`Resolution`] |
 //! | [`builtin`] | ids and metadata for every command the kernel implements |
+//! | [`palette`] | fuzzy search, recency and result ordering over the registry |
 //! | [`default_non_modal_keymap`] | the non-modal default bindings, as data |
 //!
 //! # How the keyboard layer uses this
@@ -93,6 +94,7 @@
 //! exists, and the two are reconciled by tests.
 
 pub mod builtin;
+pub mod palette;
 
 mod args;
 mod binding;

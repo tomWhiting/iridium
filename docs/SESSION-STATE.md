@@ -715,7 +715,53 @@ behind the `backspace` / `deleteForward` exports). Its only caller today is
 typing — but it is a public wasm export and it is wrong. Named here so it is not
 lost.
 
-## Section 2 (text transformations) — facts re-verified 31 Jul, before starting
+## Section 2 (text transformations) — DONE (`cfbc11c`, `f356cf1`)
+
+Fifteen `transform.*` verbs, in the palette and in the wasm bundle serving
+12223. Built in two commits on purpose: the pure core first, then the verbs.
+
+**`crates/iridium-editor/src/text/`** — `case.rs` and `lines.rs`, pure `&str`
+functions with no idea what a document or a cursor is. Owned rather than `heck`
+or `convert_case`: the content this editor serves is JSON and Markdown, so the
+input is routinely neither ASCII nor a well-formed identifier, and how
+`HTTPResponse`, `v2Beta`, `café-au-lait` and `sha256` behave is worth pinning
+here rather than inheriting. 21 tests, eight breaks.
+
+The three decisions worth not relitigating:
+
+- **The acronym rule.** A run of uppercase followed by uppercase-then-lowercase
+  starts the new word at the *last* uppercase, so `HTTPResponse` is
+  `HTTP` + `Response`, not `HTTPR` + `esponse`.
+- **Digits are word material** and never start a word alone. Splitting on digits
+  would shred every version string in a JSON file.
+- **Sorting is Unicode scalar order, not locale collation.** A sort whose answer
+  depends on the machine's locale makes "same document, same command, different
+  result" possible, which is the one thing this architecture exists to prevent.
+  The line ending is likewise a *parameter*, never sniffed — sniffing per call
+  is how a CRLF file ends up with both.
+
+**`input/keyboard/transform.rs`** — the part that only exists once a verb meets
+a document. Case verbs act on each caret's selection, or the word under it;
+line verbs expand to touched lines and merge overlapping **and adjacent**
+blocks (two selections on lines 0-1 and 2-3 share no line but do share the
+boundary between them). 23 tests, seven breaks.
+
+**All fifteen are palette-only.** Approved by the plan, recorded in the
+`every_registered_command_is_bound_except_the_typing_fall_through` exception
+list, and **raised with Tom** — which three or four earn real keys is his call
+and is still open. That test's `unbound` vec is now 20 entries and is
+*ordered by registry order*; the `- 3` is now `- 20`.
+
+Two files crossed the 500-line cap and were split along seams already there:
+`editing.rs` → `editing/{mod,intents}.rs` (command construction vs the
+per-cursor edit intents it consumes), `actions.rs` → `actions/{mod,run}.rs`
+(the declarative enum-and-id-table, which is what you read, vs the routing
+`match`, which is what you edit).
+
+Counts now: **845** all-features, **787** GPU-free, **829** syntax-without-GPU,
+110 bindings, 30 syntax, 55 bun.
+
+## Section 2 — the pre-flight facts, re-verified 31 Jul (kept for reference)
 
 Checked by hand against the tree as it stands, because the palette work moved
 several of these files. **Still exact:** `KeyboardAction` at

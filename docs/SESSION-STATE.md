@@ -1277,16 +1277,32 @@ frame.
 
 **Two gaps, stated rather than papered over:**
 
-- **S6 is caught only by other people's tests.** Making selection commands enter
-  the undo history broke four pre-existing sticky-column tests but **not**
-  `expansion_never_enters_the_undo_history`, which was written for exactly that
-  break. It was still passing when I ran out of runway to find out why —
-  instrumentation was in progress and has been removed. `modifies_selection()`
-  does return `old_state != new_state` for `SetSelection`
-  (`history/commands.rs:224`), so the frames *should* have been pushed and the
-  undo *should* have hit one. **Next reader: finish this.** Either the test has a
-  hole or something else swallows selection-only history entries, and both are
-  worth knowing.
+- **S6 — CLOSED 1 Aug. The test had a hole, and the cause is worth carrying.**
+  The masking mechanism was **undo grouping**. `UndoTree::push`
+  (`history/undo_tree/mod.rs:163`) merges every command pushed within
+  `group_timeout_ms` into a single flat `Command::Compound` on the *same* node,
+  and `should_group` (`:464`) is purely time-based — it does not care what kind
+  of command it is looking at. The default window is **500ms**, and a unit test
+  runs inside it comfortably. So with the S6 break applied the three
+  `SetSelection`s did reach the history exactly as predicted, merged into the
+  same node as the `Insert` that preceded them, and one `undo()` reverted all
+  four together. The document text came back, the assertion held, and the test
+  passed while the bug it names was live.
+
+  Fixed by giving the test its own constructor, `editor_grouping_off`, built
+  from `EditorConfig { undo_group_timeout_ms: 0, .. }` — the pattern
+  `editor/history_nav/tests.rs:20` already uses. The assertion was also
+  strengthened from `assert_ne!(text, after_edit)` to `assert_eq!(text, JSON)`,
+  which pins the outcome instead of merely ruling one out. **Proven: passes
+  clean, fails against the S6 break.**
+
+  **The general rule this yields:** any test asserting *which* history entry an
+  undo hit, or *how many* undo steps something made, is meaningless under
+  default grouping. Swept the rest of the crate for the same hole — every other
+  `.undo()` test (`command_api_tests.rs:129`, `behavior_tests.rs:1084,1098`,
+  `comment_tests.rs:503,817`) pushes exactly once, so grouping has nothing to
+  merge with and they are sound; `history_nav/tests.rs` and `undo_tree/tests.rs`
+  already set the timeout explicitly. The hole was isolated to this one test.
 - **S7 is not discriminated at all.** `result_mutates_cursor` returning `false`
   for `KeyResult::Ast` fails no test, because the sticky preferred columns
   already self-invalidate on cursor-state identity

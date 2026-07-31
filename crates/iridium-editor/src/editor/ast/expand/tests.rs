@@ -26,6 +26,21 @@ fn editor(language: Language, source: &str) -> Editor {
     editor
 }
 
+/// The same, with undo grouping disabled so every push gets its own node.
+///
+/// Only tests that read the *shape* of the history need this. The default 500ms
+/// window swallows everything a unit test does, so a test asking "how many undo
+/// steps did that make" gets the answer "one" no matter what.
+fn editor_grouping_off(language: Language, source: &str) -> Editor {
+    let mut editor = Editor::new(EditorConfig {
+        undo_group_timeout_ms: 0,
+        ..EditorConfig::default()
+    });
+    editor.set_content(source);
+    editor.set_language(language);
+    editor
+}
+
 /// Places a single caret just before the first occurrence of `needle`.
 fn caret_before(editor: &mut Editor, source: &str, needle: &str) {
     let offset = source
@@ -266,22 +281,28 @@ fn expansion_never_enters_the_undo_history() {
     // If expansions did become undo steps, holding the key would bury the last
     // real edit under a stack of selection changes — which is the failure this
     // guards against.
-    let mut editor = editor(Language::Json, JSON);
+    //
+    // Grouping is off deliberately. `UndoTree::push` merges everything pushed
+    // inside `undo_group_timeout_ms` into one node, and a unit test runs well
+    // inside 500ms — so with grouping on, expansions that *did* reach the
+    // history would land in the same node as the insert and one undo would
+    // still revert the text. The test would pass while the bug it names was
+    // live. Zero puts every push on its own node, which is the only way the
+    // assertion below can tell the two apart.
+    let mut editor = editor_grouping_off(Language::Json, JSON);
     editor.apply_command(Command::Insert {
         position: Position::new(0, 0),
         text: "  ".to_string(),
     });
-    let after_edit = editor.state().document.text();
-
     caret_before(&mut editor, JSON, "first");
     expand(&mut editor);
     expand(&mut editor);
     expand(&mut editor);
 
     assert!(editor.undo(), "the insert is still there to undo");
-    assert_ne!(
+    assert_eq!(
         editor.state().document.text(),
-        after_edit,
+        JSON,
         "the first undo undid an expansion instead of the edit, so three key \
          presses now stand between a person and their last real change"
     );

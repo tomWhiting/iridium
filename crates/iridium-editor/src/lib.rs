@@ -66,8 +66,9 @@ pub mod span_index;
 // Re-exports for convenient access
 pub use commands::{
     CommandArgs, CommandCategory, CommandId, CommandInvocation, CommandMeta, CommandRegistry,
-    KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver, KeymapStack, ModeName,
-    ModifierPattern, ModifierState, RegistryError, Resolution, StrokeCapture, StrokePattern,
+    KeyBinding, KeyHint, KeyHintIndex, KeyLabelStyle, KeyPress, Keymap, KeymapError,
+    KeymapResolver, KeymapStack, ModeName, ModifierPattern, ModifierState, RegistryError,
+    Resolution, StrokeCapture, StrokePattern,
 };
 pub use document::{CursorState, Document, Position, Range, Selection};
 pub use editor::{Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError};

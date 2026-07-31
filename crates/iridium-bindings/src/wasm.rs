@@ -11,14 +11,17 @@ use web_sys::HtmlCanvasElement;
 
 use crate::edit_tracking::{EditSpan, PendingEdit, byte_point, compose_pending, compute_edit_span};
 use crate::key_map::key_code_from_dom_key;
+use crate::palette;
 use crate::text_range::text_range;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
-    EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
+    CommandArgs, CommandId, EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
+    commands::palette::CommandMru,
     editor::{Editor, FoldState},
     history::Command,
     input::{
-        ClipboardOperation, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers, SearchAction,
+        ClipboardOperation, CommandRunError, KeyCode, KeyEvent, KeyResult, KeyboardHandler,
+        Modifiers, SearchAction,
     },
     render::{
         CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
@@ -291,6 +294,14 @@ pub struct WebEditor {
     /// `handleKeyEvent` return value).
     pending_clipboard_text: Option<String>,
 
+    /// Commands recently run by id, biasing the command palette's ranking.
+    ///
+    /// Lives beside [`Self::keyboard_handler`] rather than inside `self.editor`
+    /// because this face routes every invocation through *this* handler; a second
+    /// history on the editor's own handler would record nothing and silently
+    /// disagree with the one the palette reads.
+    palette_mru: CommandMru,
+
     /// The host command a binding last resolved to, awaiting
     /// `takePendingHostCommand`.
     ///
@@ -439,6 +450,7 @@ pub async fn create_web_editor(
         cpu_blame_content: String::with_capacity(256),
         // Raw key event handling
         keyboard_handler: KeyboardHandler::new(),
+        palette_mru: CommandMru::new(),
         pending_clipboard_text: None,
         pending_host_command: None,
         pending_edit: PendingEdit::None,
@@ -585,6 +597,18 @@ impl WebEditor {
             &state.config,
         );
 
+        self.consume_key_result(result)
+    }
+
+    /// Applies one [`KeyResult`] and returns the status string the host reads.
+    ///
+    /// Extracted so a keypress and a palette invocation cannot diverge. They
+    /// produce the *same* `KeyResult` from the same handler, and every difference
+    /// in what happens next — a clipboard stash, a search request, a host command
+    /// held for collection, a redraw — would otherwise be duplicated in two places
+    /// and drift the first time one of them is edited. `Editor::consume_key_result`
+    /// exists in the kernel for exactly this reason.
+    fn consume_key_result(&mut self, result: KeyResult) -> String {
         match result {
             KeyResult::Ignored => "ignored".to_string(),
             KeyResult::Handled => {
@@ -611,6 +635,109 @@ impl WebEditor {
                 "handled:command".to_string()
             },
         }
+    }
+
+    // ========== Command palette ==========
+
+    /// Every registered command as JSON, in browse order.
+    ///
+    /// What a palette shows before anything is typed. Key labels come from the
+    /// *live* keymap, so a user layer pushed with `pushKeymap` is reflected here
+    /// without the host recomputing anything.
+    ///
+    /// `PaletteCommand` is strings, booleans and integers throughout, so
+    /// serialization cannot fail; `palette::tests` pins that by serializing the
+    /// whole command set, because the empty-array fallback below would otherwise
+    /// read to a host as "this editor has no commands".
+    #[wasm_bindgen(js_name = listCommands)]
+    #[must_use]
+    pub fn list_commands(&self) -> String {
+        let commands = palette::list(
+            self.editor.commands(),
+            self.keyboard_handler.key_hints(),
+            self.read_only,
+        );
+        serde_json::to_string(&commands).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Commands matching `query` as JSON, best first; `limit` of `0` means all.
+    ///
+    /// Called on every keystroke in the palette input. The ranking is the
+    /// kernel's, identical in every face, and the returned match offsets are
+    /// UTF-16 so they can slice the strings alongside them directly.
+    #[wasm_bindgen(js_name = searchCommands)]
+    #[must_use]
+    pub fn search_commands(&self, query: &str, limit: usize) -> String {
+        let commands = palette::search(
+            self.editor.commands(),
+            self.keyboard_handler.key_hints(),
+            &self.palette_mru,
+            query,
+            limit,
+            self.read_only,
+        );
+        serde_json::to_string(&commands).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Runs a command by id, exactly as a key bound to it would.
+    ///
+    /// Returns the same status strings as `handleKeyEvent`, because it takes the
+    /// same path: the same handler produces a `KeyResult`, and
+    /// [`Self::consume_key_result`] applies it. That is what makes a palette
+    /// invocation and a keypress indistinguishable downstream — including the
+    /// sticky column, the multi-cursor addition order, and the undo grouping.
+    ///
+    /// A command the kernel does not implement is not a failure: the id is stashed
+    /// for `takePendingHostCommand` and reported as `"handled:command"`, which is
+    /// precisely what a key bound to that command does. `"ignored"` therefore means
+    /// one thing only — no such command is registered.
+    ///
+    /// Every invocation is recorded in the palette's recency list, which is why
+    /// running a command from the palette moves it toward the top next time.
+    #[wasm_bindgen(js_name = runCommand)]
+    pub fn run_command(&mut self, id: &str) -> String {
+        if !self.editor.commands().contains(id) {
+            return "ignored".to_string();
+        }
+
+        // `keyboard_handler`, `palette_mru` and `editor` are disjoint fields, so
+        // the mutable handler borrow coexists with the immutable state borrows.
+        let state = self.editor.state();
+        let outcome = self.keyboard_handler.run_command(
+            id,
+            CommandArgs::NONE,
+            &state.document,
+            &state.cursor,
+            &state.history,
+            &state.config,
+        );
+
+        self.palette_mru.record(&CommandId::new(id.to_owned()));
+
+        match outcome {
+            Ok(result) => self.consume_key_result(result),
+            Err(CommandRunError::Unimplemented { id }) => {
+                self.pending_host_command = Some(HostCommandRequest {
+                    command: id,
+                    count: None,
+                    captures: Vec::new(),
+                });
+                self.cursor_renderer.reset_blink();
+                self.needs_redraw = true;
+                "handled:command".to_string()
+            },
+        }
+    }
+
+    /// The key sequence bound to `id`, or an empty string when none is.
+    ///
+    /// `mac_glyphs` selects `⌘K` over `Ctrl+K`. The web face forwards macOS `Cmd`
+    /// as the kernel's `ctrl`, so the two are the same binding rendered for two
+    /// audiences, and the choice belongs to the host that knows the platform.
+    #[wasm_bindgen(js_name = keyHintFor)]
+    #[must_use]
+    pub fn key_hint_for(&self, id: &str, mac_glyphs: bool) -> String {
+        palette::key_hint(self.keyboard_handler.key_hints(), id, mac_glyphs).unwrap_or_default()
     }
 
     /// The strokes typed so far in an incomplete key sequence, rendered as text.

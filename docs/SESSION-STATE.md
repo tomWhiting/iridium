@@ -586,6 +586,19 @@ vite serves `palette/{index,keys,highlight}.ts` at 200, and `App.tsx` resolves
 `controller/index.ts` — which confirms the alias-ordering fix was load-bearing,
 not cosmetic. Gates: **55 bun tests**, `deno check` clean, `tsc --noEmit` clean.
 
+**Operational trap, learned the hard way: never `git switch` under a live vite
+server.** Landing this on `main` I ran `git switch main` *before* the
+fast-forward. At that instant `main` was still at `4f73090`, which has none of
+the palette files — so git deleted them from the working tree, the watching vite
+server cached the resolution failure for `@iridium/core/palette`, and restoring
+them two seconds later by merging did **not** invalidate that cache. The demo
+served a 500 until the server was restarted and `node_modules/.vite` cleared.
+
+Do it the other way round: merge into the branch you are on, or move the ref
+without touching the working tree (`git push origin <branch>:main`,
+`git branch -f`). The working tree under 12223 should never transiently lose
+files.
+
 **Why the demo could never have worked before this**, since it came up: the
 served bundle was built at 10:04 and the palette exports landed at 14:17, *and*
 the UI files were on a branch, not in the checkout. Neither half was present, so

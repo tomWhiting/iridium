@@ -117,7 +117,7 @@ fn holding_the_chord_leader_down_does_not_change_what_the_next_stroke_means() {
     assert_eq!(heads(&cursor), vec![(0, 3), (0, 7)]);
 
     let repeat = KeyEvent {
-        key: KeyCode::Char('k'),
+        key: CHORD_LEADER.key,
         modifiers: CTRL,
         is_repeat: true,
     };
@@ -346,7 +346,7 @@ fn key_hints_are_rebuilt_by_every_keymap_mutator() {
 
     let mut user = Keymap::new("user");
     user.push(KeyBinding::new(
-        chord_stroke(KeyCode::Char('k')),
+        chord_stroke(KeyCode::Char('b')),
         &[],
         crate::commands::builtin::LINES_DELETE,
     ));
@@ -358,8 +358,11 @@ fn key_hints_are_rebuilt_by_every_keymap_mutator() {
     assert_hints_fresh(&handler, "pop_keymap");
 
     handler
-        .push_validated_keymap(user, &builtin_registry().expect("the registry builds"))
-        .expect("Ctrl+K is free");
+        .push_validated_keymap(
+            user,
+            &crate::commands::builtin::default_registry().expect("the registry builds"),
+        )
+        .expect("Ctrl+B is free");
     assert_hints_fresh(&handler, "push_validated_keymap");
 
     handler.set_keymap(crate::commands::default_keymap_stack());

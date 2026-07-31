@@ -62,20 +62,21 @@ const CTRL_ALT_GRAPH: Modifiers = Modifiers {
 const ADD_NEXT: KeyEvent = KeyEvent::new(KeyCode::Char('d'), CTRL);
 const REMOVE_LAST: KeyEvent = KeyEvent::new(KeyCode::Char('u'), CTRL);
 const ADD_BELOW: KeyEvent = KeyEvent::new(KeyCode::Down, CTRL_ALT);
-const CHORD_LEADER: KeyEvent = KeyEvent::new(KeyCode::Char('k'), CTRL);
+const CHORD_LEADER: KeyEvent = KeyEvent::new(KeyCode::Char('b'), CTRL);
 
-/// A handler whose keymap restores the `Ctrl+K Ctrl+D` chord in a host layer.
+/// A handler whose keymap adds a `Ctrl+B Ctrl+D` chord in a host layer.
 ///
-/// The default keymap binds no multi-stroke sequence any more — `Ctrl+K` is
-/// reserved as the command-palette leader — so the sequence machinery needs a
-/// chord supplied to be tested at all. Supplying it here keeps those tests about
-/// the *resolver*, which is where the behaviour lives, instead of coupling them
-/// to whichever binding happens to be a chord this month.
+/// The default keymap binds no multi-stroke sequence — a bare `Ctrl+K` opens the
+/// palette, and a complete binding forecloses every chord beneath it — so the
+/// sequence machinery needs a chord supplied to be tested at all. Supplying it
+/// here keeps those tests about the *resolver*, which is where the behaviour
+/// lives, instead of coupling them to whichever binding happens to be a chord
+/// this month. The leader is [`CHORD_LEADER`]: any key the default leaves free.
 fn handler_with_chord() -> KeyboardHandler {
     let mut handler = KeyboardHandler::new();
     let mut layer = Keymap::new("host-chord");
     layer.push(KeyBinding::new(
-        chord_stroke(KeyCode::Char('k')),
+        chord_stroke(CHORD_LEADER.key),
         &[chord_stroke(KeyCode::Char('d'))],
         crate::commands::builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
     ));
@@ -180,12 +181,28 @@ fn the_action_table_covers_the_registry_exactly_once() {
 }
 
 #[test]
-fn every_default_binding_names_an_implemented_command() {
+fn every_default_binding_names_a_command_the_kernel_or_a_host_owns() {
+    // A default binding may name a command the kernel does not implement, but only
+    // a *host command* — one the kernel deliberately names and reports rather than
+    // runs. Anything else is a typo that would surface as a key doing nothing, so
+    // the two cases are separated here rather than the check being loosened.
+    let host_ids: Vec<&str> = crate::commands::builtin::host_command_metas()
+        .iter()
+        .map(|meta| meta.id().as_str())
+        .collect();
+
     for layer in KeyboardHandler::new().keymap().layers() {
         for binding in layer.bindings() {
             let Some(id) = binding.command() else {
                 continue;
             };
+            if host_ids.contains(&id.as_str()) {
+                assert!(
+                    action_for(id.as_str()).is_none(),
+                    "`{id}` is declared a host command but the kernel implements it"
+                );
+                continue;
+            }
             assert!(
                 action_for(id.as_str()).is_some(),
                 "default keymap binds `{}` to `{id}`, which has no implementation",

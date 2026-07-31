@@ -353,15 +353,21 @@ impl Editor {
 
     /// Builds the command registry every editor starts with.
     ///
-    /// [`builtin_registry`](crate::commands::builtin::builtin_registry) is
-    /// fallible only for a duplicated id *inside the static built-in table*, which
-    /// the registry tests rule out by asserting the registry holds exactly
+    /// [`default_registry`](crate::commands::builtin::default_registry) holds the
+    /// built-ins *and* the host commands the kernel names, such as
+    /// [`PALETTE_OPEN`](crate::commands::builtin::PALETTE_OPEN). Both belong here:
+    /// the default keymap binds the palette, so a registry without it would make
+    /// the editor's own keymap fail validation.
+    ///
+    /// It is fallible only for a duplicated id *inside the two static tables*,
+    /// which the registry tests rule out by asserting the registry holds exactly
     /// [`BUILTIN_COMMAND_COUNT`](crate::commands::builtin::BUILTIN_COMMAND_COUNT)
+    /// plus [`HOST_COMMAND_COUNT`](crate::commands::builtin::HOST_COMMAND_COUNT)
     /// commands. Degrading to an empty registry rather than panicking keeps
     /// [`Editor::new`] infallible; the fallback is unreachable except through a
     /// kernel edit the tests reject.
     fn seeded_command_registry() -> CommandRegistry {
-        builtin::builtin_registry().unwrap_or_default()
+        builtin::default_registry().unwrap_or_default()
     }
 
     /// Creates an editor with default configuration.

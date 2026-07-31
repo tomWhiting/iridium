@@ -24,8 +24,13 @@
 //! command *by* an alias, so adding one can never change which command a key or a
 //! host invocation runs.
 
+mod host;
 mod ids;
 
+pub use host::{
+    HOST, HOST_COMMAND_COUNT, PALETTE_OPEN, host_command_metas, host_commands,
+    register_host_commands,
+};
 pub use ids::*;
 
 use crate::commands::{CommandCategory, CommandMeta, CommandRegistry, RegistryError};
@@ -322,5 +327,23 @@ pub fn register_builtin_commands(registry: &mut CommandRegistry) -> Result<(), R
 pub fn builtin_registry() -> Result<CommandRegistry, RegistryError> {
     let mut registry = CommandRegistry::with_capacity(BUILTIN_COMMAND_COUNT);
     register_builtin_commands(&mut registry)?;
+    Ok(registry)
+}
+
+/// Builds the registry an editor starts with: the built-ins **and** the host
+/// commands the kernel names.
+///
+/// This, not [`builtin_registry`], is what the default keymap must be validated
+/// against — the default binds `palette.open`, which no kernel action implements,
+/// and a registry missing it would report the binding as a typo.
+///
+/// # Errors
+///
+/// [`RegistryError`] only if one of the two tables is inconsistent, or if they
+/// collide with each other; the module tests rule both out.
+pub fn default_registry() -> Result<CommandRegistry, RegistryError> {
+    let mut registry = CommandRegistry::with_capacity(BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT);
+    register_builtin_commands(&mut registry)?;
+    register_host_commands(&mut registry)?;
     Ok(registry)
 }

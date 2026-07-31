@@ -16,23 +16,25 @@
 //!   (see [`builtin::HISTORY_REDO`](super::builtin::HISTORY_REDO)); it is
 //!   transcribed rather than fixed, because this phase must not change observable
 //!   behaviour.
-//! - **`Ctrl+K` is deliberately unbound, and reserved.** It briefly held a
-//!   `Ctrl+K Ctrl+D` chord for the skip-occurrence verb — the multi-key machinery's
-//!   first real user — but `Ctrl+K` is wanted as the command-palette key, and a
-//!   bare binding on a sequence forecloses every chord sharing its prefix: an exact
-//!   match fires the instant it completes, so `Ctrl+K` and `Ctrl+K …` cannot
-//!   coexist (see [`KeymapStack`] on cross-layer shadowing). Reserving the leader
-//!   is the decision that was taken.
+//! - **`Ctrl+K` opens the command palette**, as do `Ctrl+P` and `Ctrl+Shift+P`.
+//!   It briefly held a `Ctrl+K Ctrl+D` chord for the skip-occurrence verb — the
+//!   multi-key machinery's first real user — and that chord was given up for this,
+//!   knowingly: a bare binding on a sequence forecloses every chord sharing its
+//!   prefix, because an exact match fires the instant it completes, so `Ctrl+K`
+//!   and `Ctrl+K …` cannot coexist (see [`KeymapStack`] on cross-layer
+//!   shadowing).
 //!
-//!   The cost is that [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`] has no default key. It
-//!   is still registered, still implemented, and still runnable by id — which is
-//!   what a command palette is for, and is why losing the chord is acceptable
-//!   rather than a regression. A host that wants the chord back can bind it in its
-//!   own layer, and will get it, because nothing claims the prefix any more.
+//!   Two consequences follow, and both are the accepted price rather than
+//!   oversights. [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`] has no default key: it is
+//!   still registered, still implemented, and now reachable *through the palette*,
+//!   which is the whole reason the palette was worth the key. And no layer — the
+//!   default's or a host's — can put a chord under `Ctrl+K` without unbinding it
+//!   first; [`KeymapStack::validate`] reports the attempt rather than letting the
+//!   chord silently never fire.
 //!
-//!   A consequence worth keeping in mind while `Ctrl+K` is unbound: the key falls
-//!   through to the host, so on macOS Cocoa's `Ctrl+K` kill-to-end-of-line reaches
-//!   the OS again.
+//!   `palette.open` is a **host command**: the kernel names it, binds it and
+//!   reports it, and the face opens the UI. See
+//!   [`builtin::host`](super::builtin) for why the id lives in the kernel.
 
 use super::builtin::{
     CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, COMMENT_TOGGLE_BLOCK, COMMENT_TOGGLE_LINE,
@@ -46,8 +48,8 @@ use super::builtin::{
     HISTORY_UNDO, LINES_DELETE, LINES_DUPLICATE_DOWN, LINES_DUPLICATE_UP, LINES_JOIN,
     LINES_MOVE_DOWN, LINES_MOVE_UP, MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
-    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, SEARCH_NEXT_MATCH, SEARCH_OPEN, SEARCH_PREVIOUS_MATCH,
-    SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
+    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_NEXT_MATCH, SEARCH_OPEN,
+    SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -57,7 +59,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 50;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 52;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -374,6 +376,21 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         StrokePattern::new(KeyCode::Char('y'), CTRL_ANY_SHIFT),
         CHORD,
         HISTORY_REDO,
+    ),
+    // ----- Command palette -----
+    //
+    // `Ctrl+K` must forbid `Shift`, or it would swallow the `Ctrl+Shift+K` that
+    // deletes a line. `Ctrl+P` takes either, so one binding serves both the
+    // `Ctrl+P` and the `Ctrl+Shift+P` muscle memory.
+    (
+        StrokePattern::new(KeyCode::Char('k'), CTRL_NO_SHIFT),
+        CHORD,
+        PALETTE_OPEN,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('p'), CTRL_ANY_SHIFT),
+        CHORD,
+        PALETTE_OPEN,
     ),
     // ----- Search -----
     (

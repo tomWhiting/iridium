@@ -39,14 +39,37 @@ use crate::commands::{CommandCategory, CommandId, CommandMeta, CommandRegistry, 
 /// types.
 pub const PALETTE_OPEN: CommandId = CommandId::from_static("palette.open");
 
+/// Show or hide the undo-tree panel.
+///
+/// Bound to `Ctrl+Alt+H` by the default keymap, joining
+/// [`HISTORY_PREVIOUS_BRANCH`](super::HISTORY_PREVIOUS_BRANCH) and
+/// [`HISTORY_NEXT_BRANCH`](super::HISTORY_NEXT_BRANCH) on `Ctrl+Alt`.
+///
+/// A *toggle* rather than an open, because unlike the palette this panel has no
+/// query to abandon: pressing the key again is how you put it away, and a face
+/// that only ever opened it would need a second id to close it.
+///
+/// The kernel names it and reports it; the face owns the drawing, and reads the
+/// tree through [`Editor::history_snapshot`](crate::Editor::history_snapshot).
+pub const HISTORY_TOGGLE_PANEL: CommandId = CommandId::from_static("history.togglePanel");
+
 /// Every host command the kernel names, in declaration order.
-pub static HOST: &[CommandMeta] = &[CommandMeta::described(
-    PALETTE_OPEN,
-    "Show All Commands",
-    "Opens the command palette, which runs any command by name.",
-    CommandCategory::GENERAL,
-)
-.with_aliases(&["command palette", "palette"])];
+pub static HOST: &[CommandMeta] = &[
+    CommandMeta::described(
+        PALETTE_OPEN,
+        "Show All Commands",
+        "Opens the command palette, which runs any command by name.",
+        CommandCategory::GENERAL,
+    )
+    .with_aliases(&["command palette", "palette"]),
+    CommandMeta::described(
+        HISTORY_TOGGLE_PANEL,
+        "Toggle Undo Tree",
+        "Shows or hides the undo tree, where every branch of the history can be reached.",
+        CommandCategory::HISTORY,
+    )
+    .with_aliases(&["undo tree", "history panel", "branches"]),
+];
 
 /// The number of host commands the kernel names.
 ///

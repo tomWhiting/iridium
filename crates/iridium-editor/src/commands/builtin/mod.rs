@@ -28,8 +28,8 @@ mod host;
 mod ids;
 
 pub use host::{
-    HOST, HOST_COMMAND_COUNT, PALETTE_OPEN, host_command_metas, host_commands,
-    register_host_commands,
+    HISTORY_TOGGLE_PANEL, HOST, HOST_COMMAND_COUNT, PALETTE_OPEN, host_command_metas,
+    host_commands, register_host_commands,
 };
 pub use ids::*;
 

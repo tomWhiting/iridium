@@ -19,12 +19,13 @@ use std::collections::HashSet;
 
 use super::builtin::{
     BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
-    EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HOST_COMMAND_COUNT,
+    EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL, HOST_COMMAND_COUNT,
     MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES,
     TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
     TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
     TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
     TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
+    host_command_metas,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -135,16 +136,38 @@ fn the_default_keymap_validates_against_the_default_registry() {
 
 #[test]
 fn the_default_keymap_does_not_validate_against_the_builtins_alone() {
-    // Not a quirk to work around — the statement that `palette.open` is a real
-    // registered command rather than a string the keymap invented. A registry
-    // without the host table genuinely does not know it, and says so.
+    // Not a quirk to work around — the statement that the host commands are real
+    // registered commands rather than strings the keymap invented. A registry
+    // without the host table genuinely does not know them, and says so.
     let error = default_non_modal_keymap()
         .validate(&builtin_registry().unwrap())
-        .expect_err("the built-in table alone cannot know the palette");
+        .expect_err("the built-in table alone cannot know the host commands");
+    let host_ids: HashSet<&str> = host_command_metas()
+        .iter()
+        .map(|meta| meta.id().as_str())
+        .collect();
     assert!(
-        matches!(error, KeymapError::UnknownCommand { ref id, .. } if id == PALETTE_OPEN.as_str()),
-        "expected the palette to be the only unknown command, got {error:?}"
+        matches!(error, KeymapError::UnknownCommand { ref id, .. } if host_ids.contains(id.as_str())),
+        "expected a host command to be the unknown one, got {error:?}"
     );
+
+    // Every host command, not merely the first one validation happens to reach:
+    // a binding to an id no registry knows is the failure this guards against,
+    // and it must be caught for all of them.
+    let registry = builtin_registry().unwrap();
+    for id in &host_ids {
+        assert!(
+            registry.get(id).is_none(),
+            "`{id}` is a host command and must not be in the built-in table"
+        );
+    }
+    let with_hosts = default_registry().unwrap();
+    for id in &host_ids {
+        assert!(
+            with_hosts.get(id).is_some(),
+            "`{id}` is bound by the default keymap but no registry names it"
+        );
+    }
 }
 
 #[test]
@@ -561,6 +584,41 @@ fn three_chords_open_the_command_palette() {
     // Ctrl+Shift+K still deletes lines: the palette's `Ctrl+K` forbids `Shift`,
     // so it does not swallow the shifted chord.
     expect(&stack, KeyCode::Char('K'), CTRL_SHIFT, Some("lines.delete"));
+}
+
+/// The undo tree's three keys are one family on `Ctrl+Alt`, and none of them
+/// collides with the plain undo and redo they sit beside.
+#[test]
+fn the_undo_tree_keys_are_one_chord_family() {
+    let stack = default_keymap_stack();
+
+    expect(
+        &stack,
+        KeyCode::Char('h'),
+        CTRL_ALT,
+        Some(HISTORY_TOGGLE_PANEL.as_str()),
+    );
+    expect(
+        &stack,
+        KeyCode::Char('z'),
+        CTRL_ALT,
+        Some("history.previousBranch"),
+    );
+    expect(
+        &stack,
+        KeyCode::Char('y'),
+        CTRL_ALT,
+        Some("history.nextBranch"),
+    );
+
+    // Adding `Alt` is what distinguishes them: without it the same letters are
+    // undo and redo, and those must not have moved.
+    expect(&stack, KeyCode::Char('z'), CTRL, Some("history.undo"));
+    expect(&stack, KeyCode::Char('y'), CTRL, Some("history.redo"));
+
+    // And `Ctrl+H` alone is not the panel — it is nothing at all, left free
+    // rather than quietly claimed.
+    expect(&stack, KeyCode::Char('h'), CTRL, None);
 }
 
 #[test]

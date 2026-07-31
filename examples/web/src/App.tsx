@@ -4,8 +4,10 @@
 
 import { useRef, useState } from "react";
 import { CommandPalette as PaletteController } from "@iridium/core/palette";
+import { UndoTreePanel as PanelController } from "@iridium/core/history";
 import { Iridium, IridiumHandle } from "./Iridium";
 import { CommandPalette } from "./CommandPalette";
+import { UndoTreePanel } from "./UndoTreePanel";
 import { useWebGPUSupport } from "./hooks";
 
 const SAMPLE_CODE = `// Iridium Editor Demo
@@ -60,6 +62,16 @@ const LANGUAGES = [
   "html", "css", "json", "java", "cpp", "c", "ruby", "bash", "toml"
 ];
 
+/** What the panel reads before the editor exists: a tree of no states. */
+const EMPTY_TREE_INFO = {
+  currentId: "",
+  rootId: "",
+  nodeCount: 0,
+  canUndo: false,
+  canRedo: false,
+  branchCount: 0,
+};
+
 function App() {
   const editorRef = useRef<IridiumHandle>(null);
   const [content, setContent] = useState(SAMPLE_CODE);
@@ -87,6 +99,21 @@ function App() {
     });
   }
   const palette = paletteRef.current;
+
+  // Built the same way, and for the same reason: it delegates through
+  // `editorRef` rather than capturing an editor, so `Ctrl+Alt+H` works from the
+  // first render and simply draws an empty tree until wasm is ready.
+  const undoTreeRef = useRef<PanelController | null>(null);
+  if (undoTreeRef.current === null) {
+    undoTreeRef.current = new PanelController({
+      historySnapshot: () =>
+        editorRef.current?.historySnapshot() ?? { nodes: [], info: EMPTY_TREE_INFO },
+      jumpToHistoryNode: (nodeId) => editorRef.current?.jumpToHistoryNode(nodeId) ?? false,
+      blurEditor: () => editorRef.current?.blurEditor(),
+      focus: () => editorRef.current?.focus(),
+    });
+  }
+  const undoTree = undoTreeRef.current;
 
   const handleFoldAll = () => {
     editorRef.current?.foldAll();
@@ -164,6 +191,11 @@ function App() {
         <button style={styles.button} onClick={() => palette.open()}>
           Commands
         </button>
+
+        {/* Undo tree */}
+        <button style={styles.button} onClick={() => undoTree.toggle()}>
+          History
+        </button>
       </div>
 
       {/* Editor */}
@@ -173,26 +205,35 @@ function App() {
           content={content}
           language={language}
           darkTheme={isDark}
-          onChange={setContent}
+          onChange={(next) => {
+            setContent(next);
+            // The tree grows on every edit, and a panel left showing the tree
+            // as it was would offer a jump to a node the editor has moved past.
+            undoTree.refresh();
+          }}
           onSelectionChange={(sel) => {
             setCursorInfo({ line: sel.head.line, column: sel.head.column });
             // Every selection change, because adding a caret is one.
             setCursorCount(editorRef.current?.cursorCount ?? 1);
           }}
           onHostCommand={(request) => {
-            // The kernel binds `palette.open` to Ctrl+K, Ctrl+P and Ctrl+Shift+P
-            // and reports it here because opening a UI is not something a kernel
-            // can do. Any other host command is not ours to guess at.
+            // The kernel binds `palette.open` to Ctrl+K, Ctrl+P and Ctrl+Shift+P,
+            // and `history.togglePanel` to Ctrl+Alt+H, reporting both here
+            // because opening a UI is not something a kernel can do. Any other
+            // host command is not ours to guess at.
             if (request.command === "palette.open") {
               palette.open();
+            } else if (request.command === "history.togglePanel") {
+              undoTree.toggle();
             }
           }}
           style={styles.editor}
         />
       </div>
 
-      {/* Command Palette overlay — portalled to the body, above everything */}
+      {/* Overlays — portalled to the body, above everything */}
       <CommandPalette palette={palette} />
+      <UndoTreePanel panel={undoTree} />
 
       {/* Status Bar */}
       <footer style={styles.statusBar}>

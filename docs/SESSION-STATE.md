@@ -1162,6 +1162,69 @@ needs its arms merged — still open).
 Gate after step 4: 880 all-features, 809 kernel, 864 kernel+syntax, 101
 bindings, 59 syntax. Zero clippy warnings in `iridium-syntax` or `editor/ast`.
 
+### Step 5 is DONE (1 Aug) — the pure walks
+
+`crates/iridium-syntax/src/navigate.rs` (239 lines, tests in `navigate/tests.rs`).
+Free functions over `tree_sitter::Node` and byte ranges, exported as
+`iridium_syntax::navigate::*` — deliberately a module rather than flat
+re-exports, because `iridium_syntax::expand` says nothing about what it expands.
+
+`node_at`, `expand`, `shrink`, `next_sibling`, `previous_sibling`, `first_child`,
+`last_child`, `children`, `siblings`. Zero editor coupling: nothing here knows
+what a cursor or a selection is. Steps 6–8 supply that half.
+
+**Two rules that are not tree-sitter's defaults, and both were measured, not
+assumed:**
+
+1. **A caret touches the token on either side of it.** Verified by probe:
+   tree-sitter resolves an empty range at a token's *start* to that token, but
+   at its *end* to the token's **parent**. Caret-just-after-the-word-you-typed
+   is the commonest position there is, so taking that literally would make
+   expand skip the token about half the time. `resolve` probes both sides of an
+   empty range and keeps the smaller answer.
+2. **Expansion never returns the range it was handed.** Also verified by probe:
+   in Python `assignment`, `expression_statement` and `block` all span exactly
+   `13..18` for `x = 1`. Returning the immediate parent would be three
+   keypresses that visibly do nothing. `expand` climbs until the extent grows,
+   so a press always either widens the selection or reports there is nothing
+   left. The property test asserts that across four languages.
+
+Lesser decisions, all documented in the module: named nodes only (anonymous ones
+are traversed, never returned); error nodes are **not** filtered, because source
+under active editing is broken more often than not; ranges are clamped into the
+tree and reordered if reversed, so a lagging tree or a backwards drag still
+navigates; `shrink` descends towards `range.start`, and is explicitly *not* what
+a shrink command should use — the expand stack in step 6 restores exact ranges
+and cursor counts, which `shrink` cannot.
+
+**Discrimination: nine deliberate breaks, all nine caught.** Script at
+`scratchpad/breaks5.sh`. First run caught only six, and the three misses split
+two ways worth remembering:
+
+- **N2 and N7 were my break script being wrong, not the tests.** N2's
+  replacement was logically identical to the code it replaced (`covers && range
+  != node_range` *is* strict containment). Re-read a break before believing a
+  pass.
+- **N9 was a genuinely non-discriminating test.** `shrinking_undoes_expanding`
+  descends into a JSON pair, whose first named child *is* the child containing
+  the anchor — so anchor-targeting and first-child-fallback agree there and the
+  test proved nothing about the anchor. Added
+  `shrinking_descends_towards_the_start_of_the_range` over `[1, 22, 333]`, where
+  they disagree.
+- N7 also exposed a real gap: the clamp test only exercised `node_at`, which
+  degrades harmlessly. `expand` is where an unclamped range kills the feature —
+  nothing can contain a range past the tree's end, so every `ast.*` key goes
+  dead until the parse catches up. The test now asserts on `expand` too.
+
+Gate after step 5: **880** editor lib (unchanged — no editor code touched),
+**82** syntax (was 59), 101 bindings, 828 kernel, 883 kernel+syntax, 1083
+workspace total with all features. `fmt` clean; wasm32 check has only the two
+known pre-existing warnings; zero clippy warnings in `iridium-syntax`.
+
+> Note on the numbers: the "880 all-features" figure carried through this file
+> is the `iridium_editor` **lib** line, not the workspace total. Both are quoted
+> above so the next reader is not comparing two different things.
+
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 
 Everything below was read off the tree, not remembered.

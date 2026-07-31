@@ -66,9 +66,70 @@ type KeyEventAction =
 /** Search UI actions surfaced through {@link IridiumEditorOptions.onSearchAction}. */
 export type SearchAction = "open" | "next" | "prev" | "close";
 
+/** Which of a command's texts a palette query matched. */
+export type PaletteMatchField = "title" | "alias" | "id" | "category" | "description";
+
+/**
+ * One command as a palette renders it.
+ *
+ * Every field is computed in Rust, including both key labels and the match
+ * offsets. Nothing here should be re-derived in TypeScript: ranking, labelling
+ * and highlighting must be identical in every face, and this shape is the whole
+ * contract.
+ */
+export interface PaletteCommand {
+  /** The stable id, and what {@link IridiumEditor.runCommand} takes. */
+  readonly id: string;
+  /** The human-facing title — what a row shows. */
+  readonly title: string;
+  /** The longer explanation, when the command has one. */
+  readonly description?: string;
+  /** The palette grouping label. */
+  readonly category: string;
+  /** The key sequence that runs it, portable spelling (`Ctrl+K`). */
+  readonly keyHint?: string;
+  /** The same sequence in macOS glyphs (`⌘K`). */
+  readonly keyHintMac?: string;
+  /** Advisory: running it can change document text. */
+  readonly mutatesDocument: boolean;
+  /**
+   * Whether it can run right now. False for a mutating command in a read-only
+   * buffer — grey the row out rather than hiding it, so the command stays
+   * discoverable.
+   */
+  readonly available: boolean;
+  /**
+   * Whether the kernel implements it. When false, {@link IridiumEditor.runCommand}
+   * reports it through `onHostCommand` instead of running anything, and the host
+   * owns the behaviour.
+   */
+  readonly implemented: boolean;
+  /** The rank score. Meaningless in absolute terms; only the order matters. */
+  readonly score: number;
+  /** Which text matched, absent when the query was empty. */
+  readonly matchedField?: PaletteMatchField;
+  /**
+   * The exact text {@link matches} indexes into.
+   *
+   * Not always the title: a query can match an alias, the id or the description,
+   * and highlighting those offsets inside the title would underline the wrong
+   * characters. Render this string when showing *why* a row matched.
+   */
+  readonly matchedText: string;
+  /**
+   * Matched positions within {@link matchedText}, as **UTF-16 offsets** — the
+   * units `String.prototype.slice` uses, so they can be applied directly.
+   */
+  readonly matches?: readonly number[];
+}
+
 // Types for the low-level WASM editor
 interface WebEditor {
   handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): KeyEventAction;
+  listCommands(): string;
+  searchCommands(query: string, limit: number): string;
+  runCommand(id: string): KeyEventAction;
+  keyHintFor(id: string, macGlyphs: boolean): string;
   pendingKeySequence(): string;
   abortPendingKeySequence(): boolean;
   takePendingHostCommand(): string | undefined;
@@ -697,7 +758,24 @@ export class IridiumEditor {
     }
 
     e.preventDefault();
+    this.applyActionOutcome(action);
+  }
 
+  /**
+   * Applies everything that follows a consumed action, whatever produced it.
+   *
+   * A keypress and a palette invocation return the same {@link KeyEventAction}
+   * from the same Rust handler, and everything after that point — the pending
+   * indicator, host-command collection, the clipboard, search requests, scrolling
+   * the caret into view, rendering, re-highlighting and the change notifications —
+   * is identical. Two copies would drift the first time either was edited, and the
+   * divergence would show up as "the palette does not update the highlighting"
+   * rather than as an obvious bug.
+   *
+   * Callers pass only actions they have decided to consume; `"ignored"` must be
+   * handled before getting here.
+   */
+  private applyActionOutcome(action: KeyEventAction): void {
     // A consumed key may have left a chord leader pending (Ctrl+K, and on macOS
     // Cmd+K, which this layer forwards as ctrl). The core consumes it, so without
     // an indicator the editor looks unresponsive; surface it every time so the
@@ -1234,6 +1312,92 @@ export class IridiumEditor {
   /** Focus the editor canvas. */
   focus(): void {
     this.canvas.focus();
+  }
+
+  /**
+   * Blur the editor canvas, so an overlay's own input can take the keyboard.
+   *
+   * The editor's `keydown` listener is on the **canvas**, not on `window`, so a
+   * focused palette input receives keys the editor never sees — no capture-phase
+   * interception is needed. Blurring is still required, because a canvas that
+   * keeps focus keeps consuming keys.
+   *
+   * Blurring also runs the canvas blur handler, which aborts a half-typed chord.
+   * That is wanted: opening a palette abandons whatever sequence was in flight.
+   * Call {@link focus} when the overlay closes — an editor that has to be clicked
+   * back into after every command is what makes a palette feel broken.
+   */
+  blurEditor(): void {
+    this.canvas.blur();
+  }
+
+  /**
+   * Whether key labels should be rendered in macOS glyphs (`⌘K` over `Ctrl+K`).
+   *
+   * The same binding either way: this layer forwards macOS `Cmd` as the core's
+   * `ctrl`, so the difference is purely how it is spelled to a reader.
+   */
+  get usesMacKeyLabels(): boolean {
+    return this.isMacPlatform;
+  }
+
+  /**
+   * Every registered command, in browse order, for a palette opened with no
+   * query.
+   *
+   * Grouped by category rather than ranked, because an empty palette is being
+   * read rather than searched. Key labels come from the live keymap, so a user
+   * layer pushed with {@link setUserKeymap} is reflected without any work here.
+   */
+  listCommands(): PaletteCommand[] {
+    return JSON.parse(this.editor.listCommands()) as PaletteCommand[];
+  }
+
+  /**
+   * Commands matching `query`, best first.
+   *
+   * Call this on every keystroke: the matcher is in Rust, takes microseconds over
+   * the command set, and debouncing would only add perceived lag. An empty query
+   * returns everything, ranked by recency, so a caller need not special-case it.
+   *
+   * `limit` caps the result *after* ranking, so the top of a limited list is the
+   * top of an unlimited one. Omit it for everything.
+   */
+  searchCommands(query: string, limit?: number): PaletteCommand[] {
+    return JSON.parse(this.editor.searchCommands(query, limit ?? 0)) as PaletteCommand[];
+  }
+
+  /**
+   * Run a command by id, exactly as a key bound to it would.
+   *
+   * Takes the same path as a keypress — the same handler, the same
+   * {@link KeyEventAction}, the same follow-up — so a palette invocation is
+   * indistinguishable downstream, undo grouping and multi-cursor state included.
+   *
+   * A command the core does not implement is reported through
+   * {@link IridiumEditorOptions.onHostCommand} rather than run, and still returns
+   * `"handled:command"`. `"ignored"` therefore means one thing only: no command
+   * with that id is registered.
+   *
+   * Running a command moves it up the palette's recency ranking for next time.
+   */
+  runCommand(id: string): KeyEventAction {
+    const action = this.editor.runCommand(id);
+    if (action !== "ignored") {
+      this.applyActionOutcome(action);
+    }
+    return action;
+  }
+
+  /**
+   * The key sequence bound to `id`, or `undefined` when nothing is.
+   *
+   * Defaults to this platform's spelling; pass `macGlyphs` to override. Entries
+   * from {@link listCommands} already carry both, so this is for the cases that
+   * do not go through a palette — a menu item, a tooltip, an empty-state hint.
+   */
+  keyHintFor(id: string, macGlyphs: boolean = this.isMacPlatform): string | undefined {
+    return this.editor.keyHintFor(id, macGlyphs) || undefined;
   }
 
   // ============================================================================

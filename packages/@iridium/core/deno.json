@@ -7,6 +7,7 @@
     "./controller": "./src/controller/index.ts",
     "./syntax": "./src/syntax/index.ts",
     "./element": "./src/element/index.ts",
+    "./palette": "./src/palette/index.ts",
     "./worker-client": "./src/worker/client.ts",
     "./worker-protocol": "./src/worker/protocol.ts"
   },

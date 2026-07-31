@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
+  applyPaletteKey,
   CommandPalette as PaletteController,
   highlightSegments,
 } from "@iridium/core/palette";
@@ -142,39 +143,12 @@ export function CommandPalette({ palette }: CommandPaletteProps): React.ReactPor
   }, [state.selectedIndex, state.results]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
-    switch (event.key) {
-      case "Escape":
-        event.preventDefault();
-        palette.close();
-        break;
-      case "Enter":
-        event.preventDefault();
-        palette.run();
-        break;
-      case "ArrowDown":
-        event.preventDefault();
-        palette.moveSelection(1);
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        palette.moveSelection(-1);
-        break;
-      case "n":
-      case "N":
-        if (event.ctrlKey) {
-          event.preventDefault();
-          palette.moveSelection(1);
-        }
-        break;
-      case "p":
-      case "P":
-        if (event.ctrlKey) {
-          event.preventDefault();
-          palette.moveSelection(-1);
-        }
-        break;
-      default:
-        break;
+    // Which keys mean what lives in `@iridium/core`, so this overlay and the web
+    // component cannot drift. A claimed key always suppresses the default: every
+    // one of them has a browser behaviour underneath, from caret motion to the
+    // kill-to-end-of-line macOS puts on Ctrl+K.
+    if (applyPaletteKey(palette, event)) {
+      event.preventDefault();
     }
   };
 

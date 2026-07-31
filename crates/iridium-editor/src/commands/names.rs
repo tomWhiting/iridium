@@ -34,6 +34,8 @@ impl CommandCategory {
     pub const EDITING: Self = Self::from_static("Editing");
     /// Whole-line operations.
     pub const LINES: Self = Self::from_static("Lines");
+    /// Case conversion and line-block rearrangement.
+    pub const TRANSFORM: Self = Self::from_static("Transform");
     /// Comment toggling.
     pub const COMMENTS: Self = Self::from_static("Comments");
     /// Clipboard transfer.

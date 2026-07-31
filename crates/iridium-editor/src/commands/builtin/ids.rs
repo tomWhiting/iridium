@@ -94,6 +94,42 @@ pub const EDIT_DELETE_TO_LINE_START: CommandId = CommandId::from_static("edit.de
 /// Delete the selection, or from each caret to the end of its line.
 pub const EDIT_DELETE_TO_LINE_END: CommandId = CommandId::from_static("edit.deleteToLineEnd");
 
+// ===== Text transformations =====
+
+/// Uppercase each caret's selection, or the word under it.
+pub const TRANSFORM_UPPER_CASE: CommandId = CommandId::from_static("transform.upperCase");
+/// Lowercase each caret's selection, or the word under it.
+pub const TRANSFORM_LOWER_CASE: CommandId = CommandId::from_static("transform.lowerCase");
+/// Capitalise each word of each caret's selection, or the word under it.
+pub const TRANSFORM_TITLE_CASE: CommandId = CommandId::from_static("transform.titleCase");
+/// Cycle each caret's text through lower, upper and title case.
+pub const TRANSFORM_TOGGLE_CASE: CommandId = CommandId::from_static("transform.toggleCase");
+/// Invert the case of every cased character.
+pub const TRANSFORM_SWAP_CASE: CommandId = CommandId::from_static("transform.swapCase");
+/// Re-join the words as `camelCase`.
+pub const TRANSFORM_CAMEL_CASE: CommandId = CommandId::from_static("transform.camelCase");
+/// Re-join the words as `PascalCase`.
+pub const TRANSFORM_PASCAL_CASE: CommandId = CommandId::from_static("transform.pascalCase");
+/// Re-join the words as `snake_case`.
+pub const TRANSFORM_SNAKE_CASE: CommandId = CommandId::from_static("transform.snakeCase");
+/// Re-join the words as `SCREAMING_SNAKE_CASE`.
+pub const TRANSFORM_SCREAMING_SNAKE_CASE: CommandId =
+    CommandId::from_static("transform.screamingSnakeCase");
+/// Re-join the words as `kebab-case`.
+pub const TRANSFORM_KEBAB_CASE: CommandId = CommandId::from_static("transform.kebabCase");
+/// Sort the selected lines ascending.
+pub const TRANSFORM_SORT_LINES: CommandId = CommandId::from_static("transform.sortLines");
+/// Sort the selected lines descending.
+pub const TRANSFORM_SORT_LINES_REVERSE: CommandId =
+    CommandId::from_static("transform.sortLinesReverse");
+/// Reverse the order of the selected lines.
+pub const TRANSFORM_REVERSE_LINES: CommandId = CommandId::from_static("transform.reverseLines");
+/// Remove repeated lines, keeping the first of each.
+pub const TRANSFORM_DEDUPE_LINES: CommandId = CommandId::from_static("transform.dedupeLines");
+/// Strip trailing whitespace from the selected lines.
+pub const TRANSFORM_TRIM_TRAILING_WHITESPACE: CommandId =
+    CommandId::from_static("transform.trimTrailingWhitespace");
+
 // ===== Whole-line operations =====
 
 /// Move each cursor's line block up one line.

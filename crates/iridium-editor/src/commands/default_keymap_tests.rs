@@ -20,7 +20,11 @@ use std::collections::HashSet;
 use super::builtin::{
     BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
     EDIT_INSERT_CHARACTER, HOST_COMMAND_COUNT, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN,
-    builtin_registry, default_registry,
+    TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES, TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE,
+    TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES, TRANSFORM_SCREAMING_SNAKE_CASE,
+    TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES, TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE,
+    TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE, TRANSFORM_TRIM_TRAILING_WHITESPACE,
+    TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -170,8 +174,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Five commands are intentionally unbound by the *non-modal* default, and a
-    // sixth entry here would mean a feature silently lost:
+    // Twenty commands are intentionally unbound by the *non-modal* default, and
+    // a twenty-first entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -190,6 +194,13 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   face reaches them by id from its own `Cmd` handling, and the palette
     //   reaches them everywhere. Binding them is a keymap decision, not a
     //   prerequisite for the verbs existing.
+    // - The fifteen `transform.*` verbs are palette-only *by design*, which is
+    //   the approved plan: fifteen new chords that must collide with nothing
+    //   would be a poor trade for verbs most people run by name, and the
+    //   palette is precisely what makes binding them optional. Which three or
+    //   four earn real keys is a question about daily use, not a technical one,
+    //   and it is Tom's to answer; adding a binding later is one line here and
+    //   one line in the keymap.
     //
     // This list is *ordered* and matches `registry.commands()` iteration order,
     // so a new entry goes where its id is registered, not at the end.
@@ -199,13 +210,28 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             EDIT_INSERT_CHARACTER.as_str(),
             EDIT_DELETE_TO_LINE_START.as_str(),
             EDIT_DELETE_TO_LINE_END.as_str(),
+            TRANSFORM_UPPER_CASE.as_str(),
+            TRANSFORM_LOWER_CASE.as_str(),
+            TRANSFORM_TITLE_CASE.as_str(),
+            TRANSFORM_TOGGLE_CASE.as_str(),
+            TRANSFORM_SWAP_CASE.as_str(),
+            TRANSFORM_CAMEL_CASE.as_str(),
+            TRANSFORM_PASCAL_CASE.as_str(),
+            TRANSFORM_SNAKE_CASE.as_str(),
+            TRANSFORM_SCREAMING_SNAKE_CASE.as_str(),
+            TRANSFORM_KEBAB_CASE.as_str(),
+            TRANSFORM_SORT_LINES.as_str(),
+            TRANSFORM_SORT_LINES_REVERSE.as_str(),
+            TRANSFORM_REVERSE_LINES.as_str(),
+            TRANSFORM_DEDUPE_LINES.as_str(),
+            TRANSFORM_TRIM_TRAILING_WHITESPACE.as_str(),
             MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
             COMMAND_NO_OP.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 5);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 20);
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 

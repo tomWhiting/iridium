@@ -39,6 +39,7 @@ const NAV: CommandCategory = CommandCategory::NAVIGATION;
 const SEL: CommandCategory = CommandCategory::SELECTION;
 const EDIT: CommandCategory = CommandCategory::EDITING;
 const LINES: CommandCategory = CommandCategory::LINES;
+const TRANSFORM: CommandCategory = CommandCategory::TRANSFORM;
 const COMMENTS: CommandCategory = CommandCategory::COMMENTS;
 const CLIP: CommandCategory = CommandCategory::CLIPBOARD;
 const HISTORY: CommandCategory = CommandCategory::HISTORY;
@@ -183,6 +184,137 @@ pub static BUILTIN: &[CommandMeta] = &[
     )
     .mutating()
     .with_aliases(&["kill line", "erase"]),
+    // ----- Transformations -----
+    //
+    // Aliases matter more here than anywhere else in the table: nobody
+    // remembers whether this editor calls it "screaming snake" or "constant
+    // case", and a palette that only matches the name it happens to use is a
+    // palette you have to already know.
+    CommandMeta::described(
+        TRANSFORM_UPPER_CASE,
+        "Upper Case",
+        "Uppercases each caret's selection, or the word under it.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["uppercase", "ucase", "caps", "shout"]),
+    CommandMeta::described(
+        TRANSFORM_LOWER_CASE,
+        "Lower Case",
+        "Lowercases each caret's selection, or the word under it.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["lowercase", "lcase", "downcase"]),
+    CommandMeta::described(
+        TRANSFORM_TITLE_CASE,
+        "Title Case",
+        "Capitalises each word, keeping the original spacing and punctuation.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["titlecase", "capitalize", "capitalise"]),
+    CommandMeta::described(
+        TRANSFORM_TOGGLE_CASE,
+        "Toggle Case",
+        "Cycles the text through lower, upper and title case.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["cycle case"]),
+    CommandMeta::described(
+        TRANSFORM_SWAP_CASE,
+        "Swap Case",
+        "Inverts the case of every cased character.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["invert case", "flip case"]),
+    CommandMeta::described(
+        TRANSFORM_CAMEL_CASE,
+        "camelCase",
+        "Re-joins the words as camelCase.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["camel", "lower camel", "mixed case"]),
+    CommandMeta::described(
+        TRANSFORM_PASCAL_CASE,
+        "PascalCase",
+        "Re-joins the words as PascalCase.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["pascal", "upper camel", "studly"]),
+    CommandMeta::described(
+        TRANSFORM_SNAKE_CASE,
+        "snake_case",
+        "Re-joins the words as snake_case.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["snake", "underscore"]),
+    CommandMeta::described(
+        TRANSFORM_SCREAMING_SNAKE_CASE,
+        "SCREAMING_SNAKE_CASE",
+        "Re-joins the words as SCREAMING_SNAKE_CASE.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&[
+        "screaming snake",
+        "constant case",
+        "macro case",
+        "upper snake",
+    ]),
+    CommandMeta::described(
+        TRANSFORM_KEBAB_CASE,
+        "kebab-case",
+        "Re-joins the words as kebab-case.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["kebab", "dash case", "hyphen case", "lisp case", "slug"]),
+    CommandMeta::described(
+        TRANSFORM_SORT_LINES,
+        "Sort Lines",
+        "Sorts the selected lines ascending, by Unicode scalar value.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["sort", "order lines", "alphabetize", "alphabetise"]),
+    CommandMeta::described(
+        TRANSFORM_SORT_LINES_REVERSE,
+        "Sort Lines Descending",
+        "Sorts the selected lines descending, by Unicode scalar value.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["sort reverse", "sort desc", "rsort"]),
+    CommandMeta::described(
+        TRANSFORM_REVERSE_LINES,
+        "Reverse Lines",
+        "Reverses the order of the selected lines.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["flip lines", "invert lines"]),
+    CommandMeta::described(
+        TRANSFORM_DEDUPE_LINES,
+        "Remove Duplicate Lines",
+        "Removes repeated lines, keeping the first of each and the rest of the order.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["dedupe", "dedup", "uniq", "unique", "distinct"]),
+    CommandMeta::described(
+        TRANSFORM_TRIM_TRAILING_WHITESPACE,
+        "Trim Trailing Whitespace",
+        "Strips trailing whitespace from the selected lines.",
+        TRANSFORM,
+    )
+    .mutating()
+    .with_aliases(&["trim", "strip whitespace", "rtrim"]),
     // ----- Lines -----
     CommandMeta::from_static(LINES_MOVE_UP, "Move Line Up", LINES)
         .mutating()

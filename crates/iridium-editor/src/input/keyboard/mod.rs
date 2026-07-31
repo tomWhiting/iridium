@@ -56,6 +56,7 @@ pub mod motions;
 mod multi_cursor;
 mod multi_cursor_verbs;
 mod navigation;
+mod transform;
 mod types;
 
 #[cfg(test)]
@@ -72,6 +73,8 @@ mod line_ops_tests;
 mod multi_cursor_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transform_tests;
 
 pub use types::{
     ClipboardOperation, CommandRunError, KeyCode, KeyEvent, KeyResult, Modifiers, SearchAction,

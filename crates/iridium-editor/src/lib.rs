@@ -56,6 +56,7 @@ pub mod search;
 pub mod syntax;
 #[cfg(not(feature = "syntax"))]
 pub mod syntax_stubs;
+pub mod text;
 pub mod theme;
 pub mod view;
 

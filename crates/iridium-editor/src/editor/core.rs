@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::config::EditorConfig;
 use super::fold_state::{FoldInfo, FoldState};
 use crate::commands::{
-    CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyPress, Keymap, KeymapError,
-    KeymapStack, ModeName, RegistryError, builtin,
+    CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyHintIndex, KeyPress, Keymap,
+    KeymapError, KeymapStack, ModeName, RegistryError, builtin,
 };
 use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::{Command, UndoTree};
@@ -548,6 +548,20 @@ impl Editor {
     #[must_use]
     pub const fn keymap(&self) -> &KeymapStack {
         self.keyboard_handler.keymap()
+    }
+
+    /// Which key sequence runs each command, for this editor's current bindings.
+    ///
+    /// The reverse of [`Self::keymap`], and the other half of what a command
+    /// palette needs: [`Self::commands`] says what exists, this says what to
+    /// press. A command with no entry has no key — which is the honest answer for
+    /// a palette-only command, and the reason an absent hint is not an error.
+    ///
+    /// Recomputed whenever a keymap layer is pushed or popped, so it can never
+    /// name a key that a user layer has since taken away.
+    #[must_use]
+    pub const fn key_hints(&self) -> &KeyHintIndex {
+        self.keyboard_handler.key_hints()
     }
 
     /// Pushes a user keymap layer, validated against [`Self::commands`].

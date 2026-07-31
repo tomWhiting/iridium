@@ -15,8 +15,8 @@
 
 use super::{Editor, EditorConfig, EditorKeyResult};
 use crate::commands::{
-    CommandArgs, CommandCategory, CommandId, CommandMeta, KeyBinding, Keymap, KeymapError,
-    ModifierPattern, ModifierState, StrokePattern, builtin,
+    CommandArgs, CommandCategory, CommandId, CommandMeta, KeyBinding, KeyHintIndex, KeyLabelStyle,
+    Keymap, KeymapError, ModifierPattern, ModifierState, StrokePattern, builtin,
 };
 use crate::document::Position;
 use crate::input::{KeyCode, KeyEvent, Modifiers};
@@ -201,6 +201,106 @@ fn a_host_may_not_shadow_a_kernel_command_id() {
         ))
         .expect_err("kernel ids are taken");
     assert!(error.to_string().contains("clipboard.copy"), "{error}");
+}
+
+// ===== Key hints =====
+
+#[test]
+fn key_hints_track_the_editors_keymap_mutations() {
+    // The editor-level half of the cache-staleness check: `push_keymap` here
+    // routes through `push_validated_keymap`, so this covers that path and
+    // `pop_keymap`. The remaining two mutators are reachable only on the handler
+    // and are covered by `key_hints_are_rebuilt_by_every_keymap_mutator` in
+    // `input::keyboard::dispatch_tests`.
+    let assert_fresh = |editor: &Editor, at: &str| {
+        let fresh = KeyHintIndex::build(editor.keymap());
+        assert_eq!(
+            editor.key_hints().len(),
+            fresh.len(),
+            "the cached hint index is stale after {at}"
+        );
+        for id in fresh.command_ids() {
+            let cached: Vec<&str> = editor
+                .key_hints()
+                .hints_for(id.as_str())
+                .iter()
+                .map(|hint| hint.label(KeyLabelStyle::Portable))
+                .collect();
+            let expected: Vec<&str> = fresh
+                .hints_for(id.as_str())
+                .iter()
+                .map(|hint| hint.label(KeyLabelStyle::Portable))
+                .collect();
+            assert_eq!(cached, expected, "`{id}` is stale after {at}");
+        }
+    };
+
+    let mut editor = editor_with("");
+    assert_fresh(&editor, "construction");
+
+    // push_keymap, via the validated path the editor exposes.
+    let mut user = Keymap::new("user");
+    user.push(KeyBinding::new(
+        ctrl_stroke(KeyCode::Char('k')),
+        &[],
+        builtin::LINES_DELETE,
+    ));
+    editor.push_keymap(user).expect("Ctrl+K is free");
+    assert_fresh(&editor, "push_keymap");
+    assert_eq!(
+        editor
+            .key_hints()
+            .primary_hint(builtin::LINES_DELETE.as_str())
+            .expect("lines.delete is bound")
+            .label(KeyLabelStyle::Portable),
+        "Ctrl+K",
+        "the user layer's binding must outrank the default's Ctrl+Shift+K"
+    );
+
+    // pop_keymap restores the default's own hint.
+    editor.pop_keymap().expect("the user layer is on top");
+    assert_fresh(&editor, "pop_keymap");
+    assert_eq!(
+        editor
+            .key_hints()
+            .primary_hint(builtin::LINES_DELETE.as_str())
+            .expect("lines.delete is bound by default")
+            .label(KeyLabelStyle::Portable),
+        "Ctrl+Shift+K"
+    );
+}
+
+#[test]
+fn a_command_the_user_unbinds_loses_its_hint() {
+    // The failure a palette would otherwise show: a key that does nothing.
+    let mut editor = editor_with("");
+    assert!(
+        editor
+            .key_hints()
+            .primary_hint(builtin::LINES_DELETE.as_str())
+            .is_some()
+    );
+
+    let mut user = Keymap::new("user");
+    user.push(KeyBinding::unbound(
+        StrokePattern::new(
+            KeyCode::Char('k'),
+            ModifierPattern::NONE
+                .with_ctrl(ModifierState::Required)
+                .with_shift(ModifierState::Required)
+                .with_alt_graph(ModifierState::Any),
+        ),
+        &[],
+    ));
+    editor.push_keymap(user).expect("a suppression is valid");
+
+    assert!(
+        editor
+            .key_hints()
+            .primary_hint(builtin::LINES_DELETE.as_str())
+            .is_none(),
+        "an unbound command must not still advertise its old key"
+    );
 }
 
 // ===== Rebinding the live editor =====

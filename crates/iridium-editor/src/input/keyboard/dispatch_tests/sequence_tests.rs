@@ -305,3 +305,63 @@ fn history_chords_are_acknowledged_without_running_history() {
     assert_eq!(doc.text(), "hello");
     assert_eq!(heads(&cursor), vec![(0, 1)]);
 }
+
+// ===== Key-hint cache =====
+
+/// Asserts the handler's cached hint index equals a fresh build from its own
+/// live keymap.
+fn assert_hints_fresh(handler: &KeyboardHandler, at: &str) {
+    let fresh = crate::commands::KeyHintIndex::build(handler.keymap());
+    assert_eq!(
+        handler.key_hints().len(),
+        fresh.len(),
+        "the cached hint index is stale after {at}"
+    );
+    for id in fresh.command_ids() {
+        let cached: Vec<&str> = handler
+            .key_hints()
+            .hints_for(id.as_str())
+            .iter()
+            .map(|hint| hint.label(crate::commands::KeyLabelStyle::Portable))
+            .collect();
+        let expected: Vec<&str> = fresh
+            .hints_for(id.as_str())
+            .iter()
+            .map(|hint| hint.label(crate::commands::KeyLabelStyle::Portable))
+            .collect();
+        assert_eq!(cached, expected, "`{id}` is stale after {at}");
+    }
+}
+
+#[test]
+fn key_hints_are_rebuilt_by_every_keymap_mutator() {
+    // `key_hints` is state derived from the keymap, and four separate methods
+    // mutate that keymap. Derived state refreshed by four call sites is derived
+    // state that will eventually be stale at one of them — and a stale hint index
+    // shows a palette a key that no longer runs the command beside it, which is a
+    // wrong answer rather than a missing one. All four are exercised here, at the
+    // handler, because two of them are unreachable through `Editor`.
+    let mut handler = KeyboardHandler::new();
+    assert_hints_fresh(&handler, "construction");
+
+    let mut user = Keymap::new("user");
+    user.push(KeyBinding::new(
+        chord_stroke(KeyCode::Char('k')),
+        &[],
+        crate::commands::builtin::LINES_DELETE,
+    ));
+
+    handler.push_keymap(user.clone());
+    assert_hints_fresh(&handler, "push_keymap");
+
+    handler.pop_keymap().expect("the user layer is on top");
+    assert_hints_fresh(&handler, "pop_keymap");
+
+    handler
+        .push_validated_keymap(user, &builtin_registry().expect("the registry builds"))
+        .expect("Ctrl+K is free");
+    assert_hints_fresh(&handler, "push_validated_keymap");
+
+    handler.set_keymap(crate::commands::default_keymap_stack());
+    assert_hints_fresh(&handler, "set_keymap");
+}

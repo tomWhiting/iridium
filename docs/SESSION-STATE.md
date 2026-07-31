@@ -599,6 +599,15 @@ without touching the working tree (`git push origin <branch>:main`,
 `git branch -f`). The working tree under 12223 should never transiently lose
 files.
 
+**Second operational trap: do not start the demo server as a harness-tracked
+background task.** A server started that way is owned by the task runner and gets
+killed when the task is cleaned up — which happened mid-session while Tom was
+using it. Start it detached instead, so it outlives the session that started it:
+
+```bash
+cd examples/web && nohup npm run dev > <scratchpad>/vite-12223.log 2>&1 &
+```
+
 **Why the demo could never have worked before this**, since it came up: the
 served bundle was built at 10:04 and the palette exports landed at 14:17, *and*
 the UI files were on a branch, not in the checkout. Neither half was present, so

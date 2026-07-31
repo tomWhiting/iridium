@@ -947,3 +947,43 @@ them rather than discover them live:
   different fork, and `historySnapshot`/`jumpToHistoryNode`/`redoBranch` are
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
+
+## Section 4 (syntax-node navigation) — step 1 of 9 landed
+
+Plan §4.6's build order. Steps 1–4 are refactor-and-fix and can land before any
+decision on the verb set; step 4 alone fixes the stale-fold bug (finding 3).
+
+**Step 1 is DONE (`e1ac3a0`).** `compute_edit_span`, `byte_point`, `EditSpan`
+moved from `iridium-bindings/src/edit_tracking.rs` to
+`iridium-editor/src/document/edit_span.rs`, with their nine tests. The bindings
+crate re-exports all four names, so no call site changed shape.
+
+One thing the move forced, worth knowing: the old signature was
+`Result<_, ()>` under `#[allow(clippy::result_unit_err)]`. Carrying an
+`#[allow]` into the kernel is not permitted here, so it is now a real
+`EditSpanError`. **The only build that caught the fallout was the wasm32
+check** — `wasm.rs` matched `Err(())` literally and is target-gated, so
+`cargo test --workspace --all-features` compiles none of it. Do not drop that
+command from the gate list.
+
+### Remaining, in the plan's order
+
+2. `iridium-syntax/src/query/` — `kind.rs`, `embedded.rs` (an `include_str!`
+   table), `mod.rs` (a `LazyLock` compile-once cache), `textobject.rs`. Plus the
+   compile-every-embedded-query test, which is the guard that catches a grammar
+   bump invalidating a `.scm`. Migrate `Highlighter` onto it and delete
+   `mod queries` in `highlight.rs` so there is one include table, not two.
+3. `iridium-syntax/src/tree.rs` — one retained `SyntaxTree`; convert
+   `FoldDetector` and `Highlighter` into borrowers. Brings both files back under
+   the size cap.
+4. `SyntaxState` on `EditorState`, `note_edit` from `apply_command_internal`,
+   `fold_state` onto the shared tree. **Fixes the stale folds.**
+5. `navigate.rs` — pure `Node → Node` walks.
+6. `selectNode`/`expand`/`shrink` + the expand stack + `KeyResult::Ast`.
+7. Siblings, children, caret motions, multi-cursor.
+8. `textobject.rs` + the five text objects and four jump-by-kind commands.
+9. The web spike (§4.5), timeboxed and independent.
+
+**§4.5 is still Tom's to decide** and nothing above depends on it: the
+recommendation in the plan is (a) native-only now, then a one-day timeboxed
+spike on (c) getting tree-sitter to compile for `wasm32`. Do **not** build (b).

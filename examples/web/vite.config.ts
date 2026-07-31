@@ -19,6 +19,7 @@ export default defineConfig({
       "@iridium/core/syntax": resolve(__dirname, "../../packages/@iridium/core/src/syntax/index.ts"),
       "@iridium/core/element": resolve(__dirname, "../../packages/@iridium/core/src/element/index.ts"),
       "@iridium/core/palette": resolve(__dirname, "../../packages/@iridium/core/src/palette/index.ts"),
+      "@iridium/core/history": resolve(__dirname, "../../packages/@iridium/core/src/history/index.ts"),
       "@iridium/core": resolve(__dirname, "../../packages/@iridium/core/src/controller/index.ts"),
       // Legacy iridium-bindings (still supported)
       "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/ts/controller/index.ts"),

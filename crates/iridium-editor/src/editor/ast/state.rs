@@ -229,9 +229,14 @@ impl SyntaxState {
     ) -> Option<CursorState> {
         self.sync(document)?;
 
+        // Copied out before the tree is borrowed. The named-region verbs need it
+        // — the vendored queries are per-language files — and this field already
+        // holds it, so nothing new has to be stored to answer them.
+        let language = self.language;
+
         // Disjoint field borrows: the tree is read while the stack is written.
         let tree = self.tree.as_ref()?.tree()?;
-        selection_for(request, tree, document, cursor, &mut self.expand)
+        selection_for(request, language, tree, document, cursor, &mut self.expand)
     }
 
     /// How many expansions the current stack can still undo.

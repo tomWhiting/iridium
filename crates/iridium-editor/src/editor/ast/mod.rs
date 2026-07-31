@@ -10,6 +10,8 @@
 mod expand;
 mod state;
 #[cfg(feature = "syntax")]
+mod textobject;
+#[cfg(feature = "syntax")]
 mod walk;
 
 pub use expand::ExpandStack;

@@ -20,15 +20,18 @@ use std::collections::HashSet;
 use super::builtin::{
     AST_CURSOR_NODE_END, AST_CURSOR_NODE_START, AST_CURSOR_ON_EVERY_CHILD,
     AST_CURSOR_ON_EVERY_SIBLING, AST_EXTEND_NEXT_SIBLING, AST_EXTEND_PREVIOUS_SIBLING,
-    AST_SELECT_FIRST_CHILD, AST_SELECT_LAST_CHILD, AST_SELECT_NEXT_SIBLING, AST_SELECT_NODE,
-    AST_SELECT_PREVIOUS_SIBLING, BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END,
-    EDIT_DELETE_TO_LINE_START, EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL,
-    HOST_COMMAND_COUNT, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE,
-    TRANSFORM_DEDUPE_LINES, TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE,
-    TRANSFORM_REVERSE_LINES, TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE,
-    TRANSFORM_SORT_LINES, TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE,
-    TRANSFORM_TOGGLE_CASE, TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE,
-    builtin_registry, default_registry, host_command_metas,
+    AST_NEXT_CLASS, AST_NEXT_FUNCTION, AST_PREVIOUS_CLASS, AST_PREVIOUS_FUNCTION,
+    AST_SELECT_CLASS_AROUND, AST_SELECT_CLASS_INSIDE, AST_SELECT_COMMENT_AROUND,
+    AST_SELECT_FIRST_CHILD, AST_SELECT_FUNCTION_AROUND, AST_SELECT_FUNCTION_INSIDE,
+    AST_SELECT_LAST_CHILD, AST_SELECT_NEXT_SIBLING, AST_SELECT_NODE, AST_SELECT_PREVIOUS_SIBLING,
+    BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
+    EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL, HOST_COMMAND_COUNT,
+    MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES,
+    TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
+    TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
+    TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
+    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
+    host_command_metas,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -200,8 +203,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Thirty-two commands are intentionally unbound by the *non-modal* default,
-    // and a thirty-third entry here would mean a feature silently lost:
+    // Forty-one commands are intentionally unbound by the *non-modal* default,
+    // and a forty-second entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -254,6 +257,17 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   these earn keys — and what the keymap gives up for them — is Tom's call,
     //   not a technical one.
     //
+    // - The nine named-region `ast.*` verbs — select inside/around a function or
+    //   a class, select a comment, and the four jumps between functions and
+    //   classes — are palette-only on exactly the same grounds. Nothing about
+    //   them is second-class: they are the verbs most editors give `[m` / `]m`
+    //   or `vif` to, and a modal keymap pushed over the default is precisely
+    //   where those belong. The non-modal default has no free chord that reads
+    //   as "function", and inventing one it would have to defend is worse than
+    //   leaving the choice open. There is no `ast.selectCommentInside` in this
+    //   list because there is no such verb: no vendored query defines
+    //   `@comment.inside`.
+    //
     // This list is *ordered* and matches `registry.commands()` iteration order,
     // so a new entry goes where its id is registered, not at the end.
     assert_eq!(
@@ -290,12 +304,21 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             AST_CURSOR_NODE_END.as_str(),
             AST_CURSOR_ON_EVERY_SIBLING.as_str(),
             AST_CURSOR_ON_EVERY_CHILD.as_str(),
+            AST_SELECT_FUNCTION_INSIDE.as_str(),
+            AST_SELECT_FUNCTION_AROUND.as_str(),
+            AST_SELECT_CLASS_INSIDE.as_str(),
+            AST_SELECT_CLASS_AROUND.as_str(),
+            AST_SELECT_COMMENT_AROUND.as_str(),
+            AST_NEXT_FUNCTION.as_str(),
+            AST_PREVIOUS_FUNCTION.as_str(),
+            AST_NEXT_CLASS.as_str(),
+            AST_PREVIOUS_CLASS.as_str(),
             COMMAND_NO_OP.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 32);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 41);
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 

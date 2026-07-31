@@ -650,10 +650,70 @@ renderer. A visible count makes the class of defect loud.
 
 **Nothing tests this.** `wasm.rs` is `cfg(target_arch = "wasm32")` and the render
 path is GPU-coupled, so no native build compiles it — exactly how this survived.
-**Treat every `.primary` in `wasm.rs` as suspect**; there are many
-(`getSelectedText`, `selectionStart/End`, `extendSelectionLeft/Right`, …) and
-each one is a place where this face silently speaks for one cursor. That is the
-next audit, and it is not done.
+
+## The `.primary` audit — DONE, and it found a second reachable bug (`ce6add9`)
+
+The audit the entry above demanded. Every `.primary` in `wasm.rs` was treated as
+suspect; most deserved it.
+
+**The reachable one: macOS `Cmd+Backspace` / `Cmd+Delete` destroyed
+multi-cursor.** `deleteToLineStart` / `deleteToLineEnd` were implemented by hand
+in `wasm.rs` against the primary caret, and finished with
+`Editor::set_cursor` — whose own doc says it *replaces all cursors with a single
+one*. Four carets, one keystroke: three lines spared and three carets gone. The
+TS controller reaches these from its own `Cmd` branch
+(`controller/index.ts` ~:732), before `translateKeyEvent`, so this is live on the
+platform Tom uses.
+
+The same shape ran through the whole `extendSelection*` family — eleven methods
+computing a motion against `cursor.primary` and handing it to
+`Editor::set_selection`, which is documented as replacing all cursors with one
+selection.
+
+**Two verbs the kernel did not have.** `edit.deleteToLineStart` and
+`edit.deleteToLineEnd` are now kernel commands built through
+`build_multi_cursor_command`, so they are multi-cursor by construction, land in
+the palette, and the terminal face inherits them. Critically they are now
+compiled by `cargo test` — nothing compiled the old code on any native target,
+which is exactly how it survived.
+
+They are **deliberately unbound** in the default keymap (the exception list in
+`every_registered_command_is_bound_except_the_typing_fall_through` is now five
+entries and says why): `Ctrl+Backspace` / `Ctrl+Delete` are already word-wise
+delete, and that keymap is platform-neutral. **Whether they should get keys is
+Tom's call and is open.**
+
+**Eleven methods deleted rather than rewritten.** `extendSelection*`, `selectAll`
+and `clearSelection` route to the kernel command the identical keystroke already
+runs. They *did* disagree: `extendSelectionLineStart` went to column zero while
+`Shift+Home` does smart home. `hasSelection` now answers for any caret;
+`getSelectedText` joins every selection the way `copyText` does. The four
+`getSelection*Line/Column` accessors stay primary-only **on purpose** and now say
+so — they are singular questions, and `cursorCount` is how a host learns there
+are more.
+
+`wasm.rs` 3,969 → 3,898. Still far over cap, but the direction is right and the
+duplicated motion layer is gone.
+
+`editing.rs` was already over cap at 605 and this pushed it to 654, so it split
+into `editing/{mod,intents}.rs` along the seam already there: command
+construction versus the per-cursor edit intents it consumes.
+
+**11 tests in `line_boundary_tests.rs`**, verified against four deliberate
+breaks. One useful negative result recorded in the test itself: measuring the
+line end in *bytes* does **not** fail any test, because `clamp_edit_ranges` pulls
+an over-long column back to the real line end. The test says so rather than
+claiming a discrimination it does not have.
+
+**Still primary-only, and correctly so:** `setCursorFromClick`,
+`startSelectionAt`, `extendSelectionToPosition` — a click and a drag are
+single-caret gestures by definition.
+
+**Still primary-only and NOT yet fixed:** `delete_selection` (the private helper
+behind the `backspace` / `deleteForward` exports). Its only caller today is
+`applyCompletion`, which is single-caret by nature, so it is not reachable from
+typing — but it is a public wasm export and it is wrong. Named here so it is not
+lost.
 
 ## Section 2 (text transformations) — facts re-verified 31 Jul, before starting
 

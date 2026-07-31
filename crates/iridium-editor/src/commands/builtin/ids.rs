@@ -164,20 +164,15 @@ pub const CLIPBOARD_PASTE: CommandId = CommandId::from_static("clipboard.paste")
 // ===== History =====
 
 /// Undo the last change.
-///
-/// **Known defect, faithfully modelled:** the keyboard handler's `handle_undo` is
-/// a `const fn` that ignores the history and merely acknowledges the key, so undo
-/// works today only because the WASM host intercepts the chord before dispatch.
-/// The command is named here because it is a real command; the observable
-/// behaviour is unchanged by this phase.
 pub const HISTORY_UNDO: CommandId = CommandId::from_static("history.undo");
-/// Redo the last undone change.
-///
-/// Carries the same known defect as [`HISTORY_UNDO`], and additionally the
-/// current dispatch matches `Ctrl+Z` regardless of `Shift`, so `Ctrl+Shift+Z`
-/// means undo rather than redo. The default keymap reproduces that exactly; see
-/// [`default_non_modal_keymap`](crate::commands::default_non_modal_keymap).
+/// Redo the last undone change, along the tree's active path.
 pub const HISTORY_REDO: CommandId = CommandId::from_static("history.redo");
+/// Redo into a chosen branch of the current node, named by the command's count.
+pub const HISTORY_REDO_BRANCH: CommandId = CommandId::from_static("history.redoBranch");
+/// Point redo at the next branch of the current node, without moving.
+pub const HISTORY_NEXT_BRANCH: CommandId = CommandId::from_static("history.nextBranch");
+/// Point redo at the previous branch of the current node, without moving.
+pub const HISTORY_PREVIOUS_BRANCH: CommandId = CommandId::from_static("history.previousBranch");
 
 // ===== Multi-cursor =====
 

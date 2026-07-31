@@ -171,7 +171,16 @@ fn in_category_filters_in_palette_order() {
     let registry = builtin_registry().unwrap();
     let history = registry.in_category(CommandCategory::HISTORY.as_str());
     let titles: Vec<&str> = history.iter().map(|m| m.title()).collect();
-    assert_eq!(titles, vec!["Redo", "Undo"]);
+    assert_eq!(
+        titles,
+        vec![
+            "Next Undo Branch",
+            "Previous Undo Branch",
+            "Redo",
+            "Redo Into Branch",
+            "Undo",
+        ]
+    );
 }
 
 #[test]

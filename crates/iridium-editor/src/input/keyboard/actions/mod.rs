@@ -31,7 +31,6 @@ mod run;
 use crate::commands::{CommandArgs, CommandId, builtin};
 use crate::document::{CursorState, Document};
 use crate::editor::EditorConfig;
-use crate::history::UndoTree;
 
 use super::types::KeyEvent;
 
@@ -62,8 +61,6 @@ pub(super) struct CommandContext<'a> {
     pub document: &'a Document,
     /// The cursor state the command acts on.
     pub cursor: &'a CursorState,
-    /// The undo history, read by the history commands.
-    pub history: &'a UndoTree,
     /// The behaviour configuration (tab width, auto-indent, auto-pairs, comment
     /// token fallback).
     pub config: &'a EditorConfig,
@@ -215,6 +212,12 @@ pub(super) enum KeyboardAction {
     Undo,
     /// Redo the last undone change.
     Redo,
+    /// Redo into a chosen branch of the current node, by count.
+    HistoryRedoBranch,
+    /// Point redo at the next branch, without moving.
+    HistoryNextBranch,
+    /// Point redo at the previous branch, without moving.
+    HistoryPreviousBranch,
 
     // ----- Multi-cursor -----
     /// Select the word at the caret, or add a cursor at the next match.
@@ -351,6 +354,12 @@ static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     // History.
     (builtin::HISTORY_UNDO, Action::Undo),
     (builtin::HISTORY_REDO, Action::Redo),
+    (builtin::HISTORY_REDO_BRANCH, Action::HistoryRedoBranch),
+    (builtin::HISTORY_NEXT_BRANCH, Action::HistoryNextBranch),
+    (
+        builtin::HISTORY_PREVIOUS_BRANCH,
+        Action::HistoryPreviousBranch,
+    ),
     // Multi-cursor.
     (
         builtin::MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,

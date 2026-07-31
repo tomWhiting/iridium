@@ -18,10 +18,10 @@ use iridium_editor::{
     CommandArgs, CommandId, EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
     commands::{builtin, palette::CommandMru},
     editor::{Editor, FoldState},
-    history::Command,
+    history::{Command, UndoNodeId},
     input::{
-        ClipboardOperation, CommandRunError, KeyCode, KeyEvent, KeyResult, KeyboardHandler,
-        Modifiers, SearchAction,
+        ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
+        KeyboardHandler, Modifiers, SearchAction,
     },
     render::{
         CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
@@ -554,26 +554,6 @@ impl WebEditor {
             return "ignored".to_string();
         };
 
-        // Undo/redo routing (see method docs). Matches the host convention
-        // (Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo) and the core
-        // handler's dispatch, where `ctrl` takes precedence over alt/meta
-        // for character keys.
-        if let KeyCode::Char(c) = key_code {
-            if ctrl {
-                match c.to_ascii_lowercase() {
-                    'z' => {
-                        let changed = if shift { self.redo() } else { self.undo() };
-                        return if changed { "handled:edit" } else { "handled" }.to_string();
-                    },
-                    'y' => {
-                        let changed = self.redo();
-                        return if changed { "handled:edit" } else { "handled" }.to_string();
-                    },
-                    _ => {},
-                }
-            }
-        }
-
         let event = KeyEvent {
             key: key_code,
             modifiers: Modifiers {
@@ -621,6 +601,7 @@ impl WebEditor {
             KeyResult::Command(cmd) => self.apply_key_command(cmd),
             KeyResult::Clipboard(operation) => self.apply_clipboard_result(operation),
             KeyResult::Search(action) => self.apply_search_result(&action),
+            KeyResult::History(request) => self.apply_history_result(request),
             // A binding named a command the kernel does not implement — a host
             // command. The key was consumed and the id is reported so the host can
             // run it; the caller reads `takePendingHostCommand` for the id.
@@ -634,6 +615,41 @@ impl WebEditor {
                 self.needs_redraw = true;
                 "handled:command".to_string()
             },
+        }
+    }
+
+    /// Performs one [`HistoryRequest`] and returns the status string.
+    ///
+    /// This face used to intercept `Ctrl+Z` and `Ctrl+Y` in `handleKeyEvent`
+    /// *before* the keymap saw them, and drive `undo`/`redo` directly. Two
+    /// things were broken by that, and both were reachable: running **Undo**
+    /// from the command palette did nothing, because the palette runs commands
+    /// and the command was a bare acknowledgement; and no keymap layer could
+    /// rebind undo, because the key never reached one.
+    ///
+    /// `undo`/`redo` are the face's own methods, not the editor's, because
+    /// this face additionally records a whole-document edit span for
+    /// incremental re-highlighting — which the kernel neither knows nor should.
+    fn apply_history_result(&mut self, request: HistoryRequest) -> String {
+        let changed = match request {
+            HistoryRequest::Undo => self.undo(),
+            HistoryRequest::Redo => self.redo(),
+            HistoryRequest::RedoBranch(index) => self.redo_branch_internal(index),
+            // Branch selection moves nothing, so there is no document edit to
+            // record — only a repaint, since a panel may be showing the choice.
+            HistoryRequest::NextBranch | HistoryRequest::PreviousBranch => {
+                let forward = matches!(request, HistoryRequest::NextBranch);
+                self.editor.cycle_history_branch(forward);
+                // Never `handled:edit`: nothing was applied. A repaint is still
+                // wanted, because a panel may be showing which fork is active.
+                self.needs_redraw = true;
+                return "handled".to_string();
+            },
+        };
+        if changed {
+            "handled:edit".to_string()
+        } else {
+            "handled".to_string()
         }
     }
 
@@ -2881,8 +2897,80 @@ impl WebEditor {
         if self.read_only {
             return false;
         }
+        self.with_whole_document_edit(Editor::undo)
+    }
+
+    /// Performs redo. No-op in read-only mode.
+    ///
+    /// Edit tracking behaves like [`Self::undo`]: a conservative
+    /// whole-document edit is recorded for `takeLastEdit`.
+    pub fn redo(&mut self) -> bool {
+        if self.read_only {
+            return false;
+        }
+        self.with_whole_document_edit(Editor::redo)
+    }
+
+    /// Redoes into a specific branch of the current node, by index into
+    /// `historySnapshot()`'s `child_ids` for the current node.
+    ///
+    /// This is how a panel enters a fork the plain `redo` would not take.
+    /// No-op in read-only mode or when the index names no branch.
+    #[wasm_bindgen(js_name = redoBranch)]
+    pub fn redo_branch(&mut self, branch_index: u32) -> bool {
+        self.redo_branch_internal(branch_index as usize)
+    }
+
+    /// The whole undo tree as JSON, for a panel that draws it.
+    ///
+    /// One call rather than a walk: the tree changes on every keystroke, and
+    /// asking node by node would mean N boundary crossings per repaint. Node
+    /// ids are decimal *strings* throughout, because they are `u64` and a
+    /// JavaScript number is not.
+    ///
+    /// Returns `"null"` only if serialization fails, which it cannot: the
+    /// snapshot is strings, booleans and integers throughout.
+    #[wasm_bindgen(js_name = historySnapshot)]
+    pub fn history_snapshot(&self) -> String {
+        serde_json::to_string(&self.editor.history_snapshot())
+            .unwrap_or_else(|_| "null".to_string())
+    }
+
+    /// Moves to an arbitrary node of the undo tree, replaying the document to
+    /// that state.
+    ///
+    /// `node_id` is the decimal string a snapshot reports. This reaches states
+    /// no sequence of undo and redo could reach without first abandoning a
+    /// branch — which is the entire point of having a tree rather than a stack.
+    ///
+    /// Returns `false`, changing nothing, in read-only mode, when `node_id` is
+    /// not a number, or when it names no node in this tree.
+    #[wasm_bindgen(js_name = jumpToHistoryNode)]
+    pub fn jump_to_history_node(&mut self, node_id: &str) -> bool {
+        if self.read_only {
+            return false;
+        }
+        let Ok(raw) = node_id.parse::<u64>() else {
+            return false;
+        };
+        self.with_whole_document_edit(|editor| {
+            editor.jump_to_history_node(UndoNodeId::from_u64(raw))
+        })
+    }
+
+    /// Runs one history traversal and records a conservative whole-document
+    /// edit for `takeLastEdit` when it changed anything.
+    ///
+    /// The replayed command refers to a document state this binding never
+    /// tracked, so a precise span is not available; a whole-document record is
+    /// the conservative answer that keeps incremental highlight consumers
+    /// correct. Every traversal shares it so none can forget.
+    fn with_whole_document_edit<F>(&mut self, traverse: F) -> bool
+    where
+        F: FnOnce(&mut Editor) -> bool,
+    {
         let pre_end = self.document_end_point();
-        let result = self.editor.undo();
+        let result = traverse(&mut self.editor);
         if result {
             // The cursor moved outside handle_key; drop sticky columns.
             self.keyboard_handler.reset_vertical_state();
@@ -2900,31 +2988,12 @@ impl WebEditor {
         result
     }
 
-    /// Performs redo. No-op in read-only mode.
-    ///
-    /// Edit tracking behaves like [`Self::undo`]: a conservative
-    /// whole-document edit is recorded for `takeLastEdit`.
-    pub fn redo(&mut self) -> bool {
+    /// `redoBranch` without the wasm-facing `u32`, so the key path can call it.
+    fn redo_branch_internal(&mut self, branch_index: usize) -> bool {
         if self.read_only {
             return false;
         }
-        let pre_end = self.document_end_point();
-        let result = self.editor.redo();
-        if result {
-            // The cursor moved outside handle_key; drop sticky columns.
-            self.keyboard_handler.reset_vertical_state();
-            match pre_end {
-                Some((pre_len, pre_row, pre_column)) => {
-                    self.record_whole_document_edit(pre_len, pre_row, pre_column);
-                },
-                None => self.pending_edit = PendingEdit::Degraded,
-            }
-            // Update fold regions after content change
-            let content = self.editor.content();
-            self.fold_state.update_regions(&content);
-            self.needs_redraw = true;
-        }
-        result
+        self.with_whole_document_edit(|editor| editor.redo_branch(branch_index))
     }
 
     /// Returns `(byte_len, end_row, end_byte_column)` of the current

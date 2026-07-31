@@ -77,7 +77,8 @@ mod tests;
 mod transform_tests;
 
 pub use types::{
-    ClipboardOperation, CommandRunError, KeyCode, KeyEvent, KeyResult, Modifiers, SearchAction,
+    ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult, Modifiers,
+    SearchAction,
 };
 
 use crate::commands::{
@@ -311,7 +312,7 @@ impl KeyboardHandler {
         args: CommandArgs,
         document: &Document,
         cursor: &CursorState,
-        history: &UndoTree,
+        _history: &UndoTree,
         config: &EditorConfig,
     ) -> Result<KeyResult, CommandRunError> {
         let Some(action) = actions::action_for(id) else {
@@ -322,7 +323,6 @@ impl KeyboardHandler {
             args,
             document,
             cursor,
-            history,
             config,
         };
         let result = self.run_action(action, &ctx);

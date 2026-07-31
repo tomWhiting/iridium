@@ -188,8 +188,11 @@ impl KeyboardHandler {
             Action::ClipboardPaste => KeyResult::Clipboard(ClipboardOperation::Paste),
 
             // ----- History -----
-            Action::Undo => Self::handle_undo(ctx.history),
-            Action::Redo => Self::handle_redo(ctx.history),
+            Action::Undo => Self::handle_undo(),
+            Action::Redo => Self::handle_redo(),
+            Action::HistoryRedoBranch => Self::handle_redo_branch(&ctx.args),
+            Action::HistoryNextBranch => Self::handle_next_branch(),
+            Action::HistoryPreviousBranch => Self::handle_previous_branch(),
 
             // ----- Multi-cursor -----
             Action::AddSelectionToNextMatch => {

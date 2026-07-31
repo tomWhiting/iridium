@@ -11,11 +11,10 @@
 //!
 //! Two entries deserve calling out explicitly:
 //!
-//! - **`Ctrl+Shift+Z` is bound to undo, not redo.** The current dispatch matches
-//!   `'z'` regardless of `Shift`, so that is what it does. This is a known defect
-//!   (see [`builtin::HISTORY_REDO`](super::builtin::HISTORY_REDO)); it is
-//!   transcribed rather than fixed, because this phase must not change observable
-//!   behaviour.
+//! - **`Ctrl+Z` undoes and `Ctrl+Shift+Z` redoes.** The registry migration
+//!   transcribed the pre-registry dispatch faithfully, and that dispatch matched
+//!   `'z'` regardless of `Shift` — so `Ctrl+Shift+Z` undid. That was correct for
+//!   a phase forbidden from changing behaviour, and is corrected here.
 //! - **`Ctrl+K` opens the command palette**, as do `Ctrl+P` and `Ctrl+Shift+P`.
 //!   It briefly held a `Ctrl+K Ctrl+D` chord for the skip-occurrence verb — the
 //!   multi-key machinery's first real user — and that chord was given up for this,
@@ -44,12 +43,13 @@ use super::builtin::{
     CURSOR_LINE_END_SELECT, CURSOR_LINE_START, CURSOR_LINE_START_SELECT, CURSOR_LINE_UP,
     CURSOR_LINE_UP_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT,
     CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_BACKWARD, EDIT_DELETE_FORWARD, EDIT_DELETE_WORD_BACKWARD,
-    EDIT_DELETE_WORD_FORWARD, EDIT_INSERT_NEWLINE, EDIT_OUTDENT, EDIT_TAB, HISTORY_REDO,
-    HISTORY_UNDO, LINES_DELETE, LINES_DUPLICATE_DOWN, LINES_DUPLICATE_UP, LINES_JOIN,
-    LINES_MOVE_DOWN, LINES_MOVE_UP, MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
-    MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
-    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_NEXT_MATCH, SEARCH_OPEN,
-    SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
+    EDIT_DELETE_WORD_FORWARD, EDIT_INSERT_NEWLINE, EDIT_OUTDENT, EDIT_TAB, HISTORY_NEXT_BRANCH,
+    HISTORY_PREVIOUS_BRANCH, HISTORY_REDO, HISTORY_UNDO, LINES_DELETE, LINES_DUPLICATE_DOWN,
+    LINES_DUPLICATE_UP, LINES_JOIN, LINES_MOVE_DOWN, LINES_MOVE_UP, MULTI_CURSOR_ADD_CURSOR_ABOVE,
+    MULTI_CURSOR_ADD_CURSOR_BELOW, MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,
+    MULTI_CURSOR_REMOVE_LAST_CURSOR, MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN,
+    SEARCH_NEXT_MATCH, SEARCH_OPEN, SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY,
+    SELECTION_SELECT_ALL,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -59,7 +59,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 52;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 55;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -117,6 +117,12 @@ const CTRL_ANY_SHIFT: ModifierPattern = pattern(Any, Required, Forbidden, Forbid
 const CTRL_NO_SHIFT: ModifierPattern = pattern(Forbidden, Required, Forbidden, Forbidden, Any);
 /// A `Ctrl+Shift`+letter chord.
 const CTRL_SHIFT: ModifierPattern = pattern(Required, Required, Forbidden, Forbidden, Any);
+/// A `Ctrl+Alt`+letter chord, Shift ignored: the undo-tree branch verbs.
+///
+/// `Alt` reads as "the sideways version of", which is what walking between two
+/// alternative futures is next to stepping along one — so `Ctrl+Alt+Z` and
+/// `Ctrl+Alt+Y` sit exactly where `Ctrl+Z` and `Ctrl+Y` already are in the hand.
+const CTRL_ALT: ModifierPattern = pattern(Any, Required, Required, Forbidden, Any);
 
 /// No continuation: a single-chord binding.
 ///
@@ -366,16 +372,40 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
     ),
     // ----- History -----
     //
-    // `Ctrl+Shift+Z` maps to undo, faithfully reproducing the current dispatch.
+    // `Ctrl+Z` undoes and `Ctrl+Shift+Z` redoes, which is what every editor a
+    // user has ever used does. This was transcribed the other way during the
+    // registry migration — the pre-registry dispatch matched `'z'` regardless of
+    // `Shift`, so `Ctrl+Shift+Z` undid — and that transcription was correct at
+    // the time, because that phase was forbidden from changing behaviour.
+    // Correcting it is this phase's job.
     (
-        StrokePattern::new(KeyCode::Char('z'), CTRL_ANY_SHIFT),
+        StrokePattern::new(KeyCode::Char('z'), CTRL_NO_SHIFT),
         CHORD,
         HISTORY_UNDO,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('z'), CTRL_SHIFT),
+        CHORD,
+        HISTORY_REDO,
     ),
     (
         StrokePattern::new(KeyCode::Char('y'), CTRL_ANY_SHIFT),
         CHORD,
         HISTORY_REDO,
+    ),
+    // Branch selection changes nothing in the document — it only points redo at
+    // a different future — so these are safe to hold down while watching the
+    // panel, and are bound rather than left palette-only for exactly that
+    // reason: they are a *browsing* verb, and browsing by name is not browsing.
+    (
+        StrokePattern::new(KeyCode::Char('z'), CTRL_ALT),
+        CHORD,
+        HISTORY_PREVIOUS_BRANCH,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('y'), CTRL_ALT),
+        CHORD,
+        HISTORY_NEXT_BRANCH,
     ),
     // ----- Command palette -----
     //

@@ -19,12 +19,12 @@ use std::collections::HashSet;
 
 use super::builtin::{
     BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
-    EDIT_INSERT_CHARACTER, HOST_COMMAND_COUNT, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN,
-    TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES, TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE,
-    TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES, TRANSFORM_SCREAMING_SNAKE_CASE,
-    TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES, TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE,
-    TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE, TRANSFORM_TRIM_TRAILING_WHITESPACE,
-    TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
+    EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HOST_COMMAND_COUNT,
+    MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES,
+    TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
+    TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
+    TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
+    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -174,8 +174,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Twenty commands are intentionally unbound by the *non-modal* default, and
-    // a twenty-first entry here would mean a feature silently lost:
+    // Twenty-one commands are intentionally unbound by the *non-modal* default,
+    // and a twenty-second entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -194,6 +194,12 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   face reaches them by id from its own `Cmd` handling, and the palette
     //   reaches them everywhere. Binding them is a keymap decision, not a
     //   prerequisite for the verbs existing.
+    // - `history.redoBranch` takes a *count* — "enter the second branch" — and a
+    //   bare chord cannot carry one. Its siblings `history.nextBranch` and
+    //   `history.previousBranch` are bound (`Ctrl+Alt+Z` / `Ctrl+Alt+Y`) because
+    //   they are the browsing verbs; this one is what a host keymap binds to a
+    //   counted sequence, and what the panel calls by id when a branch is
+    //   clicked.
     // - The fifteen `transform.*` verbs are palette-only *by design*, which is
     //   the approved plan: fifteen new chords that must collide with nothing
     //   would be a poor trade for verbs most people run by name, and the
@@ -225,13 +231,14 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             TRANSFORM_REVERSE_LINES.as_str(),
             TRANSFORM_DEDUPE_LINES.as_str(),
             TRANSFORM_TRIM_TRAILING_WHITESPACE.as_str(),
+            HISTORY_REDO_BRANCH.as_str(),
             MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
             COMMAND_NO_OP.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 20);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 21);
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 
@@ -400,14 +407,17 @@ fn shifted_control_chords_are_shift_agnostic_exactly_where_dispatch_is() {
 }
 
 #[test]
-fn ctrl_shift_z_is_bound_to_undo_reproducing_the_known_defect() {
+fn ctrl_shift_z_redoes_and_plain_ctrl_z_undoes() {
     let stack = default_keymap_stack();
-    // Dispatch matches 'z' regardless of Shift, so Ctrl+Shift+Z is undo, not
-    // redo. Transcribed rather than fixed: this phase changes no behaviour.
+    // The registry migration transcribed the pre-registry dispatch, which
+    // matched 'z' regardless of Shift, so Ctrl+Shift+Z used to undo. Two
+    // separate bindings now, because one pattern cannot mean two commands.
     expect(&stack, KeyCode::Char('z'), CTRL, Some("history.undo"));
-    expect(&stack, KeyCode::Char('z'), CTRL_SHIFT, Some("history.undo"));
-    expect(&stack, KeyCode::Char('Z'), CTRL_SHIFT, Some("history.undo"));
+    expect(&stack, KeyCode::Char('z'), CTRL_SHIFT, Some("history.redo"));
+    // Hosts forward the base letter for modifier chords, in either case.
+    expect(&stack, KeyCode::Char('Z'), CTRL_SHIFT, Some("history.redo"));
     expect(&stack, KeyCode::Char('y'), CTRL, Some("history.redo"));
+    expect(&stack, KeyCode::Char('y'), CTRL_SHIFT, Some("history.redo"));
 }
 
 #[test]

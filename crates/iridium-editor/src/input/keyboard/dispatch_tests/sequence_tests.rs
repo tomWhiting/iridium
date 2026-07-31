@@ -8,6 +8,8 @@
 
 use super::*;
 
+use crate::input::HistoryRequest;
+
 #[test]
 fn the_chord_leader_is_consumed_and_held_pending() {
     let doc = Document::new("foo foo foo");
@@ -281,27 +283,37 @@ fn altgraph_does_not_satisfy_the_add_cursor_chord() {
 }
 
 #[test]
-fn history_chords_are_acknowledged_without_running_history() {
-    // KNOWN PRE-EXISTING DEFECT, preserved deliberately: the handler does not
-    // execute undo or redo — the web host intercepts the chord before dispatch
-    // and drives the editor directly. `Ctrl+Shift+Z` also resolves to *undo*,
-    // not redo, because the pre-registry dispatch matched 'z' regardless of
-    // Shift and the default keymap transcribes that faithfully.
+fn history_chords_name_the_traversal_they_want() {
+    // The handler still does not *perform* the traversal — it holds the history
+    // by shared reference and mutates nothing — but it no longer merely
+    // acknowledges the key either. It names the request, and the editor
+    // performs it. That distinction is what makes `history.undo` work from a
+    // command palette, and what lets a keymap rebind undo at all.
     let doc = Document::new("hello");
     let cursor = cursors_at(&[(0, 1)]);
     let mut handler = KeyboardHandler::new();
 
-    for event in [
-        KeyEvent::new(KeyCode::Char('z'), CTRL),
-        KeyEvent::new(KeyCode::Char('z'), CTRL_SHIFT),
-        KeyEvent::new(KeyCode::Char('y'), CTRL),
+    for (event, expected) in [
+        (
+            KeyEvent::new(KeyCode::Char('z'), CTRL),
+            HistoryRequest::Undo,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('z'), CTRL_SHIFT),
+            HistoryRequest::Redo,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('y'), CTRL),
+            HistoryRequest::Redo,
+        ),
     ] {
         assert_eq!(
             probe(&mut handler, &event, &doc, &cursor),
-            KeyResult::Handled,
-            "history chord {event:?} must be acknowledged"
+            KeyResult::History(expected),
+            "history chord {event:?} named the wrong traversal"
         );
     }
+    // Naming is all it does: neither the document nor the cursors moved.
     assert_eq!(doc.text(), "hello");
     assert_eq!(heads(&cursor), vec![(0, 1)]);
 }

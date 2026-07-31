@@ -808,14 +808,23 @@ the parameter stays as `_history` in the signatures.
 
 ### What is NOT done — this is where to pick up
 
-1. **No new tests were written for any of section 3.** The existing suite
-   covers it only incidentally (787 GPU-free still pass, and the rewritten
-   `history_chords_name_the_traversal_they_want` and
-   `ctrl_shift_z_redoes_and_plain_ctrl_z_undoes` pin the two behaviour changes).
-   **`cycle_branch`, `active_branch_index`, `snapshot` and
-   `perform_history_request` have no direct tests, and no discrimination runs
-   were done.** That is the first task, and it is a real gap against this
-   repo's standard — do not let it merge into the panel work.
+1. ~~**No new tests were written for any of section 3.**~~ **CLOSED by
+   `b812f02`.** Eleven tests — 7 in a new
+   `history/undo_tree/branch_tests.rs`, 4 appended to
+   `editor/history_nav/tests.rs` — against twenty deliberate breaks, every
+   break caught and every test the unique catcher of at least one. Two things
+   worth keeping from doing it:
+   - **A two-way fork cannot distinguish `nextBranch` from `previousBranch`**,
+     because forward and backward land on the same branch. The first version
+     of both editor-level tests used one and passed with the two verbs wired to
+     each other. Every branch test here now forks **three** ways; the helper
+     `editor_forked_three_ways` says so in its doc comment. Apply the same rule
+     to the panel's key handling when it lands.
+   - `active_branch_index` is asserted **against `redo` itself**, not against a
+     restatement of its rule, because the agreement of those two is the only
+     thing the method is for.
+   Totals moved to **856** all-features, **798** GPU-free, **840**
+   syntax-without-GPU.
 2. **The wasm bundle has NOT been rebuilt** since this landed, so 12223 is
    serving the pre-`b547c00` bundle. Rebuild with
    `wasm-pack build crates/iridium-bindings --target web --features web

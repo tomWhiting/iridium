@@ -34,6 +34,27 @@ fn ctrl_stroke(key: KeyCode) -> StrokePattern {
     )
 }
 
+/// An editor whose keymap carries a `Ctrl+K Ctrl+D` chord in a host layer.
+///
+/// The default keymap binds no multi-stroke sequence — `Ctrl+K` is reserved as
+/// the command-palette leader, and a bare binding forecloses every chord under
+/// it — so an editor-level test of chord behaviour has to supply its own. Doing
+/// so keeps these tests about the pending-sequence machinery rather than about
+/// which binding happens to be a chord.
+fn editor_with_chord(content: &str) -> Editor {
+    let mut editor = editor_with(content);
+    let mut layer = Keymap::new("host-chord");
+    layer.push(KeyBinding::new(
+        ctrl_stroke(KeyCode::Char('k')),
+        &[ctrl_stroke(KeyCode::Char('d'))],
+        builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
+    ));
+    editor
+        .push_keymap(layer)
+        .expect("nothing in the default claims the Ctrl+K prefix");
+    editor
+}
+
 // ===== Invoke by id =====
 
 #[test]
@@ -243,11 +264,16 @@ fn a_user_keymap_naming_an_unknown_command_is_rejected_at_load_time() {
 }
 
 #[test]
-fn a_user_keymap_that_strands_a_default_chord_is_rejected_at_load_time() {
+fn a_user_keymap_that_strands_a_lower_chord_is_rejected_at_load_time() {
     // The commonest customization there is — binding the bare chord leader —
-    // silently made the default's `Ctrl+K Ctrl+D` unreachable. It is now a
+    // silently made a `Ctrl+K Ctrl+D` chord below it unreachable. It is now a
     // diagnostic, and the documented fix (also unbinding the chord) clears it.
-    let mut editor = editor_with("");
+    //
+    // The chord being stranded now comes from a host layer rather than the
+    // default keymap, which reserves `Ctrl+K` and binds nothing on it. The
+    // diagnostic is about the *relationship* between two layers, so a host chord
+    // exercises it exactly as the default one used to.
+    let mut editor = editor_with_chord("");
     let mut greedy = Keymap::new("user");
     greedy.push(KeyBinding::new(
         ctrl_stroke(KeyCode::Char('k')),
@@ -257,26 +283,29 @@ fn a_user_keymap_that_strands_a_default_chord_is_rejected_at_load_time() {
 
     let error = editor
         .push_keymap(greedy.clone())
-        .expect_err("the default chord would be stranded");
+        .expect_err("the host chord would be stranded");
     match error {
         KeymapError::CrossLayerShadowedSequence {
             prefix, shadowed, ..
         } => {
             assert_eq!(prefix, "ctrl+k");
-            // The default keymap's chord ignores AltGraph, and the display form is
-            // round-trippable, so it names every modifier it constrains.
-            assert_eq!(shadowed, "ctrl+~altgraph+k ctrl+~altgraph+d");
+            // The display form is round-trippable, so it names every modifier the
+            // stranded sequence constrains and nothing it does not.
+            assert_eq!(shadowed, "ctrl+k ctrl+d");
         },
         other => panic!("expected a cross-layer shadowing error, got {other:?}"),
     }
-    assert_eq!(editor.keymap().len(), 1);
+    assert_eq!(
+        editor.keymap().len(),
+        2,
+        "a rejected layer must not be half-applied"
+    );
 
     // The documented fix, driven entirely from the diagnostic: its `shadowed` text
     // is the round-trippable display form, so it parses straight back into the
     // sequence to unbind. Suppression matches a sequence exactly, which is why the
     // diagnostic has to be quotable like this rather than approximated by hand.
-    let (first, rest) =
-        KeyBinding::parse_sequence("ctrl+~altgraph+k ctrl+~altgraph+d").expect("parses");
+    let (first, rest) = KeyBinding::parse_sequence("ctrl+k ctrl+d").expect("parses");
     let mut fixed = greedy;
     fixed.push(KeyBinding::unbound(first, &rest));
     editor
@@ -321,7 +350,7 @@ fn a_config_loaded_keymap_is_canonicalized_so_resolution_stays_allocation_free()
 fn the_pending_sequence_is_visible_to_the_host_and_abortable() {
     // A chord leader consumes the keypress; without an observable pending state the
     // editor simply looks unresponsive, and the host has nothing to render.
-    let mut editor = editor_with("hi");
+    let mut editor = editor_with_chord("hi");
     editor.set_cursor(Position::new(0, 2));
 
     assert_eq!(

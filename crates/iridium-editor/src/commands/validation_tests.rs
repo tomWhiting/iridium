@@ -295,7 +295,7 @@ fn overlaps_is_false_only_where_required_meets_forbidden() {
 // ===== Cross-layer validation =====
 
 #[test]
-fn stack_validate_reports_a_default_chord_stranded_by_a_user_prefix() {
+fn stack_validate_reports_a_base_chord_stranded_by_a_user_prefix() {
     // REGRESSION: `KeymapStack::validate` validated each layer in isolation, so the
     // single commonest user customization — binding the bare chord leader — passed
     // validation while permanently stranding every sequence under it. Resolution
@@ -303,11 +303,22 @@ fn stack_validate_reports_a_default_chord_stranded_by_a_user_prefix() {
     // from the first keypress and the longer one can never run. This is exactly what
     // `ShadowedSequence` exists to report; it was unreachable for the one place a
     // user keymap actually lives.
+    //
+    // The base layer is constructed here rather than taken from
+    // `default_non_modal_keymap`, which no longer binds any chord: `Ctrl+K` is now
+    // reserved as the command-palette leader, and a bare binding cannot coexist
+    // with a sequence under it — which is the very rule this test pins. Building
+    // the pair explicitly keeps the test about `validate` instead of about
+    // whichever binding happens to be a chord.
     let registry = builtin_registry().unwrap();
-    let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
-    stack
-        .validate(&registry)
-        .expect("the default alone is valid");
+    let mut base = Keymap::new("base");
+    base.push(KeyBinding::new(
+        ctrl_pattern(KeyCode::Char('k')),
+        &[ctrl_pattern(KeyCode::Char('d'))],
+        CommandId::from_static("multiCursor.skipLastOccurrence"),
+    ));
+    let mut stack = KeymapStack::with_base(base);
+    stack.validate(&registry).expect("the base alone is valid");
 
     let mut user = Keymap::new("user");
     user.push(KeyBinding::new(
@@ -326,10 +337,34 @@ fn stack_validate_reports_a_default_chord_stranded_by_a_user_prefix() {
         }) => {
             assert_eq!(prefix_keymap, "user");
             assert_eq!(prefix, "ctrl+k");
-            assert_eq!(shadowed_keymap, "default");
-            assert_eq!(shadowed, "ctrl+~altgraph+k ctrl+~altgraph+d");
+            assert_eq!(shadowed_keymap, "base");
+            assert_eq!(shadowed, "ctrl+k ctrl+d");
         },
         other => panic!("expected a cross-layer shadowing error, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_default_keymap_leaves_ctrl_k_free_for_a_host_chord() {
+    // The other half of reserving `Ctrl+K`: because the default binds nothing on
+    // it, a host layer may now bind either a bare `Ctrl+K` *or* a chord under it
+    // and validation accepts both. Before, the default's own chord made the bare
+    // binding a load-time error.
+    let registry = builtin_registry().unwrap();
+
+    for continuation in [Vec::new(), vec![ctrl_pattern(KeyCode::Char('d'))]] {
+        let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
+        let mut host = Keymap::new("host");
+        host.push(KeyBinding::new(
+            ctrl_pattern(KeyCode::Char('k')),
+            &continuation,
+            CommandId::from_static("multiCursor.skipLastOccurrence"),
+        ));
+        stack.push(host);
+
+        stack
+            .validate(&registry)
+            .expect("nothing in the default claims the Ctrl+K prefix");
     }
 }
 

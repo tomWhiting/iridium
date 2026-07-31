@@ -12,7 +12,7 @@ use super::*;
 fn the_chord_leader_is_consumed_and_held_pending() {
     let doc = Document::new("foo foo foo");
     let cursor = cursors_at(&[(0, 1)]);
-    let mut handler = KeyboardHandler::new();
+    let mut handler = handler_with_chord();
 
     assert_eq!(
         probe(&mut handler, &CHORD_LEADER, &doc, &cursor),
@@ -39,7 +39,7 @@ fn the_chord_leader_is_consumed_and_held_pending() {
 fn the_skip_occurrence_chord_advances_the_most_recently_added_cursor() {
     let mut doc = Document::new("foo foo foo");
     let mut cursor = cursors_at(&[(0, 1)]);
-    let mut handler = KeyboardHandler::new();
+    let mut handler = handler_with_chord();
 
     // Bootstrap onto the word, then add the second occurrence.
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
@@ -62,14 +62,16 @@ fn the_skip_occurrence_chord_advances_the_most_recently_added_cursor() {
 
 #[test]
 fn a_dead_ended_sequence_replays_the_final_stroke_into_the_document() {
-    // REGRESSION: this used to return `Handled` and drop the keystroke. `Ctrl+K` is
-    // a live leader in the *default* keymap, so in the shipped configuration a user
-    // who pressed Ctrl+K (or Cmd+K, which the web host maps onto ctrl) and then
-    // typed lost one character of their document, with nothing on screen to explain
-    // it. The chord is abandoned and the character typed.
+    // REGRESSION: this used to return `Handled` and drop the keystroke, so a user
+    // who armed a chord leader and then typed lost one character of their
+    // document, with nothing on screen to explain it. The chord is abandoned and
+    // the character typed.
+    //
+    // The chord comes from a host layer because the default keymap no longer
+    // binds one; the defect was in the resolver, so any live chord proves it.
     let mut doc = Document::new("");
     let mut cursor = cursors_at(&[(0, 0)]);
-    let mut handler = KeyboardHandler::new();
+    let mut handler = handler_with_chord();
 
     probe(&mut handler, &CHORD_LEADER, &doc, &cursor);
     assert_eq!(handler.pending_sequence().len(), 1);
@@ -103,9 +105,12 @@ fn holding_the_chord_leader_down_does_not_change_what_the_next_stroke_means() {
     // alternate repeats, so after an even number of repeats `Ctrl+D` ran
     // add-selection-to-next-match (which spawns a cursor) instead of the intended
     // skip-occurrence. A repeat of the stroke already held is now swallowed.
+    //
+    // Held-down keys are a property of the resolver, not of any binding, so the
+    // chord is supplied by a host layer now that the default keymap has none.
     let mut doc = Document::new("foo foo foo");
     let mut cursor = cursors_at(&[(0, 1)]);
-    let mut handler = KeyboardHandler::new();
+    let mut handler = handler_with_chord();
 
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);

@@ -16,27 +16,23 @@
 //!   (see [`builtin::HISTORY_REDO`](super::builtin::HISTORY_REDO)); it is
 //!   transcribed rather than fixed, because this phase must not change observable
 //!   behaviour.
-//! - **`Ctrl+K Ctrl+D` is the one additive binding, and it is a deliberate
-//!   behaviour change at the host boundary.** The skip-occurrence verb exists and
-//!   is tested, but had no key because the codebase had no chord support. Binding
-//!   it here gives the multi-key machinery a real user from day one and makes a
-//!   command that was previously reachable only from Rust reachable from the
-//!   keyboard. No *pre-existing* binding changes meaning — but plain `Ctrl+K`
-//!   changes from `KeyResult::Ignored` to `KeyResult::Handled`, and that is
-//!   observable:
+//! - **`Ctrl+K` is deliberately unbound, and reserved.** It briefly held a
+//!   `Ctrl+K Ctrl+D` chord for the skip-occurrence verb — the multi-key machinery's
+//!   first real user — but `Ctrl+K` is wanted as the command-palette key, and a
+//!   bare binding on a sequence forecloses every chord sharing its prefix: an exact
+//!   match fires the instant it completes, so `Ctrl+K` and `Ctrl+K …` cannot
+//!   coexist (see [`KeymapStack`] on cross-layer shadowing). Reserving the leader
+//!   is the decision that was taken.
 //!
-//!   - the web host repaints and calls `preventDefault()` on `Ctrl+K`, where
-//!     before it passed the key through to the browser;
-//!   - on macOS the web host forwards both `Cmd` and `Ctrl` as the kernel's
-//!     `ctrl`, so `Cmd+K` *and* Cocoa's `Ctrl+K` kill-to-end-of-line both arm the
-//!     leader, and the latter no longer reaches the OS. This matches VS Code on
-//!     macOS, where `Cmd+K` is likewise a chord leader.
+//!   The cost is that [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`] has no default key. It
+//!   is still registered, still implemented, and still runnable by id — which is
+//!   what a command palette is for, and is why losing the chord is acceptable
+//!   rather than a regression. A host that wants the chord back can bind it in its
+//!   own layer, and will get it, because nothing claims the prefix any more.
 //!
-//!   What the leader must never do is *destroy* a keystroke. It does not: a stroke
-//!   that cannot continue the sequence is retried from scratch, so `Ctrl+K` then
-//!   `h` types `h`, and `Ctrl+K` then `Ctrl+Shift+D` runs the `Ctrl+Shift+D`
-//!   binding. Hosts should also surface `KeyboardHandler::pending_sequence` so the
-//!   consumed leader is visible rather than looking like a dropped key.
+//!   A consequence worth keeping in mind while `Ctrl+K` is unbound: the key falls
+//!   through to the host, so on macOS Cocoa's `Ctrl+K` kill-to-end-of-line reaches
+//!   the OS again.
 
 use super::builtin::{
     CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, COMMENT_TOGGLE_BLOCK, COMMENT_TOGGLE_LINE,
@@ -50,8 +46,8 @@ use super::builtin::{
     HISTORY_UNDO, LINES_DELETE, LINES_DUPLICATE_DOWN, LINES_DUPLICATE_UP, LINES_JOIN,
     LINES_MOVE_DOWN, LINES_MOVE_UP, MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
-    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, SEARCH_NEXT_MATCH,
-    SEARCH_OPEN, SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
+    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, SEARCH_NEXT_MATCH, SEARCH_OPEN, SEARCH_PREVIOUS_MATCH,
+    SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -61,7 +57,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 51;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 50;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -121,9 +117,12 @@ const CTRL_NO_SHIFT: ModifierPattern = pattern(Forbidden, Required, Forbidden, F
 const CTRL_SHIFT: ModifierPattern = pattern(Required, Required, Forbidden, Forbidden, Any);
 
 /// No continuation: a single-chord binding.
+///
+/// Every entry in the table below uses this. The continuation slot is kept — and
+/// exercised by the multi-stroke tests — because the resolver supports chords and
+/// a host keymap layer is expected to use them; the *default* keymap simply binds
+/// none, now that `Ctrl+K` is reserved (see the module documentation).
 const CHORD: &[StrokePattern] = &[];
-/// The second stroke of `Ctrl+K Ctrl+D`.
-const THEN_CTRL_D: &[StrokePattern] = &[StrokePattern::new(KeyCode::Char('d'), CTRL_NO_SHIFT)];
 
 /// The default binding table: `(first stroke, continuation, command)`.
 const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
@@ -290,11 +289,9 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         CHORD,
         MULTI_CURSOR_REMOVE_LAST_CURSOR,
     ),
-    (
-        StrokePattern::new(KeyCode::Char('k'), CTRL_NO_SHIFT),
-        THEN_CTRL_D,
-        MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
-    ),
+    // `MULTI_CURSOR_SKIP_LAST_OCCURRENCE` deliberately has no binding here: it
+    // held `Ctrl+K Ctrl+D`, and `Ctrl+K` is now reserved as the command-palette
+    // leader. See the module documentation.
     // ----- Editing -----
     (
         StrokePattern::new(KeyCode::Enter, ANY_MODS),

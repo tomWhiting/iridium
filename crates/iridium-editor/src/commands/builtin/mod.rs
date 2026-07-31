@@ -17,6 +17,12 @@
 //! dispatch tests make a missing pairing a test failure). A command contributed
 //! from **outside** the kernel needs none of them; see the module docs of
 //! [`crate::commands`].
+//!
+//! Entries carry [`CommandMeta::with_aliases`] wherever the title, id, category
+//! and description between them miss a word a user would plausibly type — `dupe`,
+//! `eol`, `yank`, `uncomment`. They are search terms only: nothing resolves a
+//! command *by* an alias, so adding one can never change which command a key or a
+//! host invocation runs.
 
 mod ids;
 
@@ -61,20 +67,23 @@ pub static BUILTIN: &[CommandMeta] = &[
         "Cursor to Line Start",
         "Smart home: the first non-whitespace character, or column zero when already there.",
         NAV,
-    ),
-    CommandMeta::from_static(CURSOR_LINE_END, "Cursor to Line End", NAV),
+    )
+    .with_aliases(&["bol", "home"]),
+    CommandMeta::from_static(CURSOR_LINE_END, "Cursor to Line End", NAV).with_aliases(&["eol"]),
     CommandMeta::described(
         CURSOR_DOCUMENT_START,
         "Cursor to Document Start",
         "Merges every cursor into one.",
         NAV,
-    ),
+    )
+    .with_aliases(&["bof", "top"]),
     CommandMeta::described(
         CURSOR_DOCUMENT_END,
         "Cursor to Document End",
         "Merges every cursor into one.",
         NAV,
-    ),
+    )
+    .with_aliases(&["eof", "bottom"]),
     // ----- Selection -----
     CommandMeta::from_static(CURSOR_CHAR_LEFT_SELECT, "Extend Selection Left", SEL),
     CommandMeta::from_static(CURSOR_CHAR_RIGHT_SELECT, "Extend Selection Right", SEL),
@@ -104,7 +113,8 @@ pub static BUILTIN: &[CommandMeta] = &[
         "Collapse to Single Cursor",
         "Drops every secondary cursor and collapses the primary selection.",
         SEL,
-    ),
+    )
+    .with_aliases(&["one cursor", "exit multi cursor"]),
     // ----- Editing -----
     CommandMeta::described(
         EDIT_INSERT_CHARACTER,
@@ -120,7 +130,8 @@ pub static BUILTIN: &[CommandMeta] = &[
         "Applies auto-indent, bracket-block expansion and code-fence expansion when enabled.",
         EDIT,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["newline", "enter", "return"]),
     CommandMeta::described(
         EDIT_TAB,
         "Tab",
@@ -128,15 +139,19 @@ pub static BUILTIN: &[CommandMeta] = &[
              pads to the next tab stop.",
         EDIT,
     )
-    .mutating(),
-    CommandMeta::from_static(EDIT_OUTDENT, "Outdent", EDIT).mutating(),
+    .mutating()
+    .with_aliases(&["indent"]),
+    CommandMeta::from_static(EDIT_OUTDENT, "Outdent", EDIT)
+        .mutating()
+        .with_aliases(&["unindent", "dedent"]),
     CommandMeta::described(
         EDIT_DELETE_BACKWARD,
         "Delete Backward",
         "Deletes the selection, or the character before each caret.",
         EDIT,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["backspace", "erase"]),
     CommandMeta::from_static(EDIT_DELETE_WORD_BACKWARD, "Delete Word Backward", EDIT).mutating(),
     CommandMeta::described(
         EDIT_DELETE_FORWARD,
@@ -144,15 +159,28 @@ pub static BUILTIN: &[CommandMeta] = &[
         "Deletes the selection, or the character after each caret.",
         EDIT,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["del", "erase"]),
     CommandMeta::from_static(EDIT_DELETE_WORD_FORWARD, "Delete Word Forward", EDIT).mutating(),
     // ----- Lines -----
-    CommandMeta::from_static(LINES_MOVE_UP, "Move Line Up", LINES).mutating(),
-    CommandMeta::from_static(LINES_MOVE_DOWN, "Move Line Down", LINES).mutating(),
-    CommandMeta::from_static(LINES_DUPLICATE_UP, "Duplicate Line Up", LINES).mutating(),
-    CommandMeta::from_static(LINES_DUPLICATE_DOWN, "Duplicate Line Down", LINES).mutating(),
-    CommandMeta::from_static(LINES_DELETE, "Delete Line", LINES).mutating(),
-    CommandMeta::from_static(LINES_JOIN, "Join Lines", LINES).mutating(),
+    CommandMeta::from_static(LINES_MOVE_UP, "Move Line Up", LINES)
+        .mutating()
+        .with_aliases(&["swap line up"]),
+    CommandMeta::from_static(LINES_MOVE_DOWN, "Move Line Down", LINES)
+        .mutating()
+        .with_aliases(&["swap line down"]),
+    CommandMeta::from_static(LINES_DUPLICATE_UP, "Duplicate Line Up", LINES)
+        .mutating()
+        .with_aliases(&["clone", "dupe"]),
+    CommandMeta::from_static(LINES_DUPLICATE_DOWN, "Duplicate Line Down", LINES)
+        .mutating()
+        .with_aliases(&["clone", "dupe"]),
+    CommandMeta::from_static(LINES_DELETE, "Delete Line", LINES)
+        .mutating()
+        .with_aliases(&["kill line", "remove line"]),
+    CommandMeta::from_static(LINES_JOIN, "Join Lines", LINES)
+        .mutating()
+        .with_aliases(&["merge lines"]),
     // ----- Comments -----
     CommandMeta::described(
         COMMENT_TOGGLE_LINE,
@@ -161,35 +189,40 @@ pub static BUILTIN: &[CommandMeta] = &[
              acknowledged without editing when neither exists.",
         COMMENTS,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["uncomment", "//"]),
     CommandMeta::described(
         COMMENT_TOGGLE_BLOCK,
         "Toggle Block Comment",
         "Falls back to the line comment toggle for languages with no block pair.",
         COMMENTS,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["uncomment", "/*"]),
     // ----- Clipboard -----
     CommandMeta::described(
         CLIPBOARD_COPY,
         "Copy",
         "Copies the selections, or each cursor's whole line when nothing is selected.",
         CLIP,
-    ),
+    )
+    .with_aliases(&["yank"]),
     CommandMeta::described(
         CLIPBOARD_CUT,
         "Cut",
         "Always updates the clipboard, even when nothing can be removed.",
         CLIP,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["kill"]),
     CommandMeta::described(
         CLIPBOARD_PASTE,
         "Paste",
         "Requests clipboard text from the host, then inserts it at every cursor.",
         CLIP,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["put"]),
     // ----- History -----
     CommandMeta::described(
         HISTORY_UNDO,
@@ -197,21 +230,24 @@ pub static BUILTIN: &[CommandMeta] = &[
         "Steps back along the active branch of the undo tree.",
         HISTORY,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["revert"]),
     CommandMeta::described(
         HISTORY_REDO,
         "Redo",
         "Steps forward along the active branch of the undo tree.",
         HISTORY,
     )
-    .mutating(),
+    .mutating()
+    .with_aliases(&["reapply"]),
     // ----- Multi-cursor -----
     CommandMeta::described(
         MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,
         "Add Selection to Next Find Match",
         "Selects the word at the caret first when nothing is selected.",
         MULTI,
-    ),
+    )
+    .with_aliases(&["next occurrence"]),
     CommandMeta::from_static(
         MULTI_CURSOR_SELECT_ALL_OCCURRENCES,
         "Select All Occurrences",
@@ -231,11 +267,13 @@ pub static BUILTIN: &[CommandMeta] = &[
         "Move Last Selection to Next Find Match",
         "Drops the most recently added occurrence cursor and takes the next one.",
         MULTI,
-    ),
+    )
+    .with_aliases(&["skip occurrence"]),
     // ----- Search -----
-    CommandMeta::from_static(SEARCH_OPEN, "Find", SEARCH),
-    CommandMeta::from_static(SEARCH_NEXT_MATCH, "Find Next", SEARCH),
-    CommandMeta::from_static(SEARCH_PREVIOUS_MATCH, "Find Previous", SEARCH),
+    CommandMeta::from_static(SEARCH_OPEN, "Find", SEARCH).with_aliases(&["search"]),
+    CommandMeta::from_static(SEARCH_NEXT_MATCH, "Find Next", SEARCH).with_aliases(&["search next"]),
+    CommandMeta::from_static(SEARCH_PREVIOUS_MATCH, "Find Previous", SEARCH)
+        .with_aliases(&["search previous"]),
     // ----- General -----
     CommandMeta::described(
         COMMAND_NO_OP,

@@ -158,11 +158,11 @@ pub const MULTI_CURSOR_ADD_CURSOR_BELOW: CommandId =
     CommandId::from_static("multiCursor.addCursorBelow");
 /// Move the most recently added occurrence cursor to the next match.
 ///
-/// Reachable today only as
-/// [`KeyboardHandler::skip_last_added_occurrence`](crate::input::KeyboardHandler::skip_last_added_occurrence),
-/// because the codebase had no chord infrastructure when it was written. The
-/// default keymap now binds it to `Ctrl+K Ctrl+D`, which is the one binding in
-/// that keymap that is additive rather than a transcription.
+/// Deliberately **unbound** by the default keymap: it briefly held `Ctrl+K
+/// Ctrl+D`, which was given up so that bare `Ctrl+K` could open the command
+/// palette — binding a prefix forecloses every chord beneath it. Reach it from
+/// the palette, from a host layer that rebinds the chord, or in Rust as
+/// [`KeyboardHandler::skip_last_added_occurrence`](crate::input::KeyboardHandler::skip_last_added_occurrence).
 pub const MULTI_CURSOR_SKIP_LAST_OCCURRENCE: CommandId =
     CommandId::from_static("multiCursor.skipLastOccurrence");
 

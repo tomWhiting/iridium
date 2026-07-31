@@ -201,6 +201,86 @@ fn builtin_ids_are_unique_non_empty_and_static() {
 }
 
 #[test]
+fn builtin_aliases_are_well_formed() {
+    let ids: HashSet<String> = builtin_commands()
+        .iter()
+        .map(|meta| meta.id().as_str().to_owned())
+        .collect();
+
+    for meta in builtin_commands() {
+        let id = meta.id();
+        let mut seen = HashSet::new();
+        for alias in meta.aliases() {
+            assert!(!alias.is_empty(), "`{id}` has an empty alias");
+            assert_eq!(
+                *alias,
+                alias.trim(),
+                "alias `{alias}` on `{id}` has surrounding whitespace"
+            );
+            // Lowercase because the matcher awards an exact-case bonus: a
+            // capitalized alias would score differently from the same word typed
+            // in lower case, which is not a distinction the author intended.
+            assert_eq!(
+                *alias,
+                alias.to_lowercase(),
+                "alias `{alias}` on `{id}` is not lower case"
+            );
+            assert!(seen.insert(*alias), "alias `{alias}` is repeated on `{id}`");
+            assert!(
+                !alias.eq_ignore_ascii_case(meta.title()),
+                "alias `{alias}` on `{id}` only restates its title"
+            );
+            // An alias that *is* another command's id would make an exact-id
+            // query rank the wrong command first.
+            assert!(
+                !ids.contains(*alias),
+                "alias `{alias}` on `{id}` collides with a command id"
+            );
+        }
+    }
+}
+
+#[test]
+fn aliases_are_absent_by_default_and_carried_when_declared() {
+    assert!(meta("edit.plain", "Plain").aliases().is_empty());
+
+    let aliased = meta("edit.aliased", "Aliased").with_aliases(&["synonym", "other"]);
+    assert_eq!(aliased.aliases(), ["synonym", "other"]);
+
+    // The same synonym on two commands is legitimate — both deletions really are
+    // what a user means by "erase" — so the table must not be deduplicated
+    // globally. Anchored here because a well-meaning uniqueness check would break
+    // it.
+    let registry = builtin_registry().unwrap();
+    let backward = registry.get("edit.deleteBackward").unwrap().aliases();
+    let forward = registry.get("edit.deleteForward").unwrap().aliases();
+    assert!(backward.contains(&"erase"));
+    assert!(forward.contains(&"erase"));
+
+    assert!(
+        registry
+            .get("clipboard.copy")
+            .unwrap()
+            .aliases()
+            .contains(&"yank")
+    );
+    assert!(
+        registry
+            .get("cursor.lineEnd")
+            .unwrap()
+            .aliases()
+            .contains(&"eol")
+    );
+    assert!(
+        registry
+            .get("selection.selectAll")
+            .unwrap()
+            .aliases()
+            .is_empty()
+    );
+}
+
+#[test]
 fn registering_the_builtins_twice_is_rejected_rather_than_shadowing() {
     let mut registry = builtin_registry().unwrap();
     let error = register_builtin_commands(&mut registry).unwrap_err();

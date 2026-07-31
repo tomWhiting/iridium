@@ -1384,6 +1384,76 @@ kernel+syntax, **87** syntax, 101 bindings. Workspace clippy **138** (flat —
 step 7 added none). `fmt` clean; wasm32 has only the two known pre-existing
 warnings.
 
+### Step 8, syntax half DONE (1 Aug) — text objects and jump-by-kind
+
+`crates/iridium-syntax/src/query/textobject.rs` — `find`, `jump`, `regions` over
+the vendored `textobjects.scm` files, plus `TextObject` / `Variant` /
+`Direction`. Committed as `f68f135`. 99 syntax tests, zero clippy warnings in
+that crate. 3 of 3 deliberate breaks caught.
+
+**The capture inventory, counted rather than assumed** (this is the table that
+otherwise costs another pass):
+
+| Languages | Captures present |
+|---|---|
+| rust, python, typescript, javascript, tsx, go, css, c, cpp | all five |
+| bash | function + comment; **no class** |
+| markdown | **class only** — and a class is a *section* |
+| json, yaml | **comment only** |
+
+Five captures exist and no more: `@function.inside`, `@function.around`,
+`@class.inside`, `@class.around`, `@comment.around`. No parameter, argument,
+block or call object; no `@comment.inside`. The markdown row is the interesting
+one — jump-by-class is the heading navigator for prose, which is squarely Tom's
+use case.
+
+**Two rules carried from the structural walks.** `find` returns the next region
+out when the range already matches one, so a second press leaves a closure for
+the method holding it. `jump` is strict past its origin so a held key advances —
+with the consequence, pinned in a test, that jumping forward from byte zero of a
+file whose first function starts at byte zero lands on the **second** function.
+
+### Delegation is now the standing mode (Tom, 1 Aug)
+
+Tom's instruction: **do not implement in the main seat**. Dispatch to subagents
+(Opus) and to Norn; the seat's job is to verify — check the claims, re-read the
+sources, confirm the tests actually ran. Also: stop blocking on him for
+decisions. If a decision is genuinely needed, ask Waffles, who has his
+authority. He will be disappointed to find work stalled on a call he did not
+need to make.
+
+**Decisions taken under that authority, so nothing stays blocked:**
+- `Shift+Alt+Left/Right` **stays** as expand/shrink.
+- The terminal face **does not start** this stint — the plan already lists it as
+  deliberately out of scope, so the status quo needs no approval.
+- All 19 non-core `ast.*` verbs stay palette-only.
+- §4.5 web delivery: option (a) now, timeboxed spike on (c) later — the plan's
+  own recommendation.
+- `THE-CORE-LOOP.md` §4 reprioritisation is **still not applied** to `PLAN.md`.
+  That one is a genuine product-direction call, and leaving it alone is the
+  reversible default, not a blocked task.
+
+**In flight as of this writing** (both dispatched, neither verified yet):
+1. **Norn** (`gpt-5.6-sol`, xhigh, dev/refactor) clearing the `iridium-bindings`
+   clippy batch — 73 warnings across `editor.rs`, `events.rs`, `lib.rs`,
+   `types.rs`, `edit_tracking.rs`. Runs in the **separate worktree**
+   `/Users/tom/Developer/ablative/libs/iridium-clippy-sweep` on branch
+   `clippy-sweep`, so it cannot collide with main-tree work. Driver script:
+   `scratchpad/norn-clippy.sh`. Envelope lands in `~/.norn/delegations/`.
+2. **Opus subagent** wiring the nine editor-side step-8 verbs in the main tree.
+
+**Why one worktree and not a fleet of them:** `target/` is 14G and the disk has
+58G free. Three worktrees would have taken it past 95%. Sequential batches in
+one worktree cost wall-clock that is model latency anyway, and avoid both the
+disk risk and the contamination hazard of two agents running `cargo test`
+against each other's half-finished edits in a shared tree.
+
+**Remaining clippy batches, not yet dispatched** (queue them into the same
+worktree once the bindings batch lands): `iridium-editor` render + view
+(`render/*`, `view/frame_timer.rs`, ~42 warnings) and `input/mouse.rs` +
+`editor/mod.rs` (~15). One warning is **unfixable by us** — `block v0.1.6`
+contains code a future Rust will reject; it is a transitive dependency.
+
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 
 Everything below was read off the tree, not remembered.

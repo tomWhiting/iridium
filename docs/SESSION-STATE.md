@@ -620,6 +620,41 @@ and every entry shows the key that runs it.
 After that, the plan's sections 2–4 (text transformations → undo-tree keys and
 panel → syntax-node navigation).
 
+## Multi-cursor was INVISIBLE in the web face — fixed 1 Aug (`f85d4a0`)
+
+Reported by Tom as "Add Cursor Above/Below isn't wired up" from the new palette.
+It was not the palette, and not the kernel.
+
+**`wasm.rs` drew one caret and one selection highlight, both from
+`cursor.primary`.** `all_selections` and `secondary` appeared nowhere in the
+file. The kernel created N selections correctly and reported them correctly; the
+face showed one. A command that worked perfectly looked like one that did
+nothing.
+
+Diagnosis order that got there, worth repeating: confirmed both ids registered
+*and* in the ACTIONS table, then wrote a kernel test running the command **by
+name** and **by key** over the same document and comparing every caret. They
+agreed — which is what ruled out the whole kernel and the palette in one step and
+pointed at the renderer. That test is committed
+(`adding_a_cursor_vertically_by_id_matches_the_key`).
+
+**The fix:** both quad paths walk `all_selections()`. The primary's position is
+still computed separately — `ensure_cursor_visible` scrolls to it alone and
+inline blame sits on its line — but its *caret* comes from the same loop, so no
+primary-shaped special case is left to drift. Blink stays shared on purpose.
+
+**`cursorCount()` was added and wired to the demo's status bar**, and that is the
+part that matters beyond this bug: every export on this face reports the primary
+and none published a count, so nothing outside the kernel could contradict the
+renderer. A visible count makes the class of defect loud.
+
+**Nothing tests this.** `wasm.rs` is `cfg(target_arch = "wasm32")` and the render
+path is GPU-coupled, so no native build compiles it — exactly how this survived.
+**Treat every `.primary` in `wasm.rs` as suspect**; there are many
+(`getSelectedText`, `selectionStart/End`, `extendSelectionLeft/Right`, …) and
+each one is a place where this face silently speaks for one cursor. That is the
+next audit, and it is not done.
+
 ## Section 2 (text transformations) — facts re-verified 31 Jul, before starting
 
 Checked by hand against the tree as it stands, because the palette work moved

@@ -561,53 +561,35 @@ Gates run for step 11: `deno check` clean across the whole core package,
 **55 bun tests** (29 new), `npx tsc --noEmit` clean on `examples/web`, and
 `npx vite build` succeeds. No Rust changed, so the cargo baselines above stand.
 
-## Step 11 is parked in a worktree — NOT on the working branch
+## Step 11 has LANDED — merged, rebuilt, server restarted (31 Jul, ~18:15)
 
-Branch **`feature/palette-web-face`** — one commit, in a worktree at
-`<scratchpad>/step11-wt`. It is deliberately not in this checkout. Refer to it by
-**branch name, not commit hash**: it has been rebased once already and may be
-again, so any hash written down goes stale.
+Tom gave the go-ahead ("you're totally fine to restart and rerun stuff"), so the
+whole thing is now on **`feature/terminal-face`**, merge commit `d5ec40b`. The
+worktree branch `feature/palette-web-face` is merged and can be deleted along
+with `<scratchpad>/step11-wt`.
 
-**Why:** the vite dev server on 12223 was live for the visitor demo when step 11
-was written, and every file step 11 touches is in vite's module graph — editing
-them in place would have hot-reloaded the guests' browsers mid-demo.
+What was done, in the order it had to happen:
 
-**To land it** once the demo is over — note the target is
-**`feature/terminal-face`**, the working branch, *not* `main`:
+1. **Wasm rebuilt first** — `wasm-pack build crates/iridium-bindings --target web
+   --features web --no-default-features`. Merging first would have broken the
+   running demo, because the merged UI calls exports the old bundle lacked. Took
+   **17s**; the target was warm.
+2. **Merged** the palette branch. Clean, no conflicts.
+3. **Dev server restarted** on 12223 (the old pid 17942 was serving a module
+   graph with none of this in it).
 
-```bash
-git switch feature/terminal-face
-git merge feature/palette-web-face        # plain merge: see the note below
-git worktree remove <scratchpad>/step11-wt
-git branch -d feature/palette-web-face
-```
+**Verified after the restart:** all four palette exports are in the new bundle
+(`listCommands`, `searchCommands`, `runCommand`, `keyHintFor` — previously 0
+matches), their `.d.ts` signatures match the TS `WebEditor` interface exactly,
+vite serves `palette/{index,keys,highlight}.ts` at 200, and `App.tsx` resolves
+`@iridium/core/palette` to the palette module rather than to a path underneath
+`controller/index.ts` — which confirms the alias-ordering fix was load-bearing,
+not cosmetic. Gates: **55 bun tests**, `deno check` clean, `tsc --noEmit` clean.
 
-Use a **plain merge, not `--ff-only`**. The palette branch forked from the tip as
-it stood before the step-11 doc commit, so every further commit on
-`feature/terminal-face` re-diverges the two and `--ff-only` starts failing. That
-already happened once. A plain merge fast-forwards when nothing else has moved
-and merges cleanly when it has; there is no reason to demand the stricter form.
-
-Neither branch has an upstream, so all of this is local and reversible.
-
-The worktree has `node_modules` and `crates/iridium-bindings/pkg` symlinked in
-from this checkout so it can typecheck and build; both are untracked and were
-removed before committing. Recreate with `ln -sfn` if you go back to it. **Do not
-let a wasm build write through that `pkg` symlink** — it points at the bundle the
-demo is serving. Delete the symlink before building anything.
-
-**Step 11 has NOT been verified in a browser, and cannot be until the demo
-ends.** The live bundle at `crates/iridium-bindings/pkg` was built at 10:04;
-step 8's palette exports (`listCommands`, `searchCommands`, `runCommand`,
-`keyHintFor`) landed at 14:17 and are **not in it** — `grep -c listCommands
-crates/iridium-bindings/pkg/iridium_bindings.d.ts` returns 0. So:
-
-- the running demo is unaffected by any of this work, and
-- the end-to-end pass needs a wasm rebuild first, which today's standing
-  instruction forbids.
-
-The wasm rebuild was also **not** run in the worktree: a cold wasm32 build of
-this tree is CPU-heavy and would risk making the live demo stutter.
+**Why the demo could never have worked before this**, since it came up: the
+served bundle was built at 10:04 and the palette exports landed at 14:17, *and*
+the UI files were on a branch, not in the checkout. Neither half was present, so
+`Ctrl+K` did nothing. Not a version fluke.
 
 **The outstanding end-to-end checks**, once rebuilt: `Ctrl+K` opens the palette,
 arrows clamp at both ends, `Enter` runs, `Escape` restores focus to the canvas,

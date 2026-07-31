@@ -20,6 +20,10 @@
       "types": "./src/element/index.ts",
       "default": "./src/element/index.ts"
     },
+    "./palette": {
+      "types": "./src/palette/index.ts",
+      "default": "./src/palette/index.ts"
+    },
     "./worker-client": {
       "types": "./src/worker/client.ts",
       "default": "./src/worker/client.ts"

@@ -26,15 +26,14 @@
 //! the command does; the pairing is asserted exhaustively in the module's
 //! `dispatch_tests`. Grouping comments below mirror the sections of that module.
 
+mod run;
+
 use crate::commands::{CommandArgs, CommandId, builtin};
 use crate::document::{CursorState, Document};
 use crate::editor::EditorConfig;
-use crate::history::{Command, UndoTree};
+use crate::history::UndoTree;
 
-use super::motions;
-use super::motions::VerticalDirection::{Down, Up};
-use super::types::{ClipboardOperation, KeyCode, KeyEvent, KeyResult, SearchAction};
-use super::{KeyboardHandler, line_ops};
+use super::types::KeyEvent;
 
 /// The editor state one command implementation may read.
 ///
@@ -145,6 +144,43 @@ pub(super) enum KeyboardAction {
     DeleteToLineStart,
     /// Delete the selection, or from each caret to the end of its line.
     DeleteToLineEnd,
+
+    // ----- Text transformations -----
+    //
+    // One variant per verb rather than one carrying a `CaseVerb`/`LineVerb`
+    // payload: the enum must stay `Copy` and exhaustively matched against the
+    // id table, and a payload-carrying variant would let two ids map to the
+    // same variant without a compile error.
+    /// Uppercase each caret's selection, or the word under it.
+    TransformUpperCase,
+    /// Lowercase each caret's selection, or the word under it.
+    TransformLowerCase,
+    /// Capitalise each word, keeping spacing and punctuation.
+    TransformTitleCase,
+    /// Cycle each caret's text through lower, upper and title case.
+    TransformToggleCase,
+    /// Invert the case of every cased character.
+    TransformSwapCase,
+    /// Re-join the words as `camelCase`.
+    TransformCamelCase,
+    /// Re-join the words as `PascalCase`.
+    TransformPascalCase,
+    /// Re-join the words as `snake_case`.
+    TransformSnakeCase,
+    /// Re-join the words as `SCREAMING_SNAKE_CASE`.
+    TransformScreamingSnakeCase,
+    /// Re-join the words as `kebab-case`.
+    TransformKebabCase,
+    /// Sort the selected lines ascending.
+    TransformSortLines,
+    /// Sort the selected lines descending.
+    TransformSortLinesReverse,
+    /// Reverse the order of the selected lines.
+    TransformReverseLines,
+    /// Remove repeated lines, keeping the first of each.
+    TransformDedupeLines,
+    /// Strip trailing whitespace from the selected lines.
+    TransformTrimTrailingWhitespace,
 
     // ----- Whole-line operations -----
     /// Move each cursor's line block up one line.
@@ -267,6 +303,37 @@ static ACTIONS: &[(CommandId, KeyboardAction)] = &[
         Action::DeleteToLineStart,
     ),
     (builtin::EDIT_DELETE_TO_LINE_END, Action::DeleteToLineEnd),
+    // Text transformations.
+    (builtin::TRANSFORM_UPPER_CASE, Action::TransformUpperCase),
+    (builtin::TRANSFORM_LOWER_CASE, Action::TransformLowerCase),
+    (builtin::TRANSFORM_TITLE_CASE, Action::TransformTitleCase),
+    (builtin::TRANSFORM_TOGGLE_CASE, Action::TransformToggleCase),
+    (builtin::TRANSFORM_SWAP_CASE, Action::TransformSwapCase),
+    (builtin::TRANSFORM_CAMEL_CASE, Action::TransformCamelCase),
+    (builtin::TRANSFORM_PASCAL_CASE, Action::TransformPascalCase),
+    (builtin::TRANSFORM_SNAKE_CASE, Action::TransformSnakeCase),
+    (
+        builtin::TRANSFORM_SCREAMING_SNAKE_CASE,
+        Action::TransformScreamingSnakeCase,
+    ),
+    (builtin::TRANSFORM_KEBAB_CASE, Action::TransformKebabCase),
+    (builtin::TRANSFORM_SORT_LINES, Action::TransformSortLines),
+    (
+        builtin::TRANSFORM_SORT_LINES_REVERSE,
+        Action::TransformSortLinesReverse,
+    ),
+    (
+        builtin::TRANSFORM_REVERSE_LINES,
+        Action::TransformReverseLines,
+    ),
+    (
+        builtin::TRANSFORM_DEDUPE_LINES,
+        Action::TransformDedupeLines,
+    ),
+    (
+        builtin::TRANSFORM_TRIM_TRAILING_WHITESPACE,
+        Action::TransformTrimTrailingWhitespace,
+    ),
     // Whole-line operations.
     (builtin::LINES_MOVE_UP, Action::LinesMoveUp),
     (builtin::LINES_MOVE_DOWN, Action::LinesMoveDown),
@@ -349,155 +416,4 @@ pub(super) const IMPLEMENTED_COMMAND_COUNT: usize = ACTIONS.len();
 #[cfg(test)]
 pub(super) fn implemented_ids() -> impl Iterator<Item = &'static CommandId> {
     ACTIONS.iter().map(|entry| &entry.0)
-}
-
-impl KeyboardHandler {
-    /// Runs one command against `ctx` and returns what the caller must do.
-    ///
-    /// This is a pure routing table: every arm delegates to the same handler the
-    /// pre-registry `match` on `(KeyCode, Modifiers)` called, with the modifier
-    /// interpretation that used to live in the guards now expressed by the
-    /// binding that selected the command. `Ctrl+Left` no longer means "word
-    /// left because `ctrl` is set"; it means
-    /// [`builtin::CURSOR_WORD_LEFT`], and the keymap decided that.
-    pub(super) fn run_action(
-        &mut self,
-        action: KeyboardAction,
-        ctx: &CommandContext<'_>,
-    ) -> KeyResult {
-        let document = ctx.document;
-        let cursor = ctx.cursor;
-        match action {
-            // ----- Navigation and selection -----
-            Action::CharLeft => {
-                Self::apply_motion(cursor, false, |sel| motions::char_left(document, sel.head))
-            },
-            Action::CharLeftSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::char_left(document, sel.head))
-            },
-            Action::CharRight => {
-                Self::apply_motion(cursor, false, |sel| motions::char_right(document, sel.head))
-            },
-            Action::CharRightSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::char_right(document, sel.head))
-            },
-            Action::WordLeft => {
-                Self::apply_motion(cursor, false, |sel| motions::word_left(document, sel.head))
-            },
-            Action::WordLeftSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::word_left(document, sel.head))
-            },
-            Action::WordRight => {
-                Self::apply_motion(cursor, false, |sel| motions::word_right(document, sel.head))
-            },
-            Action::WordRightSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::word_right(document, sel.head))
-            },
-            Action::LineStart => Self::apply_motion(cursor, false, |sel| {
-                motions::line_start_smart(document, sel.head)
-            }),
-            Action::LineStartSelect => Self::apply_motion(cursor, true, |sel| {
-                motions::line_start_smart(document, sel.head)
-            }),
-            Action::LineEnd => {
-                Self::apply_motion(cursor, false, |sel| motions::line_end(document, sel.head))
-            },
-            Action::LineEndSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::line_end(document, sel.head))
-            },
-            Action::DocumentStart => {
-                Self::apply_motion(cursor, false, |_| motions::document_start())
-            },
-            Action::DocumentStartSelect => {
-                Self::apply_motion(cursor, true, |_| motions::document_start())
-            },
-            Action::DocumentEnd => {
-                Self::apply_motion(cursor, false, |_| motions::document_end(document))
-            },
-            Action::DocumentEndSelect => {
-                Self::apply_motion(cursor, true, |_| motions::document_end(document))
-            },
-            Action::LineUp => self.vertical_motion(document, cursor, false, Up),
-            Action::LineUpSelect => self.vertical_motion(document, cursor, true, Up),
-            Action::LineDown => self.vertical_motion(document, cursor, false, Down),
-            Action::LineDownSelect => self.vertical_motion(document, cursor, true, Down),
-            Action::SelectAll => Self::handle_select_all(document, cursor),
-            Action::CollapseToPrimary => Self::handle_collapse_to_primary(cursor),
-
-            // ----- Editing -----
-            // The only command that reads the raw event. Invoked by id, with no
-            // keystroke to take a character from, there is nothing to insert.
-            Action::InsertCharacter => match ctx.event.map(|event| event.key) {
-                Some(KeyCode::Char(c)) => Self::handle_char_input(c, document, cursor, ctx.config),
-                _ => KeyResult::Ignored,
-            },
-            Action::InsertNewline => Self::handle_enter(document, cursor, ctx.config),
-            Action::Tab => Self::handle_tab(document, cursor, ctx.config),
-            Action::Outdent => Self::handle_outdent(document, cursor, ctx.config),
-            Action::DeleteBackward => Self::handle_delete_backward(document, cursor, ctx.config),
-            Action::DeleteWordBackward => Self::handle_delete_word_backward(document, cursor),
-            Action::DeleteForward => Self::handle_delete_forward(document, cursor, false),
-            Action::DeleteWordForward => Self::handle_delete_forward(document, cursor, true),
-            Action::DeleteToLineStart => Self::handle_delete_to_line_start(document, cursor),
-            Action::DeleteToLineEnd => Self::handle_delete_to_line_end(document, cursor),
-
-            // ----- Whole-line operations -----
-            Action::LinesMoveUp => Self::line_command(line_ops::move_lines(document, cursor, Up)),
-            Action::LinesMoveDown => {
-                Self::line_command(line_ops::move_lines(document, cursor, Down))
-            },
-            Action::LinesDuplicateUp => {
-                Self::line_command(line_ops::duplicate_lines(document, cursor, Up))
-            },
-            Action::LinesDuplicateDown => {
-                Self::line_command(line_ops::duplicate_lines(document, cursor, Down))
-            },
-            Action::LinesDelete => Self::line_command(line_ops::delete_lines(document, cursor)),
-            Action::LinesJoin => Self::line_command(line_ops::join_lines(document, cursor)),
-
-            // ----- Comments -----
-            Action::ToggleLineComment => {
-                Self::handle_toggle_line_comment(document, cursor, ctx.config)
-            },
-            Action::ToggleBlockComment => {
-                Self::handle_toggle_block_comment(document, cursor, ctx.config)
-            },
-
-            // ----- Clipboard -----
-            Action::ClipboardCopy => Self::handle_copy(document, cursor),
-            Action::ClipboardCut => Self::handle_cut(document, cursor),
-            Action::ClipboardPaste => KeyResult::Clipboard(ClipboardOperation::Paste),
-
-            // ----- History -----
-            Action::Undo => Self::handle_undo(ctx.history),
-            Action::Redo => Self::handle_redo(ctx.history),
-
-            // ----- Multi-cursor -----
-            Action::AddSelectionToNextMatch => {
-                self.handle_add_selection_next_match(document, cursor)
-            },
-            Action::SelectAllOccurrences => self.handle_select_all_occurrences(document, cursor),
-            Action::RemoveLastCursor => self.handle_undo_last_cursor(document, cursor),
-            Action::AddCursorAbove => self.handle_add_cursor_vertical(document, cursor, Up),
-            Action::AddCursorBelow => self.handle_add_cursor_vertical(document, cursor, Down),
-            Action::SkipLastOccurrence => self.skip_last_added_occurrence(document, cursor),
-
-            // ----- General -----
-            Action::NoOp => KeyResult::Handled,
-
-            // ----- Search -----
-            Action::SearchOpen => KeyResult::Search(SearchAction::OpenSearch),
-            Action::SearchNextMatch => KeyResult::Search(SearchAction::NextMatch),
-            Action::SearchPreviousMatch => KeyResult::Search(SearchAction::PreviousMatch),
-        }
-    }
-
-    /// Turns an optional line-operation command into a [`KeyResult`].
-    ///
-    /// A line operation that has nothing to do (an empty document, a join on the
-    /// last line) produces no command; the key is still consumed, exactly as
-    /// before the registry.
-    fn line_command(command: Option<Command>) -> KeyResult {
-        command.map_or(KeyResult::Handled, KeyResult::Command)
-    }
 }

@@ -25,7 +25,7 @@
 //! | Type | Role |
 //! |------|------|
 //! | [`CommandId`] | stable machine id; the compatibility surface keymaps and hosts reference |
-//! | [`CommandMeta`] | title, description, category, mutation hint |
+//! | [`CommandMeta`] | title, description, category, palette aliases, mutation hint |
 //! | [`CommandCategory`] | palette grouping (open, string-ish) |
 //! | [`CommandRegistry`] | register, look up, enumerate deterministically |
 //! | [`KeyPress`] | one concrete keypress from the host |

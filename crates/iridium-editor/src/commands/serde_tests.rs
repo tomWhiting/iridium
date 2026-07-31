@@ -276,6 +276,39 @@ fn command_metadata_round_trips_for_host_export() {
 }
 
 #[test]
+fn aliases_are_exported_but_never_accepted_back() {
+    let aliased = CommandMeta::from_static(
+        CommandId::from_static("clipboard.copy"),
+        "Copy",
+        CommandCategory::CLIPBOARD,
+    )
+    .with_aliases(&["yank"]);
+
+    let json = serde_json::to_string(&aliased).unwrap();
+    assert!(json.contains(r#""aliases":["yank"]"#), "{json}");
+
+    // Aliases must be `'static`, so there is nothing a deserialized string can
+    // become. Rejecting loudly is the point: a host manifest naming a synonym
+    // that silently never matched would be undiagnosable from the palette.
+    let error = serde_json::from_str::<CommandMeta>(&json).unwrap_err();
+    assert!(error.to_string().contains("with_aliases"), "{error}");
+
+    let plain = CommandMeta::from_static(
+        CommandId::from_static("lines.join"),
+        "Join Lines",
+        CommandCategory::LINES,
+    );
+    let json = serde_json::to_string(&plain).unwrap();
+    assert!(!json.contains("aliases"), "{json}");
+    assert_eq!(serde_json::from_str::<CommandMeta>(&json).unwrap(), plain);
+
+    // An explicitly empty list is accepted, so a consumer that always writes the
+    // field still round-trips.
+    let empty = r#"{"id":"lines.join","title":"Join Lines","category":"Lines","mutates_document":false,"aliases":[]}"#;
+    assert_eq!(serde_json::from_str::<CommandMeta>(empty).unwrap(), plain);
+}
+
+#[test]
 fn command_ids_and_labels_serialize_transparently() {
     assert_eq!(
         serde_json::to_string(&CommandId::from_static("edit.tab")).unwrap(),

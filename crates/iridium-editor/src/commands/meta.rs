@@ -2,9 +2,42 @@
 
 use std::borrow::Cow;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 
 use super::{CommandCategory, CommandId};
+
+/// Rejects any attempt to supply aliases through `serde`.
+///
+/// [`CommandMeta::aliases`] is `&'static [&'static str]`, so there is nothing a
+/// borrowed or owned deserialized string can become. The obvious spelling —
+/// `skip_deserializing` — would make `"aliases": ["fmt"]` in a host's command
+/// manifest *silently* do nothing, and a synonym that quietly never matches is
+/// exactly the kind of defect a palette makes impossible to diagnose from the
+/// outside. This turns that into a message naming the constructor to use.
+///
+/// An explicitly empty list is accepted, so a value produced by
+/// [`Serialize`] with no aliases still round-trips.
+fn deserialize_aliases<'de, D>(deserializer: D) -> Result<&'static [&'static str], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let supplied = Vec::<String>::deserialize(deserializer)?;
+    if supplied.is_empty() {
+        return Ok(&[]);
+    }
+    Err(de::Error::custom(
+        "`aliases` cannot be deserialized: they must be `'static` literals compiled into the \
+         kernel or the host, supplied with `CommandMeta::with_aliases`",
+    ))
+}
+
+/// Whether a serialized [`CommandMeta`] should omit its alias list.
+///
+/// A free function rather than an inline path because the field is a *reference*
+/// to a slice, and `serde` hands `skip_serializing_if` a reference to the field.
+const fn aliases_are_empty(aliases: &&'static [&'static str]) -> bool {
+    aliases.is_empty()
+}
 
 /// Everything the editor knows about one command *except* how to run it.
 ///
@@ -29,6 +62,13 @@ pub struct CommandMeta {
     category: CommandCategory,
     /// Advisory: `true` when running the command can change document text.
     mutates_document: bool,
+    /// Extra search terms for the palette; see [`Self::with_aliases`].
+    #[serde(
+        default,
+        deserialize_with = "deserialize_aliases",
+        skip_serializing_if = "aliases_are_empty"
+    )]
+    aliases: &'static [&'static str],
 }
 
 impl CommandMeta {
@@ -49,6 +89,7 @@ impl CommandMeta {
             description: None,
             category,
             mutates_document: false,
+            aliases: &[],
         }
     }
 
@@ -70,6 +111,7 @@ impl CommandMeta {
             description: None,
             category,
             mutates_document: false,
+            aliases: &[],
         }
     }
 
@@ -98,7 +140,35 @@ impl CommandMeta {
             description: Some(Cow::Borrowed(description)),
             category,
             mutates_document: false,
+            aliases: &[],
         }
+    }
+
+    /// Attaches extra search terms, in a `const` context.
+    ///
+    /// A palette matches a query against the title, the id, the category and the
+    /// description — which between them cover most commands, and miss precisely
+    /// the words a user reaches for that the author did not write down: `dupe`
+    /// for *Duplicate Line*, `eol` for *Cursor to Line End*, `yank` for *Copy*.
+    /// An alias earns its place by contributing a term a user would plausibly
+    /// type that none of those four already offers; restating the title in other
+    /// words only re-scores a command the query had already found.
+    ///
+    /// Aliases are `&'static [&'static str]` rather than owned strings for two
+    /// reasons: they are always authored literals, and an owning collection has
+    /// drop glue, which would keep the built-in table from being a `static`.
+    /// A host registering a command at run time therefore supplies aliases from
+    /// its own literals or leaves them empty. They are also **write-only over
+    /// `serde`** — see [`deserialize_aliases`].
+    ///
+    /// Duplicates across commands are allowed and expected: `erase` genuinely
+    /// belongs to both *Delete Backward* and *Delete Forward*. The palette's sort
+    /// is total, so a query matching two commands equally still orders them
+    /// deterministically.
+    #[must_use]
+    pub const fn with_aliases(mut self, aliases: &'static [&'static str]) -> Self {
+        self.aliases = aliases;
+        self
     }
 
     /// Marks the command as one that can change document text.
@@ -132,6 +202,12 @@ impl CommandMeta {
     #[must_use]
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// Extra palette search terms; empty for most commands.
+    #[must_use]
+    pub const fn aliases(&self) -> &'static [&'static str] {
+        self.aliases
     }
 
     /// The palette grouping.

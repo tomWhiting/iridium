@@ -1008,3 +1008,49 @@ The one honest limit, already verified and unchanged: the vendored
 block or call text object and no `@comment.inside`. Richer objects mean authoring
 new `.scm` per language, which is outside the plan. Say so rather than quietly
 shipping five and calling text objects done.
+
+### Step 2 pre-flight, verified by hand 1 Aug (no code written yet)
+
+Everything below was read off the tree, not remembered. Start here.
+
+**The table to delete:** `mod queries` in `crates/iridium-syntax/src/highlight.rs`
+(~line 281–309). It is an `include_query!` macro over
+`languages/queries/<lang>/highlights.scm` covering exactly the 13 languages in
+`Language::all()`. It is the *second* include table the plan wants collapsed
+into one.
+
+**`Language`** (`lib.rs:51`) has 13 variants, each with `id()` giving the
+directory name: rust, python, typescript, javascript, tsx, go, json, yaml,
+markdown, css, bash, c, cpp. `Language::all()` enumerates them, which is what
+the compile-every-embedded-query test should iterate.
+
+**`languages/queries/` holds 21 directories**, not 13 — `diff`, `gitcommit`,
+`gomod`, `gowork`, `jsdoc`, `jsonc`, `markdown-inline` and `regex` have query
+files but **no grammar is registered for them**, so they are unreachable. Do not
+add them to the table; note them as vendored-but-unused if anything asks.
+
+**The six `QueryKind`s** and exactly which of the 13 languages have each — this
+is the part that will otherwise cost another inventory pass:
+
+| Kind | Missing for |
+|---|---|
+| `highlights` | none — all 13 |
+| `brackets` | none — all 13 |
+| `textobjects` | none — all 13 |
+| `indents` | **yaml** |
+| `injections` | **json** |
+| `outline` | **bash** |
+
+So `embedded.rs` is 13 × 6 minus 3 = **75 entries**. The three gaps are real
+absences in the vendored files, not oversights: the loader must return `None`
+for them and the compile test must skip them rather than fail.
+
+Other kinds present in the vendored dirs — `overrides`, `imports`, `runnables`,
+`debugger`, `redactions`, `embedding`, `config.toml`, `contexts`, `structure` —
+are Zed-specific and serve nothing in Iridium. Leaving them out is deliberate.
+
+**Sizes going in:** `highlight.rs` 841, `folding.rs` 778, `lib.rs` 218. Both of
+the first two are over the 500-line cap already and step 3 is what brings them
+back under it, by making them borrow one retained tree instead of each owning a
+parser. Do not "fix" the cap by splitting them before step 3 — the split falls
+out of the refactor.

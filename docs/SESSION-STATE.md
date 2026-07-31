@@ -847,14 +847,40 @@ the parameter stays as `_history` in the signatures.
    in `branch_tests.rs` pins the JSON key by key and fails if the rename goes.
    **Ids cross as decimal strings** — `u64` in the kernel, and a JavaScript
    number would round them. Never compare them arithmetically.
-4. **The panel itself is not started.** Plan §3: reuse the palette's overlay and
-   focus discipline plus the framework-free state-machine shape in
-   `@iridium/core` (`palette/index.ts` is the model to copy). Vertical tree, one
-   row per node, indented by depth, active path highlighted, `elapsed_ms`
-   rendered relative, click or Enter to jump. Keys: ↑/↓ walk the active path,
-   ←/→ switch branch, Enter jumps, Escape closes. Needs a
-   `history.togglePanel` **host** command (`commands/builtin/host.rs`, beside
-   `palette.open`) — **not yet added**.
+4. ~~**The panel itself is not started.**~~ **CLOSED.** `5be331a` names
+   `history.togglePanel` as a host command beside `palette.open` and binds it to
+   **`Ctrl+Alt+H`**, joining `Ctrl+Alt+Z`/`Ctrl+Alt+Y` so the whole undo-tree
+   family is one chord shape. `d4c75b7` is the framework-free behaviour
+   (`@iridium/core/history`: `UndoTreePanel`, `buildRows`, `formatAge`, the key
+   table), `8922a9f` the React overlay, `432493c` the web component's.
+
+   **Section 3 of the plan is complete.**
+
+   Four design decisions inside it, none of which the plan settled:
+   - **The arrows read as a tree, not a list.** Up is the *parent*, not the row
+     above — the row above may be a sibling, and stepping into a sibling's
+     subtree when the user asked to go back is the confusion a tree view exists
+     to avoid. Down follows the *preferred* child.
+   - **Browsing never touches the document.** ←/→ move only the selection. The
+     plan says "←/→ switch branch", which could have meant driving
+     `history.nextBranch`; it does not, because looking down a branch has to be
+     free or looking is itself an edit. Enter is what commits.
+   - **The selection is a node id, not a row index**, because a new branch above
+     the selection shifts every index and the tree is re-read on every change.
+   - **The active path is followed down from the root**, not up from the current
+     node, so everything below the cursor — the user's own future — draws as
+     live rather than as abandoned.
+
+   49 bun tests across the three files, against **thirteen** deliberate breaks,
+   every one caught. Two are worth remembering: a two-way fork cannot tell ←
+   from →, so every fixture forks three ways; and the layout walk carries a
+   cycle guard, because a malformed snapshot cannot come from the kernel but its
+   failure mode here is a hung renderer.
+
+   **Not verified by hand in a browser.** The bundle is current and 12223 serves
+   every new module (checked by `curl`), but nobody has actually pressed
+   `Ctrl+Alt+H`, forked the history, and jumped to an abandoned branch. That is
+   plan §Verification step 3 and it is still owed.
 
 ## Section 2 — the pre-flight facts, re-verified 31 Jul (kept for reference)
 
@@ -914,8 +940,10 @@ them rather than discover them live:
 - **`Ctrl+F` is silently inert** — it resolves to a search-open request and the
   demo never wires `onSearchAction`, so nothing happens at all. Search works in
   the kernel; the demo has no search UI.
-- **`Ctrl+Shift+Z` is undo, not redo** (redo is `Ctrl+Y`). Known defect,
-  documented at `builtin::HISTORY_REDO`, not yet fixed.
-- **The branching undo tree is not demonstrable in the browser.** It is correct
-  and tested in the kernel, but the wasm bindings export only `canUndo`/`canRedo`
-  — no branch navigation, no panel. Do not claim it in a pitch.
+- ~~**`Ctrl+Shift+Z` is undo, not redo**~~ — **fixed in `b547c00`.**
+  `Ctrl+Shift+Z` redoes; `Ctrl+Y` still does too.
+- ~~**The branching undo tree is not demonstrable in the browser.**~~ — **fixed.**
+  `Ctrl+Alt+H` opens the panel, `Ctrl+Alt+Z`/`Ctrl+Alt+Y` point redo at a
+  different fork, and `historySnapshot`/`jumpToHistoryNode`/`redoBranch` are
+  exported. Still unpressed by a human, so demonstrate it privately once before
+  putting it in front of anyone.

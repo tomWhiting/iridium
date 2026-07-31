@@ -66,6 +66,8 @@ export interface IridiumHandle {
   blurEditor(): void;
   /** Whether key labels should read `⌘K` rather than `Ctrl+K`. */
   readonly usesMacKeyLabels: boolean;
+  /** How many carets are active — `1` unless multi-cursor is in play. */
+  readonly cursorCount: number;
 }
 
 // ============================================================================
@@ -219,6 +221,9 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
       // handle is built, and the answer is a property of the platform anyway.
       get usesMacKeyLabels(): boolean {
         return editorRef.current?.usesMacKeyLabels ?? false;
+      },
+      get cursorCount(): number {
+        return editorRef.current?.cursorCount ?? 1;
       },
     }),
     []

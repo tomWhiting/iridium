@@ -126,6 +126,7 @@ export interface PaletteCommand {
 // Types for the low-level WASM editor
 interface WebEditor {
   handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): KeyEventAction;
+  cursorCount(): number;
   listCommands(): string;
   searchCommands(query: string, limit: number): string;
   runCommand(id: string): KeyEventAction;
@@ -1339,6 +1340,18 @@ export class IridiumEditor {
    */
   get usesMacKeyLabels(): boolean {
     return this.isMacPlatform;
+  }
+
+  /**
+   * How many carets are active — `1` unless multi-cursor is in play.
+   *
+   * Worth putting in a status bar. This face rendered only the primary caret for
+   * its whole life and published no count, so a document with four cursors was
+   * indistinguishable from one with a single cursor, and a working command
+   * looked broken. Showing the number makes that class of defect loud.
+   */
+  get cursorCount(): number {
+    return this.editor.cursorCount();
   }
 
   /**

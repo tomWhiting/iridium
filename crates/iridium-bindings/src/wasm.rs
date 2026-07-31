@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-use crate::edit_tracking::{EditSpan, PendingEdit, byte_point, compose_pending, compute_edit_span};
+use crate::edit_tracking::{
+    EditSpan, EditSpanError, PendingEdit, byte_point, compose_pending, compute_edit_span,
+};
 use crate::key_map::key_code_from_dom_key;
 use crate::palette;
 use crate::text_range::text_range;
@@ -1154,7 +1156,7 @@ impl WebEditor {
                 Ok(Some(span)) => self.record_edit(span),
                 // Never report a wrong span: unresolvable positions degrade
                 // the pending edit to a full reparse.
-                Ok(None) | Err(()) => self.pending_edit = PendingEdit::Degraded,
+                Ok(None) | Err(EditSpanError) => self.pending_edit = PendingEdit::Degraded,
             }
             let content = self.editor.content();
             self.fold_state.update_regions(&content);

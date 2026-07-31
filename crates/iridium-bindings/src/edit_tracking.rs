@@ -3,10 +3,12 @@
 //! The WASM surface reports every content mutation to the host as a
 //! tree-sitter-style edit — byte offsets plus `(row, byte_column)` points —
 //! computed from the rope, never from JavaScript strings. This module holds
-//! the pure math: span extraction from [`Command`]s against the pre-edit
-//! document, and exact composition of sequential edits between two host
-//! consumptions. It is kept free of `wasm-bindgen` so it compiles (and its
-//! unit tests run) on every target.
+//! the composition half of that: folding a sequence of edits into one exact
+//! span between two host consumptions. Extracting a single command's span is
+//! the kernel's job now ([`iridium_editor::document::compute_edit_span`],
+//! re-exported below), because the kernel's own retained syntax tree needs the
+//! same answer. This module is kept free of `wasm-bindgen` so it compiles —
+//! and its unit tests run — on every target.
 //!
 //! Coordinate spaces: the *base document* is the document as the host last
 //! saw it (at the previous consumption). A pending [`EditSpan`] maps the
@@ -18,23 +20,12 @@
 //! is exact because the bytes before `start_byte` are untouched.
 
 use iridium_editor::document::Document;
-use iridium_editor::history::Command;
 
-/// One recorded edit in base-document coordinates (see module docs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EditSpan {
-    /// Byte offset where the edit begins (identical in base and current
-    /// documents).
-    pub start_byte: usize,
-    /// Byte offset where the replaced text ended in the base document.
-    pub old_end_byte: usize,
-    /// Byte offset where the new text ends in the current document.
-    pub new_end_byte: usize,
-    /// Row of the old end position (base document).
-    pub old_end_row: usize,
-    /// Byte column of the old end position within its row (base document).
-    pub old_end_column: usize,
-}
+// Extraction lives in the kernel: the kernel's own retained syntax tree and
+// this crate both need the same answer to "which bytes did that command
+// change?", and two implementations of it would disagree only on the edits
+// that straddle a boundary. Re-exported here so callers keep one import.
+pub use iridium_editor::document::{EditSpan, EditSpanError, byte_point, compute_edit_span};
 
 /// A pending edit span plus the point of its new end in the current
 /// document.
@@ -69,111 +60,6 @@ pub enum PendingEdit {
     /// module refuses to ever report a wrong span). The consumer must fall
     /// back to a full reparse.
     Degraded,
-}
-
-/// Converts a byte offset into a tree-sitter point `(row, byte_column)`
-/// against the given document.
-///
-/// Returns `None` when the offset lies outside the document.
-#[must_use]
-pub fn byte_point(document: &Document, offset: usize) -> Option<(usize, usize)> {
-    let position = document.offset_to_position(offset)?;
-    let line_start = document.line_to_byte_offset(position.line)?;
-    Some((position.line, offset.checked_sub(line_start)?))
-}
-
-/// Computes the byte span affected by a command against the pre-edit
-/// document.
-///
-/// Content commands inside a `Compound` are emitted by the editor core in
-/// reverse document order with coordinates that are all valid in the
-/// original document (see `emit_content_commands` in
-/// `iridium_editor::input::keyboard::editing`), so every position converts
-/// against the same pre-edit rope. The combined span is the minimum start /
-/// maximum old end over the content commands, with the new end derived from
-/// the total byte delta.
-///
-/// Returns `Ok(None)` when the command contains no content edit, and
-/// `Err(())` when a position cannot be resolved (inconsistent state; the
-/// caller must degrade to a full reparse rather than report a wrong span).
-#[allow(clippy::result_unit_err)]
-pub fn compute_edit_span(document: &Document, command: &Command) -> Result<Option<EditSpan>, ()> {
-    struct Acc {
-        start: usize,
-        old_end: usize,
-        delta: i64,
-    }
-
-    fn merge(acc: &mut Option<Acc>, start: usize, old_end: usize, delta: i64) {
-        match acc {
-            Some(acc) => {
-                acc.start = acc.start.min(start);
-                acc.old_end = acc.old_end.max(old_end);
-                acc.delta += delta;
-            },
-            None => {
-                *acc = Some(Acc {
-                    start,
-                    old_end,
-                    delta,
-                });
-            },
-        }
-    }
-
-    fn walk(document: &Document, command: &Command, acc: &mut Option<Acc>) -> Result<(), ()> {
-        match command {
-            Command::Insert { position, text } => {
-                let start = document.position_to_offset(*position).ok_or(())?;
-                let inserted = i64::try_from(text.len()).map_err(|_| ())?;
-                merge(acc, start, start, inserted);
-            },
-            Command::Delete {
-                range,
-                deleted_text,
-            } => {
-                let start = document.position_to_offset(range.start).ok_or(())?;
-                let removed = i64::try_from(deleted_text.len()).map_err(|_| ())?;
-                merge(acc, start, start + deleted_text.len(), -removed);
-            },
-            Command::Replace {
-                range,
-                old_text,
-                new_text,
-            } => {
-                let start = document.position_to_offset(range.start).ok_or(())?;
-                let removed = i64::try_from(old_text.len()).map_err(|_| ())?;
-                let inserted = i64::try_from(new_text.len()).map_err(|_| ())?;
-                merge(acc, start, start + old_text.len(), inserted - removed);
-            },
-            Command::SetSelection { .. } => {},
-            Command::Compound { commands } => {
-                for inner in commands {
-                    walk(document, inner, acc)?;
-                }
-            },
-        }
-        Ok(())
-    }
-
-    let mut acc: Option<Acc> = None;
-    walk(document, command, &mut acc)?;
-
-    let Some(acc) = acc else {
-        return Ok(None);
-    };
-
-    let new_end = i64::try_from(acc.old_end).map_err(|_| ())? + acc.delta;
-    let new_end_byte = usize::try_from(new_end).map_err(|_| ())?.max(acc.start);
-    let (old_end_row, old_end_column) = byte_point(document, acc.old_end).ok_or(())?;
-
-    Ok(Some(EditSpan {
-        start_byte: acc.start,
-        old_end_byte: acc.old_end,
-        new_end_byte,
-        old_end_row,
-        old_end_column,
-    }))
 }
 
 /// Merges a new edit span into the pending edit.
@@ -282,149 +168,9 @@ fn compose_beyond(prev: &PendingSpan, span: EditSpan) -> Option<EditSpan> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iridium_editor::{Position, Range};
 
     fn doc(content: &str) -> Document {
         Document::new(content)
-    }
-
-    fn insert(line: usize, column: usize, text: &str) -> Command {
-        Command::Insert {
-            position: Position::new(line, column),
-            text: text.to_string(),
-        }
-    }
-
-    fn delete(start: (usize, usize), end: (usize, usize), deleted: &str) -> Command {
-        Command::Delete {
-            range: Range::new(Position::new(start.0, start.1), Position::new(end.0, end.1)),
-            deleted_text: deleted.to_string(),
-        }
-    }
-
-    // ===== byte_point =====
-
-    #[test]
-    fn byte_point_ascii() {
-        let d = doc("hello\nworld");
-        assert_eq!(byte_point(&d, 0), Some((0, 0)));
-        assert_eq!(byte_point(&d, 5), Some((0, 5)));
-        assert_eq!(byte_point(&d, 6), Some((1, 0)));
-        assert_eq!(byte_point(&d, 11), Some((1, 5)));
-    }
-
-    #[test]
-    fn byte_point_returns_byte_columns_for_multibyte_text() {
-        // 'é' is 2 bytes in UTF-8.
-        let d = doc("aé\nb");
-        assert_eq!(byte_point(&d, 3), Some((0, 3))); // after 'é' (byte column)
-        assert_eq!(byte_point(&d, 4), Some((1, 0)));
-    }
-
-    #[test]
-    fn byte_point_out_of_bounds_is_none() {
-        let d = doc("ab");
-        assert_eq!(byte_point(&d, 3), None);
-    }
-
-    // ===== compute_edit_span =====
-
-    #[test]
-    fn span_for_insert() {
-        let d = doc("hello\nworld");
-        let span = compute_edit_span(&d, &insert(1, 0, "xy"))
-            .expect("valid command")
-            .expect("content edit");
-        assert_eq!(
-            span,
-            EditSpan {
-                start_byte: 6,
-                old_end_byte: 6,
-                new_end_byte: 8,
-                old_end_row: 1,
-                old_end_column: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn span_for_delete() {
-        let d = doc("hello\nworld");
-        let span = compute_edit_span(&d, &delete((0, 1), (0, 3), "el"))
-            .expect("valid command")
-            .expect("content edit");
-        assert_eq!(
-            span,
-            EditSpan {
-                start_byte: 1,
-                old_end_byte: 3,
-                new_end_byte: 1,
-                old_end_row: 0,
-                old_end_column: 3,
-            }
-        );
-    }
-
-    #[test]
-    fn span_for_replace() {
-        let d = doc("hello");
-        let cmd = Command::Replace {
-            range: Range::new(Position::new(0, 1), Position::new(0, 3)),
-            old_text: "el".to_string(),
-            new_text: "ELLO".to_string(),
-        };
-        let span = compute_edit_span(&d, &cmd)
-            .expect("valid command")
-            .expect("content edit");
-        assert_eq!(
-            span,
-            EditSpan {
-                start_byte: 1,
-                old_end_byte: 3,
-                new_end_byte: 5,
-                old_end_row: 0,
-                old_end_column: 3,
-            }
-        );
-    }
-
-    #[test]
-    fn span_for_selection_only_command_is_none() {
-        let d = doc("hello");
-        let cmd = Command::Compound {
-            commands: Vec::new(),
-        };
-        assert_eq!(compute_edit_span(&d, &cmd), Ok(None));
-    }
-
-    #[test]
-    fn span_for_multi_cursor_compound_covers_all_edits() {
-        // Two cursors inserting "ab" at (0,0) and (1,0) — the core emits the
-        // commands in reverse document order with pre-edit coordinates.
-        let d = doc("one\ntwo");
-        let cmd = Command::Compound {
-            commands: vec![insert(1, 0, "ab"), insert(0, 0, "ab")],
-        };
-        let span = compute_edit_span(&d, &cmd)
-            .expect("valid command")
-            .expect("content edit");
-        // start = min(0, 4) = 0; old_end = max(0, 4) = 4; delta = +4.
-        assert_eq!(
-            span,
-            EditSpan {
-                start_byte: 0,
-                old_end_byte: 4,
-                new_end_byte: 8,
-                old_end_row: 1,
-                old_end_column: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn span_with_invalid_position_is_err() {
-        let d = doc("hi");
-        assert_eq!(compute_edit_span(&d, &insert(5, 0, "x")), Err(()));
     }
 
     // ===== compose_pending =====

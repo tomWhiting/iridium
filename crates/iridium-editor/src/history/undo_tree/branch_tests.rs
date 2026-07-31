@@ -400,3 +400,79 @@ fn snapshot_follows_the_current_position() {
         "undo must not prune the tree"
     );
 }
+
+/// The JSON a host actually reads, pinned key by key.
+///
+/// Nothing in Rust would notice this changing — every caller here goes through
+/// the struct — but the undo-tree panel reads the JSON, and it is the only
+/// consumer of these types that exists. Two properties are load-bearing and
+/// neither is visible from the Rust side: **camelCase keys**, matching the
+/// palette's wire shape rather than the Rust field names, and **ids as decimal
+/// strings**, so a 64-bit identifier survives a language whose numbers are
+/// doubles.
+#[test]
+fn the_snapshot_serializes_in_the_shape_a_host_reads() {
+    let tree = forked_and_deep();
+    let json = serde_json::to_value(tree.snapshot()).expect("a snapshot must serialize");
+
+    let info = json.get("info").expect("info is present");
+    for key in [
+        "currentId",
+        "rootId",
+        "nodeCount",
+        "canUndo",
+        "canRedo",
+        "branchCount",
+    ] {
+        assert!(info.get(key).is_some(), "info is missing {key}");
+    }
+    assert!(
+        info.get("current_id").is_none(),
+        "snake_case leaked into the wire shape"
+    );
+    assert!(
+        info.get("currentId")
+            .and_then(serde_json::Value::as_str)
+            .is_some(),
+        "ids must cross as strings, not as numbers a double cannot hold"
+    );
+
+    let nodes = json
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .expect("nodes is an array");
+    assert_eq!(nodes.len(), 4);
+    for node in nodes {
+        for key in [
+            "id",
+            "parentId",
+            "childIds",
+            "preferredChildId",
+            "elapsedMs",
+            "description",
+            "isCurrent",
+        ] {
+            assert!(node.get(key).is_some(), "a node is missing {key}");
+        }
+        assert!(
+            node.get("child_ids").is_none(),
+            "snake_case leaked into the wire shape"
+        );
+        assert!(
+            node.get("id").and_then(serde_json::Value::as_str).is_some(),
+            "ids must cross as strings"
+        );
+        for child in node
+            .get("childIds")
+            .and_then(serde_json::Value::as_array)
+            .expect("childIds is an array")
+        {
+            assert!(child.is_string(), "child ids must cross as strings too");
+        }
+    }
+
+    // The whole shape round-trips, so a host that stores one can hand it back.
+    let restored: UndoTreeSnapshot =
+        serde_json::from_value(json).expect("the wire shape must deserialize");
+    assert_eq!(restored.nodes, tree.snapshot().nodes);
+}

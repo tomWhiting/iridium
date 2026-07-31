@@ -64,6 +64,7 @@ function App() {
   const editorRef = useRef<IridiumHandle>(null);
   const [content, setContent] = useState(SAMPLE_CODE);
   const [cursorInfo, setCursorInfo] = useState({ line: 0, column: 0 });
+  const [cursorCount, setCursorCount] = useState(1);
   const [isDark, setIsDark] = useState(true);
   const [language, setLanguage] = useState("rust");
 
@@ -175,6 +176,8 @@ function App() {
           onChange={setContent}
           onSelectionChange={(sel) => {
             setCursorInfo({ line: sel.head.line, column: sel.head.column });
+            // Every selection change, because adding a caret is one.
+            setCursorCount(editorRef.current?.cursorCount ?? 1);
           }}
           onHostCommand={(request) => {
             // The kernel binds `palette.open` to Ctrl+K, Ctrl+P and Ctrl+Shift+P
@@ -196,6 +199,12 @@ function App() {
         <span>
           Ln {cursorInfo.line + 1}, Col {cursorInfo.column + 1}
         </span>
+        {cursorCount > 1 && (
+          <>
+            <span>|</span>
+            <span style={styles.multiCursor}>{cursorCount} cursors</span>
+          </>
+        )}
         <span>|</span>
         <span>{content.split("\n").length} lines</span>
         <span>|</span>
@@ -284,6 +293,10 @@ const styles: Record<string, React.CSSProperties> = {
   editor: {
     width: "100%",
     height: "100%",
+  },
+  multiCursor: {
+    color: "#8ab4f8",
+    fontWeight: 600,
   },
   statusBar: {
     display: "flex",

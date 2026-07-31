@@ -2167,14 +2167,18 @@ impl WebEditor {
             .unwrap_or(0);
         let cursor_line_in_buffer = visual_cursor_line.saturating_sub(viewport_start_visual);
 
-        // Use buffer layout to get accurate position with line wrapping
-        let (wrap_x, wrap_y) = self.text_renderer.cursor_position_in_buffer(
+        // Use buffer layout to get accurate position with line wrapping.
+        //
+        // Only the vertical position is wanted here. Scrolling follows the
+        // primary caret alone, and inline blame sits on its line; the caret
+        // *quads* — the primary's included — are positioned in the loop further
+        // down, which walks every selection.
+        let (_, wrap_y) = self.text_renderer.cursor_position_in_buffer(
             &buffer,
             cursor_line_in_buffer,
             cursor_pos.column,
             char_width,
         );
-        let cursor_x = content_offset_x + wrap_x;
         // Absolute cursor Y in document space (for ensure_cursor_visible)
         let cursor_abs_y = padding + wrap_y + virtual_scroll_offset;
         // Viewport-relative cursor Y for rendering
@@ -2320,13 +2324,20 @@ impl WebEditor {
         // Create selection highlight quads (render before text)
         // Uses cursor_position_in_buffer for wrap-aware positioning so that
         // selection highlights align with text even when lines wrap.
-        let selection = &self.editor.state().cursor.primary;
         self.cpu_selection_quads.clear();
-        if !selection.is_collapsed() {
-            let selection_color = self.theme.editor.selection;
+        let selection_color = self.theme.editor.selection;
+        let surface_height = self.surface.height() as f32;
+        // Every cursor's selection, not only the primary's.
+        //
+        // Drawing just the primary is what made multi-cursor invisible in this
+        // face: the kernel held N selections and the screen showed one, so a
+        // command that worked perfectly looked like a command that did nothing.
+        for selection in self.editor.state().cursor.all_selections() {
+            if selection.is_collapsed() {
+                continue;
+            }
             let sel_start = selection.start();
             let sel_end = selection.end();
-            let surface_height = self.surface.height() as f32;
 
             for doc_line in sel_start.line..=sel_end.line {
                 // Skip hidden/folded lines
@@ -2437,17 +2448,39 @@ impl WebEditor {
             }
         }
 
-        // Create cursor quad (2px wide line cursor)
+        // Create a cursor quad (2px wide line) for **every** caret.
+        //
+        // The primary's position is computed above and kept there, because
+        // `ensure_cursor_visible` scrolls to it and must keep following the
+        // primary alone. The others are derived here the same way.
+        //
+        // Blink is shared on purpose: carets blinking out of phase read as a
+        // rendering fault rather than as one multi-cursor edit.
         let cursor_color = self.theme.editor.cursor;
         self.cpu_cursor_quads.clear();
         if self.cursor_renderer.is_visible() {
-            self.cpu_cursor_quads.push(Quad::new(
-                cursor_x,
-                cursor_y,
-                2.0,
-                line_height,
-                cursor_color,
-            ));
+            for selection in self.editor.state().cursor.all_selections() {
+                let head = selection.head;
+                let head_visual_line = self
+                    .cpu_doc_to_visual
+                    .get(head.line)
+                    .and_then(|v| *v)
+                    .unwrap_or(0);
+                let head_line_in_buffer = head_visual_line.saturating_sub(viewport_start_visual);
+                let (head_x, head_y) = self.text_renderer.cursor_position_in_buffer(
+                    &buffer,
+                    head_line_in_buffer,
+                    head.column,
+                    char_width,
+                );
+                let x = content_offset_x + head_x;
+                let y = padding + head_y + virtual_scroll_offset - self.scroll_y;
+                // Off-screen carets are skipped, exactly as selection quads are.
+                if y + line_height > 0.0 && y < surface_height {
+                    self.cpu_cursor_quads
+                        .push(Quad::new(x, y, 2.0, line_height, cursor_color));
+                }
+            }
         }
 
         // PERF: Use stack-allocated array instead of Vec for text areas
@@ -3289,6 +3322,19 @@ impl WebEditor {
     #[wasm_bindgen(js_name = hasSelection)]
     pub fn has_selection(&self) -> bool {
         !self.editor.state().cursor.primary.is_collapsed()
+    }
+
+    /// How many carets there are — `1` unless multi-cursor is in play.
+    ///
+    /// Exists so the number of cursors is *observable* from the host. This face
+    /// drew only the primary caret for its whole life, and nothing outside the
+    /// kernel could contradict it: every export here reports the primary and no
+    /// count was published, so a document with four cursors looked exactly like
+    /// a document with one. A status bar reading this makes that class of defect
+    /// visible instead of silent.
+    #[wasm_bindgen(js_name = cursorCount)]
+    pub fn cursor_count(&self) -> u32 {
+        u32::try_from(self.editor.state().cursor.all_selections().count()).unwrap_or(u32::MAX)
     }
 
     /// Gets the selected text, or empty string if no selection.

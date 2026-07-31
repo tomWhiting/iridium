@@ -948,6 +948,22 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
+## D1 ANSWERED (31 Jul) — the terminal face is unblocked
+
+Tom's call: *"I would love a near-vim style mode or something like that... it'd
+be good to just be flexible... I kind of want to have everything."* Checked
+against the code: he can, and it costs nothing, because `KeyBinding` already
+carries `mode`/`enters_mode` and `KeymapResolver` already holds the active mode
+and documents Vim's `d2w` as its motivating example. Modal and non-modal are one
+mechanism. Written up in `docs/TERMINAL-STACK.md`.
+
+The stack was **re-verified 1 Aug**: termina 0.3.3, terminput 0.5.15 and
+terminput-termina 0.3.1 all rebuild clean on rustc 1.97.1. Both pre-conditions
+named in `PLAN.md` Phase 4 are therefore discharged.
+
+The one honest gap: no Vim keymap has been *authored*. The machinery is there,
+the binding set is not.
+
 ## Section 4 (syntax-node navigation) — ALL NINE STEPS DONE (1 Aug)
 
 Steps 1–8 landed as code; step 9 was a research spike and is written up in

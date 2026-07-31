@@ -8,6 +8,38 @@ against these crates on this toolchain (Rust 1.97.1) on 30 Jul 2026. It is
 proven, not guessed. Do not re-derive it; correct it if a version bump proves
 it wrong.
 
+**Re-verified 1 Aug 2026.** Both spikes were rebuilt from source on the same
+toolchain (rustc 1.97.1, `8bab26f4f`): `termina 0.3.3`, `terminput 0.5.15` and
+`terminput-termina 0.3.1` all compile clean. The versions have not moved and
+the facts below still hold, so the terminal face can be written against them
+without a further spike.
+
+## D1 is answered — modal *and* non-modal, and the kernel already does both
+
+`PLAN.md` Phase 4 says "Decision D1 (modal vs non-modal keymaps) lands before
+this phase starts." It has landed: Tom's call (31 Jul) was that he wants
+near-Vim modes *and* the flexibility of everything else, and that turns out not
+to be a trade at all, because the resolver was built for it.
+
+`KeyBinding` (`commands/binding.rs`) carries `mode: Option<ModeName>` — the mode
+a binding is scoped to, `None` meaning every mode — and `enters_mode:
+Option<ModeName>`, the mode the binding switches into when it fires. Mode
+transitions are **data in the keymap, not commands in the kernel**;
+`KeymapResolver` (`commands/resolver.rs`) holds the active mode, discards a
+pending prefix across a mode change, and its own documentation works Vim's `d2w`
+through counts and mode transitions as the motivating example.
+
+So modal and non-modal are the same machinery: non-modal is a keymap where
+nothing sets a mode; Vim is a layer whose bindings are mode-scoped; a mode-free
+binding stays live in every mode while a mode-scoped one outranks it for the
+same sequence. They compose on the existing layer stack.
+
+**The honest limit:** what exists is the machinery. No Vim keymap has been
+authored — no normal/insert/visual binding set, no operator-pending grammar.
+That is real work, but it is writing a keymap against a resolver that already
+handles counts, captures and mode transitions; it is not building a modal
+editor. Phase 4 is not blocked on it.
+
 ## termina 0.3.3
 
 - Crate: `termina = { version = "0.3", features = ["event-stream"] }`

@@ -761,6 +761,77 @@ per-cursor edit intents it consumes), `actions.rs` → `actions/{mod,run}.rs`
 Counts now: **845** all-features, **787** GPU-free, **829** syntax-without-GPU,
 110 bindings, 30 syntax, 55 bun.
 
+## Section 3 (undo tree) — kernel + wasm DONE (`b547c00`), PANEL NOT STARTED
+
+### What is done
+
+**The reachable bug found on the way in: the palette's *Undo* did nothing.**
+`history.undo` resolved to `KeyResult::Handled` — a bare acknowledgement — and
+each face undid by its own private route. The web face intercepted `Ctrl+Z` in
+`handleKeyEvent` **before the keymap**. So `Ctrl+Z` worked and nothing else about
+undo did: the palette ran the command and the command did nothing, and no keymap
+layer could rebind undo because the key never reached one. Same class as the
+multi-cursor bug and the `deleteToLineStart` bug — *a face reimplementing a verb
+outside the kernel*. That is three in a row; treat it as the standing suspicion.
+
+Fixed with **`KeyResult::History(HistoryRequest)`** — `Undo`, `Redo`,
+`RedoBranch(usize)`, `NextBranch`, `PreviousBranch`. The handler names the
+request; `Editor::consume_key_result` performs it via
+`Editor::perform_history_request`. Both `handle_key` and `run_command` funnel
+through that, so key and palette are one path by construction. The web
+interception is **deleted**.
+
+**`Ctrl+Shift+Z` now redoes.** It undid — the registry migration transcribed a
+dispatch that matched `'z'` regardless of `Shift`. `DEFAULT_KEYMAP_BINDING_COUNT`
+is now **55**.
+
+**New bindings:** `Ctrl+Alt+Z` → `history.previousBranch`, `Ctrl+Alt+Y` →
+`history.nextBranch`. `history.redoBranch` takes a *count* so it has no bare
+chord; palette-only, and it is what the panel will call by id. The `unbound`
+exception vec is now **21** entries and the count assertion is `- 21`.
+
+**New kernel API:** `UndoTree::snapshot() -> UndoTreeSnapshot` (whole tree, one
+call — the tree changes every keystroke and node-by-node would be N boundary
+crossings per repaint), `UndoTree::cycle_branch(forward)`,
+`UndoTree::active_branch_index()`, `Editor::history_snapshot()`,
+`Editor::cycle_history_branch()`, `EditorEvent::HistoryBranchChanged` (the only
+signal a panel has that its highlight is stale — a cycle applies nothing, so
+neither ContentChanged nor SelectionChanged fires).
+
+**New wasm exports:** `historySnapshot()`, `jumpToHistoryNode(id)`,
+`redoBranch(index)`. Ids are decimal **strings** (u64 vs JS number). All three
+share `with_whole_document_edit` with `undo`/`redo` so no traversal can forget
+the conservative edit-span record.
+
+`CommandContext::history` was removed (dead once undo/redo stopped reading it);
+the parameter stays as `_history` in the signatures.
+
+### What is NOT done — this is where to pick up
+
+1. **No new tests were written for any of section 3.** The existing suite
+   covers it only incidentally (787 GPU-free still pass, and the rewritten
+   `history_chords_name_the_traversal_they_want` and
+   `ctrl_shift_z_redoes_and_plain_ctrl_z_undoes` pin the two behaviour changes).
+   **`cycle_branch`, `active_branch_index`, `snapshot` and
+   `perform_history_request` have no direct tests, and no discrimination runs
+   were done.** That is the first task, and it is a real gap against this
+   repo's standard — do not let it merge into the panel work.
+2. **The wasm bundle has NOT been rebuilt** since this landed, so 12223 is
+   serving the pre-`b547c00` bundle. Rebuild with
+   `wasm-pack build crates/iridium-bindings --target web --features web
+   --no-default-features` before claiming any of it works in the browser.
+3. **The TypeScript surface is untouched.** `controller/index.ts` still has no
+   `historySnapshot`/`jumpToHistoryNode`/`redoBranch` on the `WebEditor`
+   interface, so nothing in the browser can reach them yet.
+4. **The panel itself is not started.** Plan §3: reuse the palette's overlay and
+   focus discipline plus the framework-free state-machine shape in
+   `@iridium/core` (`palette/index.ts` is the model to copy). Vertical tree, one
+   row per node, indented by depth, active path highlighted, `elapsed_ms`
+   rendered relative, click or Enter to jump. Keys: ↑/↓ walk the active path,
+   ←/→ switch branch, Enter jumps, Escape closes. Needs a
+   `history.togglePanel` **host** command (`commands/builtin/host.rs`, beside
+   `palette.open`) — **not yet added**.
+
 ## Section 2 — the pre-flight facts, re-verified 31 Jul (kept for reference)
 
 Checked by hand against the tree as it stands, because the palette work moved

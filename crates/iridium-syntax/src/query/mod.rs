@@ -38,6 +38,7 @@ use tree_sitter::Query;
 use crate::{Language, SyntaxError, grammar::grammar};
 
 pub use kind::QueryKind;
+pub use textobject::{Direction, TextObject, Variant};
 
 /// Number of languages the cache has a row for.
 ///
@@ -121,6 +122,8 @@ fn compile(language: Language, kind: QueryKind) -> Compiled {
         )),
     }
 }
+
+pub mod textobject;
 
 #[cfg(test)]
 mod tests;

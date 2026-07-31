@@ -19,11 +19,30 @@ import {
   type EditorState,
   type HostCommandRequest,
   type PaletteCommand,
+  type UndoTreeSnapshot,
 } from "@iridium/core";
 
 // ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * What the handle reports before the editor exists.
+ *
+ * A tree of no nodes rather than a thrown error: an overlay opened during
+ * startup should draw nothing and recover on the next refresh.
+ */
+const EMPTY_HISTORY: UndoTreeSnapshot = {
+  nodes: [],
+  info: {
+    currentId: "",
+    rootId: "",
+    nodeCount: 0,
+    canUndo: false,
+    canRedo: false,
+    branchCount: 0,
+  },
+};
 
 export interface IridiumProps {
   content?: string;
@@ -64,6 +83,14 @@ export interface IridiumHandle {
   runCommand(id: string): void;
   /** Releases the keyboard so an overlay's own input can take it. */
   blurEditor(): void;
+
+  // The undo-tree surface. Together with `focus` and `blurEditor`, this is
+  // exactly the `UndoTreeHost` the framework-free `UndoTreePanel` needs.
+
+  /** The whole undo tree as it stands, for a panel that draws it. */
+  historySnapshot(): UndoTreeSnapshot;
+  /** Moves the document to a state, by node id. */
+  jumpToHistoryNode(nodeId: string): boolean;
   /** Whether key labels should read `⌘K` rather than `Ctrl+K`. */
   readonly usesMacKeyLabels: boolean;
   /** How many carets are active — `1` unless multi-cursor is in play. */
@@ -217,6 +244,11 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
         editorRef.current?.runCommand(id);
       },
       blurEditor: () => editorRef.current?.blurEditor(),
+      // An empty tree rather than a thrown error when the editor is not up yet:
+      // a panel opened during startup should draw nothing, not break the page.
+      historySnapshot: () => editorRef.current?.historySnapshot() ?? EMPTY_HISTORY,
+      jumpToHistoryNode: (nodeId: string) =>
+        editorRef.current?.jumpToHistoryNode(nodeId) ?? false,
       // A getter, not a captured value: the editor does not exist yet when this
       // handle is built, and the answer is a property of the platform anyway.
       get usesMacKeyLabels(): boolean {

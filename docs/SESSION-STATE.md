@@ -825,13 +825,28 @@ the parameter stays as `_history` in the signatures.
      thing the method is for.
    Totals moved to **856** all-features, **798** GPU-free, **840**
    syntax-without-GPU.
-2. **The wasm bundle has NOT been rebuilt** since this landed, so 12223 is
-   serving the pre-`b547c00` bundle. Rebuild with
+2. ~~**The wasm bundle has NOT been rebuilt**~~ **CLOSED.** Rebuilt twice (once
+   for `b547c00`, again after the rename below) and verified served: `curl` the
+   aliased `pkg/iridium_bindings.js` off 12223 and it contains `historySnapshot`
+   and `childIds`. The command is
    `wasm-pack build crates/iridium-bindings --target web --features web
-   --no-default-features` before claiming any of it works in the browser.
-3. **The TypeScript surface is untouched.** `controller/index.ts` still has no
-   `historySnapshot`/`jumpToHistoryNode`/`redoBranch` on the `WebEditor`
-   interface, so nothing in the browser can reach them yet.
+   --no-default-features`, run from the repo root — vite has `pkg` in
+   `optimizeDeps.exclude` and aliases it to the real path, so a rebuild reaches
+   the browser on reload with no server restart.
+3. ~~**The TypeScript surface is untouched.**~~ **CLOSED by `cb5758f`.**
+   `redoBranch`, `jumpToHistoryNode` and `historySnapshot` are on the
+   `WebEditor` interface and on `IridiumEditor`, with `UndoTreeSnapshot`,
+   `UndoTreeInfo` and `UndoTreeNode` exported as types.
+
+   **One decision taken while doing it, worth knowing before the panel:**
+   `UndoNodeInfo`/`UndoTreeInfo` serialized in **snake_case** (plain serde over
+   Rust field names) while the palette's wire shape is **camelCase**. Both cross
+   the same boundary into the same language. Nothing consumed either type yet,
+   so they now carry `#[serde(rename_all = "camelCase")]` and there is one
+   convention over the boundary. `the_snapshot_serializes_in_the_shape_a_host_reads`
+   in `branch_tests.rs` pins the JSON key by key and fails if the rename goes.
+   **Ids cross as decimal strings** — `u64` in the kernel, and a JavaScript
+   number would round them. Never compare them arithmetically.
 4. **The panel itself is not started.** Plan §3: reuse the palette's overlay and
    focus discipline plus the framework-free state-machine shape in
    `@iridium/core` (`palette/index.ts` is the model to copy). Vertical tree, one

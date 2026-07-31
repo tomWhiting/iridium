@@ -25,6 +25,21 @@ pub enum MatchField {
 }
 
 impl MatchField {
+    /// The stable wire name, for a host that renders the match.
+    ///
+    /// Spelled here rather than in each binding crate so the terminal, the napi
+    /// host and the browser all name the same thing the same way.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Alias => "alias",
+            Self::Id => "id",
+            Self::Category => "category",
+            Self::Description => "description",
+        }
+    }
+
     /// The share of a raw match score this field keeps, as a percentage.
     ///
     /// A title hit is worth full marks; the further a field is from what the

@@ -46,6 +46,7 @@
 pub mod edit_tracking;
 pub mod highlight_span_shift;
 pub mod key_map;
+pub mod palette;
 pub mod remote_edit;
 pub mod text_range;
 

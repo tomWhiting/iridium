@@ -60,7 +60,48 @@ pub struct UndoTreeInfo {
     pub branch_count: usize,
 }
 
+/// The whole tree at one instant, for a view that draws it.
+///
+/// [`UndoTree::branches`] answers "where can I go from here?" and
+/// [`UndoTree::node_info`] answers "what is that node?"; neither lets a panel
+/// draw the shape, because walking it one `node_info` call at a time means
+/// N round trips across the wasm boundary for a tree that changes on every
+/// keystroke. This is one call, one allocation, one serialization.
+///
+/// Every node carries `parent_id` and `preferred_child_id`, so the *drawing*
+/// needs no further kernel queries: depth comes from following parents, and
+/// the active path comes from following preferred children down from the root.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UndoTreeSnapshot {
+    /// Every node, in ascending id order — which is creation order, so a
+    /// consumer that ignores the links still gets a chronological list.
+    pub nodes: Vec<UndoNodeInfo>,
+    /// The same summary [`UndoTree::get_tree_info`] returns, so a panel needs
+    /// exactly one call rather than two that could disagree.
+    pub info: UndoTreeInfo,
+}
+
 impl UndoTree {
+    /// Describes the whole tree in one call.
+    ///
+    /// Ordering is by node id, which is assignment order, so the vector is
+    /// chronological regardless of the tree's shape. That is deliberate: a
+    /// panel wanting the drawing order derives it from the links, and a panel
+    /// wanting "what did I do, in order" gets it for free.
+    #[must_use]
+    pub fn snapshot(&self) -> UndoTreeSnapshot {
+        // Sorted by the underlying integer rather than by an `Ord` on
+        // `UndoNodeId`: the type is deliberately opaque, and ordering it would
+        // assert an ordering *semantic* on identifiers when what is wanted here
+        // is only a stable, chronological enumeration.
+        let mut ids: Vec<UndoNodeId> = self.nodes.keys().copied().collect();
+        ids.sort_unstable_by_key(|id| id.as_u64());
+        UndoTreeSnapshot {
+            nodes: ids.iter().filter_map(|id| self.node_info(*id)).collect(),
+            info: self.get_tree_info(),
+        }
+    }
+
     /// Returns the tree's current position.
     ///
     /// Pair with [`UndoTree::jump_to_node`] to return here after exploring

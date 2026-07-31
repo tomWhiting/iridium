@@ -9,7 +9,7 @@ use super::commands::Command;
 
 mod info;
 
-pub use info::{UndoNodeInfo, UndoTreeInfo};
+pub use info::{UndoNodeInfo, UndoTreeInfo, UndoTreeSnapshot};
 
 /// Opaque identifier for undo nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -382,6 +382,60 @@ impl UndoTree {
         self.nodes
             .get(&self.current)
             .is_some_and(|n| !n.children.is_empty())
+    }
+
+    /// Which child of the current node a plain [`UndoTree::redo`] would take,
+    /// as an index into [`UndoTree::branches`].
+    ///
+    /// `None` on a leaf. This is the *resolved* answer, not the raw
+    /// `preferred_child`: it applies the same fallback `redo` does, so a caller
+    /// showing "branch 2 of 3" and a caller pressing redo can never disagree.
+    #[must_use]
+    pub fn active_branch_index(&self) -> Option<usize> {
+        let node = self.nodes.get(&self.current)?;
+        if node.children.is_empty() {
+            return None;
+        }
+        node.preferred_child
+            .and_then(|id| node.children.iter().position(|child| *child == id))
+            .or_else(|| node.children.len().checked_sub(1))
+    }
+
+    /// Points redo at a different branch of the current node, without moving.
+    ///
+    /// This is the "which fork am I about to take?" verb. It changes only the
+    /// active path, so nothing is applied to the document and nothing needs
+    /// undoing — which is exactly why it is safe to hold down while looking at
+    /// a panel.
+    ///
+    /// Wraps in both directions: with three branches, stepping forward from the
+    /// last returns to the first. Wrapping is right here where it is wrong for
+    /// a list cursor, because the branches are a *ring* of alternatives with no
+    /// natural first or last, and there is no risk of overshoot — nothing moves.
+    ///
+    /// Returns the new active index, or `None` when the current node is a leaf
+    /// or has only one branch (nothing to cycle).
+    pub fn cycle_branch(&mut self, forward: bool) -> Option<usize> {
+        let node = self.nodes.get(&self.current)?;
+        let count = node.children.len();
+        if count < 2 {
+            return None;
+        }
+        let current_index = self.active_branch_index()?;
+        let next_index = if forward {
+            (current_index + 1) % count
+        } else {
+            (current_index + count - 1) % count
+        };
+
+        let child_id = self
+            .nodes
+            .get(&self.current)?
+            .children
+            .get(next_index)
+            .copied()?;
+        self.nodes.get_mut(&self.current)?.preferred_child = Some(child_id);
+        Some(next_index)
     }
 
     /// Returns the number of redo branches at the current node.

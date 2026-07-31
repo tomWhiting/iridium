@@ -393,6 +393,28 @@ pub static BUILTIN: &[CommandMeta] = &[
     )
     .mutating()
     .with_aliases(&["reapply"]),
+    CommandMeta::described(
+        HISTORY_REDO_BRANCH,
+        "Redo Into Branch",
+        "Steps forward into the branch named by the count, making it the active path.",
+        HISTORY,
+    )
+    .mutating()
+    .with_aliases(&["redo branch", "enter branch"]),
+    CommandMeta::described(
+        HISTORY_NEXT_BRANCH,
+        "Next Undo Branch",
+        "Points redo at the next branch of the current node. Changes nothing in the document.",
+        HISTORY,
+    )
+    .with_aliases(&["next branch", "cycle branch", "other future"]),
+    CommandMeta::described(
+        HISTORY_PREVIOUS_BRANCH,
+        "Previous Undo Branch",
+        "Points redo at the previous branch of the current node. Changes nothing in the document.",
+        HISTORY,
+    )
+    .with_aliases(&["previous branch", "prev branch"]),
     // ----- Multi-cursor -----
     CommandMeta::described(
         MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,

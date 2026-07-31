@@ -8,4 +8,4 @@ mod commands;
 mod undo_tree;
 
 pub use commands::Command;
-pub use undo_tree::{UndoNodeId, UndoNodeInfo, UndoTree, UndoTreeInfo};
+pub use undo_tree::{UndoNodeId, UndoNodeInfo, UndoTree, UndoTreeInfo, UndoTreeSnapshot};

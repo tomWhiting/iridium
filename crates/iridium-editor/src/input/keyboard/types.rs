@@ -193,6 +193,39 @@ pub enum SearchAction {
     CloseSearch,
 }
 
+/// A traversal of the undo tree, requested by a command.
+///
+/// The keyboard handler cannot perform these itself: it is handed the history
+/// by shared reference and never mutates editor state, returning a reversible
+/// [`Command`] instead. But an undo is not expressible as a `Command` — it *is*
+/// a command, already in the tree, and replaying it means moving the tree's
+/// current position, restoring the cursor state recorded there, and refreshing
+/// the search and multi-cursor state that hangs off it. So the verb names what
+/// it wants and the editor performs it.
+///
+/// Before this existed, `history.undo` and `history.redo` resolved to
+/// [`KeyResult::Handled`] — an acknowledgement — and each face undid by its own
+/// route: the web face intercepted `Ctrl+Z` before the keymap entirely. Two
+/// consequences followed, and both were live. Running *Undo* from the command
+/// palette did nothing, because the palette runs commands and the command did
+/// nothing. And the keymap could not rebind undo, because the key never reached
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryRequest {
+    /// Step back one edit along the tree's active path.
+    Undo,
+    /// Step forward one edit along the tree's active path.
+    Redo,
+    /// Step forward into the branch at `index`, making it the active path.
+    RedoBranch(usize),
+    /// Make the next sibling of the current node's active child the active one,
+    /// without moving. Wraps at the end.
+    NextBranch,
+    /// Make the previous sibling the active child, without moving. Wraps at the
+    /// start.
+    PreviousBranch,
+}
+
 /// Result of handling a keyboard event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyResult {
@@ -207,6 +240,12 @@ pub enum KeyResult {
 
     /// The event triggered a search action (T121, T122)
     Search(SearchAction),
+
+    /// The event asked for a traversal of the undo tree.
+    ///
+    /// See [`HistoryRequest`] for why this is a request rather than a
+    /// [`Self::Command`].
+    History(HistoryRequest),
 
     /// A binding resolved to a command this kernel does not implement.
     ///

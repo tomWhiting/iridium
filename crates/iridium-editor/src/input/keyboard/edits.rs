@@ -9,11 +9,12 @@
 //! comment syntax resolution lives in [`super::comments`]; these functions
 //! choose between them and package the result.
 
+use crate::commands::CommandArgs;
 use crate::document::{CursorState, Document};
 use crate::editor::EditorConfig;
-use crate::history::{Command, UndoTree};
+use crate::history::Command;
 
-use super::types::{ClipboardOperation, KeyResult};
+use super::types::{ClipboardOperation, HistoryRequest, KeyResult};
 use super::{KeyboardHandler, behaviors, comments, editing};
 
 impl KeyboardHandler {
@@ -255,26 +256,41 @@ impl KeyboardHandler {
         KeyResult::Clipboard(ClipboardOperation::Cut { text, command })
     }
 
-    /// Acknowledges an undo request.
+    /// Requests an undo.
     ///
-    /// # Known defect, preserved deliberately
-    ///
-    /// This does not undo anything. The undo itself is executed at the editor
-    /// level, and the only host that reaches it — the web binding — intercepts
-    /// the undo chord *before* dispatch and calls the editor directly, so the
-    /// handler only has to avoid reporting the key as unhandled input. A native
-    /// host that routes the chord here gets nothing. Wiring this to
-    /// [`UndoTree`] is a behaviour change and therefore out of scope for the
-    /// keymap migration; it is recorded here rather than silently fixed.
-    pub(super) const fn handle_undo(_history: &UndoTree) -> KeyResult {
-        KeyResult::Handled
+    /// The handler cannot perform it: it is handed the history by shared
+    /// reference and never mutates editor state. Naming the request is the
+    /// whole fix for the defect that used to live here — this returned
+    /// [`KeyResult::Handled`], a bare acknowledgement, and each face undid by
+    /// its own private route, so *Undo* run from a command palette did nothing
+    /// at all and no keymap could rebind it.
+    pub(super) const fn handle_undo() -> KeyResult {
+        KeyResult::History(HistoryRequest::Undo)
     }
 
-    /// Acknowledges a redo request.
+    /// Requests a redo along the tree's active path.
+    pub(super) const fn handle_redo() -> KeyResult {
+        KeyResult::History(HistoryRequest::Redo)
+    }
+
+    /// Requests a redo into a specific branch of the current node.
     ///
-    /// Carries the same known defect as [`Self::handle_undo`]: the redo is
-    /// executed at the editor level and this only acknowledges the key.
-    pub(super) const fn handle_redo(_history: &UndoTree) -> KeyResult {
-        KeyResult::Handled
+    /// The branch is the command's count argument, one-based as a count always
+    /// is — `2` in a keymap means "the second branch" — and defaults to the
+    /// first. An out-of-range index is not an error here: the tree reports it
+    /// by leaving the document alone.
+    pub(super) fn handle_redo_branch(args: &CommandArgs) -> KeyResult {
+        let index = args.count().unwrap_or(1).max(1) - 1;
+        KeyResult::History(HistoryRequest::RedoBranch(index as usize))
+    }
+
+    /// Requests that redo point at the next branch, without moving.
+    pub(super) const fn handle_next_branch() -> KeyResult {
+        KeyResult::History(HistoryRequest::NextBranch)
+    }
+
+    /// Requests that redo point at the previous branch, without moving.
+    pub(super) const fn handle_previous_branch() -> KeyResult {
+        KeyResult::History(HistoryRequest::PreviousBranch)
     }
 }

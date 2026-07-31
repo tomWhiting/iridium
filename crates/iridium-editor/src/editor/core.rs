@@ -74,6 +74,14 @@ pub enum EditorEvent {
         total_regions: usize,
     },
 
+    /// Which branch a redo would take has changed, without the document or the
+    /// cursor moving.
+    ///
+    /// The only signal an undo-tree panel has that its highlight is stale: a
+    /// branch cycle applies nothing, so neither `ContentChanged` nor
+    /// `SelectionChanged` fires.
+    HistoryBranchChanged,
+
     /// An error occurred.
     Error {
         /// Error message
@@ -664,6 +672,14 @@ impl Editor {
                 EditorKeyResult::Clipboard(clip)
             },
             KeyResult::Search(action) => self.handle_search_action(action),
+            KeyResult::History(request) => {
+                // The one place a history command is performed, whether it
+                // arrived as a keystroke or by id. Read-only is enforced by
+                // `undo`/`redo` themselves, which is where it belongs: a jump
+                // is an edit like any other.
+                self.perform_history_request(request);
+                EditorKeyResult::None
+            },
             KeyResult::HostCommand { command, args } => {
                 EditorKeyResult::HostCommand { command, args }
             },
@@ -692,6 +708,7 @@ impl Editor {
             },
             KeyResult::Handled
             | KeyResult::Ignored
+            | KeyResult::History(_)
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
             | KeyResult::Search(_) => false,

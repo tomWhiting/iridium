@@ -14,9 +14,48 @@
 //! emission behave identically however the tree was traversed.
 
 use super::core::{Editor, EditorEvent};
-use crate::history::{Command, UndoNodeId, UndoNodeInfo};
+use crate::history::{Command, UndoNodeId, UndoNodeInfo, UndoTreeSnapshot};
+use crate::input::HistoryRequest;
 
 impl Editor {
+    /// Performs one [`HistoryRequest`], reporting whether anything changed.
+    ///
+    /// The single funnel every history *command* goes through, so `Ctrl+Z`, the
+    /// palette's *Undo* entry, and a host calling `run_command("history.undo")`
+    /// are one code path rather than three. Branch cycling changes only which
+    /// fork redo would take, so it reports `true` on a successful cycle without
+    /// touching the document.
+    pub fn perform_history_request(&mut self, request: HistoryRequest) -> bool {
+        match request {
+            HistoryRequest::Undo => self.undo(),
+            HistoryRequest::Redo => self.redo(),
+            HistoryRequest::RedoBranch(index) => self.redo_branch(index),
+            HistoryRequest::NextBranch => self.cycle_history_branch(true),
+            HistoryRequest::PreviousBranch => self.cycle_history_branch(false),
+        }
+    }
+
+    /// Points redo at the next (or previous) branch of the current node.
+    ///
+    /// Nothing is applied to the document: this changes only which fork a
+    /// subsequent redo takes. Returns `false` when there is nothing to cycle
+    /// through — a leaf, or a node with a single branch.
+    pub fn cycle_history_branch(&mut self, forward: bool) -> bool {
+        let changed = self.state.history.cycle_branch(forward).is_some();
+        if changed {
+            // No document change and no cursor change, but a panel showing the
+            // branches must repaint, and this is the only signal it has.
+            self.emit(&EditorEvent::HistoryBranchChanged);
+        }
+        changed
+    }
+
+    /// Describes the whole undo tree in one call, for a view that draws it.
+    #[must_use]
+    pub fn history_snapshot(&self) -> UndoTreeSnapshot {
+        self.state().history.snapshot()
+    }
+
     /// Returns the tree's current position.
     #[must_use]
     pub const fn current_history_node(&self) -> UndoNodeId {

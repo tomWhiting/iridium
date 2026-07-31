@@ -68,7 +68,11 @@ impl KeyboardHandler {
         event: &KeyEvent,
         document: &Document,
         cursor: &CursorState,
-        history: &UndoTree,
+        // Kept in the signature though nothing reads it any more: the undo tree
+        // is state a command legitimately *may* consult, and every caller
+        // already threads it. Dropping it from the public shape would be
+        // churn for a field the next history-aware verb wants back.
+        _history: &UndoTree,
         config: &EditorConfig,
     ) -> (KeyResult, Option<KeyboardAction>) {
         // `resolver` and `keymap` are disjoint fields, so the mutable borrow of
@@ -87,7 +91,6 @@ impl KeyboardHandler {
                     args,
                     document,
                     cursor,
-                    history,
                     config,
                 };
                 match action_for(id.as_str()) {
@@ -114,7 +117,6 @@ impl KeyboardHandler {
                     args: CommandArgs::NONE,
                     document,
                     cursor,
-                    history,
                     config,
                 };
                 self.fall_through(&ctx)
@@ -214,7 +216,12 @@ impl KeyboardHandler {
             KeyResult::Clipboard(ClipboardOperation::Cut { command, .. }) => {
                 command.modifies_content()
             },
-            KeyResult::Handled
+            // A history traversal replays commands the editor already owns, so
+            // whether it changed anything is not knowable from the *request*;
+            // the editor reports it. Answering `true` here would mark the
+            // sticky columns dormant on an undo that had nothing to undo.
+            KeyResult::History(_)
+            | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
@@ -233,7 +240,11 @@ impl KeyboardHandler {
             KeyResult::Clipboard(ClipboardOperation::Cut { command, .. }) => {
                 command.modifies_content()
             },
-            KeyResult::Handled
+            // As above: an undo restores the *exact* cursor state recorded at
+            // its destination, sticky columns included, so treating it as a
+            // cursor mutation here would discard the very state it restores.
+            KeyResult::History(_)
+            | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)

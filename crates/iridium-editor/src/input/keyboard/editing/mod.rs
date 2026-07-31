@@ -38,11 +38,21 @@
 //! whose caret rules fit neither of the above: the caller supplies every
 //! cursor's post-edit anchor and head as byte offsets into the edited
 //! document.
+//!
+//! The per-cursor edit *intents* those entry points consume — what backspace,
+//! forward-delete, cut, delete-to-line-start and the rest each want removed
+//! and inserted — live in [`intents`], and are re-exported here so callers see
+//! one `editing::` surface.
+
+mod intents;
+
+pub use intents::{
+    backspace_edits, copy_text, cut_edits, delete_forward_edits, delete_to_line_end_edits,
+    delete_to_line_start_edits, replace_all_edits,
+};
 
 use crate::document::{CursorState, Document, Position, Range, Selection};
 use crate::history::Command;
-
-use super::motions;
 
 /// How a cursor or selection endpoint sitting exactly at a pure insertion's
 /// position relates to the inserted text during endpoint remapping.
@@ -466,141 +476,4 @@ fn finalize_command(
         1 => commands.pop(),
         _ => Some(Command::Compound { commands }),
     }
-}
-
-/// Builds one edit per cursor that replaces each cursor's selection with
-/// `text` (typing, Enter, Tab, and paste-same-text-everywhere).
-///
-/// Collapsed cursors become pure insertions at the caret.
-pub fn replace_all_edits(cursor: &CursorState, text: &str) -> Vec<CursorEdit> {
-    cursor
-        .all_selections()
-        .map(|sel| CursorEdit::replace(sel.range(), text.to_owned()))
-        .collect()
-}
-
-/// Builds one backspace edit per cursor.
-///
-/// Cursors with a selection delete the selection; collapsed cursors delete
-/// one character (or one word when `word` is true) before the caret. Cursors
-/// at the document start contribute an empty (no-op) edit.
-pub fn backspace_edits(document: &Document, cursor: &CursorState, word: bool) -> Vec<CursorEdit> {
-    cursor
-        .all_selections()
-        .map(|sel| {
-            if sel.is_collapsed() {
-                let start = if word {
-                    motions::word_left(document, sel.head)
-                } else {
-                    motions::char_left(document, sel.head)
-                };
-                CursorEdit::delete(Range::new(start, sel.head))
-            } else {
-                CursorEdit::delete(sel.range())
-            }
-        })
-        .collect()
-}
-
-/// Builds one forward-delete edit per cursor.
-///
-/// Cursors with a selection delete the selection; collapsed cursors delete
-/// one character (or one word when `word` is true) after the caret. Cursors
-/// at the document end contribute an empty (no-op) edit.
-pub fn delete_forward_edits(
-    document: &Document,
-    cursor: &CursorState,
-    word: bool,
-) -> Vec<CursorEdit> {
-    cursor
-        .all_selections()
-        .map(|sel| {
-            if sel.is_collapsed() {
-                let end = if word {
-                    motions::word_right(document, sel.head)
-                } else {
-                    motions::char_right(document, sel.head)
-                };
-                CursorEdit::delete(Range::new(sel.head, end))
-            } else {
-                CursorEdit::delete(sel.range())
-            }
-        })
-        .collect()
-}
-
-/// Returns the clipboard text for a copy (or the text half of a cut).
-///
-/// Standard multi-cursor clipboard behavior:
-/// - When at least one cursor has a selection, the selected texts are joined
-///   with the document line ending, in document order (collapsed cursors
-///   contribute empty entries).
-/// - When every cursor is collapsed, each cursor copies its whole line
-///   (with a trailing line ending). Cursors sharing a line contribute that
-///   line once, matching the cut path, which can only remove a line once.
-pub fn copy_text(document: &Document, cursor: &CursorState) -> String {
-    let line_ending = document.line_ending().as_str();
-    let mut selections: Vec<Selection> = cursor.all_selections().copied().collect();
-    selections.sort_by_key(Selection::start);
-
-    if selections.iter().all(Selection::is_collapsed) {
-        let mut lines: Vec<usize> = selections.iter().map(|sel| sel.head.line).collect();
-        lines.dedup(); // Selections are sorted, so duplicates are consecutive.
-        let mut text = String::new();
-        for &line in &lines {
-            text.push_str(&document.line(line).unwrap_or_default());
-            text.push_str(line_ending);
-        }
-        text
-    } else {
-        selections
-            .iter()
-            .map(|sel| document.slice(sel.range()))
-            .collect::<Vec<_>>()
-            .join(line_ending)
-    }
-}
-
-/// Builds one deletion edit per cursor for a cut operation.
-///
-/// Mirrors [`copy_text`]: when every cursor is collapsed each cursor cuts its
-/// whole line (cursors sharing a line collapse to a single removal via
-/// overlap clamping); otherwise each cursor deletes its selection.
-pub fn cut_edits(document: &Document, cursor: &CursorState) -> Vec<CursorEdit> {
-    let all_collapsed = cursor.all_selections().all(Selection::is_collapsed);
-    cursor
-        .all_selections()
-        .map(|sel| {
-            let range = if all_collapsed {
-                line_cut_range(document, sel.head.line)
-            } else {
-                sel.range()
-            };
-            CursorEdit::delete(range)
-        })
-        .collect()
-}
-
-/// Returns the range removed when cutting an entire line.
-///
-/// Includes the trailing line ending, except on the last line (which has
-/// none), where only the line content is removed.
-fn line_cut_range(document: &Document, line: usize) -> Range {
-    if line < document.line_count().saturating_sub(1) {
-        // Interior line: remove the line together with its own line ending.
-        return Range::new(Position::new(line, 0), Position::new(line + 1, 0));
-    }
-
-    // Last line: there is no trailing line ending to consume, so remove the
-    // PRECEDING line ending instead — cutting the last line must make it
-    // disappear, not leave an empty line behind.
-    let start = if line > 0 {
-        Position::new(line - 1, document.line_len(line - 1).unwrap_or(0))
-    } else {
-        Position::new(line, 0)
-    };
-    Range::new(
-        start,
-        Position::new(line, document.line_len(line).unwrap_or(0)),
-    )
 }

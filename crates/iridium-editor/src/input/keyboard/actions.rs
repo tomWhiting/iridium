@@ -141,6 +141,10 @@ pub(super) enum KeyboardAction {
     DeleteForward,
     /// Delete the selection, or the word after each caret.
     DeleteWordForward,
+    /// Delete the selection, or from each caret back to the start of its line.
+    DeleteToLineStart,
+    /// Delete the selection, or from each caret to the end of its line.
+    DeleteToLineEnd,
 
     // ----- Whole-line operations -----
     /// Move each cursor's line block up one line.
@@ -258,6 +262,11 @@ static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     ),
     (builtin::EDIT_DELETE_FORWARD, Action::DeleteForward),
     (builtin::EDIT_DELETE_WORD_FORWARD, Action::DeleteWordForward),
+    (
+        builtin::EDIT_DELETE_TO_LINE_START,
+        Action::DeleteToLineStart,
+    ),
+    (builtin::EDIT_DELETE_TO_LINE_END, Action::DeleteToLineEnd),
     // Whole-line operations.
     (builtin::LINES_MOVE_UP, Action::LinesMoveUp),
     (builtin::LINES_MOVE_DOWN, Action::LinesMoveDown),
@@ -429,6 +438,8 @@ impl KeyboardHandler {
             Action::DeleteWordBackward => Self::handle_delete_word_backward(document, cursor),
             Action::DeleteForward => Self::handle_delete_forward(document, cursor, false),
             Action::DeleteWordForward => Self::handle_delete_forward(document, cursor, true),
+            Action::DeleteToLineStart => Self::handle_delete_to_line_start(document, cursor),
+            Action::DeleteToLineEnd => Self::handle_delete_to_line_end(document, cursor),
 
             // ----- Whole-line operations -----
             Action::LinesMoveUp => Self::line_command(line_ops::move_lines(document, cursor, Up)),

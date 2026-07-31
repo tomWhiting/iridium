@@ -18,8 +18,9 @@
 use std::collections::HashSet;
 
 use super::builtin::{
-    BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_INSERT_CHARACTER, HOST_COMMAND_COUNT,
-    MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, builtin_registry, default_registry,
+    BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
+    EDIT_INSERT_CHARACTER, HOST_COMMAND_COUNT, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN,
+    builtin_registry, default_registry,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -169,8 +170,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Three commands are intentionally unbound by the *non-modal* default, and a
-    // fourth entry here would mean a feature silently lost:
+    // Five commands are intentionally unbound by the *non-modal* default, and a
+    // sixth entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -182,17 +183,29 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   its prefix, so the two cannot coexist. This one is *palette-only* rather
     //   than lost: still registered, still implemented, still runnable by id, and
     //   a host may bind it in its own layer.
+    // - `edit.deleteToLineStart` / `edit.deleteToLineEnd` are the macOS
+    //   `Cmd+Backspace` / `Cmd+Delete` verbs. The default keymap is
+    //   platform-neutral and already spends `Ctrl+Backspace` / `Ctrl+Delete` on
+    //   word-wise delete, so there is no neutral chord left to give them; the web
+    //   face reaches them by id from its own `Cmd` handling, and the palette
+    //   reaches them everywhere. Binding them is a keymap decision, not a
+    //   prerequisite for the verbs existing.
+    //
+    // This list is *ordered* and matches `registry.commands()` iteration order,
+    // so a new entry goes where its id is registered, not at the end.
     assert_eq!(
         unbound,
         vec![
             EDIT_INSERT_CHARACTER.as_str(),
+            EDIT_DELETE_TO_LINE_START.as_str(),
+            EDIT_DELETE_TO_LINE_END.as_str(),
             MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
             COMMAND_NO_OP.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 3);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 5);
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 

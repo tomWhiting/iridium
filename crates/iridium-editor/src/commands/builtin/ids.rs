@@ -89,6 +89,10 @@ pub const EDIT_DELETE_WORD_BACKWARD: CommandId = CommandId::from_static("edit.de
 pub const EDIT_DELETE_FORWARD: CommandId = CommandId::from_static("edit.deleteForward");
 /// Delete the selection, or the word after each caret.
 pub const EDIT_DELETE_WORD_FORWARD: CommandId = CommandId::from_static("edit.deleteWordForward");
+/// Delete the selection, or from each caret back to the start of its line.
+pub const EDIT_DELETE_TO_LINE_START: CommandId = CommandId::from_static("edit.deleteToLineStart");
+/// Delete the selection, or from each caret to the end of its line.
+pub const EDIT_DELETE_TO_LINE_END: CommandId = CommandId::from_static("edit.deleteToLineEnd");
 
 // ===== Whole-line operations =====
 

@@ -616,6 +616,38 @@ and every entry shows the key that runs it.
 After that, the plan's sections 2–4 (text transformations → undo-tree keys and
 panel → syntax-node navigation).
 
+## Section 2 (text transformations) — facts re-verified 31 Jul, before starting
+
+Checked by hand against the tree as it stands, because the palette work moved
+several of these files. **Still exact:** `KeyboardAction` at
+`input/keyboard/actions.rs:78`, the `ACTIONS` table at `:215`,
+`build_multi_cursor_command_placed` at `editing.rs:177`, `line_ops::join_lines`
+at `line_ops.rs:531`. Neither `heck` nor `convert_case` is a dependency, so the
+plan's "write the ~120 lines of word-splitting" stands.
+
+Two corrections to the plan's text:
+
+- **`CommandCategory` constants live in `commands/names.rs`** (`NAVIGATION`
+  through `GENERAL`), not in the builtin module. `TRANSFORM` goes there.
+- **`every_registered_command_is_bound_except_the_typing_fall_through` is now at
+  `default_keymap_tests.rs:157`**, not `:101-129`.
+
+**The trap in that test**, which the plan does not mention: it asserts
+`assert_eq!(unbound, vec![...])` — an **ordered, exact** list, currently
+`[EDIT_INSERT_CHARACTER, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, COMMAND_NO_OP]` in
+`registry.commands()` iteration order — and separately
+`assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 3)`. So
+landing N deliberately palette-only transforms means extending that vec **in
+registry order** and changing the `- 3` to `- (3 + N)`. Getting the order wrong
+fails with a diff that looks like a missing binding rather than a sorting
+problem.
+
+**Still needs Tom** before section 2 finishes: *which* three or four transform
+verbs get real bindings. The plan recommends binding only those and marking the
+rest palette-only, which is approved — but it does not say which, and that is a
+question about his daily use, not a technical one. The pure case-conversion core
+can be written and tested without answering it.
+
 **Unresolved and NOT silently deferred:** registry-level validation of
 *host-registered* aliases (empty, whitespace, colliding with a command id). The
 built-in table is covered by tests; a host registering garbage aliases today only

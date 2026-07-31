@@ -14,7 +14,12 @@ import React, {
 } from "react";
 
 // Import from the new @iridium/core package
-import { IridiumEditor, type EditorState } from "@iridium/core";
+import {
+  IridiumEditor,
+  type EditorState,
+  type HostCommandRequest,
+  type PaletteCommand,
+} from "@iridium/core";
 
 // ============================================================================
 // Types
@@ -26,6 +31,12 @@ export interface IridiumProps {
   darkTheme?: boolean;
   onChange?: (content: string) => void;
   onSelectionChange?: (selection: { head: { line: number; column: number } }) => void;
+  /**
+   * A command the kernel resolved but does not implement — `palette.open` is the
+   * first. The kernel names and binds these so every face agrees on the id and
+   * the key; what they *mean* is the host's to decide.
+   */
+  onHostCommand?: (request: HostCommandRequest) => void;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -41,6 +52,20 @@ export interface IridiumHandle {
   toggleFold(line: number): boolean;
   setLanguage(language: string): Promise<boolean>;
   focus(): void;
+
+  // The palette surface. Together with `focus`, this is exactly the `PaletteHost`
+  // the framework-free `CommandPalette` needs, so a caller can hand it the ref.
+
+  /** Every registered command, grouped for browsing. */
+  listCommands(): PaletteCommand[];
+  /** Commands matching `query`, best first; an empty query returns everything. */
+  searchCommands(query: string, limit?: number): PaletteCommand[];
+  /** Runs a command by id. Unimplemented ids come back through `onHostCommand`. */
+  runCommand(id: string): void;
+  /** Releases the keyboard so an overlay's own input can take it. */
+  blurEditor(): void;
+  /** Whether key labels should read `⌘K` rather than `Ctrl+K`. */
+  readonly usesMacKeyLabels: boolean;
 }
 
 // ============================================================================
@@ -54,6 +79,7 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
     darkTheme = true,
     onChange,
     onSelectionChange,
+    onHostCommand,
     className,
     style,
   },
@@ -66,6 +92,13 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
   const [error, setError] = useState<string | null>(null);
   const lastContentRef = useRef<string>("");
   const lastLanguageRef = useRef<string>(language);
+
+  // The editor captures its callbacks once, at construction, but props change on
+  // every render — so the callbacks it holds must read through a ref rather than
+  // close over the first render's values. Without this an `onHostCommand` that
+  // depends on component state fires against a stale snapshot.
+  const callbacksRef = useRef({ onChange, onSelectionChange, onHostCommand });
+  callbacksRef.current = { onChange, onSelectionChange, onHostCommand };
 
   // Initialize editor
   useEffect(() => {
@@ -83,12 +116,15 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
           darkTheme,
           onChange: (newContent) => {
             lastContentRef.current = newContent;
-            onChange?.(newContent);
+            callbacksRef.current.onChange?.(newContent);
           },
           onSelectionChange: (info) => {
-            onSelectionChange?.({
+            callbacksRef.current.onSelectionChange?.({
               head: { line: info.line, column: info.column },
             });
+          },
+          onHostCommand: (request) => {
+            callbacksRef.current.onHostCommand?.(request);
           },
         });
 
@@ -172,6 +208,18 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
       toggleFold: (line: number) => editorRef.current?.toggleFold(line) ?? false,
       setLanguage: async (lang: string) => editorRef.current?.setLanguage(lang) ?? false,
       focus: () => editorRef.current?.focus(),
+      listCommands: () => editorRef.current?.listCommands() ?? [],
+      searchCommands: (query: string, limit?: number) =>
+        editorRef.current?.searchCommands(query, limit) ?? [],
+      runCommand: (id: string) => {
+        editorRef.current?.runCommand(id);
+      },
+      blurEditor: () => editorRef.current?.blurEditor(),
+      // A getter, not a captured value: the editor does not exist yet when this
+      // handle is built, and the answer is a property of the platform anyway.
+      get usesMacKeyLabels(): boolean {
+        return editorRef.current?.usesMacKeyLabels ?? false;
+      },
     }),
     []
   );

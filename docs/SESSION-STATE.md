@@ -349,9 +349,10 @@ because each contradicts a reasonable assumption:
 
 ## Progress against the plan
 
-Palette build order, steps 1–11 (plan §1.7). **Steps 1–4 and half of 7 are done
-and committed.** Commits, oldest first: `ce3c715`, `dd09cb3`, `6c8e592`,
-`ea1feb5`, `8e6b097`, `7c17dec`.
+Palette build order, steps 1–11 (plan §1.7). **Steps 1–7 are done and
+committed** — the whole kernel half. Commits, oldest first: `ce3c715`,
+`dd09cb3`, `6c8e592`, `ea1feb5`, `8e6b097`, `7c17dec`, `695bac0`, `f763edf`,
+`646d4b0`, `f74bf53`.
 
 1. ✅ **`onHostCommand`/`onPendingKeySequence` now assigned**
    (`controller/index.ts`). The stored-callback type changed from
@@ -396,26 +397,98 @@ and committed.** Commits, oldest first: `ce3c715`, `dd09cb3`, `6c8e592`,
    claiming every mutator. Fixed with a handler-level test reaching all four,
    verified by breaking each mutator in turn.
 
-7. 🔶 **Half done — `Ctrl+K Ctrl+D` removed** (`8e6b097`). Still to do: register
-   `palette.open` and bind `Ctrl+K` / `Ctrl+P` / `Ctrl+Shift+P`.
+5. ✅ **`CommandMeta::aliases`** (`f763edf`) — `&'static [&'static str]` with a
+   `const fn with_aliases`, applied to **28** built-ins (the plan said "roughly
+   15"; every one added contributes a term the title, id, category and
+   description all miss). Aliases are search terms only — nothing *resolves* by
+   alias, so one can never change what a key runs.
 
-   Removing the chord orphaned **nine** tests, all of them tests of the
-   multi-stroke machinery that used this chord as their only subject. They now
-   each bind their own chord in a host layer (`stack_with_host_chord`,
-   `handler_with_chord`, `editor_with_chord`), which is a better test anyway —
-   the behaviour lives in the resolver, not in whichever binding happens to be a
-   chord — and doubles as proof of the escape hatch the module doc promises.
+   **Aliases are write-only over serde**, deliberately. `skip_deserializing`
+   would make `"aliases": ["fmt"]` in a host manifest silently do nothing, and a
+   synonym that never matches cannot be diagnosed from the outside; the field has
+   a deserializer that rejects a non-empty list, naming `with_aliases`. An
+   explicitly empty list still round-trips.
 
-   `DEFAULT_KEYMAP_BINDING_COUNT` is now **50**;
-   `multiCursor.skipLastOccurrence` is the third documented unbound command.
+   The same synonym on two commands is legitimate (`erase` on both deletions), so
+   the table is **not** globally deduplicated — anchored by a test, because a
+   well-meaning uniqueness check would break it.
+6. ✅ **`commands/palette/`** (`646d4b0`) — `matcher.rs`, `entry.rs`, `mru.rs`,
+   39 tests. Integer arithmetic over **character** positions: no floats (identical
+   ranking in every face by construction), no recursion (linear, not exponential),
+   no allocation (positions cannot outnumber a query capped at 32).
 
-Test counts now: **745** all-features (was 710 at plan approval), **687**
-GPU-free, **729** syntax-without-GPU, 92 bindings, 30 syntax. `cargo fmt --check`
+   Fields are scored independently — title 100, alias 90, id tail 85, category 60,
+   description 50 — and the winner reports *itself* plus the exact text the
+   positions index, so a palette highlights the alias it matched rather than
+   underlining the title.
+
+   Assignment runs **two** linear passes, leftmost and rightmost, keeping the
+   better: forward alone is the canonical subsequence test but scores badly (`li`
+   against "Duplicate Line" takes the `l` of *Duplicate*, not the word-initial
+   `L`).
+
+   Recency: 16 entries, `+400 − 20×rank`. The scale is the point and is tested in
+   **both** directions — strong enough to decide between comparable matches, weak
+   enough that typing a command's own title still finds it with a loaded history.
+
+   Four deliberate breaks (aliases unscored, byte offsets, no backward pass, no
+   recency) each failed exactly the tests that claim them.
+7. ✅ **`palette.open` registered and bound** (`f74bf53`, plus `8e6b097` earlier
+   for the `Ctrl+K Ctrl+D` removal). New `commands/builtin/host.rs`: commands the
+   kernel *names* but does not implement. It stays out of `BUILTIN` — the action
+   table is exhaustively matched, so an entry there would be a compile error
+   demanding an implementation the kernel cannot write. **`default_registry()`**
+   is the union and is what `Editor::new` seeds.
+
+   Bindings: `Ctrl+K` (Shift **forbidden**, so it cannot swallow the
+   `Ctrl+Shift+K` that deletes a line) and `Ctrl+P` (Shift `Any`, so one binding
+   serves `Ctrl+P` and `Ctrl+Shift+P`). `DEFAULT_KEYMAP_BINDING_COUNT` is now
+   **52**.
+
+   **This broke 18 tests, and the pattern is worth remembering**: every test that
+   hung a chord on `Ctrl+K` did so *because the default left it free*. They now
+   use a `CHORD_LEADER` constant on `Ctrl+B`, named once per file — this is the
+   second time that coupling has broken these tests, and the constant is what
+   stops a third.
+
+   Two checks were re-shaped rather than loosened.
+   `every_default_binding_names_a_command_the_kernel_or_a_host_owns` now
+   *separates* the cases: a host command must have no kernel implementation,
+   anything else must have one. Verified a typo'd id still fails eight tests.
+   `every_command_the_palette_lists…` asserts host commands return exactly
+   `Unimplemented` naming the id, and that kernel commands never do.
+
+   **Gotcha found here:** `Keymap::suppresses` matches whole sequences
+   *including modifier patterns*, so a host unbinding the default's `Ctrl+K` must
+   spell it identically — `AltGraph: Any` and all — not with the tighter
+   `NONE.with_ctrl(Required)`. Pinned in
+   `a_host_may_take_ctrl_k_back_by_unbinding_it_first`.
+
+Test counts now: **789** all-features (was 710 at plan approval), **731**
+GPU-free, **773** syntax-without-GPU, 92 bindings, 30 syntax. `cargo fmt --check`
 clean, wasm target compiles, no new clippy warnings.
 
-**Next: step 5** — `CommandMeta::aliases` (`&'static [&'static str]` plus a
-`const fn with_aliases`), applied to roughly 15 builtins. Then step 6, the
-matcher.
+**Next: step 8** — `crates/iridium-bindings/src/palette.rs` (plain functions over
+`(&CommandRegistry, &KeyHintIndex, &str)`, *not* gated on `feature = "web"` so
+`cargo test` covers them), extract `WebEditor::consume_key_result`, then the four
+`#[wasm_bindgen]` adapters.
+
+**Two things step 8 must decide, flagged rather than assumed:**
+
+- **Where `CommandMru` lives.** It is a standalone kernel type with no owner yet.
+  `Editor::run_command` is the by-id path (palette and host), *not* the keystroke
+  path, so recording there is right — but `WebEditor` holds its **own**
+  `KeyboardHandler` beside the one inside `self.editor` (`wasm.rs:288`), so the
+  web face must not end up with a second, divergent history.
+- **`matchedText` on the wire.** The plan's shape lists `matchedField` and
+  `matches` but not the text they index. Without it a host cannot render an alias
+  highlight at all, which §1.4 explicitly requires, so it should be added.
+
+**Also unresolved and NOT silently deferred:** registry-level validation of
+*host-registered* aliases (empty, whitespace, colliding with a command id). The
+built-in table is covered by tests; a host registering garbage aliases today only
+degrades its own palette. Adding `RegistryError` variants is a public API change
+that is not in the approved plan, so it is Tom's call.
 
 ## Demo state (2026-07-31, visitors)
 

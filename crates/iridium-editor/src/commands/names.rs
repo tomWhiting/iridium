@@ -44,6 +44,8 @@ impl CommandCategory {
     pub const HISTORY: Self = Self::from_static("History");
     /// Multi-cursor and multi-selection verbs.
     pub const MULTI_CURSOR: Self = Self::from_static("Multi-Cursor");
+    /// Selection driven by the document's syntax tree.
+    pub const SYNTAX: Self = Self::from_static("Syntax");
     /// Search and find-match navigation.
     pub const SEARCH: Self = Self::from_static("Search");
     /// Commands with no home of their own, such as the explicit no-op.

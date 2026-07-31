@@ -44,6 +44,7 @@ const COMMENTS: CommandCategory = CommandCategory::COMMENTS;
 const CLIP: CommandCategory = CommandCategory::CLIPBOARD;
 const HISTORY: CommandCategory = CommandCategory::HISTORY;
 const MULTI: CommandCategory = CommandCategory::MULTI_CURSOR;
+const SYNTAX: CommandCategory = CommandCategory::SYNTAX;
 const SEARCH: CommandCategory = CommandCategory::SEARCH;
 const GENERAL: CommandCategory = CommandCategory::GENERAL;
 
@@ -444,6 +445,43 @@ pub static BUILTIN: &[CommandMeta] = &[
         MULTI,
     )
     .with_aliases(&["skip occurrence"]),
+    // ----- Syntax -----
+    //
+    // Not `.mutating()`: every one of these produces a selection change and
+    // nothing else, so they stay available in a read-only buffer — which is
+    // where reading structure out of a file matters most.
+    CommandMeta::described(
+        AST_SELECT_NODE,
+        "Select Syntax Node",
+        "Snaps each selection to the smallest syntax node that covers it.",
+        SYNTAX,
+    )
+    .with_aliases(&["select node", "snap to node", "select element"]),
+    CommandMeta::described(
+        AST_EXPAND_SELECTION,
+        "Expand Selection",
+        "Widens each selection to the smallest syntax node that strictly contains it.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "select larger syntax node",
+        "grow selection",
+        "widen selection",
+        "select parent",
+        "expand region",
+    ]),
+    CommandMeta::described(
+        AST_SHRINK_SELECTION,
+        "Shrink Selection",
+        "Undoes one expansion, restoring the selections exactly as they were.",
+        SYNTAX,
+    )
+    .with_aliases(&[
+        "select smaller syntax node",
+        "narrow selection",
+        "select child",
+        "contract selection",
+    ]),
     // ----- Search -----
     CommandMeta::from_static(SEARCH_OPEN, "Find", SEARCH).with_aliases(&["search"]),
     CommandMeta::from_static(SEARCH_NEXT_MATCH, "Find Next", SEARCH).with_aliases(&["search next"]),

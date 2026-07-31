@@ -226,6 +226,32 @@ pub enum HistoryRequest {
     PreviousBranch,
 }
 
+/// A structural selection change, named rather than performed.
+///
+/// The keyboard layer cannot carry these out itself for the same reason it
+/// cannot carry out an undo: the answer depends on the document's **parse
+/// tree**, which lives on the editor, and on the stack of ranges a previous
+/// expansion walked through. So the verb names what it wants and the editor
+/// performs it — in exactly one place, reached identically by a keystroke and
+/// by a command invoked from the palette.
+///
+/// Every one of these ends as a [`Command::SetSelection`], which is why
+/// structural navigation is undoable without any new history machinery.
+///
+/// When the document has no language set, or the tree has not parsed, each of
+/// these does nothing at all. That is not an error: it is what "this file has
+/// no structure to navigate" looks like, and a key that quietly does nothing is
+/// better than one that reports a failure the person cannot act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstRequest {
+    /// Snap every selection to the smallest node that covers it.
+    SelectNode,
+    /// Widen every selection to the smallest node that strictly contains it.
+    ExpandSelection,
+    /// Undo one expansion, restoring the selections exactly as they were.
+    ShrinkSelection,
+}
+
 /// Result of handling a keyboard event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyResult {
@@ -246,6 +272,12 @@ pub enum KeyResult {
     /// See [`HistoryRequest`] for why this is a request rather than a
     /// [`Self::Command`].
     History(HistoryRequest),
+
+    /// The event asked for a selection change driven by the parse tree.
+    ///
+    /// See [`AstRequest`] for why this is a request rather than a
+    /// [`Self::Command`].
+    Ast(AstRequest),
 
     /// A binding resolved to a command this kernel does not implement.
     ///

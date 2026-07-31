@@ -201,6 +201,15 @@ pub const MULTI_CURSOR_ADD_CURSOR_BELOW: CommandId =
 pub const MULTI_CURSOR_SKIP_LAST_OCCURRENCE: CommandId =
     CommandId::from_static("multiCursor.skipLastOccurrence");
 
+// ===== Syntax =====
+
+/// Snap every selection to the smallest syntax node that covers it.
+pub const AST_SELECT_NODE: CommandId = CommandId::from_static("ast.selectNode");
+/// Widen every selection to the smallest syntax node that strictly contains it.
+pub const AST_EXPAND_SELECTION: CommandId = CommandId::from_static("ast.expandSelection");
+/// Undo one expansion, restoring the selections exactly as they were.
+pub const AST_SHRINK_SELECTION: CommandId = CommandId::from_static("ast.shrinkSelection");
+
 // ===== Search =====
 
 /// Open the search panel.

@@ -7,6 +7,8 @@
 //! [`SyntaxState`] is the whole of this module for now. The verbs that navigate
 //! by node arrive on top of it.
 
+mod expand;
 mod state;
 
+pub use expand::ExpandStack;
 pub use state::SyntaxState;

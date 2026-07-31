@@ -22,7 +22,10 @@ use crate::syntax_stubs::{Language, SyntaxTree, Tree};
 #[cfg(feature = "syntax")]
 use iridium_syntax::{Language, SyntaxTree, Tree};
 
-use crate::document::{Document, EditSpan, byte_point};
+use super::ExpandStack;
+use super::expand::selection_for;
+use crate::document::{CursorState, Document, EditSpan, byte_point};
+use crate::input::keyboard::AstRequest;
 
 /// The parse tree for the document being edited, and how current it is.
 #[derive(Debug, Default)]
@@ -51,6 +54,13 @@ pub struct SyntaxState {
     full_parses: u64,
     /// How many times the tree has been reparsed against an edited copy.
     incremental_parses: u64,
+    /// The selections an expansion walked out through, so a shrink can retrace
+    /// them.
+    ///
+    /// Syntax state rather than keyboard state: it describes where in the *tree*
+    /// the selection came from, and it must survive a keymap being pushed or
+    /// popped underneath it.
+    expand: ExpandStack,
 }
 
 impl SyntaxState {
@@ -75,6 +85,7 @@ impl SyntaxState {
         self.tree = SyntaxTree::new(language).ok();
         self.dirty = false;
         self.replaced = false;
+        self.expand.clear();
         // Nothing has been parsed for this language yet. Zero cannot collide
         // with a live document revision, which starts above it and only rises.
         self.tracked_revision = 0;
@@ -101,8 +112,9 @@ impl SyntaxState {
     /// Call this whenever the document is replaced rather than edited. The next
     /// [`SyntaxState::sync`] then parses from scratch instead of trusting a
     /// revision number that started over.
-    pub const fn invalidate(&mut self) {
+    pub fn invalidate(&mut self) {
         self.replaced = true;
+        self.expand.clear();
     }
 
     /// Clears the language and drops the tree.
@@ -111,6 +123,7 @@ impl SyntaxState {
         self.tree = None;
         self.dirty = false;
         self.replaced = false;
+        self.expand.clear();
         self.tracked_revision = 0;
     }
 
@@ -137,6 +150,13 @@ impl SyntaxState {
     /// whole. Silently shifting the tree by a guessed amount is the one outcome
     /// this must never produce.
     pub fn note_edit(&mut self, document: &Document, span: &EditSpan) {
+        // Unconditionally, and before anything can return early: the recorded
+        // frames describe ranges in a document that no longer exists. The lazy
+        // check inside the stack would catch this too, but only at the next
+        // request — which would leave `expansion_depth` reporting frames that
+        // are already dead.
+        self.expand.clear();
+
         let Some(tree) = self.tree.as_mut() else {
             return;
         };
@@ -189,6 +209,38 @@ impl SyntaxState {
     }
 }
 
+impl SyntaxState {
+    /// Computes the cursor state a structural request should produce.
+    ///
+    /// Brings the tree up to date first, because a structural verb is exactly
+    /// the moment the tree has to be right — this is the "something needs the
+    /// tree" that [`SyntaxState::sync`] exists to serve, and the only reason
+    /// typing itself never parses.
+    ///
+    /// Returns `None` when nothing should change: no language, no tree, a
+    /// selection already at the outermost node, a shrink with nothing left. The
+    /// caller applies a selection command only when there is one to apply, so a
+    /// held key neither errors nor fills the undo history with no-ops.
+    pub fn apply_ast_request(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        request: AstRequest,
+    ) -> Option<CursorState> {
+        self.sync(document)?;
+
+        // Disjoint field borrows: the tree is read while the stack is written.
+        let tree = self.tree.as_ref()?.tree()?;
+        selection_for(request, tree, document, cursor, &mut self.expand)
+    }
+
+    /// How many expansions the current stack can still undo.
+    #[must_use]
+    pub fn expansion_depth(&self) -> usize {
+        self.expand.depth()
+    }
+}
+
 /// Builds the tree-sitter edit descriptor for a span.
 ///
 /// Split out so the coordinate juggling is in one place: the start position is
@@ -234,5 +286,6 @@ const fn edit_for(
 
 // The tests exercise real parsing against real grammars; with the stub they
 // would assert that nothing does nothing.
-#[cfg(all(test, feature = "syntax"))]
+#[cfg(test)]
+#[cfg(feature = "syntax")]
 mod tests;

@@ -1225,6 +1225,81 @@ known pre-existing warnings; zero clippy warnings in `iridium-syntax`.
 > is the `iridium_editor` **lib** line, not the workspace total. Both are quoted
 > above so the next reader is not comparing two different things.
 
+### Step 6 is DONE (1 Aug) — the daily driver works
+
+`ast.selectNode` / `ast.expandSelection` / `ast.shrinkSelection`, under a new
+`CommandCategory::SYNTAX`. `KeyResult::Ast(AstRequest)` carries the request the
+way `KeyResult::History` carries a traversal, and `Editor::consume_key_result`
+performs it in one place — so the key and the palette cannot diverge.
+
+`crates/iridium-editor/src/editor/ast/expand.rs` holds `ExpandStack` (whole
+`CursorState` frames, per plan §4.3) and the per-cursor walk. `SyntaxState`
+gained `apply_ast_request` and `expansion_depth`. `Editor::perform_ast_request`
+is **public** and returns `bool`, so the web binding calls the same
+implementation and simply gets `false` while wasm has no tree.
+
+**Bindings: `Shift+Alt+Right` = expand, `Shift+Alt+Left` = shrink.**
+`DEFAULT_KEYMAP_BINDING_COUNT` 56 → **58**. Same modifier shape as
+`LINE_DUPLICATE`, one axis over, and the same chord VS Code uses for these two
+verbs. `ast.selectNode` is palette-only (exception list now **22**, not 21).
+**Tom should confirm the chord**: the Zed muscle memory is `Alt+Up`/`Alt+Down`,
+which here would have to displace line-move — one line to change if he wants it.
+
+**Three findings worth keeping:**
+
+1. **The plan is wrong about undo.** §4.2 says "every selection change goes out
+   as a `Command::SetSelection`, so AST navigation is undoable with no new
+   history machinery." It is not: `apply_command_internal`
+   (`editor/core.rs:982`) pushes to the undo tree **only when a command modifies
+   content**, so a selection-only command is applied and never recorded. That is
+   the right behaviour — shrink is the inverse of expand, not `Ctrl+Z`, as in
+   every editor that has this verb — and `expansion_never_enters_the_undo_history`
+   now pins it. The plan's claim should be treated as retracted.
+2. **Clippy's in-test detection is defeated by a compound `cfg`.**
+   `#[cfg(all(test, feature = "syntax"))] mod tests;` is *not* recognised as a
+   test module, so `allow-expect-in-tests` does not apply and every `expect` in
+   it warns. Splitting it into `#[cfg(test)] #[cfg(feature = "syntax")]` fixes
+   it. This cleared **12** warnings, **6 of which pre-dated this work** in
+   `editor/ast/state/tests.rs` — so the step-4 note "zero clippy warnings in
+   `editor/ast`" was measured without `--all-targets` and was wrong. Use this
+   pattern for any future feature-gated test module.
+3. **`Vec::len` is not const before Rust 1.87**, and the MSRV here is 1.85, so
+   `depth()` and `expansion_depth()` cannot be `const fn`. Clippy's
+   `incompatible_msrv` catches it; the compiler does not, because the local
+   toolchain is newer.
+
+**Discrimination: nine deliberate breaks, eight caught.** Script at
+`scratchpad/breaks6.sh`. Caught: stale frames surviving a cursor jump; the stack
+outliving an edit; shrink ignoring the frames; the downward walk pushing a frame;
+direction discarded; selection commands entering history (broke 4 *pre-existing*
+tests); the chord losing its specificity (broke 6); a no-op press recording a
+frame.
+
+**Two gaps, stated rather than papered over:**
+
+- **S6 is caught only by other people's tests.** Making selection commands enter
+  the undo history broke four pre-existing sticky-column tests but **not**
+  `expansion_never_enters_the_undo_history`, which was written for exactly that
+  break. It was still passing when I ran out of runway to find out why —
+  instrumentation was in progress and has been removed. `modifies_selection()`
+  does return `old_state != new_state` for `SetSelection`
+  (`history/commands.rs:224`), so the frames *should* have been pushed and the
+  undo *should* have hit one. **Next reader: finish this.** Either the test has a
+  hole or something else swallows selection-only history entries, and both are
+  worth knowing.
+- **S7 is not discriminated at all.** `result_mutates_cursor` returning `false`
+  for `KeyResult::Ast` fails no test, because the sticky preferred columns
+  already self-invalidate on cursor-state identity
+  (`input/keyboard/mod.rs:136-151`) — the same discipline the expand stack
+  copies. The `=> true` arm is redundant reinforcement, not the mechanism.
+  `expanding_forgets_the_sticky_preferred_column` proves the *behaviour* end to
+  end through the real `Shift+Alt+Right` chord; it just cannot tell which of the
+  two mechanisms delivered it.
+
+Gate after step 6: **895** editor lib, **82** syntax, 101 bindings, 810 kernel,
+879 kernel+syntax. Workspace clippy **138** warnings (baseline was 201; step 6
+cleared 12). `fmt` clean; wasm32 has only the two known pre-existing warnings.
+
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 
 Everything below was read off the tree, not remembered.

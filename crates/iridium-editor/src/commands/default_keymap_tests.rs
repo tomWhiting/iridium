@@ -18,14 +18,14 @@
 use std::collections::HashSet;
 
 use super::builtin::{
-    BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
-    EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL, HOST_COMMAND_COUNT,
-    MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES,
-    TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
-    TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
-    TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
-    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
-    host_command_metas,
+    AST_SELECT_NODE, BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END,
+    EDIT_DELETE_TO_LINE_START, EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL,
+    HOST_COMMAND_COUNT, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE,
+    TRANSFORM_DEDUPE_LINES, TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE,
+    TRANSFORM_REVERSE_LINES, TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE,
+    TRANSFORM_SORT_LINES, TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE,
+    TRANSFORM_TOGGLE_CASE, TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE,
+    builtin_registry, default_registry, host_command_metas,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -197,8 +197,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Twenty-one commands are intentionally unbound by the *non-modal* default,
-    // and a twenty-second entry here would mean a feature silently lost:
+    // Twenty-two commands are intentionally unbound by the *non-modal* default,
+    // and a twenty-third entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -231,6 +231,15 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   and it is Tom's to answer; adding a binding later is one line here and
     //   one line in the keymap.
     //
+    // - `ast.selectNode` is palette-only, and it is the only one of the three
+    //   structural verbs that is. `ast.expandSelection` and
+    //   `ast.shrinkSelection` hold `Shift+Alt+Right` / `Shift+Alt+Left` because
+    //   they are pressed repeatedly, in a run, and a palette cannot be used that
+    //   way. `selectNode` from a caret lands exactly where one expansion lands,
+    //   so it earns a key only for "snap this hand-made selection to node
+    //   boundaries" — worth having, not worth a chord until someone finds
+    //   themselves reaching for it.
+    //
     // This list is *ordered* and matches `registry.commands()` iteration order,
     // so a new entry goes where its id is registered, not at the end.
     assert_eq!(
@@ -256,12 +265,13 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             TRANSFORM_TRIM_TRAILING_WHITESPACE.as_str(),
             HISTORY_REDO_BRANCH.as_str(),
             MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
+            AST_SELECT_NODE.as_str(),
             COMMAND_NO_OP.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 21);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 22);
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 
@@ -670,5 +680,44 @@ fn a_dead_ended_skip_chord_replays_the_character_instead_of_eating_it() {
     assert_eq!(
         resolver.resolve(&stack, KeyPress::new(KeyCode::Char('d'), CTRL_SHIFT)),
         Resolution::matched(super::builtin::MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH)
+    );
+}
+
+#[test]
+fn the_syntax_chords_win_over_the_motion_they_sit_on_top_of() {
+    // `Shift+Alt+Right` has to beat `cursor.charRightSelect`, which matches the
+    // same keypress because horizontal motion ignores `Alt` entirely. It wins by
+    // being more specific, and nothing else in the stack says so — so if the
+    // ranking ever changes, expansion silently becomes a character motion and
+    // the daily driver stops working with no test to notice.
+    let stack = default_keymap_stack();
+
+    expect(
+        &stack,
+        KeyCode::Right,
+        SHIFT_ALT,
+        Some("ast.expandSelection"),
+    );
+    expect(
+        &stack,
+        KeyCode::Left,
+        SHIFT_ALT,
+        Some("ast.shrinkSelection"),
+    );
+
+    // And it must not swallow the motions it sits beside.
+    expect(
+        &stack,
+        KeyCode::Right,
+        SHIFT,
+        Some("cursor.charRightSelect"),
+    );
+    expect(&stack, KeyCode::Right, ALT, Some("cursor.charRight"));
+    expect(&stack, KeyCode::Left, SHIFT, Some("cursor.charLeftSelect"));
+    expect(
+        &stack,
+        KeyCode::Right,
+        CTRL_ALT_SHIFT,
+        Some("cursor.wordRightSelect"),
     );
 }

@@ -123,6 +123,84 @@ export interface PaletteCommand {
   readonly matches?: readonly number[];
 }
 
+/**
+ * One state of the document, as the undo tree records it.
+ *
+ * Every id is a **decimal string**, not a number: node ids are 64-bit in the
+ * kernel and a JavaScript number cannot hold one without silently rounding.
+ * Compare them with `===`, never with arithmetic.
+ */
+export interface UndoTreeNode {
+  /** This node's id, and what {@link IridiumEditor.jumpToHistoryNode} takes. */
+  readonly id: string;
+  /** The state this one was reached from — absent only on the root. */
+  readonly parentId?: string;
+  /**
+   * The states reachable from here, in creation order.
+   *
+   * Index *i* is the branch {@link IridiumEditor.redoBranch} enters for
+   * `branchIndex === i`. More than one means the history forks here.
+   */
+  readonly childIds: readonly string[];
+  /**
+   * The child a plain redo would take — the branch last travelled.
+   *
+   * Follow this from the root to draw the active path. Absent on a leaf, and
+   * on a node no traversal has descended from.
+   */
+  readonly preferredChildId?: string;
+  /**
+   * Age of this edit in milliseconds, measured from when the tree was created.
+   *
+   * A monotonic offset, not a wall-clock time: it cannot run backwards when
+   * the system clock is adjusted, and it has no epoch to render as a date.
+   * Show it as "4m ago", relative to the largest value in the tree.
+   */
+  readonly elapsedMs: number;
+  /** A human-readable label for this edit, when one was recorded. */
+  readonly description?: string;
+  /** Whether the document is sitting on this state right now. */
+  readonly isCurrent: boolean;
+}
+
+/** The summary counterpart to {@link UndoTreeSnapshot.nodes}. */
+export interface UndoTreeInfo {
+  /** The node the document is on, matching the one node with `isCurrent`. */
+  readonly currentId: string;
+  /** The state the document was opened in. */
+  readonly rootId: string;
+  /** How many states the tree holds, including the root. */
+  readonly nodeCount: number;
+  /** Whether anything can be undone from here. */
+  readonly canUndo: boolean;
+  /** Whether anything can be redone from here. */
+  readonly canRedo: boolean;
+  /** How many branches leave the current node. */
+  readonly branchCount: number;
+}
+
+/**
+ * The whole undo tree at one instant, for a panel that draws it.
+ *
+ * Taken in a single call rather than walked node by node: the tree changes on
+ * every keystroke, and asking per node would mean one boundary crossing per
+ * node per repaint. Nothing here needs a follow-up query — depth comes from
+ * following {@link UndoTreeNode.parentId}, and the active path from following
+ * {@link UndoTreeNode.preferredChildId} down from the root.
+ */
+export interface UndoTreeSnapshot {
+  /**
+   * Every node, oldest first.
+   *
+   * That is creation order, not drawing order: a panel wanting the shape
+   * derives it from the links, and a panel wanting "what did I do, in order"
+   * reads this directly.
+   */
+  readonly nodes: readonly UndoTreeNode[];
+  /** The same tree, summarized. */
+  readonly info: UndoTreeInfo;
+}
+
 // Types for the low-level WASM editor
 interface WebEditor {
   handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): KeyEventAction;
@@ -154,6 +232,9 @@ interface WebEditor {
   redo(): boolean;
   canUndo(): boolean;
   canRedo(): boolean;
+  redoBranch(branchIndex: number): boolean;
+  historySnapshot(): string;
+  jumpToHistoryNode(nodeId: string): boolean;
   moveCursorLeft(): void;
   moveCursorRight(): void;
   moveCursorUp(): void;
@@ -1217,6 +1298,62 @@ export class IridiumEditor {
     this.updateHighlights(result ? this.takeEditInfo() : null);
     this.editor.forceRender();
     return result;
+  }
+
+  /**
+   * Redo into a specific branch of the current state, rather than the one
+   * {@link redo} would take.
+   *
+   * `branchIndex` indexes the current node's {@link UndoTreeNode.childIds}, in
+   * creation order. This is how a panel descends a fork that was abandoned:
+   * plain redo follows the branch last travelled, this chooses explicitly and
+   * makes that choice the new active path.
+   *
+   * Returns false, changing nothing, when the index names no branch.
+   */
+  redoBranch(branchIndex: number): boolean {
+    const result = this.editor.redoBranch(branchIndex);
+    this.updateHighlights(result ? this.takeEditInfo() : null);
+    this.editor.forceRender();
+    return result;
+  }
+
+  /**
+   * Move to any state in the undo tree, replaying the document to it.
+   *
+   * The tree walks up to the common ancestor and back down, so this reaches
+   * states no sequence of {@link undo} and {@link redo} could reach without
+   * first abandoning the current branch — which is the whole reason the
+   * history is a tree and not a stack. However many edges it crosses, the host
+   * sees one change.
+   *
+   * `nodeId` is the decimal string a snapshot reports. Returns false, changing
+   * nothing, when it names no state in this tree.
+   */
+  jumpToHistoryNode(nodeId: string): boolean {
+    const result = this.editor.jumpToHistoryNode(nodeId);
+    this.updateHighlights(result ? this.takeEditInfo() : null);
+    this.editor.forceRender();
+    return result;
+  }
+
+  /**
+   * The whole undo tree, for a panel that draws it.
+   *
+   * Cheap enough to call on every repaint — one boundary crossing and one
+   * parse — and deliberately not cached here, because the tree changes on
+   * every keystroke and a stale tree drawn over a live document is worse than
+   * no panel at all.
+   *
+   * @throws if the kernel could not describe its own history, which would mean
+   * the editor handle is no longer usable.
+   */
+  historySnapshot(): UndoTreeSnapshot {
+    const parsed = JSON.parse(this.editor.historySnapshot()) as UndoTreeSnapshot | null;
+    if (parsed === null) {
+      throw new Error("The editor could not describe its undo history");
+    }
+    return parsed;
   }
 
   /** Fold all foldable regions. */

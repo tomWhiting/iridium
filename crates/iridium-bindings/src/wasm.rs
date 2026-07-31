@@ -2912,7 +2912,7 @@ impl WebEditor {
     }
 
     /// Redoes into a specific branch of the current node, by index into
-    /// `historySnapshot()`'s `child_ids` for the current node.
+    /// `historySnapshot()`'s `childIds` for the current node.
     ///
     /// This is how a panel enters a fork the plain `redo` would not take.
     /// No-op in read-only mode or when the index names no branch.
@@ -2926,7 +2926,8 @@ impl WebEditor {
     /// One call rather than a walk: the tree changes on every keystroke, and
     /// asking node by node would mean N boundary crossings per repaint. Node
     /// ids are decimal *strings* throughout, because they are `u64` and a
-    /// JavaScript number is not.
+    /// JavaScript number is not. Keys are camelCase, matching the palette's
+    /// wire shape rather than the Rust field names.
     ///
     /// Returns `"null"` only if serialization fails, which it cannot: the
     /// snapshot is strings, booleans and integers throughout.

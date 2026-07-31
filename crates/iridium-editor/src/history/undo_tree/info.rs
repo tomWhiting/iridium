@@ -16,7 +16,12 @@ use std::time::Duration;
 /// Identifiers are rendered as decimal strings rather than integers so a
 /// JavaScript host cannot silently lose precision on a 64-bit value; pair with
 /// [`UndoNodeId::as_u64`] when working in Rust.
+///
+/// Serialized in camelCase, matching the palette's wire shape: these types
+/// exist to cross a language boundary, and one convention over that boundary
+/// is worth more than matching the Rust field names on the other side.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UndoNodeInfo {
     /// Unique node identifier
     pub id: String,
@@ -44,7 +49,10 @@ pub struct UndoNodeInfo {
 }
 
 /// Information about the undo tree structure.
+///
+/// Serialized in camelCase, for the same reason as [`UndoNodeInfo`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UndoTreeInfo {
     /// Current node ID
     pub current_id: String,

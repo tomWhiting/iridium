@@ -349,7 +349,9 @@ because each contradicts a reasonable assumption:
 
 ## Progress against the plan
 
-Palette build order, steps 1–11 (plan §1.7). Done so far:
+Palette build order, steps 1–11 (plan §1.7). **Steps 1–4 and half of 7 are done
+and committed.** Commits, oldest first: `ce3c715`, `dd09cb3`, `6c8e592`,
+`ea1feb5`, `8e6b097`, `7c17dec`.
 
 1. ✅ **`onHostCommand`/`onPendingKeySequence` now assigned**
    (`controller/index.ts`). The stored-callback type changed from
@@ -373,11 +375,63 @@ Palette build order, steps 1–11 (plan §1.7). Done so far:
    binding always outranks a wildcard on the character it claims, so candidates
    are tried until one resolves — a single fixed character would report a live
    wildcard as dead.
+3. ✅ **`commands/hints/`** — `KeyHint`, `KeyHintIndex`, `KeyLabelStyle`, 17
+   tests. The load-bearing test is the **oracle**: every hint, typed as its label
+   describes, resolves back to the binding it came from, which covers every
+   present and future way a binding can be lost in one assertion.
 
-Test counts after these two: **723** all-features (was 710), **665** GPU-free
-(was 652), **707** syntax-without-GPU. `cargo fmt --check` clean; no new clippy
-warnings.
+   Labels are rendered *separately* from `display_sequence()`, which is the
+   round-trippable form and spells ignored modifiers as `~name` — *Select All*
+   round-trips as `ctrl+~shift+~altgraph+a`. Labels emit only `Required`
+   modifiers, giving `Ctrl+A`. Verified discriminating: re-emitting `Any`
+   modifiers fails three tests.
+4. ✅ **`KeyHintIndex` cached on `KeyboardHandler`**, `Editor::key_hints()`
+   exposed. All four keymap mutators funnel through one private
+   `install_keymap`, and the field is module-private, so no mutation can skip the
+   rebuild.
 
-Next: step 3, `commands/hints/` — the `CommandId → key sequence` reverse index,
-whose presentation formatter is mandatory because `display_sequence()` renders
-*Select All* as `ctrl+~shift+~altgraph+a`.
+   **A test-quality lesson worth keeping:** the first staleness test drove the
+   *editor*, whose `push_keymap` routes through `push_validated_keymap` — so raw
+   `push_keymap` and `set_keymap` were never exercised despite the test name
+   claiming every mutator. Fixed with a handler-level test reaching all four,
+   verified by breaking each mutator in turn.
+
+7. 🔶 **Half done — `Ctrl+K Ctrl+D` removed** (`8e6b097`). Still to do: register
+   `palette.open` and bind `Ctrl+K` / `Ctrl+P` / `Ctrl+Shift+P`.
+
+   Removing the chord orphaned **nine** tests, all of them tests of the
+   multi-stroke machinery that used this chord as their only subject. They now
+   each bind their own chord in a host layer (`stack_with_host_chord`,
+   `handler_with_chord`, `editor_with_chord`), which is a better test anyway —
+   the behaviour lives in the resolver, not in whichever binding happens to be a
+   chord — and doubles as proof of the escape hatch the module doc promises.
+
+   `DEFAULT_KEYMAP_BINDING_COUNT` is now **50**;
+   `multiCursor.skipLastOccurrence` is the third documented unbound command.
+
+Test counts now: **745** all-features (was 710 at plan approval), **687**
+GPU-free, **729** syntax-without-GPU, 92 bindings, 30 syntax. `cargo fmt --check`
+clean, wasm target compiles, no new clippy warnings.
+
+**Next: step 5** — `CommandMeta::aliases` (`&'static [&'static str]` plus a
+`const fn with_aliases`), applied to roughly 15 builtins. Then step 6, the
+matcher.
+
+## Demo state (2026-07-31, visitors)
+
+The vite dev server on **12223** is being shown to guests today. Standing
+instruction from that thread: **nobody rebuilds, pulls, or restarts it.** The
+wasm bundle was rebuilt at 10:04 with the `Ctrl+K` fix in it, verified serving,
+and the demo typechecks against it.
+
+Known rough edges the demo has, told to the demo runner so they steer around
+them rather than discover them live:
+
+- **`Ctrl+F` is silently inert** — it resolves to a search-open request and the
+  demo never wires `onSearchAction`, so nothing happens at all. Search works in
+  the kernel; the demo has no search UI.
+- **`Ctrl+Shift+Z` is undo, not redo** (redo is `Ctrl+Y`). Known defect,
+  documented at `builtin::HISTORY_REDO`, not yet fixed.
+- **The branching undo tree is not demonstrable in the browser.** It is correct
+  and tested in the kernel, but the wasm bindings export only `canUndo`/`canRedo`
+  — no branch navigation, no panel. Do not claim it in a pitch.

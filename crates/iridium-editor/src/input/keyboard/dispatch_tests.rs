@@ -64,6 +64,35 @@ const REMOVE_LAST: KeyEvent = KeyEvent::new(KeyCode::Char('u'), CTRL);
 const ADD_BELOW: KeyEvent = KeyEvent::new(KeyCode::Down, CTRL_ALT);
 const CHORD_LEADER: KeyEvent = KeyEvent::new(KeyCode::Char('k'), CTRL);
 
+/// A handler whose keymap restores the `Ctrl+K Ctrl+D` chord in a host layer.
+///
+/// The default keymap binds no multi-stroke sequence any more — `Ctrl+K` is
+/// reserved as the command-palette leader — so the sequence machinery needs a
+/// chord supplied to be tested at all. Supplying it here keeps those tests about
+/// the *resolver*, which is where the behaviour lives, instead of coupling them
+/// to whichever binding happens to be a chord this month.
+fn handler_with_chord() -> KeyboardHandler {
+    let mut handler = KeyboardHandler::new();
+    let mut layer = Keymap::new("host-chord");
+    layer.push(KeyBinding::new(
+        chord_stroke(KeyCode::Char('k')),
+        &[chord_stroke(KeyCode::Char('d'))],
+        crate::commands::builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
+    ));
+    handler.push_keymap(layer);
+    handler
+}
+
+/// A `Ctrl`+letter stroke with `Shift` forbidden, as the default keymap spells
+/// one.
+fn chord_stroke(key: KeyCode) -> StrokePattern {
+    use ModifierState::{Any, Forbidden, Required};
+    StrokePattern::new(
+        key,
+        ModifierPattern::new(Forbidden, Required, Forbidden, Forbidden, Any),
+    )
+}
+
 /// Lines of length 10 / 2 / 10, for exercising sticky columns across a short
 /// middle line.
 const STICKY_DOC: &str = "aaaaaaaaaa\nbb\ncccccccccc";

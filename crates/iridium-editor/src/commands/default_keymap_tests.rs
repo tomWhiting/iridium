@@ -18,11 +18,13 @@
 use std::collections::HashSet;
 
 use super::builtin::{
-    BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_INSERT_CHARACTER, builtin_registry,
+    BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_INSERT_CHARACTER, MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
+    builtin_registry,
 };
 use super::{
-    DEFAULT_KEYMAP_BINDING_COUNT, KeyPress, KeymapResolver, KeymapStack, Resolution,
-    default_keymap_stack, default_non_modal_keymap,
+    DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapResolver, KeymapStack,
+    ModifierPattern, ModifierState, Resolution, StrokePattern, default_keymap_stack,
+    default_non_modal_keymap,
 };
 use crate::input::{KeyCode, Modifiers};
 
@@ -47,6 +49,38 @@ const CTRL_ALT_SHIFT: Modifiers = mods(true, true, true, false, false);
 const CTRL_ALT_GRAPH: Modifiers = mods(false, true, true, false, true);
 const META: Modifiers = mods(false, false, false, true, false);
 const CTRL_META: Modifiers = mods(false, true, false, true, false);
+
+/// A `Ctrl`+letter chord requiring `Shift` to be absent, as the default keymap
+/// spells one.
+fn ctrl_no_shift(key: KeyCode) -> StrokePattern {
+    use ModifierState::{Any, Forbidden, Required};
+    StrokePattern::new(
+        key,
+        ModifierPattern::new(Forbidden, Required, Forbidden, Forbidden, Any),
+    )
+}
+
+/// The default stack plus a host layer restoring the `Ctrl+K Ctrl+D` chord.
+///
+/// The default keymap binds no chord at all any more — `Ctrl+K` is reserved as
+/// the command-palette leader — so the multi-stroke machinery would otherwise
+/// have no subject to be tested against, and removing one binding would silently
+/// remove the coverage of a whole feature.
+///
+/// Rebinding it in a layer is *also* the escape hatch the `default_keymap` module
+/// documentation promises to anyone who wants the chord back, so every test built
+/// on this doubles as proof that the promise holds.
+fn stack_with_host_chord() -> KeymapStack {
+    let mut stack = default_keymap_stack();
+    let mut layer = Keymap::new("host-chord");
+    layer.push(KeyBinding::new(
+        ctrl_no_shift(KeyCode::Char('k')),
+        &[ctrl_no_shift(KeyCode::Char('d'))],
+        MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
+    ));
+    stack.push(layer);
+    stack
+}
 
 /// Resolves one keypress against the default keymap with a fresh resolver.
 fn resolve(stack: &KeymapStack, key: KeyCode, modifiers: Modifiers) -> Resolution {
@@ -113,19 +147,28 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Two commands are intentionally unbound by the *non-modal* default, and any
-    // third entry here would mean a feature silently lost:
+    // Three commands are intentionally unbound by the *non-modal* default, and a
+    // fourth entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
     // - `command.noOp` exists for modal keymaps that must swallow a key rather
     //   than unbind it, and swallowing keys is precisely what a non-modal keymap
     //   must never do.
+    // - `multiCursor.skipLastOccurrence` held `Ctrl+K Ctrl+D` until `Ctrl+K` was
+    //   reserved as the command-palette leader. A bare binding forecloses every
+    //   chord sharing its prefix, so the two cannot coexist. This one is
+    //   *palette-only* rather than lost: still registered, still implemented,
+    //   still runnable by id, and a host may bind it in its own layer.
     assert_eq!(
         unbound,
-        vec![EDIT_INSERT_CHARACTER.as_str(), COMMAND_NO_OP.as_str()]
+        vec![
+            EDIT_INSERT_CHARACTER.as_str(),
+            MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
+            COMMAND_NO_OP.as_str()
+        ]
     );
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT - 2);
+    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT - 3);
 }
 
 #[test]
@@ -425,11 +468,28 @@ fn plain_characters_fall_through_to_the_typing_path() {
 }
 
 #[test]
-fn the_skip_occurrence_chord_needs_both_strokes() {
+fn ctrl_k_is_reserved_and_binds_nothing_by_default() {
+    // Pins the removal. `Ctrl+K` must resolve to *nothing* — not a command, and
+    // not a pending prefix either, since a live prefix consumes the keystroke and
+    // would look like a dropped key with no chord to complete.
     let stack = default_keymap_stack();
     let mut resolver = KeymapResolver::new();
 
-    // Ctrl+K alone is unbound today and is now a live prefix.
+    assert_eq!(
+        resolver.resolve(&stack, KeyPress::new(KeyCode::Char('k'), CTRL)),
+        Resolution::NoMatch
+    );
+    // The shifted chord is a separate binding and is unaffected.
+    expect(&stack, KeyCode::Char('K'), CTRL_SHIFT, Some("lines.delete"));
+}
+
+#[test]
+fn a_host_layer_can_restore_the_skip_occurrence_chord() {
+    // The escape hatch the module documentation promises: with nothing claiming
+    // the `Ctrl+K` prefix, a host layer may bind the chord and it resolves.
+    let stack = stack_with_host_chord();
+    let mut resolver = KeymapResolver::new();
+
     assert_eq!(
         resolver.resolve(&stack, KeyPress::new(KeyCode::Char('k'), CTRL)),
         Resolution::Pending
@@ -446,13 +506,15 @@ fn the_skip_occurrence_chord_needs_both_strokes() {
 
 #[test]
 fn a_dead_ended_skip_chord_replays_the_character_instead_of_eating_it() {
-    // REGRESSION: `Ctrl+K` is the one additive binding in the default keymap, and a
-    // dead-ended sequence used to be consumed. In the shipped configuration that
-    // meant pressing `Ctrl+K` (or, on macOS, `Cmd+K` — the web host maps both onto
-    // `ctrl`) and then typing silently discarded one character of the document.
+    // REGRESSION: a dead-ended sequence used to be consumed, so pressing a chord
+    // leader and then typing silently discarded one character of the document.
     // The leader is still consumed, but the character that kills the chord is
     // replayed and reaches the typing fall-through.
-    let stack = default_keymap_stack();
+    //
+    // Exercised through a host-bound chord because the default keymap no longer
+    // has one; the defect lives in the resolver, not in any particular binding,
+    // so any live chord proves it.
+    let stack = stack_with_host_chord();
     let mut resolver = KeymapResolver::new();
     assert_eq!(
         resolver.resolve(&stack, KeyPress::new(KeyCode::Char('k'), CTRL)),

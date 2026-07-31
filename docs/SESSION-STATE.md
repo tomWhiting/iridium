@@ -1454,6 +1454,65 @@ worktree once the bindings batch lands): `iridium-editor` render + view
 `editor/mod.rs` (~15). One warning is **unfixable by us** — `block v0.1.6`
 contains code a future Rust will reject; it is a transitive dependency.
 
+### Step 8 editor half DONE + fleet state (1 Aug, pre-compact)
+
+`06cd825` — the nine named-region verbs wired as editor commands. Built by an
+Opus subagent; **I re-ran its ten-break script myself and all ten genuinely
+fail against broken code**. Counts verified independently, not taken on report:
+930 editor all-features / 810 kernel / 914 kernel+syntax / 99 syntax / 101
+bindings / clippy **138** flat / wasm32 2 known warnings / fmt clean.
+
+Section 4 implementation is COMPLETE (steps 1-8). Step 9 is the web spike,
+dispatched as research.
+
+**Known gap, accepted:** the error-swallowing path in
+`editor/ast/textobject.rs::locate` is documented and structurally enforced by
+`.ok().flatten()` but has no discriminating test — a non-compiling vendored
+query is not reachable from the editor crate. Nearest guard is
+`every_embedded_query_compiles_against_its_grammar` in `iridium-syntax`.
+
+**Fleet state at compact time:**
+1. **Norn bindings clippy — FINISHED, NOT YET MERGED.** Lives in the worktree
+   `/Users/tom/Developer/ablative/libs/iridium-clippy-sweep`, branch
+   `clippy-sweep`, uncommitted in its working tree. 5 files, +373/-215. Claims
+   all 76 diagnostics in those files cleared with **no suppressions**, and I
+   confirmed no `#[allow]`/`#[expect]`/`unwrap`/`panic!` appears in the diff.
+   **Still to verify before merging:** run the full gate inside that worktree and
+   confirm the workspace clippy count actually drops from 138, and read the
+   `usize -> u32` decisions — Norn says it now "fails explicitly at the N-API
+   boundary instead of truncating", which is a **behaviour change on a public
+   TypeScript-facing surface** and must be reviewed, not assumed benign.
+   Envelope: `~/.norn/delegations/claude-clippy-bindings.json`.
+2. **Norn wasm32 spike research** — still running. Envelope will be
+   `~/.norn/delegations/claude-research-wasm-spike.json`, stdout at
+   `scratchpad/out-wasm.json`.
+3. **Opus subagent splitting two oversized table modules** — still running.
+   `commands/builtin/mod.rs` (732 lines) and `input/keyboard/actions/mod.rs`
+   (530). Pure reorganisation; every count must come back IDENTICAL.
+
+Driver scripts: `scratchpad/norn-clippy.sh`, `scratchpad/norn-research.sh`.
+Break scripts: `scratchpad/breaks5.sh` … `breaks8.sh`.
+
+**Remaining clippy batches, not dispatched:** `iridium-editor` render+view
+(~42 warnings) and `input/mouse.rs` + `editor/mod.rs` (~15). Queue into the same
+worktree once the bindings batch is merged. One warning is unfixable by us —
+`block v0.1.6`, a transitive dependency.
+
+### Tom's two live questions (1 Aug, answered in chat — record for continuity)
+
+1. **The real product decision** is `THE-CORE-LOOP.md` §4: reorder `PLAN.md` so
+   the terminal face moves from Phase 4 to position 4 of 6 in a flatter list,
+   with palette/regex-search AFTER it and undo-tree branch nav last. My read:
+   the reordering has *already happened in practice* — the palette, transforms
+   and all of syntax navigation landed, which is items 1-3 and 5-6 of the
+   proposal. What is left unbuilt is exactly item 4, the terminal face.
+2. **Terminal face timing.** `PLAN.md` Phase 4 gates it on decision **D1
+   (modal vs non-modal keymaps)** landing first — that is a genuine
+   product-direction call and the real blocker. `docs/TERMINAL-STACK.md` holds
+   verified API facts (termina 0.3.3 + terminput 0.5.15 + terminput-termina
+   0.3.1, Tom's call 30 Jul) but they were verified on **Rust 1.97.1 on 30 Jul
+   2026** and must be re-verified by compiling before code is written.
+
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 
 Everything below was read off the tree, not remembered.

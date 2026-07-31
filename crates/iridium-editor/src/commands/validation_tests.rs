@@ -11,7 +11,7 @@
     clippy::fn_params_excessive_bools
 )]
 
-use super::builtin::builtin_registry;
+use super::builtin::default_registry;
 use super::{
     CommandId, CommandRegistry, KeyBinding, Keymap, KeymapError, KeymapStack, ModeName,
     ModifierPattern, ModifierState, StrokePattern,
@@ -39,7 +39,7 @@ fn ctrl_pattern(key: KeyCode) -> StrokePattern {
 
 #[test]
 fn validate_rejects_an_unknown_command_id() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut keymap = Keymap::new("user");
     keymap.push(KeyBinding::new(
         ctrl_pattern(KeyCode::Char('q')),
@@ -93,7 +93,7 @@ fn validate_rejects_a_sequence_shadowed_by_a_complete_prefix() {
 
 #[test]
 fn incompatible_modifiers_do_not_count_as_shadowing() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut keymap = Keymap::new("user");
     // Ctrl+Shift+K is complete; Ctrl+K (Shift forbidden) starts a sequence.
     // They cannot both match one keypress, so neither shadows the other.
@@ -118,7 +118,7 @@ fn incompatible_modifiers_do_not_count_as_shadowing() {
 
 #[test]
 fn a_suppression_never_shadows() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut keymap = Keymap::new("user");
     keymap.push(KeyBinding::unbound(ctrl_pattern(KeyCode::Char('k')), &[]));
     keymap.push(KeyBinding::new(
@@ -133,7 +133,7 @@ fn a_suppression_never_shadows() {
 
 #[test]
 fn a_mode_scoped_prefix_only_shadows_inside_its_mode() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let normal = ModeName::from_static("normal");
     let insert = ModeName::from_static("insert");
 
@@ -185,7 +185,7 @@ fn a_mode_scoped_prefix_only_shadows_inside_its_mode() {
 
 #[test]
 fn canonicalize_interns_owned_ids_against_the_registry() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut keymap = Keymap::new("user");
     keymap.push(KeyBinding::new(
         ctrl_pattern(KeyCode::Char('c')),
@@ -202,7 +202,7 @@ fn canonicalize_interns_owned_ids_against_the_registry() {
 
 #[test]
 fn canonicalize_reports_an_unknown_id() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut keymap = Keymap::new("user");
     keymap.push(KeyBinding::new(
         ctrl_pattern(KeyCode::Char('c')),
@@ -222,7 +222,7 @@ fn canonicalize_reports_an_unknown_id() {
 
 #[test]
 fn canonicalize_skips_suppressions() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut keymap = Keymap::new("user");
     keymap.push(KeyBinding::unbound(ctrl_pattern(KeyCode::Char('c')), &[]));
     keymap
@@ -233,7 +233,7 @@ fn canonicalize_skips_suppressions() {
 
 #[test]
 fn stack_validate_and_canonicalize_cover_every_layer() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
     let mut user = Keymap::new("user");
     user.push(KeyBinding::new(
@@ -310,7 +310,7 @@ fn stack_validate_reports_a_base_chord_stranded_by_a_user_prefix() {
     // with a sequence under it — which is the very rule this test pins. Building
     // the pair explicitly keeps the test about `validate` instead of about
     // whichever binding happens to be a chord.
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut base = Keymap::new("base");
     base.push(KeyBinding::new(
         ctrl_pattern(KeyCode::Char('k')),
@@ -345,27 +345,92 @@ fn stack_validate_reports_a_base_chord_stranded_by_a_user_prefix() {
 }
 
 #[test]
-fn the_default_keymap_leaves_ctrl_k_free_for_a_host_chord() {
-    // The other half of reserving `Ctrl+K`: because the default binds nothing on
-    // it, a host layer may now bind either a bare `Ctrl+K` *or* a chord under it
-    // and validation accepts both. Before, the default's own chord made the bare
-    // binding a load-time error.
-    let registry = builtin_registry().unwrap();
+fn a_host_chord_under_the_defaults_ctrl_k_is_a_load_time_error() {
+    // The price of binding the palette to a bare `Ctrl+K`, stated where someone
+    // hitting it will find it. The default's complete binding fires the instant
+    // the key goes down, so a host chord beneath it could never complete — and
+    // that is reported at load rather than felt as a key that does nothing.
+    let registry = default_registry().unwrap();
+    let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
+    let mut host = Keymap::new("host");
+    host.push(KeyBinding::new(
+        ctrl_pattern(KeyCode::Char('k')),
+        &[ctrl_pattern(KeyCode::Char('d'))],
+        CommandId::from_static("multiCursor.skipLastOccurrence"),
+    ));
+    stack.push(host);
 
-    for continuation in [Vec::new(), vec![ctrl_pattern(KeyCode::Char('d'))]] {
-        let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
-        let mut host = Keymap::new("host");
-        host.push(KeyBinding::new(
-            ctrl_pattern(KeyCode::Char('k')),
-            &continuation,
-            CommandId::from_static("multiCursor.skipLastOccurrence"),
-        ));
-        stack.push(host);
-
-        stack
-            .validate(&registry)
-            .expect("nothing in the default claims the Ctrl+K prefix");
+    match stack.validate(&registry) {
+        Err(KeymapError::CrossLayerShadowedSequence {
+            prefix_keymap,
+            shadowed_keymap,
+            shadowed,
+            ..
+        }) => {
+            assert_eq!(prefix_keymap, "default");
+            assert_eq!(shadowed_keymap, "host");
+            assert_eq!(shadowed, "ctrl+k ctrl+d");
+        },
+        other => panic!("expected the palette binding to strand the chord, got {other:?}"),
     }
+}
+
+#[test]
+fn a_host_may_take_ctrl_k_back_by_unbinding_it_first() {
+    // The escape hatch, and the reason the error above is a diagnostic rather than
+    // a wall: a host that wants the leader suppresses the default's binding in its
+    // own layer, and the chord beneath it then validates and resolves.
+    let registry = default_registry().unwrap();
+    let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
+    let mut host = Keymap::new("host");
+    // A suppression cancels a binding it spells *identically* — `Keymap::suppresses`
+    // compares whole sequences, patterns included. So unbinding the default's
+    // `Ctrl+K` means reproducing its modifier pattern, `AltGraph: Any` and all,
+    // rather than the tighter `NONE.with_ctrl(Required)` used elsewhere here.
+    let palette_key = StrokePattern::new(
+        KeyCode::Char('k'),
+        ModifierPattern::new(
+            ModifierState::Forbidden,
+            ModifierState::Required,
+            ModifierState::Forbidden,
+            ModifierState::Forbidden,
+            ModifierState::Any,
+        ),
+    );
+    host.push(KeyBinding::unbound(palette_key, &[]));
+    host.push(KeyBinding::new(
+        ctrl_pattern(KeyCode::Char('k')),
+        &[ctrl_pattern(KeyCode::Char('d'))],
+        CommandId::from_static("multiCursor.skipLastOccurrence"),
+    ));
+    stack.push(host);
+
+    stack
+        .validate(&registry)
+        .expect("the suppression clears the default's claim on the leader");
+
+    // And it genuinely resolves, rather than merely passing validation.
+    let mut resolver = super::KeymapResolver::new();
+    let ctrl = |key| {
+        super::KeyPress::new(
+            key,
+            crate::input::Modifiers {
+                shift: false,
+                ctrl: true,
+                alt: false,
+                meta: false,
+                alt_graph: false,
+            },
+        )
+    };
+    assert_eq!(
+        resolver.resolve(&stack, ctrl(KeyCode::Char('k'))),
+        super::Resolution::Pending
+    );
+    assert_eq!(
+        resolver.resolve(&stack, ctrl(KeyCode::Char('d'))),
+        super::Resolution::matched(CommandId::from_static("multiCursor.skipLastOccurrence"))
+    );
 }
 
 #[test]
@@ -373,7 +438,7 @@ fn a_lower_layer_prefix_shadowing_a_higher_layer_sequence_is_reported_too() {
     // The defect is symmetric: the base layer's complete `Ctrl+K` fires before the
     // user layer's longer sequence can complete, so the user's binding is the dead
     // one. Both directions must be caught, or half the failures stay silent.
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut base = Keymap::new("base");
     base.push(KeyBinding::new(
         ctrl_pattern(KeyCode::Char('k')),
@@ -405,7 +470,7 @@ fn a_lower_layer_prefix_shadowing_a_higher_layer_sequence_is_reported_too() {
 #[test]
 fn unbinding_the_stranded_sequence_clears_the_cross_layer_diagnostic() {
     // The documented remedy has to actually work, or the diagnostic is a wall.
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut stack = KeymapStack::with_base(super::default_non_modal_keymap());
     let mut user = Keymap::new("user");
     user.push(KeyBinding::new(
@@ -428,7 +493,7 @@ fn unbinding_the_stranded_sequence_clears_the_cross_layer_diagnostic() {
 fn incompatible_modifiers_do_not_count_as_cross_layer_shadowing() {
     // The same overlap rule as within a layer: `Ctrl+Shift+K` and a `Ctrl+K` prefix
     // that forbids Shift cannot both match one keypress.
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut base = Keymap::new("base");
     base.push(KeyBinding::new(
         ctrl_pattern(KeyCode::Char('k')),
@@ -454,7 +519,7 @@ fn incompatible_modifiers_do_not_count_as_cross_layer_shadowing() {
 
 #[test]
 fn a_mode_scoped_prefix_does_not_shadow_across_layers_outside_its_mode() {
-    let registry = builtin_registry().unwrap();
+    let registry = default_registry().unwrap();
     let mut base = Keymap::new("base");
     base.push(
         KeyBinding::new(

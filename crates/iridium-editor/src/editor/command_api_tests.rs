@@ -19,7 +19,7 @@ use crate::commands::{
     Keymap, KeymapError, ModifierPattern, ModifierState, StrokePattern, builtin,
 };
 use crate::document::Position;
-use crate::input::{KeyCode, KeyEvent, Modifiers};
+use crate::input::{CommandRunError, KeyCode, KeyEvent, Modifiers};
 
 fn editor_with(content: &str) -> Editor {
     let mut editor = Editor::new(EditorConfig::default());
@@ -34,36 +34,49 @@ fn ctrl_stroke(key: KeyCode) -> StrokePattern {
     )
 }
 
-/// An editor whose keymap carries a `Ctrl+K Ctrl+D` chord in a host layer.
+/// The leader these tests hang their chord on: any key the default leaves free.
 ///
-/// The default keymap binds no multi-stroke sequence — `Ctrl+K` is reserved as
-/// the command-palette leader, and a bare binding forecloses every chord under
-/// it — so an editor-level test of chord behaviour has to supply its own. Doing
-/// so keeps these tests about the pending-sequence machinery rather than about
-/// which binding happens to be a chord.
+/// Named once because the behaviour under test belongs to the pending-sequence
+/// machinery, not to this key. It was `Ctrl+K` until `Ctrl+K` became the command
+/// palette.
+const CHORD_LEADER: KeyCode = KeyCode::Char('b');
+
+/// An editor whose keymap carries a `Ctrl+B Ctrl+D` chord in a host layer.
+///
+/// The default keymap binds no multi-stroke sequence — a bare `Ctrl+K` opens the
+/// palette, and a complete binding forecloses every chord under it — so an
+/// editor-level test of chord behaviour has to supply its own. Doing so keeps
+/// these tests about the pending-sequence machinery rather than about which
+/// binding happens to be a chord.
 fn editor_with_chord(content: &str) -> Editor {
     let mut editor = editor_with(content);
     let mut layer = Keymap::new("host-chord");
     layer.push(KeyBinding::new(
-        ctrl_stroke(KeyCode::Char('k')),
+        ctrl_stroke(CHORD_LEADER),
         &[ctrl_stroke(KeyCode::Char('d'))],
         builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE,
     ));
     editor
         .push_keymap(layer)
-        .expect("nothing in the default claims the Ctrl+K prefix");
+        .expect("nothing in the default claims the Ctrl+B prefix");
     editor
 }
 
 // ===== Invoke by id =====
 
 #[test]
-fn every_command_the_palette_lists_can_be_invoked_by_id() {
-    // The load-bearing claim: a palette renders `commands()` and must be able to
-    // run what it renders. Two entries cannot come from a palette — the typing
-    // fall-through has no character without a keystroke, and the explicit no-op
-    // does nothing by definition — and both are still *invocable*, they simply
-    // change nothing.
+fn every_command_the_palette_lists_is_either_run_or_reported_to_the_host() {
+    // The load-bearing claim: a palette renders `commands()` and must do something
+    // definite with every entry. Two entries cannot come from a palette — the
+    // typing fall-through has no character without a keystroke, and the explicit
+    // no-op does nothing by definition — and both are still *invocable*, they
+    // simply change nothing.
+    //
+    // Host commands are the second case. `run_command` cannot run one, and says so
+    // with `Unimplemented` naming the id, which is the face's cue to handle it.
+    // The distinction is asserted in both directions: a kernel command must never
+    // report `Unimplemented`, and a host command must never quietly succeed as
+    // though the kernel had done something.
     let mut editor = editor_with("alpha beta\ngamma delta\n");
     let ids: Vec<String> = editor
         .commands()
@@ -71,14 +84,33 @@ fn every_command_the_palette_lists_can_be_invoked_by_id() {
         .iter()
         .map(|meta| meta.id().as_str().to_owned())
         .collect();
-    assert_eq!(ids.len(), builtin::BUILTIN_COMMAND_COUNT);
+    assert_eq!(
+        ids.len(),
+        builtin::BUILTIN_COMMAND_COUNT + builtin::HOST_COMMAND_COUNT
+    );
 
+    let mut reported = 0;
     for id in &ids {
         editor.set_cursor(Position::new(0, 2));
-        editor
-            .run_command(id, CommandArgs::NONE)
-            .unwrap_or_else(|error| panic!("palette entry `{id}` is not invocable: {error}"));
+        let outcome = editor.run_command(id, CommandArgs::NONE);
+        if Editor::implements_command(id) {
+            outcome
+                .unwrap_or_else(|error| panic!("kernel command `{id}` is not invocable: {error}"));
+        } else {
+            reported += 1;
+            match outcome {
+                Err(CommandRunError::Unimplemented { id: reported_id }) => {
+                    assert_eq!(&reported_id, id);
+                },
+                other => panic!("host command `{id}` should be reported, got {other:?}"),
+            }
+        }
     }
+    assert_eq!(
+        reported,
+        builtin::HOST_COMMAND_COUNT,
+        "every host command, and nothing else, must be reported rather than run"
+    );
 }
 
 #[test]
@@ -370,13 +402,13 @@ fn a_user_keymap_that_strands_a_lower_chord_is_rejected_at_load_time() {
     // diagnostic, and the documented fix (also unbinding the chord) clears it.
     //
     // The chord being stranded now comes from a host layer rather than the
-    // default keymap, which reserves `Ctrl+K` and binds nothing on it. The
-    // diagnostic is about the *relationship* between two layers, so a host chord
-    // exercises it exactly as the default one used to.
+    // default keymap, which binds `Ctrl+K` to the palette and so has no chord of
+    // its own. The diagnostic is about the *relationship* between two layers, so a
+    // host chord exercises it exactly as the default one used to.
     let mut editor = editor_with_chord("");
     let mut greedy = Keymap::new("user");
     greedy.push(KeyBinding::new(
-        ctrl_stroke(KeyCode::Char('k')),
+        ctrl_stroke(CHORD_LEADER),
         &[],
         builtin::LINES_DELETE,
     ));
@@ -388,10 +420,10 @@ fn a_user_keymap_that_strands_a_lower_chord_is_rejected_at_load_time() {
         KeymapError::CrossLayerShadowedSequence {
             prefix, shadowed, ..
         } => {
-            assert_eq!(prefix, "ctrl+k");
+            assert_eq!(prefix, "ctrl+b");
             // The display form is round-trippable, so it names every modifier the
             // stranded sequence constrains and nothing it does not.
-            assert_eq!(shadowed, "ctrl+k ctrl+d");
+            assert_eq!(shadowed, "ctrl+b ctrl+d");
         },
         other => panic!("expected a cross-layer shadowing error, got {other:?}"),
     }
@@ -405,17 +437,17 @@ fn a_user_keymap_that_strands_a_lower_chord_is_rejected_at_load_time() {
     // is the round-trippable display form, so it parses straight back into the
     // sequence to unbind. Suppression matches a sequence exactly, which is why the
     // diagnostic has to be quotable like this rather than approximated by hand.
-    let (first, rest) = KeyBinding::parse_sequence("ctrl+k ctrl+d").expect("parses");
+    let (first, rest) = KeyBinding::parse_sequence("ctrl+b ctrl+d").expect("parses");
     let mut fixed = greedy;
     fixed.push(KeyBinding::unbound(first, &rest));
     editor
         .push_keymap(fixed)
         .expect("unbinding the chord clears the shadow");
 
-    // And Ctrl+K now runs the user's command immediately rather than pending.
+    // And the leader now runs the user's command immediately rather than pending.
     editor.set_content("one\ntwo\n");
     editor.set_cursor(Position::new(0, 0));
-    editor.handle_key(&KeyEvent::new(KeyCode::Char('k'), Modifiers::ctrl()));
+    editor.handle_key(&KeyEvent::new(CHORD_LEADER, Modifiers::ctrl()));
     assert_eq!(editor.content(), "two\n");
     assert!(editor.pending_key_sequence().is_empty());
 }
@@ -454,11 +486,11 @@ fn the_pending_sequence_is_visible_to_the_host_and_abortable() {
     editor.set_cursor(Position::new(0, 2));
 
     assert_eq!(
-        editor.handle_key(&KeyEvent::new(KeyCode::Char('k'), Modifiers::ctrl())),
+        editor.handle_key(&KeyEvent::new(CHORD_LEADER, Modifiers::ctrl())),
         EditorKeyResult::None
     );
     assert_eq!(editor.pending_key_sequence().len(), 1);
-    assert_eq!(editor.pending_key_sequence()[0].key, KeyCode::Char('k'));
+    assert_eq!(editor.pending_key_sequence()[0].key, CHORD_LEADER);
 
     // Focus loss must clear it, or the first key after the user returns is eaten.
     assert!(editor.abort_pending_key_sequence());

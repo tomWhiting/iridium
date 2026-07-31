@@ -29,7 +29,7 @@ use iridium_editor::{
         CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
         Viewport, ViewportConfig, WebSurface,
     },
-    syntax_stubs::Language,
+    syntax_stubs::{Language, SyntaxTree},
     theme::Theme,
 };
 
@@ -180,6 +180,13 @@ pub struct WebEditor {
     gutter_enabled: bool,
     /// Code folding state
     fold_state: FoldState,
+    /// The parse tree the fold regions are read from.
+    ///
+    /// Without the `syntax` feature — which is every wasm build — this is the
+    /// stub tree and costs nothing; the fold detector on this path matches
+    /// braces and ignores it. The field exists so the call shape here is the
+    /// same one the native kernel uses.
+    fold_tree: SyntaxTree,
     /// Vertical scroll offset in pixels
     scroll_y: f32,
     /// Cached character width (measured from actual font metrics)
@@ -414,6 +421,7 @@ pub async fn create_web_editor(
         syntax_enabled: true,
         gutter_enabled: true,
         fold_state,
+        fold_tree: SyntaxTree::new(Language::Rust).unwrap_or_else(|_| SyntaxTree::default()),
         scroll_y: 0.0,
         cached_char_width: 14.0 * 0.6, // Default until font is loaded
         ts_highlights: Vec::new(),
@@ -492,7 +500,7 @@ impl WebEditor {
         // edit; consumers do a full parse of the new content.
         self.pending_edit = PendingEdit::None;
         // Update fold regions for new content
-        self.fold_state.update_regions(content);
+        self.refresh_fold_regions(content);
         self.needs_redraw = true;
     }
 
@@ -940,7 +948,7 @@ impl WebEditor {
         self.keyboard_handler.invalidate_cursor_order();
         self.record_edit(span);
         let content = self.editor.content();
-        self.fold_state.update_regions(&content);
+        self.refresh_fold_regions(&content);
         self.needs_redraw = true;
         Ok(())
     }
@@ -1159,7 +1167,7 @@ impl WebEditor {
                 Ok(None) | Err(EditSpanError) => self.pending_edit = PendingEdit::Degraded,
             }
             let content = self.editor.content();
-            self.fold_state.update_regions(&content);
+            self.refresh_fold_regions(&content);
         }
 
         self.cursor_renderer.reset_blink();
@@ -2985,7 +2993,7 @@ impl WebEditor {
             }
             // Update fold regions after content change
             let content = self.editor.content();
-            self.fold_state.update_regions(&content);
+            self.refresh_fold_regions(&content);
             self.needs_redraw = true;
         }
         result
@@ -3832,7 +3840,7 @@ impl WebEditor {
     #[wasm_bindgen(js_name = updateFolds)]
     pub fn update_folds(&mut self) {
         let content = self.editor.content();
-        self.fold_state.update_regions(&content);
+        self.refresh_fold_regions(&content);
         self.needs_redraw = true;
     }
 
@@ -3967,4 +3975,21 @@ pub async fn is_webgpu_supported() -> bool {
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await
         .is_ok()
+}
+
+/// Fold bookkeeping that is not part of the JavaScript surface.
+///
+/// A private method cannot live in a `#[wasm_bindgen]` impl, so it lives here.
+impl WebEditor {
+    /// Reparses `content` and refreshes the fold regions from the result.
+    ///
+    /// The fold detector borrows a tree rather than owning one, so every path
+    /// that changes the document comes through here — one place that knows how
+    /// folds are recomputed, rather than five that each remember to.
+    fn refresh_fold_regions(&mut self, content: &str) -> bool {
+        let Some(tree) = self.fold_tree.parse(content) else {
+            return false;
+        };
+        self.fold_state.update_regions(tree, content)
+    }
 }

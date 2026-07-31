@@ -4,12 +4,6 @@
 //! an incremental parse is only worth having if it produces the same tree the
 //! slow path would, and every other guarantee in this module rests on that one.
 
-#![allow(
-    clippy::expect_used,
-    clippy::panic,
-    reason = "assertions in tests read better than error plumbing"
-)]
-
 use tree_sitter::{InputEdit, Point};
 
 use super::{SyntaxTree, byte_point};

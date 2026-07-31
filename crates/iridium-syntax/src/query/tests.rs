@@ -5,12 +5,6 @@
 //! test a grammar bump that invalidates a pattern would ship, and would surface
 //! as a language that silently stops highlighting.
 
-#![allow(
-    clippy::expect_used,
-    clippy::panic,
-    reason = "assertions in tests read better than error plumbing"
-)]
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

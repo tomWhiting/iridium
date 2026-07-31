@@ -37,7 +37,6 @@ pub fn grammar(language: Language) -> tree_sitter::Language {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::panic, reason = "assertions in tests")]
 mod tests {
     use super::grammar;
     use crate::Language;

@@ -948,7 +948,7 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
-## Section 4 (syntax-node navigation) — steps 1 and 2 of 9 landed
+## Section 4 (syntax-node navigation) — steps 1–4 of 9 landed
 
 Plan §4.6's build order. Steps 1–4 are refactor-and-fix and can land before any
 decision on the verb set; step 4 alone fixes the stale-fold bug (finding 3).
@@ -970,8 +970,7 @@ command from the gate list.
 
 2. ~~`iridium-syntax/src/query/`~~ — **DONE**, see below.
 3. ~~`iridium-syntax/src/tree.rs`~~ — **DONE**, see below.
-4. `SyntaxState` on `EditorState`, `note_edit` from `apply_command_internal`,
-   `fold_state` onto the shared tree. **Fixes the stale folds.**
+4. ~~`SyntaxState` on `EditorState`~~ — **DONE**, see below. Stale folds fixed.
 5. `navigate.rs` — pure `Node → Node` walks.
 6. `selectNode`/`expand`/`shrink` + the expand stack + `KeyResult::Ast`.
 7. Siblings, children, caret motions, multi-cursor.
@@ -1102,6 +1101,66 @@ the feature-off build has the identical call shape.
 Gate after step 3: 867 all-features, 809 kernel, 851 kernel+syntax, 101 bindings,
 59 syntax. Clippy in `iridium-syntax`: **zero**. Workspace total 187, down from
 the 201 baseline.
+
+### Step 4 is DONE (1 Aug) — the stale-fold bug is fixed
+
+`crates/iridium-editor/src/editor/ast/` holds `SyntaxState`: the document's one
+parse tree, on `EditorState` as `state.syntax`. `apply_command_internal` computes
+the span **before** applying (pre-edit coordinates), applies, then calls
+`note_edit`, then `refresh_syntax()`. `FoldState` no longer owns a tree — it
+borrows one via `update_regions(&Tree, &str)`, and `update_regions_incremental`
+is gone (it had no callers).
+
+**The contract, and why it is safe:** `note_edit` shifts the tree and never
+parses. `sync` parses, and only when the document moved. If a mutation ever
+skips `note_edit`, the document revision disagrees with the tracked one and
+`sync` parses the document whole — the incremental path can be missed, never
+trusted blindly. New counters `full_parses()` / `incremental_parses()` make that
+observable, which is what makes it testable.
+
+**One hole found while building it, worth remembering:** revision equality alone
+is *not* enough. A replacement `Document` starts counting from zero, so a tree
+parsed from the old text at revision 0 and a new document at revision 0 look
+identical and no reparse happens. `SyntaxState::invalidate()` exists for exactly
+that, and `set_content` calls it. Test:
+`replacing_the_editors_content_refolds_the_new_document`.
+
+Web face: `WebEditor` gained a `fold_tree` (the zero-sized stub) and a private
+`refresh_fold_regions`, replacing five separate `update_regions` call sites with
+one. Only the wasm32 check compiles that file — keep it in the gate.
+
+**Discrimination: six deliberate breaks, four caught, two not.** Script at
+`scratchpad/breaks4.sh` (it now verifies each patch actually applied — an
+earlier run reported two false passes because a `perl` pattern silently missed).
+
+- D1 folds never refreshed after an edit → caught (2 tests). *This is the
+  original bug.*
+- D2 `set_content` does not invalidate → caught.
+- D3 `sync` ignores a missed edit → caught.
+- D4 `note_edit` records but does not shift → caught (4 tests).
+- D5 `sync` always parses whole → caught, but only after the parse counters were
+  added; the first oracle compared `&Tree` addresses, which are the *field's*
+  address and identical either way. A pointer is not an identity here.
+- **D6 — the old-end point taken from the post-edit document is NOT caught.**
+  `an_edit_spanning_lines_keeps_the_tree_matching_a_parse_from_scratch` was
+  written for it and passes with the break in place: tree-sitter re-lexes from
+  the edit start and recovers. **The pre-edit point is still the correct thing
+  to pass** — `EditSpan` carries it and `edit_for` uses it — but that claim is
+  currently unverified by any test. Either find a case that discriminates (a
+  large file where a stale subtree survives, probably) or say plainly that it
+  rests on tree-sitter's documented contract rather than on a test.
+
+**`clippy.toml` is new, and it is why the `#[allow]` blocks went away.** Tom
+flagged seeing a lot of allows: every test module needed a waiver for
+`unwrap_used` / `expect_used` / `panic`, because those lints are configured
+workspace-wide and clippy applies them to test code too. `allow-unwrap-in-tests`
+/ `allow-expect-in-tests` / `allow-panic-in-tests` say it once, centrally.
+**Eight `#[allow]` blocks deleted, none added, and the two pre-existing ones in
+`syntax.rs` are down to one** (`match_same_arms` on `highlight_to_color`, which
+needs its arms merged — still open).
+
+Gate after step 4: 880 all-features, 809 kernel, 864 kernel+syntax, 101
+bindings, 59 syntax. Zero clippy warnings in `iridium-syntax` or `editor/ast`.
 
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 

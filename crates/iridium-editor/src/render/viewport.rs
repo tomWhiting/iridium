@@ -406,6 +406,28 @@ impl Iterator for VisibleLinesIterator<'_> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Parses `source` and refreshes `state`'s regions from the result.
+    ///
+    /// The detector borrows a tree rather than owning one, so a test that wants
+    /// regions has to parse first — exactly as the editor does.
+    fn update_regions_of(state: &mut FoldState, source: &str) -> bool {
+        #[cfg(not(feature = "syntax"))]
+        use crate::syntax_stubs::SyntaxTree;
+        #[cfg(feature = "syntax")]
+        use iridium_syntax::SyntaxTree;
+
+        let Some(language) = state.language() else {
+            return false;
+        };
+        let Ok(mut tree) = SyntaxTree::new(language) else {
+            return false;
+        };
+        let Some(parsed) = tree.parse(source) else {
+            return false;
+        };
+        state.update_regions(parsed, source)
+    }
     use super::*;
     use ropey::Rope;
 
@@ -453,7 +475,7 @@ fn foo() {
 }
 line 5";
         let mut state = FoldState::for_language(Language::Rust);
-        state.update_regions(code);
+        update_regions_of(&mut state, code);
         state
     }
 
@@ -657,7 +679,7 @@ line 5";
         let content = "line 0\nfn foo() {\n  hidden\n}\nline 4\n";
         let rope = Rope::from_str(content);
         let mut fold_state = FoldState::for_language(Language::Rust);
-        fold_state.update_regions(content);
+        update_regions_of(&mut fold_state, content);
         fold_state.fold_at(1); // Fold the function
         let config = ViewportConfig::no_overscan();
 

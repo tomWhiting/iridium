@@ -207,8 +207,7 @@ impl DocumentHighlighter {
 
     /// Invalidates the cache, forcing a re-highlight on next call.
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // &mut self methods can't be const on stable
-    pub fn invalidate(&mut self) {
+    pub const fn invalidate(&mut self) {
         self.cache_valid = false;
     }
 
@@ -305,7 +304,6 @@ impl<'a> Iterator for ColoredSpanIterator<'a> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, reason = "assertions in tests")]
 mod tests {
     use super::*;
 

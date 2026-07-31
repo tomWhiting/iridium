@@ -1,0 +1,10 @@
+# Assertions in tests are how a test reports a failure. `unwrap`, `expect` and
+# `panic!` there are not the hazard the workspace lints exist to catch — that
+# hazard is a production path that gives up on an error — and warning on them
+# forced an `#[allow]` block onto the top of every test module in the tree.
+#
+# These three settings say the same thing once, centrally, so the lints stay
+# strict where they matter and silent where they never did.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

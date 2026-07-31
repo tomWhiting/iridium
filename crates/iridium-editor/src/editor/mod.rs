@@ -11,6 +11,7 @@
 //! Undo-tree navigation on [`Editor`] lives in `history_nav`; it extends the
 //! same type rather than introducing another.
 
+mod ast;
 mod config;
 mod core;
 mod fold_state;
@@ -19,6 +20,7 @@ mod history_nav;
 #[cfg(test)]
 mod command_api_tests;
 
+pub use ast::SyntaxState;
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 pub use fold_state::{FoldInfo, FoldState};

@@ -468,23 +468,62 @@ Test counts now: **789** all-features (was 710 at plan approval), **731**
 GPU-free, **773** syntax-without-GPU, 92 bindings, 30 syntax. `cargo fmt --check`
 clean, wasm target compiles, no new clippy warnings.
 
-**Next: step 8** — `crates/iridium-bindings/src/palette.rs` (plain functions over
-`(&CommandRegistry, &KeyHintIndex, &str)`, *not* gated on `feature = "web"` so
-`cargo test` covers them), extract `WebEditor::consume_key_result`, then the four
-`#[wasm_bindgen]` adapters.
+8. ✅ **`crates/iridium-bindings/src/palette.rs`** + four wasm exports
+   (`af5858b`), 18 tests. Deliberately **not** gated on `feature = "web"` — plain
+   functions over borrowed kernel types, so `cargo test` covers them on the host
+   target and only the adapters are browser-only. A conversion bug reproducible
+   only in a browser is one nobody reproduces.
 
-**Two things step 8 must decide, flagged rather than assumed:**
+   **Match offsets are converted to UTF-16 at this boundary.** The kernel indexes
+   by *character*, which is right for Rust and wrong for a browser — one astral
+   character in a title shifts every highlight after it. Pinned with `𝄞`
+   (one `char`, two UTF-16 units) and `ü` (two bytes, one unit), so a conversion
+   written against either characters *or* bytes fails.
 
-- **Where `CommandMru` lives.** It is a standalone kernel type with no owner yet.
-  `Editor::run_command` is the by-id path (palette and host), *not* the keystroke
-  path, so recording there is right — but `WebEditor` holds its **own**
-  `KeyboardHandler` beside the one inside `self.editor` (`wasm.rs:288`), so the
-  web face must not end up with a second, divergent history.
-- **`matchedText` on the wire.** The plan's shape lists `matchedField` and
-  `matches` but not the text they index. Without it a host cannot render an alias
-  highlight at all, which §1.4 explicitly requires, so it should be added.
+   `matchedText` is on the wire beyond the planned shape, and has to be: an alias
+   hit cannot be highlighted inside the title.
 
-**Also unresolved and NOT silently deferred:** registry-level validation of
+   `WebEditor::consume_key_result` extracted; `runCommand` goes through it, so a
+   palette invocation and a keypress are indistinguishable downstream. An
+   unimplemented id is stashed for `takePendingHostCommand` and reported as
+   `handled:command`, leaving `ignored` to mean only "no such command".
+
+   **`CommandMru` lives on `WebEditor`**, beside the `KeyboardHandler` this face
+   actually routes through — *not* inside `self.editor`, whose own handler this
+   face never drives. (This was the open decision; it is now taken.)
+9. ✅ **TS controller surface** (`af4089e`) — `listCommands`, `searchCommands`,
+   `runCommand`, `keyHintFor`, `blurEditor`, `usesMacKeyLabels`, plus the
+   `PaletteCommand` type. `applyActionOutcome` extracted from `handleKeyDown` for
+   the same reason as the Rust extraction.
+10. ✅ **`@iridium/core/src/palette/`** (`af4089e`) — the framework-free state
+    machine, 26 bun tests, plus `"./palette"` in both `deno.json` and
+    `package.json` exports. Decisions pinned by tests: **clamp, never wrap**
+    (wrapping overshoots under key repeat); focus returns to the editor on close;
+    a new query resets the selection; no debounce; close *before* running;
+    an unavailable command neither runs nor dismisses.
+
+Test counts now: **789** all-features, **731** GPU-free, **773**
+syntax-without-GPU, **110** bindings, 30 syntax, **43** bun (26 new). `cargo fmt
+--check` clean, wasm target compiles, `deno check` clean, no new clippy warnings.
+
+**Next: step 11** — the last one. `examples/web/src/CommandPalette.tsx` using
+`createPortal` to `document.body` with inline styles matching `App.tsx`;
+`Iridium.tsx` gains the `onHostCommand` prop it currently lacks (it forwards only
+`onChange`/`onSelectionChange`); then the web component, where **the shadow root
+means a `document.body` portal gets no styles** — render inside the shadow root
+with `position: fixed` and append CSS to the existing `<style>` block in
+`element/index.ts`.
+
+Wire it to `palette.open`: the host receives it through `onHostCommand` and calls
+`CommandPalette.open()`. Overlay keys all live on the input's `onKeyDown` —
+`Escape` closes, `ArrowDown`/`Ctrl+N` and `ArrowUp`/`Ctrl+P` move with
+`preventDefault`, `Enter` runs — and rows need
+`onMouseDown={e => e.preventDefault()}` so a click does not blur the input first.
+
+Then the end-to-end pass in the browser on port **12223** (rebuild the wasm
+bundle first), and after that the plan's sections 2–4.
+
+**Unresolved and NOT silently deferred:** registry-level validation of
 *host-registered* aliases (empty, whitespace, colliding with a command id). The
 built-in table is covered by tests; a host registering garbage aliases today only
 degrades its own palette. Adding `RegistryError` variants is a public API change

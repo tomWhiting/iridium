@@ -948,7 +948,10 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
-## Section 4 (syntax-node navigation) — steps 1–4 of 9 landed
+## Section 4 (syntax-node navigation) — ALL NINE STEPS DONE (1 Aug)
+
+Steps 1–8 landed as code; step 9 was a research spike and is written up in
+`docs/WASM-SYNTAX-SPIKE.md`. **The approved plan is now complete end to end.**
 
 Plan §4.6's build order. Steps 1–4 are refactor-and-fix and can land before any
 decision on the verb set; step 4 alone fixes the stale-fold bug (finding 3).
@@ -974,12 +977,29 @@ command from the gate list.
 5. `navigate.rs` — pure `Node → Node` walks.
 6. `selectNode`/`expand`/`shrink` + the expand stack + `KeyResult::Ast`.
 7. Siblings, children, caret motions, multi-cursor.
-8. `textobject.rs` + the five text objects and four jump-by-kind commands.
-9. The web spike (§4.5), timeboxed and independent.
+8. ~~`textobject.rs` + the five text objects and four jump-by-kind~~ — **DONE** (`06cd825`).
+9. ~~The web spike (§4.5)~~ — **DONE**, see `docs/WASM-SYNTAX-SPIKE.md`.
 
-**§4.5 is still Tom's to decide** and nothing above depends on it: the
-recommendation in the plan is (a) native-only now, then a one-day timeboxed
-spike on (c) getting tree-sitter to compile for `wasm32`. Do **not** build (b).
+### Step 9 — the wasm spike, priced (1 Aug)
+
+Verdict: **viable, not dead, ~2–3 engineer-weeks.** The §4.5 recommendation is
+unchanged — keep the JavaScript worker, and do **not** build (b).
+
+Four facts I re-verified by hand against `Cargo.lock` and the registry sources
+rather than trusting the report: the lock is `tree-sitter 0.26.3` +
+`tree-sitter-language 0.1.6`; the core `build.rs` **does** have a
+`wasm32-unknown` branch (line 31); `tree-sitter-rust 0.24.0`'s build script
+contains the string `wasm` **zero times**; `tree-sitter-md 0.5.2`'s does
+reference the wasm headers. So the blocker is precisely that the *runtime*
+gained wasm32 support upstream while ten of our twelve *grammar* crates never
+adopted the template. Beyond that: four scanners fail even with a wasm clang
+(missing `UINT8_MAX`, `wchar.h`, `isdigit`/`strcmp`, `wchar_t`), and the
+upstream wasm allocator never initialises outside `reset_heap` and caps at
+4 MiB — still true on 0.26.11, with an open upstream browser-panic report.
+
+Size is *not* the argument against it: the JS worker already embeds the same
+grammars as base64, so replacing it could be transfer-neutral. The argument
+against is the 2–3 weeks and owning a forked C toolchain.
 
 ### Tom's correction, 31 Jul — the verb set is the deliverable
 

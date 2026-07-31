@@ -12,10 +12,10 @@
 //! when the document changes.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Tree};
 
 use crate::Language;
+use crate::grammar::grammar;
 
 /// Kind of foldable region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -283,44 +283,6 @@ impl FoldableNodeTypes {
     }
 }
 
-/// Internal language registry for tree-sitter grammars (for folding).
-struct LanguageRegistry {
-    grammars: HashMap<Language, tree_sitter::Language>,
-}
-
-impl LanguageRegistry {
-    fn new() -> Self {
-        let mut grammars = HashMap::new();
-
-        // Register all supported language grammars
-        grammars.insert(Language::Rust, tree_sitter_rust::LANGUAGE.into());
-        grammars.insert(Language::Python, tree_sitter_python::LANGUAGE.into());
-        grammars.insert(
-            Language::TypeScript,
-            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        );
-        grammars.insert(
-            Language::JavaScript,
-            tree_sitter_javascript::LANGUAGE.into(),
-        );
-        grammars.insert(Language::Tsx, tree_sitter_typescript::LANGUAGE_TSX.into());
-        grammars.insert(Language::Go, tree_sitter_go::LANGUAGE.into());
-        grammars.insert(Language::Json, tree_sitter_json::LANGUAGE.into());
-        grammars.insert(Language::Yaml, tree_sitter_yaml::LANGUAGE.into());
-        grammars.insert(Language::Markdown, tree_sitter_md::LANGUAGE.into());
-        grammars.insert(Language::Css, tree_sitter_css::LANGUAGE.into());
-        grammars.insert(Language::Bash, tree_sitter_bash::LANGUAGE.into());
-        grammars.insert(Language::C, tree_sitter_c::LANGUAGE.into());
-        grammars.insert(Language::Cpp, tree_sitter_cpp::LANGUAGE.into());
-
-        Self { grammars }
-    }
-
-    fn get(&self, lang: Language) -> Option<&tree_sitter::Language> {
-        self.grammars.get(&lang)
-    }
-}
-
 /// Detects foldable regions in source code using tree-sitter.
 ///
 /// The detector parses source code and identifies regions that can be folded
@@ -359,15 +321,13 @@ impl FoldDetector {
     ///
     /// # Errors
     ///
-    /// Returns `None` if the language is not supported.
+    /// Returns `None` if the language's grammar is incompatible with this build
+    /// of tree-sitter. Every supported language has a grammar, so this is a
+    /// dependency mismatch rather than an unsupported language.
     #[must_use]
     pub fn new(language: Language) -> Option<Self> {
-        let registry = LanguageRegistry::new();
-
-        let ts_language = registry.get(language)?;
-
         let mut parser = Parser::new();
-        parser.set_language(ts_language).ok()?;
+        parser.set_language(&grammar(language)).ok()?;
 
         let node_types = FoldableNodeTypes::for_language(language);
 
@@ -598,6 +558,7 @@ fn byte_to_point(source: &str, byte_offset: usize) -> tree_sitter::Point {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, reason = "assertions in tests")]
 mod tests {
     use super::*;
 
@@ -630,7 +591,7 @@ mod tests {
         let b = FoldRegion::new(0, 5, FoldKind::Block);
         let c = FoldRegion::new(5, 15, FoldKind::Block);
 
-        let mut regions = vec![c.clone(), b.clone(), a.clone()];
+        let mut regions = [c.clone(), b.clone(), a.clone()];
         regions.sort();
 
         // Same start line: larger region first (a before b)
@@ -676,11 +637,11 @@ mod tests {
     #[test]
     fn detect_rust_imports() {
         let mut detector = FoldDetector::new(Language::Rust).expect("Rust should be supported");
-        let source = r#"use std::io;
+        let source = r"use std::io;
 use std::fs;
 use std::path::Path;
 
-fn main() {}"#;
+fn main() {}";
 
         let regions = detector.detect(source);
 

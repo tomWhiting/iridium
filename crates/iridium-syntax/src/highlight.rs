@@ -4,10 +4,11 @@
 //! grammars and bundled query files (.scm) from the Zed editor.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator, Tree};
 
 use crate::SyntaxError;
+use crate::grammar::grammar;
+use crate::query::{self, QueryKind};
 
 /// Types of syntax highlights.
 ///
@@ -278,86 +279,21 @@ impl Ord for HighlightSpan {
     }
 }
 
-/// Bundled highlight queries for each language.
-mod queries {
-    /// Load a query file at compile time.
-    macro_rules! include_query {
-        ($lang:literal, $file:literal) => {
-            include_str!(concat!("languages/queries/", $lang, "/", $file))
-        };
-    }
-
-    /// Get the highlights query for a language.
-    pub fn highlights(lang: &str) -> Option<&'static str> {
-        match lang {
-            "rust" => Some(include_query!("rust", "highlights.scm")),
-            "python" => Some(include_query!("python", "highlights.scm")),
-            "typescript" => Some(include_query!("typescript", "highlights.scm")),
-            "javascript" => Some(include_query!("javascript", "highlights.scm")),
-            "tsx" => Some(include_query!("tsx", "highlights.scm")),
-            "go" => Some(include_query!("go", "highlights.scm")),
-            "json" => Some(include_query!("json", "highlights.scm")),
-            "yaml" => Some(include_query!("yaml", "highlights.scm")),
-            "markdown" => Some(include_query!("markdown", "highlights.scm")),
-            "css" => Some(include_query!("css", "highlights.scm")),
-            "bash" => Some(include_query!("bash", "highlights.scm")),
-            "c" => Some(include_query!("c", "highlights.scm")),
-            "cpp" => Some(include_query!("cpp", "highlights.scm")),
-            _ => None,
-        }
-    }
-}
-
-/// Internal language registry for tree-sitter grammars.
-struct LanguageRegistry {
-    grammars: HashMap<crate::Language, Language>,
-}
-
-impl LanguageRegistry {
-    fn new() -> Self {
-        let mut grammars = HashMap::new();
-
-        // Register all supported language grammars
-        grammars.insert(crate::Language::Rust, tree_sitter_rust::LANGUAGE.into());
-        grammars.insert(crate::Language::Python, tree_sitter_python::LANGUAGE.into());
-        grammars.insert(
-            crate::Language::TypeScript,
-            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        );
-        grammars.insert(
-            crate::Language::JavaScript,
-            tree_sitter_javascript::LANGUAGE.into(),
-        );
-        grammars.insert(
-            crate::Language::Tsx,
-            tree_sitter_typescript::LANGUAGE_TSX.into(),
-        );
-        grammars.insert(crate::Language::Go, tree_sitter_go::LANGUAGE.into());
-        grammars.insert(crate::Language::Json, tree_sitter_json::LANGUAGE.into());
-        grammars.insert(crate::Language::Yaml, tree_sitter_yaml::LANGUAGE.into());
-        grammars.insert(crate::Language::Markdown, tree_sitter_md::LANGUAGE.into());
-        grammars.insert(crate::Language::Css, tree_sitter_css::LANGUAGE.into());
-        grammars.insert(crate::Language::Bash, tree_sitter_bash::LANGUAGE.into());
-        grammars.insert(crate::Language::C, tree_sitter_c::LANGUAGE.into());
-        grammars.insert(crate::Language::Cpp, tree_sitter_cpp::LANGUAGE.into());
-
-        Self { grammars }
-    }
-
-    fn get(&self, lang: crate::Language) -> Option<&Language> {
-        self.grammars.get(&lang)
-    }
-}
-
 /// Syntax highlighter using tree-sitter.
 ///
 /// The highlighter maintains a parser and parse tree for incremental updates,
-/// and uses bundled query files (.scm) to map syntax nodes to highlight types.
+/// and maps syntax nodes to highlight types through the shared compiled query
+/// for its language.
+///
+/// The query is borrowed from the process-wide cache in [`crate::query`] rather
+/// than owned: `highlights.scm` runs to thousands of patterns, and every open
+/// buffer of a language compiling its own copy put that cost on the path that
+/// opens a file.
 pub struct Highlighter {
     language: crate::Language,
     parser: Parser,
     tree: Option<Tree>,
-    query: Option<Query>,
+    query: &'static Query,
     capture_names: Vec<Option<HighlightType>>,
 }
 
@@ -366,7 +302,7 @@ impl std::fmt::Debug for Highlighter {
         f.debug_struct("Highlighter")
             .field("language", &self.language)
             .field("has_tree", &self.tree.is_some())
-            .field("has_query", &self.query.is_some())
+            .field("captures", &self.capture_names.len())
             .finish_non_exhaustive()
     }
 }
@@ -376,33 +312,23 @@ impl Highlighter {
     ///
     /// # Errors
     ///
-    /// Returns an error if the language is not supported or the query file
-    /// is invalid for the grammar version.
+    /// Returns an error if the language's grammar is incompatible with this
+    /// build of tree-sitter, or if its bundled `highlights.scm` does not
+    /// compile against that grammar. Every supported language has both, so
+    /// neither failure is routine — both mean a dependency moved underneath a
+    /// vendored file.
     pub fn new(language: crate::Language) -> Result<Self, SyntaxError> {
-        let registry = LanguageRegistry::new();
-
-        let ts_language =
-            registry
-                .get(language)
-                .ok_or_else(|| SyntaxError::UnsupportedLanguage {
-                    language: language.id().to_string(),
-                })?;
-
         let mut parser = Parser::new();
         parser
-            .set_language(ts_language)
+            .set_language(&grammar(language))
             .map_err(|e| SyntaxError::ParseError {
                 message: format!("Failed to set language: {e}"),
             })?;
 
-        // Load the highlights query
-        let query_source =
-            queries::highlights(language.id()).ok_or_else(|| SyntaxError::QueryError {
+        let query = query::compiled(language, QueryKind::Highlights)?.ok_or_else(|| {
+            SyntaxError::QueryError {
                 message: format!("No highlights query for language: {}", language.id()),
-            })?;
-
-        let query = Query::new(ts_language, query_source).map_err(|e| SyntaxError::QueryError {
-            message: format!("Query parse error at offset {}: {}", e.offset, e.message),
+            }
         })?;
 
         // Pre-compute capture name mappings for performance
@@ -416,7 +342,7 @@ impl Highlighter {
             language,
             parser,
             tree: None,
-            query: Some(query),
+            query,
             capture_names,
         })
     }
@@ -447,16 +373,12 @@ impl Highlighter {
             return Vec::new();
         };
 
-        let Some(query) = &self.query else {
-            return Vec::new();
-        };
-
         let mut spans = Vec::new();
         let mut cursor = QueryCursor::new();
 
         // Execute the query against the tree
         // Note: tree-sitter 0.26 uses StreamingIterator instead of Iterator
-        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(self.query, tree.root_node(), source.as_bytes());
 
         while let Some(match_) = matches.next() {
             for capture in match_.captures {
@@ -538,10 +460,6 @@ impl Highlighter {
             return Vec::new();
         };
 
-        let Some(query) = &self.query else {
-            return Vec::new();
-        };
-
         // For incremental highlighting, we could be smarter about only
         // re-querying changed regions, but for now we re-query everything.
         // The actual performance win comes from tree-sitter's incremental parsing.
@@ -549,7 +467,7 @@ impl Highlighter {
         let mut cursor = QueryCursor::new();
 
         // Use StreamingIterator for tree-sitter 0.26+
-        let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(self.query, tree.root_node(), source.as_bytes());
 
         while let Some(match_) = matches.next() {
             for capture in match_.captures {

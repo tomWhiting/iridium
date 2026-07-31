@@ -33,11 +33,14 @@
 #![doc(html_root_url = "https://docs.rs/iridium-syntax/0.1.0")]
 
 mod folding;
+mod grammar;
 mod highlight;
 pub mod languages;
+pub mod query;
 
 pub use folding::{FoldDetector, FoldKind, FoldRegion};
 pub use highlight::{HighlightSpan, HighlightType, Highlighter};
+pub use query::QueryKind;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -78,6 +81,14 @@ pub enum Language {
 }
 
 impl Language {
+    /// How many languages there are.
+    ///
+    /// [`Language::all`] returns an array of exactly this length, which makes
+    /// the count load-bearing rather than decorative: a variant added to the
+    /// enum but forgotten in `all()` fails to compile here instead of leaving
+    /// a language that exists but is invisible to everything that iterates.
+    pub const COUNT: usize = 13;
+
     /// Returns the language identifier string.
     #[must_use]
     pub const fn id(&self) -> &'static str {
@@ -140,9 +151,36 @@ impl Language {
         }
     }
 
+    /// This language's position in [`Language::all`].
+    ///
+    /// Used to index the compiled-query cache. Written as a match rather than
+    /// a search so it stays constant-time and cannot silently disagree with
+    /// `all()`; the test below asserts the two agree.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Rust => 0,
+            Self::Python => 1,
+            Self::TypeScript => 2,
+            Self::JavaScript => 3,
+            Self::Tsx => 4,
+            Self::Go => 5,
+            Self::Json => 6,
+            Self::Yaml => 7,
+            Self::Markdown => 8,
+            Self::Css => 9,
+            Self::Bash => 10,
+            Self::C => 11,
+            Self::Cpp => 12,
+        }
+    }
+
     /// Returns all supported languages.
+    ///
+    /// The order is the index space used by the compiled-query cache, so it is
+    /// part of this type's contract rather than a presentation detail:
+    /// [`Language::index`] must agree with a value's position here.
     #[must_use]
-    pub const fn all() -> &'static [Self] {
+    pub const fn all() -> &'static [Self; Self::COUNT] {
         &[
             Self::Rust,
             Self::Python,
@@ -205,6 +243,19 @@ mod tests {
         assert_eq!(Language::from_extension("sh"), Some(Language::Bash));
         assert_eq!(Language::from_extension("c"), Some(Language::C));
         assert_eq!(Language::from_extension("cpp"), Some(Language::Cpp));
+    }
+
+    #[test]
+    fn indices_agree_with_the_declared_order() {
+        for (position, &language) in Language::all().iter().enumerate() {
+            assert_eq!(
+                language.index(),
+                position,
+                "{} claims index {} but sits at {position} in all()",
+                language.id(),
+                language.index()
+            );
+        }
     }
 
     #[test]

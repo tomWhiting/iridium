@@ -1,10 +1,11 @@
-(internal_module
-    "namespace" @context
-    name: (_) @name) @item
-
-(enum_declaration
-    "enum" @context
-    name: (_) @name) @item
+; Diverges from the vendored original: the patterns for `internal_module`,
+; `enum_declaration`, `interface_declaration` and `public_field_definition`,
+; and the `readonly` / `override_modifier` / `accessibility_modifier` method
+; modifiers, were removed. Every one of them names a TypeScript-only node kind,
+; and tree-sitter rejects a whole query when any pattern references a node the
+; grammar does not have — so with them present this file did not compile at all
+; and JavaScript had no outline. They could never have matched a JavaScript
+; tree; `typescript/outline.scm` and `tsx/outline.scm` still carry them.
 
 (function_declaration
     "async"? @context
@@ -22,10 +23,6 @@
     parameters: (formal_parameters
       "(" @context
       ")" @context)) @item
-
-(interface_declaration
-    "interface" @context
-    name: (_) @name) @item
 
 (program
     (export_statement
@@ -104,10 +101,7 @@
             "set"
             "async"
             "*"
-            "readonly"
             "static"
-            (override_modifier)
-            (accessibility_modifier)
         ]* @context
         name: (_) @name
         parameters: (formal_parameters
@@ -128,16 +122,6 @@
             parameters: (formal_parameters
               "(" @context
               ")" @context)) @item))
-
-(public_field_definition
-    [
-        "declare"
-        "readonly"
-        "abstract"
-        "static"
-        (accessibility_modifier)
-    ]* @context
-    name: (_) @name) @item
 
 ; Add support for (node:test, bun:test and Jest) runnable
 (

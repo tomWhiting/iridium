@@ -948,7 +948,7 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
-## Section 4 (syntax-node navigation) — step 1 of 9 landed
+## Section 4 (syntax-node navigation) — steps 1 and 2 of 9 landed
 
 Plan §4.6's build order. Steps 1–4 are refactor-and-fix and can land before any
 decision on the verb set; step 4 alone fixes the stale-fold bug (finding 3).
@@ -968,11 +968,7 @@ command from the gate list.
 
 ### Remaining, in the plan's order
 
-2. `iridium-syntax/src/query/` — `kind.rs`, `embedded.rs` (an `include_str!`
-   table), `mod.rs` (a `LazyLock` compile-once cache), `textobject.rs`. Plus the
-   compile-every-embedded-query test, which is the guard that catches a grammar
-   bump invalidating a `.scm`. Migrate `Highlighter` onto it and delete
-   `mod queries` in `highlight.rs` so there is one include table, not two.
+2. ~~`iridium-syntax/src/query/`~~ — **DONE**, see below.
 3. `iridium-syntax/src/tree.rs` — one retained `SyntaxTree`; convert
    `FoldDetector` and `Highlighter` into borrowers. Brings both files back under
    the size cap.
@@ -1009,9 +1005,62 @@ block or call text object and no `@comment.inside`. Richer objects mean authorin
 new `.scm` per language, which is outside the plan. Say so rather than quietly
 shipping five and calling text objects done.
 
-### Step 2 pre-flight, verified by hand 1 Aug (no code written yet)
+### Step 2 is DONE (1 Aug) — the query module, and what it caught
 
-Everything below was read off the tree, not remembered. Start here.
+`crates/iridium-syntax/src/query/` now exists: `kind.rs` (the six `QueryKind`s),
+`embedded.rs` (the 78-pairing `include_str!` table), `mod.rs` (the compile-once
+cache), `tests.rs` (10 tests). `Highlighter` borrows its compiled query from the
+cache instead of compiling its own, and `mod queries` in `highlight.rs` is gone.
+46 tests in the crate, up from 30.
+
+**`textobject.rs` is deliberately NOT here.** Plan §4.4 lists it under the
+`query/` module, but §4.6's build order puts it in **step 8**, with the text
+objects and jump-by-kind commands that consume it. Building it now would be a
+loader with no reader. Step 8 owns it; this is not a deferral of step 2's scope.
+
+**The compile test earned its keep on the first run.**
+`javascript/outline.scm` did not compile at all: it carried
+`internal_module`, `enum_declaration`, `interface_declaration`,
+`public_field_definition` and the `readonly` / `override_modifier` /
+`accessibility_modifier` method modifiers — every one a TypeScript-only node
+kind, and tree-sitter rejects a *whole query* when any pattern names a node the
+grammar lacks. So JavaScript had no outline at all, and nothing in the codebase
+would ever have said so. Those patterns are removed, with a header comment in
+the file recording the divergence from the vendored original; they could never
+have matched a JavaScript tree. `typescript/` and `tsx/` still carry them.
+
+**Two grammar registries also went.** `highlight.rs` and `folding.rs` each built
+their own `HashMap<Language, tree_sitter::Language>` at every construction. The
+query cache needs a grammar to compile against, so both are now
+`crates/iridium-syntax/src/grammar.rs` — one total function, an exhaustive match,
+no `Option`. Step 3's `SyntaxTree` needs exactly this.
+
+**`Language::all()` and `QueryKind::all()` now return fixed-size arrays**
+(`&'static [Self; COUNT]`). That is load-bearing, not cosmetic: the cache is
+`[[OnceLock; KIND_COUNT]; LANGUAGE_COUNT]` and `index()` is a hand-written match,
+so a variant present in the enum but missing from `all()` would have indexed
+past the end and panicked. With the array type it is a compile error. This was
+found by a deliberate break (dropping `Cpp` from `all()`) that *no test* caught —
+only an incidental `test_highlighter_cpp` did.
+
+**Discrimination:** seven deliberate breaks, each caught, each by a test that
+uniquely names the fault — colliding language index, colliding kind index, a gap
+filled with another language's file, a cache that recompiles, TSX served the
+TypeScript grammar, two kinds pointing at one file, and the dropped variant
+(now a compile error). Script kept at
+`scratchpad/breaks.sh` in the session dir.
+
+**Correction to an earlier claim in this file: the workspace is NOT clippy-clean
+and has not been.** `cargo clippy --workspace --all-features --all-targets`
+reports **201 warnings at `8170a87`** — 92 in `iridium-bindings` (57 of them in
+`src/editor.rs`), 98 in `iridium-editor` (20 in `input/mouse.rs`), the rest
+scattered through `render/`. This work reduced it to 190 and added none. Any
+earlier "clippy clean" note in this document was measured on a single crate, not
+the workspace. **Raised with Tom; not silently absorbed.**
+
+### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
+
+Everything below was read off the tree, not remembered.
 
 **The table to delete:** `mod queries` in `crates/iridium-syntax/src/highlight.rs`
 (~line 281–309). It is an `include_query!` macro over

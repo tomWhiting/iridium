@@ -169,6 +169,9 @@ fn compose_beyond(prev: &PendingSpan, span: EditSpan) -> Option<EditSpan> {
 mod tests {
     use super::*;
 
+    type RawEdit<'a> = (usize, usize, &'a str);
+    type EditSequence<'a> = (&'a str, &'a [RawEdit<'a>]);
+
     fn doc(content: &str) -> Document {
         Document::new(content)
     }
@@ -433,7 +436,7 @@ mod tests {
         // composable chain, assert_exact_composition verifies that the
         // composed old/new delta equals the sum of the individual deltas
         // and that prefix/suffix/points are exact.
-        let sequences: &[(&str, &[(usize, usize, &str)])] = &[
+        let sequences: &[EditSequence<'_>] = &[
             // Typing runs.
             ("fn main() {}", &[(3, 3, "x"), (4, 4, "y"), (5, 5, "z")]),
             // Disjoint inserts marching right.

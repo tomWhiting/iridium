@@ -70,6 +70,15 @@ use napi::bindgen_prelude::*;
 #[cfg(feature = "napi")]
 use napi_derive::napi;
 
+/// Adapts a JavaScript string owned by napi-rs to APIs that only need a text view.
+///
+/// napi-rs requires JavaScript primitive arguments by value, so exported functions
+/// cannot use the otherwise preferable `&str` signature.
+#[cfg(feature = "napi")]
+fn with_napi_str<T>(value: impl AsRef<str>, f: impl FnOnce(&str) -> T) -> T {
+    f(value.as_ref())
+}
+
 // WASM module (browser bindings)
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod wasm;
@@ -128,6 +137,55 @@ pub fn create_editor_with_content(
 // ============================================================================
 
 #[cfg(feature = "napi")]
+async fn request_high_performance_adapter()
+-> std::result::Result<wgpu::Adapter, wgpu::RequestAdapterError> {
+    use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags};
+
+    let instance = Instance::new(&InstanceDescriptor {
+        backends: Backends::all(),
+        flags: InstanceFlags::empty(),
+        ..Default::default()
+    });
+    instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        })
+        .await
+}
+
+#[cfg(feature = "napi")]
+fn request_high_performance_adapter_blocking()
+-> Result<std::result::Result<wgpu::Adapter, wgpu::RequestAdapterError>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .map_err(|error| {
+            Error::from_reason(format!("failed to create WebGPU worker runtime: {error}"))
+        })?;
+    Ok(runtime.block_on(request_high_performance_adapter()))
+}
+
+#[cfg(feature = "napi")]
+/// Worker task used by [`is_webgpu_supported`].
+pub struct WebGpuSupportTask;
+
+#[cfg(feature = "napi")]
+#[napi]
+impl Task for WebGpuSupportTask {
+    type Output = bool;
+    type JsValue = bool;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(request_high_performance_adapter_blocking()?.is_ok())
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+#[cfg(feature = "napi")]
 /// Check if WebGPU is supported in the current environment.
 ///
 /// This performs an actual check by attempting to request a GPU adapter.
@@ -144,33 +202,36 @@ pub fn create_editor_with_content(
 /// }
 /// ```
 #[napi]
-pub async fn is_webgpu_supported() -> bool {
-    // In Node.js environment, we check wgpu's ability to get an adapter
-    // This is a real check that verifies GPU availability
-    check_webgpu_support().await
+pub fn is_webgpu_supported() -> AsyncTask<WebGpuSupportTask> {
+    AsyncTask::new(WebGpuSupportTask)
 }
 
 #[cfg(feature = "napi")]
-/// Internal function to check WebGPU support.
-async fn check_webgpu_support() -> bool {
-    use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags};
+/// Worker task used by [`get_gpu_info`].
+pub struct GpuInfoTask;
 
-    let instance = Instance::new(&InstanceDescriptor {
-        backends: Backends::all(),
-        flags: InstanceFlags::empty(),
-        ..Default::default()
-    });
+#[cfg(feature = "napi")]
+#[napi]
+impl Task for GpuInfoTask {
+    type Output = Option<JsGPUInfo>;
+    type JsValue = Option<JsGPUInfo>;
 
-    // Request a high-performance adapter
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        })
-        .await;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let adapter = request_high_performance_adapter_blocking()?.ok();
+        Ok(adapter.map(|adapter| {
+            let info = adapter.get_info();
+            JsGPUInfo {
+                name: info.name,
+                vendor: info.vendor.to_string(),
+                device_type: format!("{:?}", info.device_type),
+                backend: format!("{:?}", info.backend),
+            }
+        }))
+    }
 
-    adapter.is_ok()
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
 }
 
 #[cfg(feature = "napi")]
@@ -190,32 +251,8 @@ async fn check_webgpu_support() -> bool {
 /// }
 /// ```
 #[napi]
-pub async fn get_gpu_info() -> Option<JsGPUInfo> {
-    use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags};
-
-    let instance = Instance::new(&InstanceDescriptor {
-        backends: Backends::all(),
-        flags: InstanceFlags::empty(),
-        ..Default::default()
-    });
-
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        })
-        .await
-        .ok()?;
-
-    let info = adapter.get_info();
-
-    Some(JsGPUInfo {
-        name: info.name,
-        vendor: info.vendor.to_string(),
-        device_type: format!("{:?}", info.device_type),
-        backend: format!("{:?}", info.backend),
-    })
+pub fn get_gpu_info() -> AsyncTask<GpuInfoTask> {
+    AsyncTask::new(GpuInfoTask)
 }
 
 #[cfg(feature = "napi")]
@@ -227,9 +264,9 @@ pub struct JsGPUInfo {
     pub name: String,
     /// GPU vendor ID
     pub vendor: String,
-    /// Device type (e.g., "DiscreteGpu", "IntegratedGpu")
+    /// Device type (e.g., `DiscreteGpu`, `IntegratedGpu`)
     pub device_type: String,
-    /// Graphics backend (e.g., "Vulkan", "Metal", "Dx12")
+    /// Graphics backend (e.g., `Vulkan`, `Metal`, `Dx12`)
     pub backend: String,
 }
 
@@ -272,7 +309,10 @@ pub fn get_supported_languages() -> Vec<String> {
 /// ```
 #[napi]
 pub fn get_language_for_extension(extension: String) -> Option<String> {
-    iridium_syntax::Language::from_extension(&extension).map(|l| l.id().to_string())
+    with_napi_str(extension, |extension| {
+        iridium_syntax::Language::from_extension(extension)
+            .map(|language| language.id().to_string())
+    })
 }
 
 #[cfg(all(feature = "napi", feature = "syntax"))]
@@ -292,7 +332,7 @@ pub fn get_extensions_for_language(language: String) -> Vec<String> {
     use iridium_syntax::Language;
 
     // Map language ID to known extensions
-    match Language::from_id(&language) {
+    with_napi_str(language, |language| match Language::from_id(language) {
         Some(Language::Rust) => vec!["rs".to_string()],
         Some(Language::Python) => vec!["py".to_string(), "pyi".to_string(), "pyw".to_string()],
         Some(Language::TypeScript) => {
@@ -321,7 +361,7 @@ pub fn get_extensions_for_language(language: String) -> Vec<String> {
             "hh".to_string(),
         ],
         None => vec![],
-    }
+    })
 }
 
 #[cfg(feature = "napi")]

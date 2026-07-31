@@ -4,10 +4,21 @@
 //! Types are designed to be easy to use from JavaScript while maintaining
 //! type safety through TypeScript declarations.
 
+use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 
 use iridium_editor::editor::FoldInfo;
+
+/// Converts a kernel index or count to the integer range exposed by napi-rs.
+pub fn usize_to_u32(value: usize, quantity: &str) -> Result<u32> {
+    u32::try_from(value).map_err(|_| {
+        Error::from_reason(format!(
+            "{quantity} ({value}) exceeds the maximum value supported by the JavaScript API ({})",
+            u32::MAX
+        ))
+    })
+}
 
 // ============================================================================
 // Position and Range Types
@@ -29,7 +40,7 @@ pub struct JsPosition {
 ///
 /// Represents a span of text from start to end position.
 #[napi(object)]
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct JsRange {
     /// Start position
     pub start: JsPosition,
@@ -142,12 +153,21 @@ pub struct JsFoldInfo {
     pub folded: Vec<u32>,
 }
 
-impl From<FoldInfo> for JsFoldInfo {
-    fn from(info: FoldInfo) -> Self {
-        Self {
-            regions: info.regions.into_iter().map(|l| l as u32).collect(),
-            folded: info.folded.into_iter().map(|l| l as u32).collect(),
-        }
+impl TryFrom<FoldInfo> for JsFoldInfo {
+    type Error = Error;
+
+    fn try_from(info: FoldInfo) -> Result<Self> {
+        let regions = info
+            .regions
+            .into_iter()
+            .map(|line| usize_to_u32(line, "fold region line index"))
+            .collect::<Result<Vec<_>>>()?;
+        let folded = info
+            .folded
+            .into_iter()
+            .map(|line| usize_to_u32(line, "folded line index"))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { regions, folded })
     }
 }
 
@@ -248,6 +268,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn usize_to_u32_reports_values_outside_the_javascript_api_range() {
+        assert_eq!(usize_to_u32(42, "test value").unwrap(), 42);
+
+        // This branch is unavailable on 32-bit targets, where every usize already
+        // fits in u32. On 64-bit targets it characterizes the overflow contract.
+        if let Ok(too_large) = usize::try_from(u64::from(u32::MAX) + 1) {
+            assert!(usize_to_u32(too_large, "test value").is_err());
+        }
+    }
+
+    #[test]
     fn js_position_default() {
         let pos = JsPosition::default();
         assert_eq!(pos.line, 0);
@@ -268,7 +299,7 @@ mod tests {
             folded: vec![0, 20],
         };
 
-        let js_info: JsFoldInfo = fold_info.clone().into();
+        let js_info: JsFoldInfo = fold_info.clone().try_into().unwrap();
         assert_eq!(js_info.regions, vec![0, 10, 20]);
         assert_eq!(js_info.folded, vec![0, 20]);
 

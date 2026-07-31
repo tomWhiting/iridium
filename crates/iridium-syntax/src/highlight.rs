@@ -1,13 +1,13 @@
-//! Syntax highlighting engine using tree-sitter.
+//! Syntax highlighting: parse tree in, coloured spans out.
 //!
-//! This module provides incremental syntax highlighting using tree-sitter
-//! grammars and bundled query files (.scm) from the Zed editor.
+//! The rules come from the bundled query files (.scm) vendored from the Zed
+//! editor; the tree comes from [`crate::SyntaxTree`], which this module reads
+//! and never owns.
 
 use serde::{Deserialize, Serialize};
-use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
 
 use crate::SyntaxError;
-use crate::grammar::grammar;
 use crate::query::{self, QueryKind};
 
 /// Types of syntax highlights.
@@ -279,20 +279,18 @@ impl Ord for HighlightSpan {
     }
 }
 
-/// Syntax highlighter using tree-sitter.
+/// Maps a parse tree's nodes to highlight spans, for one language.
 ///
-/// The highlighter maintains a parser and parse tree for incremental updates,
-/// and maps syntax nodes to highlight types through the shared compiled query
-/// for its language.
+/// The highlighter owns no parser and no tree. It holds the rules — a compiled
+/// `highlights.scm` and the capture-name mapping — and reads a [`Tree`] someone
+/// else parsed, so there is no second copy of the document's structure that
+/// could disagree with the first. See [`crate::SyntaxTree`] for the owner.
 ///
-/// The query is borrowed from the process-wide cache in [`crate::query`] rather
-/// than owned: `highlights.scm` runs to thousands of patterns, and every open
-/// buffer of a language compiling its own copy put that cost on the path that
-/// opens a file.
+/// The query itself is borrowed from the process-wide cache in [`crate::query`]:
+/// `highlights.scm` runs to thousands of patterns, and every open buffer of a
+/// language compiling its own copy put that cost on the path that opens a file.
 pub struct Highlighter {
     language: crate::Language,
-    parser: Parser,
-    tree: Option<Tree>,
     query: &'static Query,
     capture_names: Vec<Option<HighlightType>>,
 }
@@ -301,30 +299,21 @@ impl std::fmt::Debug for Highlighter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Highlighter")
             .field("language", &self.language)
-            .field("has_tree", &self.tree.is_some())
             .field("captures", &self.capture_names.len())
             .finish_non_exhaustive()
     }
 }
 
 impl Highlighter {
-    /// Creates a new highlighter for the given language.
+    /// Creates a highlighter for the given language.
     ///
     /// # Errors
     ///
-    /// Returns an error if the language's grammar is incompatible with this
-    /// build of tree-sitter, or if its bundled `highlights.scm` does not
-    /// compile against that grammar. Every supported language has both, so
-    /// neither failure is routine — both mean a dependency moved underneath a
-    /// vendored file.
+    /// Returns an error if the language's bundled `highlights.scm` does not
+    /// compile against its grammar. Every supported language ships one, so this
+    /// is never routine — it means a dependency moved underneath a vendored
+    /// file.
     pub fn new(language: crate::Language) -> Result<Self, SyntaxError> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&grammar(language))
-            .map_err(|e| SyntaxError::ParseError {
-                message: format!("Failed to set language: {e}"),
-            })?;
-
         let query = query::compiled(language, QueryKind::Highlights)?.ok_or_else(|| {
             SyntaxError::QueryError {
                 message: format!("No highlights query for language: {}", language.id()),
@@ -340,8 +329,6 @@ impl Highlighter {
 
         Ok(Self {
             language,
-            parser,
-            tree: None,
             query,
             capture_names,
         })
@@ -360,23 +347,18 @@ impl Highlighter {
         self.language
     }
 
-    /// Highlights the given source code.
+    /// Returns the highlight spans for `tree`, sorted by position.
     ///
-    /// Returns a list of highlight spans sorted by start position.
-    /// Spans may overlap; the renderer should handle precedence.
+    /// `source` must be the exact text `tree` was parsed from: every span is a
+    /// byte range into it, and a mismatch would colour the wrong characters.
+    ///
+    /// Spans may overlap where one capture nests inside another; the renderer
+    /// decides precedence.
     #[must_use]
-    pub fn highlight(&mut self, source: &str) -> Vec<HighlightSpan> {
-        // Parse the source
-        self.tree = self.parser.parse(source, None);
-
-        let Some(tree) = &self.tree else {
-            return Vec::new();
-        };
-
+    pub fn spans_in(&self, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
         let mut spans = Vec::new();
         let mut cursor = QueryCursor::new();
 
-        // Execute the query against the tree
         // Note: tree-sitter 0.26 uses StreamingIterator instead of Iterator
         let mut matches = cursor.matches(self.query, tree.root_node(), source.as_bytes());
 
@@ -385,11 +367,8 @@ impl Highlighter {
                 let capture_idx = capture.index as usize;
 
                 // Skip captures that don't map to a highlight type
-                if capture_idx >= self.capture_names.len() {
-                    continue;
-                }
-
-                let Some(highlight_type) = self.capture_names[capture_idx] else {
+                let Some(Some(highlight_type)) = self.capture_names.get(capture_idx).copied()
+                else {
                     continue;
                 };
 
@@ -414,346 +393,7 @@ impl Highlighter {
 
         spans
     }
-
-    /// Updates highlights incrementally after an edit.
-    ///
-    /// This is more efficient than re-highlighting the entire document
-    /// because tree-sitter can reuse unchanged parts of the parse tree.
-    ///
-    /// # Arguments
-    ///
-    /// * `source` - The new source code after the edit
-    /// * `start_byte` - The byte offset where the edit started
-    /// * `old_end_byte` - The byte offset where the edit ended in the old source
-    /// * `new_end_byte` - The byte offset where the edit ended in the new source
-    #[must_use]
-    pub fn update(
-        &mut self,
-        source: &str,
-        start_byte: usize,
-        old_end_byte: usize,
-        new_end_byte: usize,
-    ) -> Vec<HighlightSpan> {
-        // If we don't have an existing tree, just do a full parse
-        let Some(old_tree) = self.tree.take() else {
-            return self.highlight(source);
-        };
-
-        // Create the edit descriptor for tree-sitter
-        let input_edit = tree_sitter::InputEdit {
-            start_byte,
-            old_end_byte,
-            new_end_byte,
-            start_position: byte_to_point(source, start_byte),
-            old_end_position: byte_to_point(source, old_end_byte),
-            new_end_position: byte_to_point(source, new_end_byte),
-        };
-
-        // Clone the old tree and apply the edit
-        let mut edited_tree = old_tree;
-        edited_tree.edit(&input_edit);
-
-        // Reparse with the edited tree as a reference
-        self.tree = self.parser.parse(source, Some(&edited_tree));
-
-        let Some(tree) = &self.tree else {
-            return Vec::new();
-        };
-
-        // For incremental highlighting, we could be smarter about only
-        // re-querying changed regions, but for now we re-query everything.
-        // The actual performance win comes from tree-sitter's incremental parsing.
-        let mut spans = Vec::new();
-        let mut cursor = QueryCursor::new();
-
-        // Use StreamingIterator for tree-sitter 0.26+
-        let mut matches = cursor.matches(self.query, tree.root_node(), source.as_bytes());
-
-        while let Some(match_) = matches.next() {
-            for capture in match_.captures {
-                let capture_idx = capture.index as usize;
-
-                if capture_idx >= self.capture_names.len() {
-                    continue;
-                }
-
-                let Some(highlight_type) = self.capture_names[capture_idx] else {
-                    continue;
-                };
-
-                let node = capture.node;
-                let start = node.start_byte();
-                let end = node.end_byte();
-
-                if start >= end {
-                    continue;
-                }
-
-                spans.push(HighlightSpan::new(start, end, highlight_type));
-            }
-        }
-
-        spans.sort();
-        spans.dedup();
-        spans
-    }
-
-    /// Returns the ranges that changed since the last parse.
-    ///
-    /// This can be used by the renderer to only update affected regions.
-    #[must_use]
-    pub fn changed_ranges(&self, old_tree: &Tree) -> Vec<std::ops::Range<usize>> {
-        let Some(new_tree) = &self.tree else {
-            return Vec::new();
-        };
-
-        old_tree
-            .changed_ranges(new_tree)
-            .map(|r| r.start_byte..r.end_byte)
-            .collect()
-    }
-}
-
-/// Convert a byte offset to a tree-sitter Point (row, column).
-fn byte_to_point(source: &str, byte_offset: usize) -> tree_sitter::Point {
-    let mut row = 0;
-    let mut col = 0;
-    let mut current_byte = 0;
-
-    for ch in source.chars() {
-        if current_byte >= byte_offset {
-            break;
-        }
-
-        if ch == '\n' {
-            row += 1;
-            col = 0;
-        } else {
-            col += ch.len_utf8();
-        }
-
-        current_byte += ch.len_utf8();
-    }
-
-    tree_sitter::Point { row, column: col }
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::similar_names)]
-mod tests {
-    use super::*;
-    use crate::Language;
-
-    #[test]
-    fn test_highlight_type_from_capture_name() {
-        assert_eq!(
-            HighlightType::from_capture_name("keyword"),
-            Some(HighlightType::Keyword)
-        );
-        assert_eq!(
-            HighlightType::from_capture_name("@keyword"),
-            Some(HighlightType::Keyword)
-        );
-        assert_eq!(
-            HighlightType::from_capture_name("keyword.control"),
-            Some(HighlightType::KeywordControl)
-        );
-        assert_eq!(
-            HighlightType::from_capture_name("function.method"),
-            Some(HighlightType::FunctionMethod)
-        );
-        assert_eq!(
-            HighlightType::from_capture_name("string"),
-            Some(HighlightType::String)
-        );
-        assert_eq!(
-            HighlightType::from_capture_name("comment.doc"),
-            Some(HighlightType::CommentDoc)
-        );
-    }
-
-    #[test]
-    fn test_highlighter_rust() {
-        let mut highlighter = Highlighter::new(Language::Rust).expect("Rust should be supported");
-        let source = "fn main() { let x = 42; }";
-        let spans = highlighter.highlight(source);
-
-        // Should have at least some spans
-        assert!(
-            !spans.is_empty(),
-            "Rust code should produce highlight spans"
-        );
-
-        // Verify the 'fn' keyword is highlighted
-        let has_fn_span = spans.iter().any(|s| s.start == 0 && s.end == 2);
-        assert!(has_fn_span, "'fn' should be highlighted");
-    }
-
-    #[test]
-    fn test_highlighter_python() {
-        let mut highlighter =
-            Highlighter::new(Language::Python).expect("Python should be supported");
-        let source = "def hello():\n    print('Hello')";
-        let spans = highlighter.highlight(source);
-
-        assert!(
-            !spans.is_empty(),
-            "Python code should produce highlight spans"
-        );
-    }
-
-    #[test]
-    fn test_highlighter_typescript() {
-        let mut highlighter =
-            Highlighter::new(Language::TypeScript).expect("TypeScript should be supported");
-        let source = "function greet(name: string): void { console.log(name); }";
-        let spans = highlighter.highlight(source);
-
-        assert!(
-            !spans.is_empty(),
-            "TypeScript code should produce highlight spans"
-        );
-    }
-
-    #[test]
-    fn test_highlighter_javascript() {
-        let mut highlighter =
-            Highlighter::new(Language::JavaScript).expect("JavaScript should be supported");
-        let source = "const x = 42; function foo() { return x; }";
-        let spans = highlighter.highlight(source);
-
-        assert!(
-            !spans.is_empty(),
-            "JavaScript code should produce highlight spans"
-        );
-    }
-
-    #[test]
-    fn test_highlighter_go() {
-        let mut highlighter = Highlighter::new(Language::Go).expect("Go should be supported");
-        let source = "package main\n\nfunc main() { fmt.Println(\"Hello\") }";
-        let spans = highlighter.highlight(source);
-
-        assert!(!spans.is_empty(), "Go code should produce highlight spans");
-    }
-
-    #[test]
-    fn test_highlighter_json() {
-        let mut highlighter = Highlighter::new(Language::Json).expect("JSON should be supported");
-        let source = r#"{"name": "test", "value": 42, "active": true}"#;
-        let spans = highlighter.highlight(source);
-
-        assert!(
-            !spans.is_empty(),
-            "JSON code should produce highlight spans"
-        );
-    }
-
-    #[test]
-    fn test_highlighter_yaml() {
-        let mut highlighter = Highlighter::new(Language::Yaml).expect("YAML should be supported");
-        let source = "name: test\nvalue: 42\nactive: true";
-        let spans = highlighter.highlight(source);
-
-        // YAML highlighting might produce different results depending on the grammar
-        // Just verify no crash
-        let _ = spans.len();
-    }
-
-    #[test]
-    fn test_highlighter_css() {
-        let mut highlighter = Highlighter::new(Language::Css).expect("CSS should be supported");
-        let source = ".class { color: red; font-size: 12px; }";
-        let spans = highlighter.highlight(source);
-
-        assert!(!spans.is_empty(), "CSS code should produce highlight spans");
-    }
-
-    #[test]
-    fn test_highlighter_bash() {
-        let mut highlighter = Highlighter::new(Language::Bash).expect("Bash should be supported");
-        let source = "#!/bin/bash\necho \"Hello World\"";
-        let spans = highlighter.highlight(source);
-
-        assert!(
-            !spans.is_empty(),
-            "Bash code should produce highlight spans"
-        );
-    }
-
-    #[test]
-    fn test_highlighter_c() {
-        let mut highlighter = Highlighter::new(Language::C).expect("C should be supported");
-        let source = "int main() { return 0; }";
-        let spans = highlighter.highlight(source);
-
-        assert!(!spans.is_empty(), "C code should produce highlight spans");
-    }
-
-    #[test]
-    fn test_highlighter_cpp() {
-        let mut highlighter = Highlighter::new(Language::Cpp).expect("C++ should be supported");
-        let source = "class Foo { public: int bar(); };";
-        let spans = highlighter.highlight(source);
-
-        assert!(!spans.is_empty(), "C++ code should produce highlight spans");
-    }
-
-    #[test]
-    fn test_highlighter_markdown() {
-        let mut highlighter =
-            Highlighter::new(Language::Markdown).expect("Markdown should be supported");
-        let source = "# Hello\n\nThis is **bold** and *italic*.";
-        let spans = highlighter.highlight(source);
-
-        // Markdown should produce some spans
-        let _ = spans.len();
-    }
-
-    #[test]
-    fn test_incremental_update() {
-        let mut highlighter = Highlighter::new(Language::Rust).expect("Rust should be supported");
-
-        // Initial parse
-        let source = "fn main() { }";
-        let spans1 = highlighter.highlight(source);
-
-        // Insert text: "fn main() { let x = 1; }"
-        let new_source = "fn main() { let x = 1; }";
-        let spans2 = highlighter.update(
-            new_source, 12, // start_byte: after "{ "
-            12, // old_end_byte: same position
-            23, // new_end_byte: after "let x = 1; "
-        );
-
-        assert!(!spans1.is_empty());
-        assert!(!spans2.is_empty());
-        // After insertion, we should have more spans
-        assert!(spans2.len() >= spans1.len());
-    }
-
-    #[test]
-    fn test_span_ordering() {
-        let first = HighlightSpan::new(0, 5, HighlightType::Keyword);
-        let second = HighlightSpan::new(10, 15, HighlightType::String);
-        let third = HighlightSpan::new(0, 10, HighlightType::Function);
-
-        let mut spans = [second, first, third];
-        spans.sort();
-
-        assert_eq!(spans[0].start, 0);
-        assert_eq!(spans[0].end, 5);
-        assert_eq!(spans[1].start, 0);
-        assert_eq!(spans[1].end, 10);
-        assert_eq!(spans[2].start, 10);
-    }
-
-    #[test]
-    fn test_tsx() {
-        let mut highlighter = Highlighter::new(Language::Tsx).expect("TSX should be supported");
-        let source = "const App = () => <div>Hello</div>;";
-        let spans = highlighter.highlight(source);
-
-        assert!(!spans.is_empty(), "TSX code should produce highlight spans");
-    }
-}
+mod tests;

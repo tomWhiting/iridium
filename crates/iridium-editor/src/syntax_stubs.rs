@@ -141,6 +141,55 @@ impl FoldRegion {
     }
 }
 
+/// Stub parse tree — there is no parser without the `syntax` feature.
+///
+/// It exists so that callers have one shape to write against: with the feature
+/// on they hand a real tree to a real detector, with it off they hand this to
+/// the brace scanner, and no call site needs a `cfg`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Tree;
+
+/// Stub retained tree, mirroring `iridium_syntax::SyntaxTree`.
+///
+/// Every method is a no-op that keeps the caller's control flow intact: parsing
+/// "succeeds" and yields the unit tree the stub detector ignores.
+#[derive(Debug, Default)]
+pub struct SyntaxTree {
+    tree: Tree,
+}
+
+impl SyntaxTree {
+    /// Creates a stub tree. Never fails.
+    ///
+    /// # Errors
+    ///
+    /// Never. The signature matches the real one so call sites are identical.
+    pub const fn new(_language: Language) -> Result<Self, SyntaxError> {
+        Ok(Self { tree: Tree })
+    }
+
+    /// Returns the stub tree, so a caller's `else` branch is not taken.
+    pub const fn parse(&mut self, _source: &str) -> Option<&Tree> {
+        Some(&self.tree)
+    }
+
+    /// Returns the stub tree, so a caller's `else` branch is not taken.
+    pub const fn edit_bytes(
+        &mut self,
+        _source: &str,
+        _start_byte: usize,
+        _old_end_byte: usize,
+        _new_end_byte: usize,
+    ) -> Option<&Tree> {
+        Some(&self.tree)
+    }
+
+    /// Returns the stub tree.
+    pub const fn tree(&self) -> Option<&Tree> {
+        Some(&self.tree)
+    }
+}
+
 /// Simple brace-based fold detector for when syntax feature is disabled.
 ///
 /// This provides basic code folding by matching braces `{}` without
@@ -149,37 +198,19 @@ impl FoldRegion {
 /// - Skipping braces inside string literals (basic heuristic)
 /// - Multi-line blocks only (single-line braces are not foldable)
 #[derive(Debug)]
-pub struct FoldDetector {
-    /// Cached fold regions
-    regions: Vec<FoldRegion>,
-}
+pub struct FoldDetector;
 
 impl FoldDetector {
     /// Creates a new brace-based fold detector.
     #[must_use]
-    pub fn new(_language: Language) -> Option<Self> {
-        Some(Self {
-            regions: Vec::new(),
-        })
+    pub const fn new(_language: Language) -> Self {
+        Self
     }
 
-    /// Detects fold regions based on brace matching.
+    /// Detects fold regions by matching braces, ignoring the stub tree.
     #[must_use]
-    pub fn detect(&mut self, source: &str) -> Vec<FoldRegion> {
-        self.regions = Self::detect_brace_folds(source);
-        self.regions.clone()
-    }
-
-    /// Updates fold regions (re-detects for simplicity).
-    #[must_use]
-    pub fn update(
-        &mut self,
-        source: &str,
-        _start_byte: usize,
-        _old_end_byte: usize,
-        _new_end_byte: usize,
-    ) -> Vec<FoldRegion> {
-        self.detect(source)
+    pub fn regions_in(&self, _tree: &Tree, source: &str) -> Vec<FoldRegion> {
+        Self::detect_brace_folds(source)
     }
 
     /// Detects foldable regions by matching braces.
@@ -378,19 +409,9 @@ impl Highlighter {
         Err(SyntaxError::UnsupportedLanguage)
     }
 
-    /// Highlights source code (always empty without syntax).
-    pub fn highlight(&mut self, _source: &str) -> Vec<HighlightSpan> {
-        Vec::new()
-    }
-
-    /// Updates highlighting incrementally (no-op without syntax).
-    pub fn update(
-        &mut self,
-        _source: &str,
-        _start_byte: usize,
-        _old_end_byte: usize,
-        _new_end_byte: usize,
-    ) -> Vec<HighlightSpan> {
+    /// Produces highlight spans (always empty without syntax).
+    #[must_use]
+    pub fn spans_in(&self, _tree: &Tree, _source: &str) -> Vec<HighlightSpan> {
         Vec::new()
     }
 }

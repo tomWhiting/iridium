@@ -11,9 +11,9 @@
 use std::collections::HashSet;
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{FoldDetector, FoldKind, FoldRegion, Language};
+use crate::syntax_stubs::{FoldDetector, FoldKind, FoldRegion, Language, SyntaxTree};
 #[cfg(feature = "syntax")]
-use iridium_syntax::{FoldDetector, FoldKind, FoldRegion, Language};
+use iridium_syntax::{FoldDetector, FoldKind, FoldRegion, Language, SyntaxTree};
 
 use serde::{Deserialize, Serialize};
 
@@ -252,6 +252,12 @@ impl LineMapping {
 pub struct FoldState {
     /// The fold detector for the current language
     detector: Option<FoldDetector>,
+    /// The parse tree the regions are read from.
+    ///
+    /// Owned here only until the editor owns one tree for the whole document;
+    /// until then this is the fold detector's own copy, and it is the reason
+    /// `update_regions_incremental` can be cheap.
+    tree: Option<SyntaxTree>,
     /// Currently detected fold regions
     regions: Vec<FoldRegion>,
     /// Set of start lines for currently folded regions
@@ -275,6 +281,7 @@ impl FoldState {
     pub fn new() -> Self {
         Self {
             detector: None,
+            tree: None,
             regions: Vec::new(),
             folded_lines: HashSet::new(),
             language: None,
@@ -285,9 +292,9 @@ impl FoldState {
     /// Creates a new fold state for the given language.
     #[must_use]
     pub fn for_language(language: Language) -> Self {
-        let detector = FoldDetector::new(language);
         Self {
-            detector,
+            detector: Some(FoldDetector::new(language)),
+            tree: SyntaxTree::new(language).ok(),
             regions: Vec::new(),
             folded_lines: HashSet::new(),
             language: Some(language),
@@ -314,7 +321,8 @@ impl FoldState {
             return;
         }
         self.language = Some(language);
-        self.detector = FoldDetector::new(language);
+        self.detector = Some(FoldDetector::new(language));
+        self.tree = SyntaxTree::new(language).ok();
         self.regions.clear();
         self.folded_lines.clear();
         self.line_mapping = LineMapping::default();
@@ -324,6 +332,7 @@ impl FoldState {
     pub fn clear_language(&mut self) {
         self.language = None;
         self.detector = None;
+        self.tree = None;
         self.regions.clear();
         self.folded_lines.clear();
         self.line_mapping = LineMapping::default();
@@ -333,11 +342,14 @@ impl FoldState {
     ///
     /// Returns true if the regions changed.
     pub fn update_regions(&mut self, source: &str) -> bool {
-        let Some(detector) = &mut self.detector else {
+        let (Some(detector), Some(tree)) = (&self.detector, &mut self.tree) else {
+            return false;
+        };
+        let Some(parsed) = tree.parse(source) else {
             return false;
         };
 
-        let new_regions = detector.detect(source);
+        let new_regions = detector.regions_in(parsed, source);
 
         if new_regions == self.regions {
             return false;
@@ -371,11 +383,14 @@ impl FoldState {
         old_end_byte: usize,
         new_end_byte: usize,
     ) -> bool {
-        let Some(detector) = &mut self.detector else {
+        let (Some(detector), Some(tree)) = (&self.detector, &mut self.tree) else {
+            return false;
+        };
+        let Some(parsed) = tree.edit_bytes(source, start_byte, old_end_byte, new_end_byte) else {
             return false;
         };
 
-        let new_regions = detector.update(source, start_byte, old_end_byte, new_end_byte);
+        let new_regions = detector.regions_in(parsed, source);
 
         if new_regions == self.regions {
             return false;

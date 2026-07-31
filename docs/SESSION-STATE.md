@@ -969,9 +969,7 @@ command from the gate list.
 ### Remaining, in the plan's order
 
 2. ~~`iridium-syntax/src/query/`~~ — **DONE**, see below.
-3. `iridium-syntax/src/tree.rs` — one retained `SyntaxTree`; convert
-   `FoldDetector` and `Highlighter` into borrowers. Brings both files back under
-   the size cap.
+3. ~~`iridium-syntax/src/tree.rs`~~ — **DONE**, see below.
 4. `SyntaxState` on `EditorState`, `note_edit` from `apply_command_internal`,
    `fold_state` onto the shared tree. **Fixes the stale folds.**
 5. `navigate.rs` — pure `Node → Node` walks.
@@ -1057,6 +1055,53 @@ reports **201 warnings at `8170a87`** — 92 in `iridium-bindings` (57 of them i
 scattered through `render/`. This work reduced it to 190 and added none. Any
 earlier "clippy clean" note in this document was measured on a single crate, not
 the workspace. **Raised with Tom; not silently absorbed.**
+
+### Step 3 is DONE (1 Aug) — one tree, two borrowers
+
+`crates/iridium-syntax/src/tree.rs` holds `SyntaxTree` — a parser and the tree
+it last produced, with `parse` / `edit` / `reparse` / `edit_bytes` / `root` /
+`changed_ranges`, plus the one `byte_point` both old copies had. 13 tests, the
+load-bearing one being that an incremental reparse produces the *same s-expression*
+as a parse from scratch, across five edit shapes.
+
+`Highlighter` and `FoldDetector` no longer own a parser or a tree. They hold
+their rules and read a tree handed to them: `spans_in(&Tree, &str)` and
+`regions_in(&Tree, &str)`. `DocumentHighlighter` and `FoldState` each own a
+`SyntaxTree` for now — **step 4 is what replaces those two with the one on
+`EditorState`**, and that is when typing stops parsing twice.
+
+Sizes came right down: `highlight.rs` 841 → **399**, `folding.rs` 778 → **460**,
+both under the cap for the first time, with their tests moved to
+`highlight/tests.rs` and `folding/tests.rs`.
+
+**`FoldDetector::regions_in` takes a `source` it does not read.** Every fold it
+recognises is decided by node kind and position. The parameter stays because the
+brace-matching stand-in used when the `syntax` feature is off *does* need the
+text, and one signature means `fold_state.rs` needs no `cfg`. Documented at the
+signature.
+
+**Two findings worth knowing, neither fixed here:**
+
+1. **`FoldKind::Region` has no producer.** The module doc claimed `#region` /
+   `#endregion` folding; nothing has ever emitted that variant, and the code that
+   pretended to (a block that read the comment text and did nothing with it) is
+   deleted. Recognising a region needs the *pair* of markers matched across the
+   document, which a per-node walk cannot do. The doc now says so.
+2. **The old-end *point* fed to tree-sitter was derived from the post-edit
+   text.** `Highlighter::update` and `FoldDetector::update` both did this, and
+   `SyntaxTree::edit_bytes` preserves it so behaviour did not change under the
+   refactor. It is exact for a single-line edit and can be wrong for a multi-line
+   one. **Step 4 is the fix**: `note_edit(&EditSpan)` carries `old_end_row` /
+   `old_end_column` captured against the pre-edit document — which is precisely
+   why `EditSpan` records them. Use `SyntaxTree::edit` with a hand-built
+   `InputEdit` there, not `edit_bytes`.
+
+Stub parity: `syntax_stubs.rs` gained a unit `Tree` and a no-op `SyntaxTree` so
+the feature-off build has the identical call shape.
+
+Gate after step 3: 867 all-features, 809 kernel, 851 kernel+syntax, 101 bindings,
+59 syntax. Clippy in `iridium-syntax`: **zero**. Workspace total 187, down from
+the 201 baseline.
 
 ### Step 2 pre-flight, verified by hand 1 Aug (kept — the inventory is still the map)
 

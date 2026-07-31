@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::ast::SyntaxState;
 use super::config::EditorConfig;
 use super::fold_state::{FoldInfo, FoldState};
 use crate::commands::{
     CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyHintIndex, KeyPress, Keymap,
     KeymapError, KeymapStack, ModeName, RegistryError, builtin,
 };
-use crate::document::{CursorState, Document, Position, Selection};
+use crate::document::{CursorState, Document, Position, Selection, compute_edit_span};
 use crate::history::{Command, UndoTree};
 use crate::input::keyboard::editing;
 use crate::input::{
@@ -159,6 +160,12 @@ pub struct EditorState {
     /// Code folding state (T130)
     pub fold_state: FoldState,
 
+    /// The document's parse tree, and how current it is.
+    ///
+    /// The one owner. Folds read it, and structural navigation will; nothing
+    /// parses this document a second time.
+    pub syntax: SyntaxState,
+
     /// Search state (T126)
     pub search: SearchState,
 }
@@ -177,6 +184,7 @@ impl Default for EditorState {
             has_focus: false,
             read_only: false,
             fold_state: FoldState::new(),
+            syntax: SyntaxState::new(),
             search: SearchState::new(),
         }
     }
@@ -223,8 +231,11 @@ impl EditorState {
         self.history = UndoTree::with_timeout(self.config.undo_group_timeout_ms);
         self.scroll_line = 0;
         self.scroll_x = 0.0;
-        // Update fold regions for the new content
-        self.fold_state.update_regions(content);
+        // The old tree describes a document that no longer exists, and the
+        // replacement's revision counter starts again — so say so outright
+        // rather than leaving `sync` to infer it from a number that repeats.
+        self.syntax.invalidate();
+        self.refresh_syntax();
     }
 
     /// Sets the language for syntax-aware folding and language-aware editing.
@@ -234,11 +245,31 @@ impl EditorState {
     /// keyboard handler) can resolve the language's comment syntax.
     pub fn set_language(&mut self, language: Language) {
         self.fold_state.set_language(language);
+        self.syntax.set_language(language);
         let id = language.id();
         if !id.is_empty() {
             self.document.set_language(Some(id.to_owned()));
         }
-        self.fold_state.update_regions(&self.document.text());
+        self.refresh_syntax();
+    }
+
+    /// Brings the parse tree up to date and refreshes the fold regions from it.
+    ///
+    /// Returns true if the fold regions changed.
+    ///
+    /// This is the only place folds are recomputed, and it is deliberately the
+    /// only place that parses: [`SyntaxState::sync`] does nothing when the
+    /// document has not moved, so calling this more often than necessary costs
+    /// a revision comparison rather than a parse.
+    pub fn refresh_syntax(&mut self) -> bool {
+        let Some(tree) = self.syntax.sync(&self.document) else {
+            return false;
+        };
+        // The tree and the text must be one document's worth. `sync` has just
+        // parsed this exact revision, so reading the text again here is the
+        // same document by construction.
+        let text = self.document.text();
+        self.fold_state.update_regions(tree, &text)
     }
 
     /// Returns the current language, if any.
@@ -886,6 +917,15 @@ impl Editor {
         let content_changed = command.modifies_content();
         let selection_changed = command.modifies_selection();
 
+        // Computed before the edit lands, because the span is expressed in the
+        // pre-edit document's coordinates and that document is about to stop
+        // existing. An error here is not fatal: leaving the edit unreported
+        // makes the next sync parse the document whole, which is slower and
+        // still correct.
+        let span = compute_edit_span(&self.state.document, &command)
+            .ok()
+            .flatten();
+
         // Apply the command
         if let Err(e) = command.apply(&mut self.state.document, &mut self.state.cursor) {
             self.emit(&EditorEvent::Error {
@@ -895,8 +935,17 @@ impl Editor {
             return;
         }
 
+        if let Some(span) = span {
+            self.state.syntax.note_edit(&self.state.document, &span);
+        }
+
         // Push to undo history if it modifies content
         if content_changed {
+            // Folds are read by the renderer on the very next frame, so they
+            // are refreshed here rather than lazily. Before this the editor's
+            // regions were correct only until the first keystroke.
+            self.state.refresh_syntax();
+
             self.state.history.push(command);
 
             // Recorded search match ranges point into the pre-edit document;

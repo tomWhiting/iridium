@@ -1,11 +1,5 @@
 //! Tests for capture-name mapping and span production.
 
-#![allow(
-    clippy::expect_used,
-    clippy::panic,
-    reason = "assertions in tests read better than error plumbing"
-)]
-
 use super::*;
 use crate::{Language, SyntaxTree};
 

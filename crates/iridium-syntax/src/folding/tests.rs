@@ -1,11 +1,5 @@
 //! Tests for fold-region detection.
 
-#![allow(
-    clippy::expect_used,
-    clippy::panic,
-    reason = "assertions in tests read better than error plumbing"
-)]
-
 use super::*;
 use crate::SyntaxTree;
 

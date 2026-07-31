@@ -149,6 +149,12 @@ impl FoldRegion {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Tree;
 
+/// Stub edit descriptor, mirroring `tree_sitter::InputEdit`.
+///
+/// Carries nothing: with no parser there is no tree to shift.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InputEdit;
+
 /// Stub retained tree, mirroring `iridium_syntax::SyntaxTree`.
 ///
 /// Every method is a no-op that keeps the caller's control flow intact: parsing
@@ -186,6 +192,14 @@ impl SyntaxTree {
 
     /// Returns the stub tree.
     pub const fn tree(&self) -> Option<&Tree> {
+        Some(&self.tree)
+    }
+
+    /// Records an edit against nothing.
+    pub const fn edit(&mut self, _edit: &InputEdit) {}
+
+    /// Returns the stub tree, so a caller's `else` branch is not taken.
+    pub const fn reparse(&mut self, _source: &str) -> Option<&Tree> {
         Some(&self.tree)
     }
 }

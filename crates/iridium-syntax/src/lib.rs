@@ -44,6 +44,11 @@ pub use highlight::{HighlightSpan, HighlightType, Highlighter};
 pub use query::QueryKind;
 pub use tree::{SyntaxTree, byte_point};
 
+// Re-exported so an embedder can describe an edit without taking its own
+// dependency on tree-sitter, and so the stub build has the same names to
+// mirror.
+pub use tree_sitter::{InputEdit, Node, Point, Tree};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

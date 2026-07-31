@@ -27,16 +27,19 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 
+use napi::Result;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
+
+use crate::types::usize_to_u32;
 
 /// Type alias for event callback functions.
 ///
 /// The callback receives a single string argument containing event data.
 /// For structured data (like selections), the string contains JSON.
-/// In napi-rs v3, ThreadsafeFunction uses const generics instead of ErrorStrategy.
+/// In `napi-rs` v3, `ThreadsafeFunction` uses const generics instead of `ErrorStrategy`.
 pub type EventCallback = ThreadsafeFunction<String, ()>;
 
 /// A subscription entry holding the callback.
@@ -68,7 +71,7 @@ impl EventEmitter {
     /// Subscribes to an event with a callback.
     ///
     /// Returns a subscription ID that can be used to unsubscribe.
-    pub fn subscribe(&self, event: &str, callback: EventCallback) -> u32 {
+    pub fn subscribe(&self, event: impl Into<String>, callback: EventCallback) -> u32 {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         let subscription = Subscription { id, callback };
@@ -76,10 +79,8 @@ impl EventEmitter {
         let mut subs = self
             .subscriptions
             .write()
-            .unwrap_or_else(|e| e.into_inner());
-        subs.entry(event.to_string())
-            .or_default()
-            .push(subscription);
+            .unwrap_or_else(PoisonError::into_inner);
+        subs.entry(event.into()).or_default().push(subscription);
 
         id
     }
@@ -89,7 +90,7 @@ impl EventEmitter {
         let mut subs = self
             .subscriptions
             .write()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(PoisonError::into_inner);
 
         for listeners in subs.values_mut() {
             listeners.retain(|s| s.id != subscription_id);
@@ -97,12 +98,12 @@ impl EventEmitter {
     }
 
     /// Removes all listeners for a specific event.
-    pub fn remove_listeners(&self, event: &str) {
+    pub fn remove_listeners(&self, event: impl AsRef<str>) {
         let mut subs = self
             .subscriptions
             .write()
-            .unwrap_or_else(|e| e.into_inner());
-        subs.remove(event);
+            .unwrap_or_else(PoisonError::into_inner);
+        subs.remove(event.as_ref());
     }
 
     /// Clears all subscriptions.
@@ -110,7 +111,7 @@ impl EventEmitter {
         let mut subs = self
             .subscriptions
             .write()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(PoisonError::into_inner);
         subs.clear();
     }
 
@@ -118,15 +119,18 @@ impl EventEmitter {
     ///
     /// The data is passed as a string to all callbacks. For structured data,
     /// serialize to JSON before calling this method.
-    pub fn emit(&self, event: &str, data: &str) {
-        let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
+    pub fn emit(&self, event: impl AsRef<str>, data: impl AsRef<str>) {
+        let subs = self
+            .subscriptions
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
 
-        if let Some(listeners) = subs.get(event) {
+        if let Some(listeners) = subs.get(event.as_ref()) {
             for subscription in listeners {
                 // Call the callback with the data
                 // Using non-blocking mode; ignore errors since callbacks may be disconnected
                 let _ = subscription.callback.call(
-                    Ok(data.to_string()),
+                    Ok(data.as_ref().to_string()),
                     ThreadsafeFunctionCallMode::NonBlocking,
                 );
             }
@@ -134,23 +138,32 @@ impl EventEmitter {
     }
 
     /// Returns the number of active subscriptions for an event.
-    pub fn listener_count(&self, event: &str) -> usize {
-        let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
-        subs.get(event).map_or(0, Vec::len)
+    pub fn listener_count(&self, event: impl AsRef<str>) -> usize {
+        let subs = self
+            .subscriptions
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        subs.get(event.as_ref()).map_or(0, Vec::len)
     }
 
     /// Returns the total number of active subscriptions across all events.
     pub fn total_listener_count(&self) -> usize {
-        let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
+        let subs = self
+            .subscriptions
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
         subs.values().map(Vec::len).sum()
     }
 
     /// Returns a list of event names that have active listeners.
     pub fn event_names(&self) -> Vec<String> {
-        let subs = self.subscriptions.read().unwrap_or_else(|e| e.into_inner());
-        subs.keys()
-            .filter(|k| !subs.get(*k).map_or(true, Vec::is_empty))
-            .cloned()
+        let subs = self
+            .subscriptions
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        subs.iter()
+            .filter(|(_, listeners)| !listeners.is_empty())
+            .map(|(event, _)| event.clone())
             .collect()
     }
 }
@@ -196,7 +209,7 @@ impl JsEventEmitter {
     /// Returns a subscription ID that can be used to unsubscribe.
     #[napi]
     pub fn on(&self, event: String, callback: EventCallback) -> u32 {
-        self.inner.subscribe(&event, callback)
+        self.inner.subscribe(event, callback)
     }
 
     /// Unsubscribes using a subscription ID.
@@ -209,7 +222,7 @@ impl JsEventEmitter {
     #[napi]
     pub fn remove_all_listeners(&self, event: Option<String>) {
         if let Some(event_name) = event {
-            self.inner.remove_listeners(&event_name);
+            self.inner.remove_listeners(event_name);
         } else {
             self.inner.clear_all();
         }
@@ -218,13 +231,13 @@ impl JsEventEmitter {
     /// Emits an event to all subscribers.
     #[napi]
     pub fn emit(&self, event: String, data: String) {
-        self.inner.emit(&event, &data);
+        self.inner.emit(event, data);
     }
 
     /// Returns the number of listeners for an event.
     #[napi]
-    pub fn listener_count(&self, event: String) -> u32 {
-        self.inner.listener_count(&event) as u32
+    pub fn listener_count(&self, event: String) -> Result<u32> {
+        usize_to_u32(self.inner.listener_count(event), "event listener count")
     }
 
     /// Returns the event names that have listeners.

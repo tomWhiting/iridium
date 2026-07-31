@@ -3,7 +3,9 @@
  */
 
 import { useRef, useState } from "react";
+import { CommandPalette as PaletteController } from "@iridium/core/palette";
 import { Iridium, IridiumHandle } from "./Iridium";
+import { CommandPalette } from "./CommandPalette";
 import { useWebGPUSupport } from "./hooks";
 
 const SAMPLE_CODE = `// Iridium Editor Demo
@@ -66,6 +68,24 @@ function App() {
   const [language, setLanguage] = useState("rust");
 
   const webgpu = useWebGPUSupport();
+
+  // Built once, before the editor exists, and it delegates through `editorRef`
+  // rather than capturing an editor — so the palette is wired up from the first
+  // render and simply lists nothing until the wasm module is ready.
+  const paletteRef = useRef<PaletteController | null>(null);
+  if (paletteRef.current === null) {
+    paletteRef.current = new PaletteController({
+      searchCommands: (query, limit) =>
+        editorRef.current?.searchCommands(query, limit) ?? [],
+      runCommand: (id) => editorRef.current?.runCommand(id),
+      blurEditor: () => editorRef.current?.blurEditor(),
+      focus: () => editorRef.current?.focus(),
+      get usesMacKeyLabels(): boolean {
+        return editorRef.current?.usesMacKeyLabels ?? false;
+      },
+    });
+  }
+  const palette = paletteRef.current;
 
   const handleFoldAll = () => {
     editorRef.current?.foldAll();
@@ -138,6 +158,11 @@ function App() {
         <button style={styles.button} onClick={handleUnfoldAll}>
           Unfold All
         </button>
+
+        {/* Command Palette */}
+        <button style={styles.button} onClick={() => palette.open()}>
+          Commands
+        </button>
       </div>
 
       {/* Editor */}
@@ -151,9 +176,20 @@ function App() {
           onSelectionChange={(sel) => {
             setCursorInfo({ line: sel.head.line, column: sel.head.column });
           }}
+          onHostCommand={(request) => {
+            // The kernel binds `palette.open` to Ctrl+K, Ctrl+P and Ctrl+Shift+P
+            // and reports it here because opening a UI is not something a kernel
+            // can do. Any other host command is not ours to guess at.
+            if (request.command === "palette.open") {
+              palette.open();
+            }
+          }}
           style={styles.editor}
         />
       </div>
+
+      {/* Command Palette overlay — portalled to the body, above everything */}
+      <CommandPalette palette={palette} />
 
       {/* Status Bar */}
       <footer style={styles.statusBar}>

@@ -5,6 +5,59 @@ Live working state for whoever picks this up. Authoritative roadmap is
 architecture is `TRIPLE-FACE.md`. This file is the *baton*: what is in flight,
 what is outstanding, and what must not be lost.
 
+## 🛑 STEP 6 HALTED MID-FLIGHT 1 Aug 05:31Z — work is UNCOMMITTED and must not be swept
+
+The `apps/iridium` agent (`a370e541a81129d00`) was stopped by me on the 35 GiB
+band crossing. **Its partial work is live in the working tree and is not
+committed**: `apps/` (7 files, 2,291 lines) plus modifications to `Cargo.toml`
+(adds the `apps/iridium` member and an `iridium-tui` path dep) and `Cargo.lock`.
+
+**It does not compile, by construction** — it was halted between modules. There
+is an `apps/iridium/src/app/commands.rs` with **no `app/mod.rs`**, no `main.rs`,
+and no prompt module; the agent's last words were "Now the prompt module".
+Present: `lib.rs` 64, `theme.rs` 256, `cli.rs` 422, `app/commands.rs` 343,
+`file/mod.rs` 392, `file/atomic.rs` 263, `file/tests.rs` 551.
+
+**Do not `git stash`, reset, clean, or "tidy" this.** The agent is resumable by
+message on the same task id with its context intact — that is the intended path
+once disk clears, not a re-dispatch from scratch.
+
+### A real defect found in the halted work, by reading (not yet fixed)
+
+`apps/iridium/src/file/atomic.rs` — **`write_atomically` can return `Err` after
+the save has already succeeded**, which contradicts its own documented contract.
+
+`write_atomically_with` ends with `sync_directory(&directory)` at `:110`, *after*
+`fs::rename` has committed at `:107`. If the directory sync fails, that error is
+returned — but the rename already happened, so the file on disk holds the **new**
+contents while the caller is told the write failed. The doc at `:66-68` promises
+the opposite: *"After it returns `Err`, `path` holds exactly what it held
+before."*
+
+The module already reasons about exactly this hazard at `:196-199`, swallowing
+`InvalidInput`/`Unsupported` because reporting failure would be *"a lie that
+makes the caller retry a write that already happened"* — and then does precisely
+that for every other error kind, including the `File::open` failure at `:209`.
+
+**Reachable, with a concrete repro:** a directory whose mode is `0300`
+(write+execute, no read) accepts the rename but refuses `File::open`, so the
+sync fails `EACCES` on a save that fully succeeded. The editor reports "save
+failed" over work that is safely on disk — the worst possible lie for this
+particular subsystem to tell.
+
+**Not covered by any test.** The 12 atomic-write tests are otherwise strong and
+include the discriminating ones (`the_target_is_untouched_while_the_write_is_in_progress`,
+`a_failed_write_leaves_the_original_intact`, `a_dangling_symlink_is_an_error_rather_than_a_new_file`,
+`concurrent_writes_to_one_directory_do_not_collide`) — but none exercises a
+post-rename failure, which is why reading caught what running would not have.
+
+**The fix is a contract decision, not a patch:** atomicity is established by the
+rename; durability of the *directory entry* is a separate property. Returning
+`Err` for the second while the first has succeeded conflates them. Either commit
+to `Ok` once the rename lands and surface sync failure through a distinct
+channel, or widen the contract — but the doc and the code must agree, and right
+now they do not.
+
 ## ⚠️ PROCESS RULE, learned the hard way 1 Aug 04:48Z — NEVER `git stash` in this checkout
 
 **A subagent ran `git stash` / `git stash pop` to measure a baseline while a

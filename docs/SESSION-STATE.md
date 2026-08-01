@@ -72,6 +72,17 @@ re-opened dispatch and was wrong.
   it cannot halt.** There is no automatic brake anywhere on this box — the
   sequencer's seat is read-only, so self-imposed lane brakes are the only real
   floor.
+- **My own brake, stated for what it is** (task `bio01tgzp`, armed 05:20Z, session
+  -persistent): a 30-second `df` poll that emits one line per band crossing at
+  **37 / 35 / 25 GiB**, and one if `df` itself fails. It wakes me; the halt is
+  still my `TaskStop`. So it is a *bounded-latency* wake — roughly 30s plus a
+  wake cycle — **not a hard interlock.** It is armed a notch early, at 37, to buy
+  the acting room the 35 line does not have. It watches the correct direction: a
+  floor needs a *downward* poller, and the seat-owned one on this box fires on
+  recovery above 50 and exits.
+- Anchor for the current lane: free **41,581,824 KiB = 39.66 GiB**, `target` =
+  **31,110,728 KiB @ 05:20:03Z** — 784 KiB of growth in the ~6 min since dispatch,
+  i.e. the lane is resident, not climbing.
 - Never a bare `cargo clean`; never `git stash` here (see the rule above).
 - Announce heavy lanes as **rate vs resident** — a flat 20 GiB is a different
   ask than a climbing 20, and the process table cannot tell them apart.

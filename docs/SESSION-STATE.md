@@ -963,7 +963,36 @@ suppression of any kind in the crate.
 - **Step 1, cell buffer + damage diff** — `src/cell/` (directory module, 7
   files, all under cap). 97 tests. 32 deliberate breaks tried, **31 caught**.
 - **Step 2, input adapter** — `src/input/`. 27 tests, 16 breaks, all caught.
-- **Steps 3–7 remain**: driver, frame, search UI, `apps/iridium`, feel gate.
+- **Step 3, the driver** — `src/driver/` — **LANDED**, 137 tui tests. Its agent
+  hit a session limit mid-flight, so I verified and finished it myself.
+- **Step 4, the frame** — `src/frame/` — **WIP, NOT MERGED.** Lives on branch
+  `tui-frame` in worktree `/Users/tom/Developer/ablative/libs/iridium-tui-input`
+  (`16c7d59`). Compiles, carries 58 new tests (182 in the crate), but was never
+  mutation-tested or gated, and **`frame/mod.rs` is 522 lines, over the cap**.
+  Finish that before merging.
+- **Steps 5–7 remain**: search UI, `apps/iridium`, feel gate.
+
+### What the interrupted driver needed, and the bug verification caught
+
+Two things the agent never got to, both found by me:
+
+1. **It did not compile as found.** `driver/mod.rs` had been written as a
+   sibling `driver.rs`, so the module was both a file and a directory.
+2. **The teardown-symmetry test failed** — and the fault was the *test's model*,
+   not the driver, which is worth recording because the tempting move is to
+   "fix" the production code. The test paired each entry sequence with its
+   inverse by comparing payloads. That is right for DEC private modes, where
+   both halves carry the same mode number, but the keyboard stack is the one
+   pair whose halves carry **different kinds of number**: a push carries a flag
+   bitmask (`CSI > 11 u`), a pop carries a count of stack entries (`CSI < 1 u`).
+   Comparing them asks whether a bitmask equals a count, and answering "no"
+   reports a correct teardown as unbalanced. Replaced with an explicit `undoes`
+   relation, then **proven still to discriminate**: with teardown made never to
+   pop, this test fails; with teardown made to pop unconditionally, three
+   sibling tests fail.
+
+The driver did correctly pick up the `REPORT_ALL_KEYS_AS_ESCAPE_CODES` warning
+from `TERMINAL-STACK.md` — the doc correction paid for itself one step later.
 
 ### The load-bearing decision
 

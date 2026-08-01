@@ -57,8 +57,8 @@ use std::io;
 
 use termina::OneBased;
 use termina::escape::csi::{
-    Csi, Cursor, DecPrivateMode, DecPrivateModeCode, Edit, EraseInDisplay, Mode, Sgr, SgrAttributes,
-    SgrModifiers,
+    Csi, Cursor, DecPrivateMode, DecPrivateModeCode, Edit, EraseInDisplay, Mode, Sgr,
+    SgrAttributes, SgrModifiers,
 };
 use termina::style::{ColorSpec, RgbColor};
 

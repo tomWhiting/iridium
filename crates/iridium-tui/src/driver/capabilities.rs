@@ -72,9 +72,10 @@ mod tests;
 /// alternate codepoint only for ASCII letters. With it set, typing `!` inserts
 /// `1`. See `docs/TERMINAL-STACK.md` and the test
 /// `report_all_keys_costs_the_shifted_character` in `crate::input`.
-pub const KEYBOARD_ENHANCEMENT_FLAGS: KittyKeyboardFlags = KittyKeyboardFlags::DISAMBIGUATE_ESCAPE_CODES
-    .union(KittyKeyboardFlags::REPORT_EVENT_TYPES)
-    .union(KittyKeyboardFlags::REPORT_ALTERNATE_KEYS);
+pub const KEYBOARD_ENHANCEMENT_FLAGS: KittyKeyboardFlags =
+    KittyKeyboardFlags::DISAMBIGUATE_ESCAPE_CODES
+        .union(KittyKeyboardFlags::REPORT_EVENT_TYPES)
+        .union(KittyKeyboardFlags::REPORT_ALTERNATE_KEYS);
 
 /// The 24-bit colour the truecolor probe sets and looks for in the reply.
 ///

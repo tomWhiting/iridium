@@ -23,15 +23,28 @@
 //! # What is drawn
 //!
 //! Top to bottom: the gutter (line numbers and fold indicators), the document
-//! text with syntax highlighting, selection backgrounds and a caret for
-//! **every** cursor, and a statusline on the last row. The multi-cursor set is
-//! rendered whole — a face that draws only the primary cursor is a bug this
-//! codebase has already had twice.
+//! text with syntax highlighting, selection backgrounds, search-match
+//! backgrounds and a caret for **every** cursor, then the search panel when one
+//! is open, and a statusline on the last row. The multi-cursor set is rendered
+//! whole — a face that draws only the primary cursor is a bug this codebase has
+//! already had twice.
+//!
+//! # What is layered over what
+//!
+//! Within one row the order is fixed, later winning over earlier: syntax
+//! colours, then the current-line background, then selections, then search
+//! matches, then carets. Matches sit above selections because while a search is
+//! running the matches are what the reader is looking for, and carets sit above
+//! everything because the caret is where the next keystroke lands. Only
+//! backgrounds move at each step, so a match never repaints the syntax colour
+//! of the code it was found in.
 
+mod geometry;
 mod gutter;
 mod highlight;
 mod line;
 mod palette;
+mod search;
 mod status;
 mod text;
 mod units;
@@ -41,49 +54,19 @@ mod tests;
 
 use std::collections::HashSet;
 
-use iridium_editor::render::Viewport;
-use iridium_editor::{Editor, Position, Selection};
+use iridium_editor::{Editor, Selection};
 
 use self::highlight::Highlighting;
-use self::units::{cell_units, whole_cells};
+use self::search::{MatchHighlights, MatchedLine};
+use self::units::whole_cells;
 use crate::cell::{CellBuffer, Color, Style};
 
+pub use self::geometry::{CellPosition, Chrome, FrameLayout};
 pub use self::line::{LineLayout, PlacedCluster};
 pub use self::palette::Palette;
+pub use self::search::{SearchOutcome, SearchOverlay};
 pub use self::status::Status;
 pub use self::text::TextArea;
-
-/// A position in the cell grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CellPosition {
-    /// The column, counting from the left edge of the screen.
-    pub column: usize,
-    /// The row, counting from the top of the screen.
-    pub row: usize,
-}
-
-/// Where everything went: the geometry one frame was drawn with.
-///
-/// The driver needs this to place the terminal's own cursor, and mouse hit
-/// testing will need it to turn a click into a document position — which is
-/// the one place the fixed character-width assumption still lives elsewhere in
-/// the tree.
-#[derive(Debug, Clone)]
-pub struct FrameLayout {
-    /// The number of columns the gutter occupies. Zero when line numbers are
-    /// switched off.
-    pub gutter_width: usize,
-    /// The rectangle document text is painted into.
-    pub text: TextArea,
-    /// The number of rows available to document text.
-    pub text_rows: usize,
-    /// The row the statusline occupies, if the screen has one.
-    pub status_row: Option<usize>,
-    /// The kernel's viewport, driven in cell units.
-    pub viewport: Viewport,
-    /// Where the primary caret landed, if it is on screen.
-    pub primary_caret: Option<CellPosition>,
-}
 
 /// Renders editor state into a cell buffer.
 ///
@@ -132,42 +115,11 @@ impl Frame {
     /// The geometry a screen of this size would be drawn with.
     ///
     /// Computed from editor state alone, so it agrees with what
-    /// [`Frame::render`] will do without drawing anything.
-    pub fn layout(editor: &Editor, columns: usize, rows: usize) -> FrameLayout {
-        let state = editor.state();
-        let total_lines = state.document.line_count();
-        let gutter_width = gutter::width(total_lines, state.config.show_line_numbers).min(columns);
-        let text_width = columns - gutter_width;
-        let status_row = rows.checked_sub(1);
-        let text_rows = rows.saturating_sub(1);
-        let scroll = whole_cells(state.viewport.scroll_offset_x);
-
-        let viewport = Viewport {
-            first_line: state.viewport.first_line,
-            scroll_offset_y: 0.0,
-            scroll_offset_x: state.viewport.scroll_offset_x,
-            width: cell_units(text_width),
-            height: cell_units(text_rows),
-            visible_lines: text_rows,
-            line_height: 1.0,
-        };
-
-        let text = TextArea {
-            origin: gutter_width,
-            width: text_width,
-            scroll,
-        };
-
-        let primary_caret = caret_cell(editor, &viewport, text, state.cursor.primary.head);
-
-        FrameLayout {
-            gutter_width,
-            text,
-            text_rows,
-            status_row,
-            viewport,
-            primary_caret,
-        }
+    /// [`Frame::render`] will do without drawing anything. `search_caret` is
+    /// the one field it cannot fill: whether the panel's focused field had room
+    /// to be drawn is decided while drawing it.
+    pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) -> FrameLayout {
+        geometry::layout(editor, columns, rows, chrome)
     }
 
     /// Writes the cell-unit geometry of a screen of this size into the kernel's
@@ -177,18 +129,13 @@ impl Frame {
     /// `scroll_to_position_with_folds` — work from the viewport's own size, so
     /// a host that never calls this scrolls against a viewport still measured
     /// in pixels and will disagree with what is on screen. Call it when the
-    /// terminal is sized and whenever it is resized.
+    /// terminal is sized, whenever it is resized, and whenever the search panel
+    /// opens or closes.
     ///
     /// Scroll position is left alone: where the document is scrolled to is
     /// kernel state, and a resize does not move it.
-    pub fn sync_viewport(editor: &mut Editor, columns: usize, rows: usize) {
-        let geometry = Self::layout(editor, columns, rows);
-        let state = editor.state_mut();
-        state.viewport.width = geometry.viewport.width;
-        state.viewport.height = geometry.viewport.height;
-        state.viewport.line_height = 1.0;
-        state.viewport.visible_lines = geometry.viewport.visible_lines;
-        state.viewport.scroll_offset_y = 0.0;
+    pub fn sync_viewport(editor: &mut Editor, columns: usize, rows: usize, chrome: Chrome<'_>) {
+        geometry::sync_viewport(editor, columns, rows, chrome);
     }
 
     /// Draws one frame into `buffer`, replacing everything in it.
@@ -200,10 +147,10 @@ impl Frame {
     pub fn render(
         &mut self,
         editor: &Editor,
-        status: Status<'_>,
+        chrome: Chrome<'_>,
         buffer: &mut CellBuffer,
     ) -> FrameLayout {
-        let geometry = Self::layout(editor, buffer.width(), buffer.height());
+        let mut geometry = Self::layout(editor, buffer.width(), buffer.height(), chrome);
         self.refresh(editor);
 
         let palette = Palette::from_theme(editor.get_theme());
@@ -217,9 +164,14 @@ impl Frame {
             .collect();
 
         let total_lines = state.document.line_count();
-        let visible = geometry
+        let visible: Vec<usize> = geometry
             .viewport
-            .visible_document_lines(&state.fold_state, total_lines);
+            .visible_document_lines(&state.fold_state, total_lines)
+            .collect();
+        let highlights = match (visible.first(), visible.last()) {
+            (Some(&first), Some(&last)) => MatchHighlights::collect(editor, first, last),
+            _ => MatchHighlights::default(),
+        };
 
         for document_line in visible {
             let Some(y) = geometry
@@ -237,6 +189,7 @@ impl Frame {
                 editor,
                 &palette,
                 &geometry,
+                &highlights,
                 PaintedLine {
                     document_line,
                     row,
@@ -245,8 +198,13 @@ impl Frame {
             );
         }
 
+        if let (Some(overlay), Some((first_row, row_count))) = (chrome.search, geometry.search_rows)
+        {
+            geometry.search_caret = overlay.paint(buffer, first_row, row_count, editor, &palette);
+        }
+
         if let Some(row) = geometry.status_row {
-            status::paint(buffer, row, editor, status, &palette);
+            status::paint(buffer, row, editor, chrome.status, &palette);
         }
 
         geometry
@@ -260,6 +218,7 @@ impl Frame {
         editor: &Editor,
         palette: &Palette,
         geometry: &FrameLayout,
+        highlights: &MatchHighlights,
         placement: PaintedLine,
     ) {
         let PaintedLine {
@@ -320,6 +279,17 @@ impl Frame {
                 geometry.text,
             );
         }
+
+        highlights.paint(
+            buffer,
+            row,
+            MatchedLine {
+                number: document_line,
+                layout: &layout,
+            },
+            palette,
+            geometry.text,
+        );
 
         for selection in state.cursor.all_selections() {
             if selection.head.line != document_line {
@@ -429,28 +399,4 @@ fn fold_placeholder(editor: &Editor, document_line: usize) -> String {
         .into_iter()
         .find(|placeholder| placeholder.line == document_line)
         .map_or_else(String::new, |placeholder| placeholder.text)
-}
-
-/// Where a document position lands on screen, if it is visible at all.
-fn caret_cell(
-    editor: &Editor,
-    viewport: &Viewport,
-    area: TextArea,
-    position: Position,
-) -> Option<CellPosition> {
-    let state = editor.state();
-    let y = viewport.screen_y_for_line(position.line, &state.fold_state)?;
-    let row = whole_cells(y);
-    if row >= viewport.visible_lines {
-        return None;
-    }
-    let text = state.document.line(position.line)?;
-    let cell = LineLayout::new(&text, state.config.tab_width).column_to_cell(position.column);
-    if cell < area.scroll || cell >= area.scroll + area.width {
-        return None;
-    }
-    Some(CellPosition {
-        column: area.origin + (cell - area.scroll),
-        row,
-    })
 }

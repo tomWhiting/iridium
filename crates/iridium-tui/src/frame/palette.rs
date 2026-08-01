@@ -42,6 +42,18 @@ pub struct Palette {
     caret: Color,
     /// The foreground of a caret cell, so the glyph under it stays legible.
     caret_text: Color,
+    /// The background of a search match that is not the current one.
+    search_match: Color,
+    /// The background of the search match the user is standing on.
+    search_match_current: Color,
+    /// The base style of an overlay panel: the search UI's own two rows.
+    overlay: Style,
+    /// The style of an inactive toggle, and of a field that is not focused.
+    overlay_quiet: Style,
+    /// The style of a toggle that is switched on.
+    overlay_toggle_active: Style,
+    /// The style feedback about a failure is shown in.
+    overlay_error: Style,
     /// The theme's syntax colours, mapped per highlight by the kernel.
     syntax: SyntaxColors,
 }
@@ -67,6 +79,17 @@ impl Palette {
             selection: over(theme.editor.selection, editor_background),
             caret: over(theme.editor.cursor, editor_background),
             caret_text: background,
+            search_match: over(theme.editor.search_match, editor_background),
+            search_match_current: over(theme.editor.search_match_current, editor_background),
+            overlay: overlay_style(theme, foreground, editor_background),
+            overlay_quiet: overlay_style(theme, foreground, editor_background)
+                .with_attributes(Attributes::DIM)
+                .with_foreground(solid(theme.editor.line_number)),
+            overlay_toggle_active: overlay_style(theme, foreground, editor_background)
+                .with_attributes(Attributes::BOLD)
+                .with_foreground(solid(theme.editor.line_number_active)),
+            overlay_error: overlay_style(theme, foreground, editor_background)
+                .with_foreground(solid(theme.editor.diagnostic_error)),
             syntax: theme.syntax.clone(),
         }
     }
@@ -105,6 +128,53 @@ impl Palette {
         style
             .with_background(self.caret)
             .with_foreground(self.caret_text)
+    }
+
+    /// `style` with a search match's background, the current match apart.
+    ///
+    /// Only the background moves. A match keeps the syntax colour of whatever
+    /// it landed on, because a search that repainted the code it found in one
+    /// flat colour would hide the very thing being read.
+    pub const fn search_match(&self, style: Style, is_current: bool) -> Style {
+        if is_current {
+            style.with_background(self.search_match_current)
+        } else {
+            style.with_background(self.search_match)
+        }
+    }
+
+    /// The base style of an overlay panel.
+    pub const fn overlay(&self) -> Style {
+        self.overlay
+    }
+
+    /// The style of an overlay's label text, and of a field that is not
+    /// focused: quieter than the panel, so the focused field is obvious.
+    pub const fn overlay_quiet(&self) -> Style {
+        self.overlay_quiet
+    }
+
+    /// The style of an overlay field, focused or not.
+    pub const fn overlay_field(&self, is_focused: bool) -> Style {
+        if is_focused {
+            self.overlay
+        } else {
+            self.overlay_quiet
+        }
+    }
+
+    /// The style of an overlay toggle, switched on or off.
+    pub const fn overlay_toggle(&self, is_active: bool) -> Style {
+        if is_active {
+            self.overlay_toggle_active
+        } else {
+            self.overlay_quiet
+        }
+    }
+
+    /// The style feedback about a failure is shown in.
+    pub const fn overlay_error(&self) -> Style {
+        self.overlay_error
     }
 
     /// The style of text carrying a syntax highlight.
@@ -158,6 +228,27 @@ fn status_style(theme: &Theme) -> Style {
         return Style::new(Color::Default, Color::Default, Attributes::REVERSE);
     }
     Style::new(solid(theme.editor.foreground), background, Attributes::NONE)
+}
+
+/// The base style of an overlay panel.
+///
+/// The background is the current-line colour rather than the gutter's. Both
+/// presets give it a value that reads as a band — the dark preset's gutter is
+/// transparent and its current line is not — and it is the one theme colour
+/// whose whole purpose is "a stripe across the text that is still text". A
+/// theme that leaves it transparent gets a panel in the terminal's own
+/// background, which is legible but no longer visibly a panel; the labels,
+/// toggles and the panel's position above the statusline still separate it.
+///
+/// Reverse video is deliberately not the fallback here, as it is for the
+/// statusline: one inverted row is a band, and two inverted rows carrying an
+/// editable field is a wall the caret disappears into.
+fn overlay_style(theme: &Theme, foreground: Color, editor_background: ThemeColor) -> Style {
+    Style::new(
+        foreground,
+        over(theme.editor.current_line, editor_background),
+        Attributes::NONE,
+    )
 }
 
 #[cfg(test)]
@@ -241,5 +332,82 @@ mod tests {
     fn the_active_line_number_differs_from_the_rest() {
         let palette = Palette::from_theme(&Theme::dark());
         assert_ne!(palette.gutter(true), palette.gutter(false));
+    }
+
+    #[test]
+    fn the_current_search_match_is_distinguishable_from_the_rest() {
+        // Painting every match the same colour is a silent regression: the
+        // matches are all still marked and navigation still works, and the
+        // editor simply stops saying which one `Enter` will move on from.
+        for theme in [Theme::dark(), Theme::light()] {
+            let palette = Palette::from_theme(&theme);
+            let plain = palette.text();
+            let other = palette.search_match(plain, false);
+            let current = palette.search_match(plain, true);
+            assert_ne!(other.background, plain.background);
+            assert_ne!(current.background, plain.background);
+            assert_ne!(
+                current.background, other.background,
+                "the current match must not share the other matches' background"
+            );
+        }
+    }
+
+    #[test]
+    fn a_search_match_keeps_the_foreground_it_landed_on() {
+        let palette = Palette::from_theme(&Theme::dark());
+        let keyword = palette.highlighted(HighlightType::Keyword, Color::Default);
+        for is_current in [false, true] {
+            assert_eq!(
+                palette.search_match(keyword, is_current).foreground,
+                keyword.foreground,
+                "a match must not repaint the syntax colour underneath it"
+            );
+        }
+    }
+
+    #[test]
+    fn an_overlay_toggle_looks_different_switched_on() {
+        let palette = Palette::from_theme(&Theme::dark());
+        assert_ne!(palette.overlay_toggle(true), palette.overlay_toggle(false));
+        assert!(
+            palette
+                .overlay_toggle(true)
+                .attributes
+                .contains(Attributes::BOLD)
+        );
+    }
+
+    #[test]
+    fn an_unfocused_overlay_field_is_quieter_than_a_focused_one() {
+        let palette = Palette::from_theme(&Theme::light());
+        assert_eq!(palette.overlay_field(true), palette.overlay());
+        assert_ne!(palette.overlay_field(false), palette.overlay_field(true));
+    }
+
+    #[test]
+    fn overlay_error_feedback_takes_the_themes_error_colour() {
+        let theme = Theme::light();
+        let palette = Palette::from_theme(&theme);
+        assert_eq!(
+            palette.overlay_error().foreground,
+            solid(theme.editor.diagnostic_error)
+        );
+        assert_ne!(
+            palette.overlay_error().foreground,
+            palette.overlay().foreground
+        );
+    }
+
+    #[test]
+    fn the_overlay_panel_stands_apart_from_the_text_in_both_presets() {
+        for theme in [Theme::dark(), Theme::light()] {
+            let palette = Palette::from_theme(&theme);
+            assert_ne!(
+                palette.overlay().background,
+                palette.text().background,
+                "the panel must not be indistinguishable from the document"
+            );
+        }
     }
 }

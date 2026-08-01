@@ -3,7 +3,7 @@
 use super::*;
 use iridium_editor::syntax::Language;
 
-use crate::cell::{CellContent, Color};
+use crate::cell::{Cell, CellContent, Color};
 
 /// The text of a row, with continuation cells contributing nothing.
 fn row_text(buffer: &CellBuffer, row: usize) -> String {
@@ -26,7 +26,7 @@ fn a_document_is_painted_line_by_line() {
     editor.set_content("alpha\nbeta\ngamma");
     let mut buffer = CellBuffer::new(20, 5);
     let mut frame = Frame::new();
-    let layout = frame.render(&editor, Status::default(), &mut buffer);
+    let layout = frame.render(&editor, Chrome::default(), &mut buffer);
 
     assert_eq!(layout.gutter_width, 4);
     assert_eq!(&row_text(&buffer, 0)[..8], " 1  alph");
@@ -57,7 +57,7 @@ fn the_caret_line_takes_the_current_line_background() {
 
     let mut buffer = CellBuffer::new(20, 5);
     let mut frame = Frame::new();
-    let layout = frame.render(&editor, Status::default(), &mut buffer);
+    let layout = frame.render(&editor, Chrome::default(), &mut buffer);
     let column = layout.text.origin;
 
     // Sampled five cells in, not at the origin: the caret sits at the origin
@@ -89,7 +89,7 @@ fn highlighting_repaints_when_the_document_changes() {
 
     let mut buffer = CellBuffer::new(40, 4);
     let mut frame = Frame::new();
-    let layout = frame.render(&editor, Status::default(), &mut buffer);
+    let layout = frame.render(&editor, Chrome::default(), &mut buffer);
     let column = layout.text.origin;
     let keyword = buffer
         .row(1)
@@ -103,7 +103,7 @@ fn highlighting_repaints_when_the_document_changes() {
     // Replacing the keyword with an identifier must change that cell: `let` is
     // a keyword and `xyz` is not.
     editor.set_content("\nxyz alpha = 1;");
-    frame.render(&editor, Status::default(), &mut buffer);
+    frame.render(&editor, Chrome::default(), &mut buffer);
     let identifier = buffer
         .row(1)
         .and_then(|row| row.get(column))
@@ -112,6 +112,78 @@ fn highlighting_repaints_when_the_document_changes() {
     assert_ne!(
         keyword, identifier,
         "a keyword replaced by an identifier must repaint in a different colour"
+    );
+}
+
+#[test]
+fn search_matches_are_marked_without_any_panel_being_open() {
+    // The highlighting reads the kernel's search state, not the overlay's, so
+    // a host that drives `find` from a keybinding and never opens a panel still
+    // gets its matches marked. A face that keyed the marks off its own UI state
+    // would show nothing here.
+    let mut editor = Editor::with_defaults();
+    editor.set_content("\nfoo bar foo");
+    editor
+        .find("foo", &iridium_editor::search::SearchOptions::default())
+        .expect("a literal query cannot fail");
+
+    let mut buffer = CellBuffer::new(40, 6);
+    let mut frame = Frame::new();
+    let layout = frame.render(&editor, Chrome::default(), &mut buffer);
+    assert!(layout.search_rows.is_none(), "no panel was asked for");
+
+    let text = layout.text.origin;
+    let background = |offset: usize| {
+        buffer
+            .row(1)
+            .and_then(|row| row.get(text + offset))
+            .map(|cell| cell.style().background)
+    };
+    assert_ne!(background(0), background(4), "the first match is marked");
+    assert_ne!(background(8), background(4), "and so is the second");
+}
+
+#[test]
+fn a_search_match_keeps_the_syntax_colour_of_the_code_it_found() {
+    // Only the background is a match's to change. Painting the foreground too
+    // would hide the very code the search was run to read, and would do it
+    // silently — the match is still marked and the count is still right.
+    let mut editor = Editor::with_defaults();
+    editor.set_language(Language::Rust);
+    editor.set_content("\nlet alpha = 1;");
+
+    let mut buffer = CellBuffer::new(40, 6);
+    let mut frame = Frame::new();
+    let layout = frame.render(&editor, Chrome::default(), &mut buffer);
+    let text = layout.text.origin;
+    // Sampled one cell in: `find` parks the caret on the match's first cell,
+    // and a caret paints its own colours over whatever it sits on.
+    let keyword = buffer
+        .row(1)
+        .and_then(|row| row.get(text + 1))
+        .map(|cell| cell.style().foreground);
+    assert!(
+        keyword.is_some_and(|colour| colour != Color::Default),
+        "`let` must paint as a keyword for this test to mean anything"
+    );
+
+    editor
+        .find("let", &iridium_editor::search::SearchOptions::default())
+        .expect("a literal query cannot fail");
+    frame.render(&editor, Chrome::default(), &mut buffer);
+    let matched = buffer
+        .row(1)
+        .and_then(|row| row.get(text + 1))
+        .map(Cell::style);
+
+    assert_eq!(
+        matched.map(|style| style.foreground),
+        keyword,
+        "the keyword must keep its colour under the match background"
+    );
+    assert!(
+        matched.is_some_and(|style| style.background != Color::Default),
+        "and it must still be visibly marked"
     );
 }
 
@@ -126,7 +198,7 @@ fn a_nested_span_wins_over_the_span_containing_it() {
 
     let mut buffer = CellBuffer::new(60, 4);
     let mut frame = Frame::new();
-    let layout = frame.render(&editor, Status::default(), &mut buffer);
+    let layout = frame.render(&editor, Chrome::default(), &mut buffer);
     let Some(row) = buffer.row(1) else {
         panic!("the second row must be painted");
     };

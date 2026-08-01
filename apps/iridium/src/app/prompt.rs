@@ -41,7 +41,7 @@ use std::path::PathBuf;
 
 use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use iridium_tui::cell::{CellBuffer, Style, WriteOutcome};
-use iridium_tui::frame::{LineLayout, Palette};
+use iridium_tui::frame::{LineLayout, Palette, PlacedCluster};
 
 /// What answering "yes" to a confirmation asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,7 +300,7 @@ impl Message {
     /// The overlay's error style is not used whole because its background
     /// belongs to the search panel, and half a panel's colours on the
     /// statusline row reads as a rendering fault rather than as a message.
-    fn style(&self, palette: &Palette) -> Style {
+    const fn style(&self, palette: &Palette) -> Style {
         if self.is_error {
             palette
                 .status()
@@ -416,7 +416,7 @@ impl Entry {
             .clusters()
             .iter()
             .find(|cluster| cluster.byte_index() == self.caret)
-            .map_or(layout.width(), |cluster| cluster.column())
+            .map_or_else(|| layout.width(), PlacedCluster::column)
     }
 
     /// The cluster layout of the field's text.
@@ -621,10 +621,7 @@ mod tests {
                 "{key:?} must be swallowed"
             );
         }
-        assert_eq!(
-            prompt.answer(&press(KeyCode::Char('n'))),
-            Answer::Cancelled
-        );
+        assert_eq!(prompt.answer(&press(KeyCode::Char('n'))), Answer::Cancelled);
         assert_eq!(
             prompt.answer(&press(KeyCode::Char('Y'))),
             Answer::Do(Deed::Quit)

@@ -82,7 +82,7 @@ pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
 /// fails is exactly the partial write this module exists to survive, and no
 /// amount of testing the successful path would catch an implementation that
 /// wrote straight to the target.
-pub(super) fn write_atomically_with<F>(path: &Path, fill: F) -> io::Result<()>
+pub(super) fn write_atomically_with<F>(path: &Path, write_contents: F) -> io::Result<()>
 where
     F: FnOnce(&mut File) -> io::Result<()>,
 {
@@ -92,7 +92,7 @@ where
 
     let (mut file, temporary) = create_temporary(&directory, &target)?;
 
-    fill(&mut file)?;
+    write_contents(&mut file)?;
 
     // Permissions before the rename, so the file is never visible under its
     // real name with the wrong ones. A document that is `0600` because it holds
@@ -171,9 +171,10 @@ fn create_temporary(directory: &Path, target: &Path) -> io::Result<(File, Guard)
 /// exists, and it carries the target's file name so that a temporary file left
 /// behind by a killed process says which file it was for.
 fn temporary_name(target: &Path, attempt: u32) -> String {
-    let stem = target
-        .file_name()
-        .map_or_else(|| "unnamed".to_owned(), |name| name.to_string_lossy().into_owned());
+    let stem = target.file_name().map_or_else(
+        || "unnamed".to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    );
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.subsec_nanos());

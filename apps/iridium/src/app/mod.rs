@@ -121,19 +121,21 @@ impl App {
         let mut editor = Editor::with_defaults();
 
         for meta in commands::command_metas() {
-            editor.register_command(meta).map_err(StartupError::Command)?;
+            editor
+                .register_command(meta)
+                .map_err(StartupError::Command)?;
         }
         editor
             .push_keymap(commands::keymap())
             .map_err(StartupError::Keymap)?;
 
-        if let Some(choice) = options.theme.as_ref() {
-            editor.set_theme(theme::load(choice).map_err(StartupError::Theme)?);
+        if let Some(choice) = options.theme {
+            editor.set_theme(theme::load(&choice).map_err(StartupError::Theme)?);
         }
 
-        let file = match options.path.as_ref() {
+        let file = match options.path {
             Some(path) => {
-                let (file, text) = TextFile::open(path).map_err(StartupError::File)?;
+                let (file, text) = TextFile::open(&path).map_err(StartupError::File)?;
                 editor.set_content(&text);
                 Some(file)
             },
@@ -296,7 +298,7 @@ impl App {
                 Flow::Running
             },
             EditorKeyResult::Search(action) => {
-                self.search_action(action);
+                self.search_action(&action);
                 Flow::Running
             },
             // The count and captures a key sequence carried are not read: a
@@ -371,8 +373,8 @@ impl App {
     ///
     /// Only the two panel actions need anything here: the kernel has already
     /// moved to the next or previous match by the time it reports one.
-    fn search_action(&mut self, action: SearchAction) {
-        match action {
+    fn search_action(&mut self, action: &SearchAction) {
+        match *action {
             SearchAction::OpenSearch => {
                 self.search_open = true;
                 self.search.open(&mut self.editor);

@@ -70,6 +70,27 @@ without an `#[allow]`**, since the sibling line already guards with `.max(0.0)`
 and still warns. Left honest rather than silenced — that is the policy working,
 not the policy failing.
 
+### 🚀 A RELEASE BINARY IS INSTALLED ON TOM'S PATH — `~/.local/bin/iridium`
+
+Built from `7f1a5bc`, release profile, 14,088,720 bytes, Mach-O arm64. Tom asked
+to drive it himself rather than wait for step 7's benchmark, which means **step 7
+is now partly happening by hand and his feedback outranks the numbers.**
+
+**Do not replace that binary while he is in it.** `pgrep -x iridium` first —
+overwriting a running Mach-O can take the process down. Rebuild with
+`cargo build --release -p iridium` and `cp` over it only when it is not running.
+Verify the copy still runs (`iridium --version`): copying a signed Mach-O can
+invalidate the signature and get it SIGKILLed, which happened to a different
+binary earlier in this session.
+
+Playground left for him at `/tmp/iridium-playground.json`, untouched copy at
+`/tmp/iridium-playground.backup.json`.
+
+Known and told to him up front: nobody had ever run it, the mouse is dropped
+deliberately, the clipboard is process-local (OSC 52 unwritten), and the
+`atomic.rs` fsync-after-rename wart can report a bogus conflict on the *next*
+save after a successful one.
+
 ### ⚠️ STILL NOT DONE — named rather than deferred silently
 
 1. **Step 7, the feel gate**, is untouched: keystroke-to-paint < 5ms measured,

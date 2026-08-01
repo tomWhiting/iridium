@@ -219,8 +219,23 @@ Tested, because a neighbouring seat was about to bank the opposite:
     cargo clean -> "Removed 2 files, 95.4MiB total"
     100000000/1048576 = 95.4   (binary)      100000000/1000000 = 100.0 (decimal)
 
-So a `cargo clean` figure and a `du -sk` figure are the same noun and any gap
-between them is real, not a unit artifact. **The first version of this probe was
+So a `cargo clean` figure and a `du -sk` figure are the same noun *in units* —
+**but not in counting.** The gap between them was later closed by three
+experiments:
+
+    sparse 100 MB file, 0 blocks allocated -> cargo prints 95.4MiB
+      (cargo reads st_size, the APPARENT size)
+    10 MB file + one hardlink in a scratch target -> "Removed 3 files, 19.1MiB"
+      (cargo counts PER PATH: the inode is counted once per name)
+    this tree, live: path-sum 41.1 GB vs du 26.3 GB (ratio 1.566),
+      deduped by inode 26.08 GB vs 26.25 GB (ratio 0.9935)
+      -- 24,960 inodes here carry multiple paths
+
+**`cargo clean` sums `st_size` once per removed path; `du` counts each inode's
+blocks once.** On a hardlink-dense tree the cargo figure exceeds `du` by exactly
+the multiply-linked bytes — 57% here, ~7% on a fresh worktree build elsewhere on
+this box, 0% on a tree with no hardlinks. Neither gauge lies; they count
+different nouns, and the difference is the hardlink density. **The first version of this probe was
 inconclusive and nearly reported as a result**: at 1,070,961 bytes binary gives
 1.021 and decimal 1.071, and cargo prints one decimal place, so both can render
 `1.0`. It was a discriminating experiment with less resolution than the thing it

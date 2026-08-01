@@ -67,7 +67,13 @@ mod tests {
 
     #[test]
     fn a_cell_count_beyond_the_maximum_is_clamped() {
-        assert_eq!(cell_units(MAX_DIMENSION + 1), cell_units(MAX_DIMENSION));
+        // Compared by bit pattern rather than by `==`: the assertion is that
+        // clamping produces the *same* value, and bitwise identity states that
+        // exactly, without asking whether two floats are near enough.
+        assert_eq!(
+            cell_units(MAX_DIMENSION + 1).to_bits(),
+            cell_units(MAX_DIMENSION).to_bits()
+        );
         assert_eq!(whole_cells(1e9), MAX_DIMENSION);
     }
 

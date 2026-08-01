@@ -192,9 +192,12 @@ mod tests {
         let one = painted(&editor, Status::default(), 40);
         assert!(!one.contains("cursors"), "{one:?}");
 
-        editor.state_mut().cursor.add_cursor(
-            iridium_editor::Selection::collapsed(iridium_editor::Position::new(1, 0)),
-        );
+        editor
+            .state_mut()
+            .cursor
+            .add_cursor(iridium_editor::Selection::collapsed(
+                iridium_editor::Position::new(1, 0),
+            ));
         let two = painted(&editor, Status::default(), 40);
         assert!(two.contains("2 cursors"), "{two:?}");
     }

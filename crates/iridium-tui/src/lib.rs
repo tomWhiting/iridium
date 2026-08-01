@@ -27,3 +27,4 @@
 pub mod cell;
 /// Terminal input, converted to the kernel's platform-neutral key presses.
 pub mod input;
+pub mod frame;

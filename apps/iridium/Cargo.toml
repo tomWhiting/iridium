@@ -1,0 +1,30 @@
+[package]
+name = "iridium"
+description = "The Iridium terminal editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# The logic lives in the library so that it is testable on the host with no
+# terminal; the binary is a shell over it. See `src/lib.rs`.
+[lib]
+name = "iridium"
+path = "src/lib.rs"
+
+[[bin]]
+name = "iridium"
+path = "src/main.rs"
+
+[dependencies]
+# The kernel. No GPU: the terminal face uses the pure layout half of `render`.
+iridium-editor = { workspace = true, features = ["syntax"] }
+
+# The face. The only crate here that knows what a terminal is. Cell width comes
+# from it too — `frame::LineLayout` — so this crate never counts characters.
+iridium-tui.workspace = true

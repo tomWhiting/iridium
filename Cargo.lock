@@ -782,6 +782,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iridium"
+version = "0.1.0"
+dependencies = [
+ "iridium-editor",
+ "iridium-tui",
+]
+
+[[package]]
 name = "iridium-bindings"
 version = "0.1.0"
 dependencies = [

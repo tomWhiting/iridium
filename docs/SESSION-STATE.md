@@ -348,6 +348,33 @@ re-opened dispatch and was wrong.
   Consequence worth noting: this makes a **self-stop obligation a mechanism
   rather than a promise.** A sequencer seat cannot enforce a stop in another
   seat's lane; a 5-second poller in that lane can.
+- **An interlock must have NO exit path at all — not even one that reports.**
+  The first version of the guard above `break`ed on its size backstop *and* on
+  its hard stop: it would announce the breach and then stop running, in exactly
+  the branch that exists to cover a build the process check missed, and it would
+  retire itself at the moment the lane had just proven it was over its bound.
+  From outside, "armed and quiet" and "fired and gone" are indistinguishable —
+  the §2 shape one level up. **Every terminating condition it had was a
+  condition on which *more* enforcement was owed, not less.** If a guard can
+  decide it is finished, "finished" is a state an accident can put it into. The
+  only correct end for a control is being deliberately retired by its owner.
+  - Corollaries now in the working guard: the size backstop **kills** rather
+    than only announcing; a hard stop **reverts to no-build enforcement** rather
+    than exiting; every message carries `STILL ARMED`, so the armed/fired
+    distinction lives in the report rather than in whoever thinks to check the
+    process table.
+  - ⚠️ **How this was introduced is the point.** `break` was a vestige of the
+    earlier *notify-only* guard, where firing once and exiting was correct. The
+    kill verb was added and the exit never revisited — **a threshold outliving
+    its premise, recurring inside the fix for a threshold outliving its
+    premise**, twenty minutes after the rule was written down. Writing a law
+    down does not make you notice its next instance, and the instance will be in
+    code you are pleased with.
+- **Per-lane instruments beat box-level ones for the thing they get used for
+  most: proving innocence.** With `df` falling 1.313 GiB, a cwd-scoped `du` on
+  this tree read flat to the KiB — so this lane could say *not me* with
+  evidence, rather than argue from a box-level delta that cannot distinguish
+  lanes. Most seats' effort on a shared box goes into exactly that.
 - **Scope a control by blast radius, never by actor — the actor list is the
   thing you can be wrong about.** Proven the same hour by a hazard nobody
   dispatched: rust-analyzer's flycheck runs `cargo check` into *this* `target`,

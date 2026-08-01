@@ -9,6 +9,7 @@ use glyphon::{
 };
 use wgpu::{Device, MultisampleState, Queue, TextureFormat};
 
+use super::units::index_to_f32;
 use crate::editor::IridiumError;
 use crate::theme::Color;
 
@@ -213,14 +214,9 @@ impl TextRenderer {
         for run in buffer.layout_runs() {
             // For monospace, each glyph should have the same advance
             // Measure "MM" and divide by 2 for more accuracy
-            let mut total_width = 0.0;
-            let mut glyph_count = 0;
-            for glyph in run.glyphs {
-                total_width += glyph.w;
-                glyph_count += 1;
-            }
-            if glyph_count > 0 {
-                return total_width / glyph_count as f32;
+            let total_width: f32 = run.glyphs.iter().map(|glyph| glyph.w).sum();
+            if !run.glyphs.is_empty() {
+                return total_width / index_to_f32(run.glyphs.len());
             }
         }
 
@@ -356,26 +352,26 @@ impl TextRenderer {
 
                 if column <= run_end_col || run.glyphs.is_empty() {
                     // Cursor is on this visual line
-                    cursor_y = visual_line as f32 * line_height;
+                    cursor_y = index_to_f32(visual_line) * line_height;
 
                     // Calculate X position within this run
                     let col_in_run = column.saturating_sub(run_start_col);
-                    cursor_x = col_in_run as f32 * char_width;
+                    cursor_x = index_to_f32(col_in_run) * char_width;
                     found = true;
                 }
                 visual_line += 1;
             } else if run_line > line && !found {
                 // We've passed the target line (empty line before this run)
-                cursor_y = visual_line as f32 * line_height;
-                cursor_x = column as f32 * char_width;
+                cursor_y = index_to_f32(visual_line) * line_height;
+                cursor_x = index_to_f32(column) * char_width;
                 found = true;
             }
         }
 
         // Handle case where cursor is past all content (empty trailing line)
         if !found {
-            cursor_y = visual_line as f32 * line_height;
-            cursor_x = column as f32 * char_width;
+            cursor_y = index_to_f32(visual_line) * line_height;
+            cursor_x = index_to_f32(column) * char_width;
         }
 
         (cursor_x, cursor_y)

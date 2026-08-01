@@ -1,0 +1,26 @@
+[package]
+name = "iridium-tui"
+description = "Terminal face for the Iridium editor kernel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The kernel. No GPU: the terminal face uses the pure layout half of `render`.
+iridium-editor = { path = "../iridium-editor", default-features = false, features = ["syntax"] }
+
+# Terminal driver, input parsing, and the bridge between them.
+# See docs/TERMINAL-STACK.md for the verified API surface of all three.
+termina.workspace = true
+terminput.workspace = true
+terminput-termina.workspace = true
+
+# Cell width. A cell is not a character; see docs/TERMINAL-FACE-PLAN.md.
+unicode-width.workspace = true
+unicode-segmentation.workspace = true

@@ -4,6 +4,7 @@ members = [
     "crates/iridium-editor",
     "crates/iridium-syntax",
     "crates/iridium-bindings",
+    "crates/iridium-tui",
 ]
 
 [workspace.package]
@@ -15,6 +16,13 @@ repository = "https://github.com/tomWhiting/iridium"
 authors = ["Iridium Contributors"]
 
 [workspace.dependencies]
+# Terminal face. Versions verified by compiling spikes; see docs/TERMINAL-STACK.md.
+termina = { version = "0.3.3", features = ["event-stream"] }
+terminput = "0.5.15"
+terminput-termina = "0.3.1"
+unicode-width = "0.2.2"
+unicode-segmentation = "1.12"
+
 # GPU rendering
 wgpu = "28.0.0"
 glyphon = "0.10.0"

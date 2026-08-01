@@ -948,6 +948,61 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
+## Clippy backlog CLEARED (1 Aug) — 59 locations to 2, no suppressions
+
+Three delegated batches, each verified by me before merging rather than taken
+on report.
+
+- `iridium-bindings`: 76 diagnostics to 0 (`c6d194c`, merged `b0c4ce8`).
+- `iridium-editor`: 61 grep lines to 4 (`03cec8e`, merged `f1e84d7`).
+- Two oversized table modules split (`1150812`).
+
+**Workspace clippy is now 2 unique locations**, both in
+`MouseHandler::pixel_to_position` (`input/mouse.rs:549` and `:559`). They are
+float-to-integer casts that *rely* on the saturating semantics of `as`
+(NaN → 0, negative → 0, overflow → `usize::MAX`). std has no checked
+float-to-int conversion and clippy does no range analysis on floats, so there
+is nothing to fix — only something to silence. **They stay warning.** Note that
+the sibling `hit_test_fold_indicator` (`:350`) carries a pre-existing `#[allow]`
+for the identical conversion; the fix was deliberately *not* funnelled under it,
+since hiding a cast beneath an existing suppression is the same dishonesty
+relocated.
+
+### How to measure the clippy count — the old number was wrong
+
+**Do not quote a bare `cargo clippy | grep -c` total.** It is
+build-cache-dependent: the same tree reported 138 cold and 62 warm. The baton
+carried "138" for days and it was never a real figure.
+
+The honest measure is the **set of warning locations**: touch every workspace
+source, run clippy, extract each `-->` location, sort and compare. That was 59
+unique locations before this work and is 2 now.
+
+### `render/units.rs` — the one change worth knowing about
+
+Sixteen `x as f32` sites in the renderer were replaced by `u32_to_f32`, which
+splits the integer into two 16-bit halves (each exact in `f32`) and recombines
+with `mul_add` so it rounds once. The claim that this is **bit-identical to
+`value as f32`** was not sampled — I checked **all 2^32 values exhaustively**
+in release mode: zero mismatches, 5.2s. `index_to_f32(usize)` clamps to
+`u32::MAX` first, so it saturates where the raw cast would not; that needs a
+document of over four billion lines to reach.
+
+Test counts moved 930/810/914 → **935/815/919**, the +5 being `units.rs`'s own
+tests. Workspace total 1157.
+
+### Two real-bug observations, neither acted on
+
+- `editor/mod.rs` maps `IridiumError::InvalidPosition`, `InvalidRange` **and**
+  `NotSupported` all to `ErrorCode::ParseError`. That is what tripped
+  `match_same_arms`, and merging the arms is a correct lint fix, but the
+  *mapping* looks wrong — a position error is not a parse error, and callers
+  branching on `ErrorCode` cannot tell the three apart. `ErrorCode` has no
+  suitable variant, so fixing it means widening a public enum.
+- `render/text.rs` `measure_char_width` measures `"MM"` and averages over
+  whatever glyphs the run produced; if a font ligates or the run splits, it
+  silently falls back to `font_size * 0.6`. Pre-existing.
+
 ## D1 ANSWERED (31 Jul) — the terminal face is unblocked
 
 Tom's call: *"I would love a near-vim style mode or something like that... it'd

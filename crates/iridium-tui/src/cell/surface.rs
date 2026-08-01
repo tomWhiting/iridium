@@ -130,7 +130,6 @@ impl Surface {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::super::style::Style;
     use super::*;

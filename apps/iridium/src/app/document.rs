@@ -109,15 +109,13 @@ impl App {
         }
 
         let text = self.editor.content();
-        let outcome = match self.file.as_mut() {
-            Some(file) => file.save(&text, force).map(|()| file.display_name()),
-            // Unreachable: the check above returned. Reported rather than
-            // ignored so that a later edit cannot make it silent.
-            None => {
-                self.message = Some(Message::error("there is no file to write"));
-                return Flow::Running;
-            },
+        // Unreachable: the check above returned. Reported rather than ignored
+        // so that a later edit cannot make it silent.
+        let Some(file) = self.file.as_mut() else {
+            self.message = Some(Message::error("there is no file to write"));
+            return Flow::Running;
         };
+        let outcome = file.save(&text, force).map(|()| file.display_name());
         self.message = Some(match outcome {
             Ok(name) => Message::notice(format!("wrote {name}")),
             Err(error) => Message::error(error.to_string()),
@@ -168,13 +166,11 @@ impl App {
 
     /// Re-reads the file, discarding unsaved changes.
     pub(super) fn reload(&mut self) -> Flow {
-        let outcome = match self.file.as_mut() {
-            Some(file) => file.reload().map(|text| (text, file.display_name())),
-            None => {
-                self.message = Some(Message::error("there is no file to re-read"));
-                return Flow::Running;
-            },
+        let Some(file) = self.file.as_mut() else {
+            self.message = Some(Message::error("there is no file to re-read"));
+            return Flow::Running;
         };
+        let outcome = file.reload().map(|text| (text, file.display_name()));
         match outcome {
             Ok((text, name)) => {
                 self.editor.set_content(&text);

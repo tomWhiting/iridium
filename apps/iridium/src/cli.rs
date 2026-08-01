@@ -172,6 +172,13 @@ where
                 None if is_line_shorthand(text) => {
                     options.line = Some(parse_line(OsStr::new(&text[1..]))?);
                 },
+                // A lone `+` is the line shorthand with its number missing, not
+                // a file name. `-` earns its path treatment from the convention
+                // that names standard input; `+` has no such convention, and
+                // `iridium +` is far more likely a mistyped `+12` than a file
+                // literally called `+`. That file is still reachable, as
+                // `iridium -- +`, which is what `--` is for.
+                None if text == "+" => return Err(CliError::UnknownFlag(text.to_owned())),
                 None if is_flag(text) => return Err(CliError::UnknownFlag(text.to_owned())),
                 None => set_path(&mut options, argument)?,
             },
@@ -347,7 +354,10 @@ mod tests {
 
     #[test]
     fn an_unknown_flag_is_refused() {
-        assert_eq!(error(&["--colour"]), CliError::UnknownFlag("--colour".into()));
+        assert_eq!(
+            error(&["--colour"]),
+            CliError::UnknownFlag("--colour".into())
+        );
         assert_eq!(error(&["-x"]), CliError::UnknownFlag("-x".into()));
         assert_eq!(
             error(&["--theme=x", "--nope=1"]),
@@ -408,10 +418,21 @@ mod tests {
         // The help is the only description of this grammar a user ever sees, so
         // a new option that is not in it is invisible.
         for flag in [
-            "-l", "--line", "+N", "--theme", "--read-only", "-h", "--help", "-V", "--version",
+            "-l",
+            "--line",
+            "+N",
+            "--theme",
+            "--read-only",
+            "-h",
+            "--help",
+            "-V",
+            "--version",
             "--",
         ] {
-            assert!(USAGE.contains(flag), "the usage text does not mention {flag}");
+            assert!(
+                USAGE.contains(flag),
+                "the usage text does not mention {flag}"
+            );
         }
     }
 

@@ -20,29 +20,38 @@ use super::{DiskState, FileError, TextFile, decode, encode, write_atomically};
 /// Distinguishes directories made by different tests in one run.
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+/// Whether a file name is one [`write_atomically`] would have left behind.
+///
+/// Asked through [`Path::extension`] rather than `ends_with(".tmp")` so that a
+/// name which is *only* `.tmp` — a dotfile with no extension at all — does not
+/// count, and so that the comparison does not quietly depend on case.
+fn has_temporary_extension(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("tmp"))
+}
+
 /// A directory that removes itself.
 ///
 /// Written here rather than taken from `tempfile` because this workspace does
 /// not carry that dependency and the whole of it is nine lines.
-pub(crate) struct TempDir {
+pub struct TempDir {
     /// Where it is.
     path: PathBuf,
 }
 
 impl TempDir {
     /// Creates an empty directory named after the test using it.
-    pub(crate) fn new(label: &str) -> Self {
+    pub fn new(label: &str) -> Self {
         let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "iridium-{}-{label}-{sequence}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("iridium-{}-{label}-{sequence}", std::process::id()));
         fs::create_dir_all(&path).expect("the test directory could be created");
         Self { path }
     }
 
     /// Where it is.
-    pub(crate) fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 }
@@ -77,7 +86,7 @@ fn text_survives_a_round_trip_byte_for_byte() {
     // A file that came back with different line endings would be one this
     // editor had silently rewritten every line of.
     for original in [
-        "".as_bytes(),
+        b"".as_slice(),
         b"one line, no newline",
         b"unix\nlines\n",
         b"windows\r\nlines\r\n",
@@ -128,7 +137,10 @@ fn opening_a_missing_file_is_a_new_file() {
     assert!(file.is_new());
     assert_eq!(text, "");
     assert_eq!(file.saved_text(), None);
-    assert!(entries(directory.path()).is_empty(), "opening created a file");
+    assert!(
+        entries(directory.path()).is_empty(),
+        "opening created a file"
+    );
 }
 
 #[test]
@@ -148,10 +160,7 @@ fn opening_reads_the_text_and_records_the_baseline() {
 fn opening_a_directory_is_an_error() {
     let directory = TempDir::new("open-directory");
     let error = TextFile::open(directory.path()).expect_err("a directory is not a file");
-    assert!(
-        matches!(error, FileError::Unreadable { .. }),
-        "{error:?}"
-    );
+    assert!(matches!(error, FileError::Unreadable { .. }), "{error:?}");
 }
 
 #[test]
@@ -206,7 +215,9 @@ fn a_change_of_the_same_length_is_still_a_change() {
     fs::write(&path, "aaab").unwrap();
     assert_eq!(file.disk_state().unwrap(), DiskState::Differs);
 
-    let error = file.save("mine", false).expect_err("the save must be refused");
+    let error = file
+        .save("mine", false)
+        .expect_err("the save must be refused");
     assert!(
         matches!(
             error,
@@ -233,7 +244,9 @@ fn a_deleted_file_is_reported_rather_than_recreated() {
 
     fs::remove_file(&path).unwrap();
     assert_eq!(file.disk_state().unwrap(), DiskState::Vanished);
-    let error = file.save("mine", false).expect_err("the save must be refused");
+    let error = file
+        .save("mine", false)
+        .expect_err("the save must be refused");
     assert!(error.to_string().contains("deleted on disk"), "{error}");
 }
 
@@ -249,8 +262,13 @@ fn a_file_that_appeared_under_a_new_buffer_is_not_overwritten() {
     fs::write(&path, "someone else's work").unwrap();
     assert_eq!(file.disk_state().unwrap(), DiskState::Appeared);
 
-    let error = file.save("mine", false).expect_err("the save must be refused");
-    assert!(error.to_string().contains("created by something else"), "{error}");
+    let error = file
+        .save("mine", false)
+        .expect_err("the save must be refused");
+    assert!(
+        error.to_string().contains("created by something else"),
+        "{error}"
+    );
     assert_eq!(fs::read_to_string(&path).unwrap(), "someone else's work");
 }
 
@@ -398,7 +416,7 @@ fn the_target_is_untouched_while_the_write_is_in_progress() {
     assert!(
         during
             .iter()
-            .any(|name| name.contains("iridium") && name.ends_with(".tmp")),
+            .any(|name| name.contains("iridium") && has_temporary_extension(name)),
         "no temporary file was created beside the target: {during:?}"
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), "replacement");
@@ -501,7 +519,10 @@ fn a_symlink_is_followed_rather_than_replaced() {
     write_atomically(&link, b"through the link").unwrap();
 
     assert!(
-        fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
         "the symlink was replaced by a regular file"
     );
     assert_eq!(fs::read_to_string(&real).unwrap(), "through the link");
@@ -541,8 +562,10 @@ fn concurrent_writes_to_one_directory_do_not_collide() {
     assert_eq!(fs::read_to_string(&first).unwrap(), "first");
     assert_eq!(fs::read_to_string(&second).unwrap(), "second");
     let seen = names.into_inner();
-    let temporaries: std::collections::BTreeSet<&String> =
-        seen.iter().filter(|name| name.ends_with(".tmp")).collect();
+    let temporaries: std::collections::BTreeSet<&String> = seen
+        .iter()
+        .filter(|name| has_temporary_extension(name))
+        .collect();
     assert_eq!(
         temporaries.len(),
         2,

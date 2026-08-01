@@ -178,7 +178,10 @@ fn saving_writes_the_file_and_leaves_the_buffer_clean() {
     type_text(&mut app, "!");
 
     assert_eq!(app.handle_input(&ctrl('s')), Flow::Running);
-    assert_eq!(fs::read_to_string(&path).expect("the file is there"), "!hello");
+    assert_eq!(
+        fs::read_to_string(&path).expect("the file is there"),
+        "!hello"
+    );
     assert!(!app.is_dirty());
     assert!(app.message().is_some_and(|message| !message.is_error()));
 }
@@ -202,7 +205,10 @@ fn a_file_that_changed_on_disk_is_refused_until_the_save_is_forced() {
     );
 
     assert_eq!(app.handle_input(&ctrl_alt('s')), Flow::Running);
-    assert_eq!(fs::read_to_string(&path).expect("the file is there"), "!hello");
+    assert_eq!(
+        fs::read_to_string(&path).expect("the file is there"),
+        "!hello"
+    );
 }
 
 #[test]
@@ -217,7 +223,10 @@ fn saving_an_unnamed_buffer_asks_for_a_name_rather_than_failing() {
     assert_eq!(app.handle_input(&ctrl('s')), Flow::Running);
     assert!(matches!(app.prompt(), Some(Prompt::SaveAs(_))));
 
-    let typed = path.to_str().expect("the temporary path is UTF-8").to_owned();
+    let typed = path
+        .to_str()
+        .expect("the temporary path is UTF-8")
+        .to_owned();
     assert_eq!(
         app.handle_input(&TerminalInput::Paste(typed)),
         Flow::Running
@@ -278,7 +287,10 @@ fn a_prompt_swallows_the_keys_the_editor_would_otherwise_bind() {
 
     assert!(app.prompt().is_some(), "the question is still being asked");
     assert_eq!(app.editor().content(), "xhello");
-    assert_eq!(fs::read_to_string(&path).expect("the file is there"), "hello");
+    assert_eq!(
+        fs::read_to_string(&path).expect("the file is there"),
+        "hello"
+    );
 }
 
 #[test]
@@ -293,7 +305,11 @@ fn go_to_line_moves_the_caret() {
     assert_eq!(app.handle_input(&press(KeyCode::Enter)), Flow::Running);
 
     assert!(app.prompt().is_none());
-    assert_eq!(app.editor().cursor().line, 2, "line three, counting from one");
+    assert_eq!(
+        app.editor().cursor().line,
+        2,
+        "line three, counting from one"
+    );
 }
 
 #[test]
@@ -337,14 +353,21 @@ fn a_read_only_document_refuses_both_the_edit_and_the_save() {
     .expect("the session opened");
 
     type_text(&mut app, "x");
-    assert_eq!(app.editor().content(), "hello", "the kernel refused the edit");
+    assert_eq!(
+        app.editor().content(),
+        "hello",
+        "the kernel refused the edit"
+    );
 
     assert_eq!(app.handle_input(&ctrl('s')), Flow::Running);
     assert!(
         app.message().is_some_and(super::prompt::Message::is_error),
         "a save that could only write a stale buffer is refused"
     );
-    assert_eq!(fs::read_to_string(&path).expect("the file is there"), "hello");
+    assert_eq!(
+        fs::read_to_string(&path).expect("the file is there"),
+        "hello"
+    );
 }
 
 #[test]
@@ -553,7 +576,10 @@ fn a_save_chord_still_works_while_the_search_panel_is_open() {
 
     assert_eq!(app.handle_input(&ctrl('f')), Flow::Running);
     assert_eq!(app.handle_input(&ctrl('s')), Flow::Running);
-    assert_eq!(fs::read_to_string(&path).expect("the file is there"), "xalpha\n");
+    assert_eq!(
+        fs::read_to_string(&path).expect("the file is there"),
+        "xalpha\n"
+    );
 }
 
 #[test]

@@ -112,7 +112,14 @@ impl Viewport {
         if position.line < self.first_line {
             self.scroll_to_line(position.line);
         } else if position.line >= self.first_line + self.visible_lines {
-            self.scroll_to_line(position.line.saturating_sub(self.visible_lines - 1));
+            // `visible_lines` may be zero: chrome can consume every row a
+            // terminal has, and a viewport that has not been sized yet starts
+            // there. The outer `saturating_sub` never protected this inner one.
+            self.scroll_to_line(
+                position
+                    .line
+                    .saturating_sub(self.visible_lines.saturating_sub(1)),
+            );
         }
     }
 
@@ -191,7 +198,10 @@ impl Viewport {
                 self.first_line = visual_line;
                 self.scroll_offset_y = 0.0;
             } else if visual_line >= self.first_line + self.visible_lines {
-                self.first_line = visual_line.saturating_sub(self.visible_lines - 1);
+                // See `scroll_to_position`: `visible_lines - 1` underflows on a
+                // viewport with no room for text, which is a state every other
+                // method here already answers rather than panics on.
+                self.first_line = visual_line.saturating_sub(self.visible_lines.saturating_sub(1));
                 self.scroll_offset_y = 0.0;
             }
         }
@@ -718,5 +728,56 @@ line 5";
         // So range should be roughly [0, 20] (5-5=0 to 5+10+5=20)
         assert!(first < 5);
         assert!(last > 15);
+    }
+
+    /// A viewport with no room for text is a state every other method here
+    /// already handles: `is_line_visible` answers "no", `visible_document_lines`
+    /// yields nothing, `screen_y_for_line` returns `None`. It is reachable
+    /// whenever chrome consumes every row — a terminal face with a status line
+    /// and a search panel open on a short window — and the terminal face
+    /// reaches it on its very first frame, before any resize has arrived.
+    ///
+    /// Both scroll methods guarded the *outer* subtraction with
+    /// `saturating_sub` and left `visible_lines - 1` raw inside it, so both
+    /// panicked here rather than declining to scroll.
+    #[test]
+    fn scrolling_a_viewport_with_no_visible_lines_does_not_underflow() {
+        let fold_state = FoldState::default();
+        let mut viewport = Viewport {
+            first_line: 0,
+            visible_lines: 0,
+            ..Viewport::default()
+        };
+
+        viewport.scroll_to_position(Position::new(0, 0));
+        assert_eq!(
+            viewport.first_line, 0,
+            "nothing is visible, so nothing is scrolled past"
+        );
+
+        viewport.scroll_to_position_with_folds(Position::new(7, 0), &fold_state);
+        assert_eq!(
+            viewport.first_line, 7,
+            "the target lands at the top, which is where it will be when the \
+             viewport next has a row to show it in"
+        );
+    }
+
+    /// The one-row case is the boundary the fix has to keep: `visible_lines`
+    /// of 1 must still put the target line at the top, not one line above it.
+    #[test]
+    fn scrolling_a_one_row_viewport_puts_the_target_on_that_row() {
+        let fold_state = FoldState::default();
+        let mut viewport = Viewport {
+            first_line: 0,
+            visible_lines: 1,
+            ..Viewport::default()
+        };
+
+        viewport.scroll_to_position_with_folds(Position::new(4, 0), &fold_state);
+        assert_eq!(viewport.first_line, 4);
+
+        viewport.scroll_to_position(Position::new(9, 0));
+        assert_eq!(viewport.first_line, 9);
     }
 }

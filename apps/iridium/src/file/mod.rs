@@ -232,9 +232,10 @@ impl TextFile {
     /// The file's name alone, for the statusline.
     #[must_use]
     pub fn display_name(&self) -> String {
-        self.path
-            .file_name()
-            .map_or_else(|| name(&self.path), |name| name.to_string_lossy().into_owned())
+        self.path.file_name().map_or_else(
+            || name(&self.path),
+            |name| name.to_string_lossy().into_owned(),
+        )
     }
 
     /// Whether the file has never been written.

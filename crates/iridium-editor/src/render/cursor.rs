@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use web_time::Instant;
 
+use super::units::index_to_f32;
 use crate::document::Position;
 use crate::theme::Color;
 
@@ -49,7 +50,7 @@ impl Default for CursorConfig {
         Self {
             style: CursorStyle::Line,
             line_width: 2.0,
-            blink_interval: Duration::from_millis(1000),
+            blink_interval: Duration::from_secs(1),
             blink_enabled: true,
         }
     }
@@ -261,8 +262,8 @@ impl CursorRenderer {
             .filter(|pos| pos.line >= first_visible_line && pos.line < last_visible_line)
             .map(|pos| {
                 let screen_line = pos.line - first_visible_line;
-                let x = (pos.column as f32).mul_add(char_width, -scroll_x);
-                let y = screen_line as f32 * line_height;
+                let x = index_to_f32(pos.column).mul_add(char_width, -scroll_x);
+                let y = index_to_f32(screen_line) * line_height;
 
                 let (width, height) = match self.config.style {
                     CursorStyle::Line => (self.config.line_width, line_height),
@@ -409,7 +410,7 @@ mod tests {
     #[test]
     fn cursor_filters_invisible_lines() {
         let renderer = CursorRenderer::default();
-        let positions = vec![
+        let positions = [
             Position::new(0, 0),   // Before viewport
             Position::new(10, 0),  // In viewport
             Position::new(100, 0), // After viewport

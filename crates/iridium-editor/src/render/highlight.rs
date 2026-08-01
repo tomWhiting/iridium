@@ -8,6 +8,7 @@
 //!
 //! These are rendered as colored rectangles and text indicators.
 
+use super::units::index_to_f32;
 use crate::document::{Range, Selection};
 use crate::editor::FoldState;
 use crate::theme::Color;
@@ -137,7 +138,7 @@ impl SelectionRenderer {
 
         for line in start_line..=end_line {
             let screen_line = line - first_visible_line;
-            let y = screen_line as f32 * line_height;
+            let y = index_to_f32(screen_line) * line_height;
 
             // Determine start and end columns for this line
             let (col_start, col_end) = if line == start.line && line == end.line {
@@ -158,15 +159,15 @@ impl SelectionRenderer {
                 // Empty selection on this line, skip (but show for newline)
                 if line != end.line {
                     // For lines with newline selected, show a small rect
-                    let x = (col_start as f32).mul_add(char_width, -scroll_x);
+                    let x = index_to_f32(col_start).mul_add(char_width, -scroll_x);
                     let width = char_width.min(4.0);
                     rects.push(HighlightRect::new(x, y, width, line_height, color));
                 }
                 continue;
             }
 
-            let x = (col_start as f32).mul_add(char_width, -scroll_x);
-            let mut width = (col_end - col_start) as f32 * char_width;
+            let x = index_to_f32(col_start).mul_add(char_width, -scroll_x);
+            let mut width = index_to_f32(col_end - col_start) * char_width;
 
             // For non-last lines, extend selection to show newline is included
             if line != end.line && line != start.line {
@@ -291,7 +292,7 @@ impl CurrentLineRenderer {
             .into_iter()
             .map(|line| {
                 let screen_line = line - first_visible_line;
-                let y = screen_line as f32 * line_height;
+                let y = index_to_f32(screen_line) * line_height;
                 HighlightRect::full_line(y, viewport_width, line_height, color)
             })
             .collect()
@@ -654,7 +655,6 @@ mod tests {
     fn line_lengths(line: usize) -> usize {
         // Simulate a document with lines of varying lengths
         match line {
-            0 => 10,
             1 => 15,
             2 => 8,
             3 => 20,

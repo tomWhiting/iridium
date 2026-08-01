@@ -1,14 +1,17 @@
 //! Tests for minimap rendering.
 
+use std::fmt::Write as _;
+
 use super::*;
 use crate::document::Document;
 use crate::render::Viewport;
 use crate::theme::Theme;
 
 fn create_test_document() -> Document {
-    let content = (0..100)
-        .map(|i| format!("Line {i} with some content here\n"))
-        .collect::<String>();
+    let content = (0..100).fold(String::new(), |mut acc, i| {
+        writeln!(acc, "Line {i} with some content here").expect("writing to a String cannot fail");
+        acc
+    });
     Document::new(&content)
 }
 

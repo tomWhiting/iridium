@@ -21,6 +21,7 @@ mod gutter;
 mod highlight;
 mod minimap;
 mod simple_highlight;
+mod units;
 mod viewport;
 
 #[cfg(feature = "render")]

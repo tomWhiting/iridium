@@ -109,9 +109,9 @@ impl From<&IridiumError> for ErrorCode {
             IridiumError::GpuInitFailed { .. } => Self::GpuInitFailed,
             IridiumError::ShaderCompileFailed { .. } => Self::ShaderCompileFailed,
             IridiumError::FontLoadFailed { .. } => Self::FontLoadFailed,
-            IridiumError::ParseError { .. } => Self::ParseError,
             IridiumError::InvalidUtf8 { .. } => Self::InvalidUtf8,
-            IridiumError::InvalidPosition { .. }
+            IridiumError::ParseError { .. }
+            | IridiumError::InvalidPosition { .. }
             | IridiumError::InvalidRange
             | IridiumError::NotSupported { .. } => Self::ParseError,
         }

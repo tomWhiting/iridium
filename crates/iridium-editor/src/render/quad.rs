@@ -16,6 +16,7 @@ use wgpu::{
     VertexBufferLayout, VertexState, VertexStepMode,
 };
 
+use super::units::u32_to_f32;
 use crate::theme::Color as ThemeColor;
 
 /// Vertex data for a quad corner.
@@ -199,7 +200,7 @@ impl QuadRenderer {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 buffers: &[QuadVertex::desc()],
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(FragmentState {
                 module: &shader,
@@ -209,7 +210,7 @@ impl QuadRenderer {
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: PrimitiveState {
                 topology: PrimitiveTopology::TriangleList,
@@ -244,7 +245,7 @@ impl QuadRenderer {
 
     /// Updates the viewport size.
     pub fn update_viewport(&mut self, queue: &Queue, width: u32, height: u32) {
-        self.viewport_size = [width as f32, height as f32];
+        self.viewport_size = [u32_to_f32(width), u32_to_f32(height)];
         let uniforms = QuadUniforms {
             viewport_size: self.viewport_size,
             _padding: [0.0, 0.0],
@@ -322,6 +323,10 @@ impl QuadRenderer {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..self.cpu_vertices.len() as u32, 0..1);
+
+        // The buffer was cleared above and refilled with at most `MAX_QUADS * 6`
+        // vertices, so the conversion cannot saturate.
+        let vertex_count = u32::try_from(self.cpu_vertices.len()).unwrap_or(u32::MAX);
+        render_pass.draw(0..vertex_count, 0..1);
     }
 }

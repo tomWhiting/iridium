@@ -243,7 +243,8 @@ impl SimpleHighlighter {
                         || c == '_'
                         || c.is_ascii_hexdigit()
                     {
-                        number.push(chars.next().unwrap().1);
+                        number.push(c);
+                        chars.next();
                     } else {
                         break;
                     }
@@ -270,7 +271,8 @@ impl SimpleHighlighter {
                 let mut word = String::from(ch);
                 while let Some(&(_, c)) = chars.peek() {
                     if c.is_alphanumeric() || c == '_' {
-                        word.push(chars.next().unwrap().1);
+                        word.push(c);
+                        chars.next();
                     } else {
                         break;
                     }

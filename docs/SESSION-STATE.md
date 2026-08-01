@@ -999,21 +999,64 @@ larger than `note_edit`" — that caveat turns out to have been the whole story.
 **Do not trust the 1.66 µs number as evidence that typing is cheap.** It is
 evidence that one function is cheap.
 
-### The fix, not yet started
+### Attribution — measured 1 Aug, and it corrects the diagnosis above
 
-Folds do not need recomputing over the whole document on every keystroke, and
-nothing needs the rope as a `String`. Two directions, both already flagged
-elsewhere in this file:
+The "two O(document) things" framing above named the rope→`String` copy as a
+co-equal cause. **That was wrong, and measuring it says so.** Harness:
+`crates/iridium-editor/examples/attribute_keystroke.rs` (JSON, release, median
+of 9).
 
-- Feed tree-sitter a **chunk callback** over the rope instead of
-  `document.text()` (already noted as the headroom lead in the benchmark
-  section).
-- Make the fold refresh **lazy** — it is refreshed eagerly with the comment
-  "folds are read by the renderer on the very next frame", but the renderer
-  could pull them, and a viewport-scoped refresh would be O(visible).
+| lines | keystroke | `text()` | parse | **folds** | regions found |
+|---|---|---|---|---|---|
+| 10,000 | 127 ms | 0.04 ms | 18 ms | **112 ms** | 1 |
+| 50,000 | 481 ms | 0.25 ms | 91 ms | **304 ms** | 1 |
+| 100,000 | 752 ms | 1.25 ms | 99 ms | **519 ms** | 1 |
+
+Three things fall out, and two of them contradict what was written above:
+
+1. **The rope→`String` copy is negligible** — 1.25 ms at 100k lines, against a
+   519 ms fold cost. `Rope::to_string` is a memcpy. Chasing the chunk callback
+   first would have been optimising 0.2% of the problem. It is still worth
+   doing eventually; it is not the bug.
+2. **The parse is genuinely incremental and working.** Counters over the run:
+   `full=1, incremental=9`. The retained tree does its job. Parse cost is real
+   but second-order.
+3. **Fold detection is 70–90% of every keystroke** — and the region count is
+   **1**. A 100k-line JSON produces a single fold region (the outer array),
+   because each record is single-line. So the cost is *not* in the regions
+   produced, the sort, the equality compare, or `rebuild_line_mapping`.
+
+### The actual mechanism
+
+`FoldDetector::collect_fold_regions` (`iridium-syntax/src/folding.rs:365`)
+recurses over **every node in the tree** and calls `node.walk()` at each one —
+which constructs a fresh, allocating `TreeCursor` per node. At 100k lines that
+is on the order of a million cursor allocations per keystroke, to produce one
+region.
+
+Note also `FoldDetector::regions_in(&self, tree, _source: &str)` — **the
+`source` parameter is unused** (underscore-prefixed). `refresh_syntax`
+materialises the whole rope purely to pass an argument nothing reads.
+
+### The fix
+
+Two independent changes, in order of value:
+
+1. **Do not walk the whole tree on every keystroke.** The principled form is
+   incremental: keep the pre-edit tree, use `Tree::changed_ranges(old, new)` to
+   find what actually moved, recompute regions only within those ranges, and
+   shift the line numbers of unaffected regions by the edit's line delta.
+   Semantics must stay identical — `regions()` remains the complete, correct,
+   whole-document list.
+2. **Reuse one `TreeCursor` for the traversal** rather than allocating per
+   node. Worth doing regardless, and it makes the remaining full parses (file
+   load, language change) cheaper too.
+
+Dropping the dead `source` parameter is free and removes the pointless copy.
 
 A benchmark asserting per-keystroke cost **with a language set** must land with
-the fix; its absence is why this survived.
+the fix; its absence is why this survived. The existing `benches/syntax.rs`
+measures `note_edit` alone and is precisely the blind spot that hid this.
 
 ## TERMINAL FACE STARTED (1 Aug) — Tom cleared Phase 4; steps 1 and 2 landed
 

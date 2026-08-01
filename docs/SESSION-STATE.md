@@ -965,12 +965,40 @@ suppression of any kind in the crate.
 - **Step 2, input adapter** — `src/input/`. 27 tests, 16 breaks, all caught.
 - **Step 3, the driver** — `src/driver/` — **LANDED**, 137 tui tests. Its agent
   hit a session limit mid-flight, so I verified and finished it myself.
-- **Step 4, the frame** — `src/frame/` — **WIP, NOT MERGED.** Lives on branch
-  `tui-frame` in worktree `/Users/tom/Developer/ablative/libs/iridium-tui-input`
-  (`16c7d59`). Compiles, carries 58 new tests (182 in the crate), but was never
-  mutation-tested or gated, and **`frame/mod.rs` is 522 lines, over the cap**.
-  Finish that before merging.
+- **Step 4, the frame** — `src/frame/` — **LANDED**, 198 tui tests. Also
+  interrupted; finished and gated by me.
 - **Steps 5–7 remain**: search UI, `apps/iridium`, feel gate.
+
+### Why the frame was held back a cycle, and what that caught
+
+It arrived with 58 tests and they all passed — but **three deliberate breaks
+escaped every one of them**: sorting spans so the innermost no longer wins,
+keying the cache so it ignores the document revision, and ignoring the
+active-line background. The tests covered the sub-modules and not the integrated
+highlighting path. Merging on a green suite would have shipped all three.
+
+Two things learned doing it, both worth keeping:
+
+**The caret paints its own style over its own cell.** A test that samples the
+origin of the caret's row measures the caret, not the text — which silently
+makes assertions pass for the wrong reason. It cost two wrong tests before it
+was understood, and it will cost the next person the same unless they read this:
+sample away from the caret, and both new tests say so in a comment.
+
+**The highlight cache's `revision` half does nothing measurable.** It is keyed on
+parse count *and* `Document::revision`, and probing found revision reporting `0`
+both before and after a whole-content replacement that moved the parse count
+from 2 to 3. So breaking the revision comparison alone changes nothing
+observable and no test discriminates on it. Kept as defence in depth; the doc
+comment now says it is **unproven** rather than claiming a guarantee the tests
+do not back. If someone later needs revision to be load-bearing, that is the
+thread to pull.
+
+Also fixed on the way in: `frame/mod.rs` was 522 lines (the highlight cache
+moved out to `frame/highlight.rs`, leaving 456), and two clippy warnings cleared
+without suppressions — `paint_line`'s eight arguments became six by grouping the
+three that are really one concept, and a float equality in a test became a
+bit-pattern comparison.
 
 ### What the interrupted driver needed, and the bug verification caught
 

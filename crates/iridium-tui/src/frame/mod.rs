@@ -29,6 +29,7 @@
 //! codebase has already had twice.
 
 mod gutter;
+mod highlight;
 mod line;
 mod palette;
 mod status;
@@ -41,10 +42,9 @@ mod tests;
 use std::collections::HashSet;
 
 use iridium_editor::render::Viewport;
-use iridium_editor::syntax::{Highlighter, Language};
-use iridium_editor::span_index::SpanIndex;
 use iridium_editor::{Editor, Position, Selection};
 
+use self::highlight::Highlighting;
 use self::units::{cell_units, whole_cells};
 use crate::cell::{CellBuffer, Color, Style};
 
@@ -85,32 +85,6 @@ pub struct FrameLayout {
     pub primary_caret: Option<CellPosition>,
 }
 
-/// The cached parse-derived state a frame is drawn from.
-struct Highlighting {
-    /// The language the spans were produced for.
-    language: Language,
-    /// The rules, borrowed from the process-wide query cache.
-    highlighter: Highlighter,
-    /// The document's spans, indexed for viewport queries.
-    spans: SpanIndex,
-    /// The tree and document state the spans were produced from.
-    generation: Generation,
-}
-
-/// How current a set of highlight spans is.
-///
-/// The parse count moves whenever the kernel reparses, and the revision moves
-/// whenever the document does. Comparing both means spans are rebuilt when
-/// either changes, so a mutation that reached the document without reaching
-/// the tree cannot leave last parse's colours on screen indefinitely.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Generation {
-    /// Full plus incremental parses the kernel has run.
-    parses: u64,
-    /// The document revision.
-    revision: u64,
-}
-
 /// Renders editor state into a cell buffer.
 ///
 /// The renderer is stateful only as a cache: it holds the syntax highlighter
@@ -123,12 +97,27 @@ pub struct Frame {
     highlighting: Option<Highlighting>,
 }
 
+/// Which document line one `paint_line` call draws, and where.
+///
+/// The three travel together — a line is painted at a row, and whether it is
+/// active decides its background — so they are one parameter rather than
+/// three positional `usize`/`bool`s that are easy to transpose.
+#[derive(Debug, Clone, Copy)]
+struct PaintedLine {
+    /// The document line being drawn.
+    document_line: usize,
+    /// The grid row it lands on.
+    row: usize,
+    /// Whether a caret sits on this line.
+    is_active: bool,
+}
+
 impl core::fmt::Debug for Frame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Frame")
             .field(
                 "language",
-                &self.highlighting.as_ref().map(|state| state.language),
+                &self.highlighting.as_ref().map(Highlighting::language),
             )
             .finish_non_exhaustive()
     }
@@ -147,8 +136,7 @@ impl Frame {
     pub fn layout(editor: &Editor, columns: usize, rows: usize) -> FrameLayout {
         let state = editor.state();
         let total_lines = state.document.line_count();
-        let gutter_width =
-            gutter::width(total_lines, state.config.show_line_numbers).min(columns);
+        let gutter_width = gutter::width(total_lines, state.config.show_line_numbers).min(columns);
         let text_width = columns - gutter_width;
         let status_row = rows.checked_sub(1);
         let text_rows = rows.saturating_sub(1);
@@ -249,9 +237,11 @@ impl Frame {
                 editor,
                 &palette,
                 &geometry,
-                document_line,
-                row,
-                cursor_lines.contains(&document_line),
+                PaintedLine {
+                    document_line,
+                    row,
+                    is_active: cursor_lines.contains(&document_line),
+                },
             );
         }
 
@@ -270,10 +260,13 @@ impl Frame {
         editor: &Editor,
         palette: &Palette,
         geometry: &FrameLayout,
-        document_line: usize,
-        row: usize,
-        is_active: bool,
+        placement: PaintedLine,
     ) {
+        let PaintedLine {
+            document_line,
+            row,
+            is_active,
+        } = placement;
         let state = editor.state();
         let text = state.document.line(document_line).unwrap_or_default();
         let layout = LineLayout::new(&text, state.config.tab_width);
@@ -295,7 +288,10 @@ impl Frame {
             geometry.gutter_width,
         );
 
-        let line_start = state.document.line_to_byte_offset(document_line).unwrap_or(0);
+        let line_start = state
+            .document
+            .line_to_byte_offset(document_line)
+            .unwrap_or(0);
         let styles = self.cluster_styles(line_start, &layout, palette, background);
         for (cluster, style) in layout.clusters().iter().zip(styles) {
             text::paint_cluster(buffer, row, cluster, style, geometry.text);
@@ -343,6 +339,7 @@ impl Frame {
     /// capture nested inside another — are painted outermost first, so the
     /// innermost wins, which is why the query result is sorted by start
     /// ascending and end *descending*.
+    /// The style of every cluster on one line, from the highlight cache.
     fn cluster_styles(
         &self,
         line_start: usize,
@@ -350,81 +347,18 @@ impl Frame {
         palette: &Palette,
         background: Color,
     ) -> Vec<Style> {
-        let default = palette.text().with_background(background);
-        let mut styles = vec![default; layout.clusters().len()];
-        let Some(highlighting) = self.highlighting.as_ref() else {
-            return styles;
-        };
-
-        let line_end = line_start + layout.byte_count();
-        let mut spans: Vec<_> = highlighting.spans.query(line_start, line_end).collect();
-        spans.sort_by(|left, right| {
-            left.start
-                .cmp(&right.start)
-                .then_with(|| right.end.cmp(&left.end))
-        });
-
-        let clusters = layout.clusters();
-        for span in spans {
-            let style = palette.highlighted(span.highlight, background);
-            let first =
-                clusters.partition_point(|cluster| line_start + cluster.byte_index() < span.start);
-            for (index, cluster) in clusters.iter().enumerate().skip(first) {
-                if line_start + cluster.byte_index() >= span.end {
-                    break;
-                }
-                if let Some(slot) = styles.get_mut(index) {
-                    *slot = style;
-                }
-            }
-        }
-        styles
+        highlight::cluster_styles(
+            self.highlighting.as_ref(),
+            line_start,
+            layout,
+            palette,
+            background,
+        )
     }
 
     /// Brings the cached highlighter and span index up to date.
-    ///
-    /// The tree itself is the kernel's — the editor keeps one parse tree for
-    /// the document and refreshes it after every content change — so nothing
-    /// here parses. This reads that tree and turns it into spans.
     fn refresh(&mut self, editor: &Editor) {
-        let state = editor.state();
-        let Some(language) = state.syntax.language() else {
-            self.highlighting = None;
-            return;
-        };
-        let generation = Generation {
-            parses: state.syntax.full_parses() + state.syntax.incremental_parses(),
-            revision: state.document.revision(),
-        };
-
-        let reusable = match self.highlighting.take() {
-            Some(existing) if existing.language == language => {
-                if existing.generation == generation {
-                    self.highlighting = Some(existing);
-                    return;
-                }
-                Some(existing.highlighter)
-            },
-            _ => None,
-        };
-
-        // A language whose bundled highlight query does not compile leaves the
-        // face with no spans rather than no frame: unhighlighted text is a
-        // degraded editor, a missing frame is no editor at all.
-        let Some(highlighter) = reusable.or_else(|| Highlighter::try_new(language)) else {
-            return;
-        };
-
-        let spans = state.syntax.tree().map_or_else(SpanIndex::empty, |tree| {
-            SpanIndex::new(highlighter.spans_in(tree, &state.document.text()))
-        });
-
-        self.highlighting = Some(Highlighting {
-            language,
-            highlighter,
-            spans,
-            generation,
-        });
+        self.highlighting = Highlighting::refreshed(self.highlighting.take(), editor);
     }
 }
 

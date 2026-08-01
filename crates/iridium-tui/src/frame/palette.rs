@@ -78,7 +78,11 @@ impl Palette {
 
     /// The style of a line number.
     pub const fn gutter(&self, is_active: bool) -> Style {
-        if is_active { self.gutter_active } else { self.gutter }
+        if is_active {
+            self.gutter_active
+        } else {
+            self.gutter
+        }
     }
 
     /// The style of the statusline.

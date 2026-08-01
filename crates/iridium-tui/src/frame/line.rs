@@ -362,6 +362,11 @@ mod tests {
         let layout = LineLayout::new("a\u{7}b", 4);
         assert_eq!(layout.width(), 2);
         assert!(layout.clusters().get(1).is_some_and(|c| c.width() == 0));
-        assert!(layout.clusters().get(1).is_some_and(|c| c.grapheme().is_none()));
+        assert!(
+            layout
+                .clusters()
+                .get(1)
+                .is_some_and(|c| c.grapheme().is_none())
+        );
     }
 }

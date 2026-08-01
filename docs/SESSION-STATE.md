@@ -22,6 +22,28 @@ Present: `lib.rs` 64, `theme.rs` 256, `cli.rs` 422, `app/commands.rs` 343,
 message on the same task id with its context intact — that is the intended path
 once disk clears, not a re-dispatch from scratch.
 
+### The exact compile gap, established read-only while blocked (costs no disk)
+
+`lib.rs` declares five modules. Present: `cli` (422), `file/` (mod 392 + atomic
+263 + tests 551), `theme` (256). **Missing entirely:**
+
+| Missing | What it is | Notes |
+|---|---|---|
+| `app/mod.rs` | the `App` state machine — keys in, editor state + cell buffer out | largest piece; `app/commands.rs` (343) already exists and is *orphaned* without it |
+| `app/prompt.rs` | the prompt line (go-to-line, quit confirmation) | the agent's last words were "Now the prompt module" |
+| `run.rs` | the terminal event loop | `lib.rs` doc says it is "a page long" |
+| `main.rs` | binary shell over `run::main` | `Cargo.toml` `[[bin]]` points at it |
+
+`iridium-tui`'s driver surface that `run.rs` must drive — checked, so the brief
+does not guess: `Driver::open() -> io::Result<Self>`, `next_event() ->
+io::Result<DriverEvent>`, `present()`, `surface()`/`surface_mut()`,
+`cursor()`/`set_cursor(CursorState)`, `invalidate()`, `close()`. `Capabilities`
+via `capabilities()`. Frame painting is `driver::frame::write_frame`.
+
+`Cargo.toml` for the crate is complete and correct: `[lib]` + `[[bin]]`,
+`iridium-editor` with `features = ["syntax"]`, `iridium-tui` from the workspace,
+workspace lints inherited.
+
 **Order of work when it resumes: compile → commit → *then* gates.** Deliberate,
 and it inverts the natural finish-then-verify order. Disk on this box is scarce
 enough that a working window can end before the lane does, and the lane is

@@ -271,6 +271,26 @@ re-opened dispatch and was wrong.
   This repo already refuses the first (an honest remaining warning beats a
   silenced one, zero `#[allow]` in non-test code); the second is the same
   refusal.
+- **This tree holds a large uncounted disk reserve: `target/debug/incremental`
+  is 9.130 GiB, true sweep yield bracketed at 6.96–9.13 GiB** (3,148 uniquely
+  linked files hold 6.962 GiB of allocated blocks; 25,580 are hardlink-shared
+  and free only if their other link is also inside `incremental`, which was not
+  determined). Take **6.96** as the number. It is stale by construction while
+  this lane is halted. Two caveats before spending it: a compile *regrows*
+  incremental from zero, so sweeping and building in the same window binds the
+  ceiling on regrowth rather than progress; and sweeps are a decaying harvest,
+  not a pump — the first is worth multiples of the second.
+  - Method, and the control that makes it trustworthy: summing `stat` blocks
+    over *all* files gives 10.388 GiB against `du -sk`'s 9.130. The 1.26 gap is
+    hardlinks counted once by `du` and per-link by `stat` — the method
+    reproduces its own known discrepancy in the right direction and magnitude.
+  - ⚠️ **`du -sc` with multiple path arguments is unreliable on this box.** It
+    reported `deps` at exactly 2× its solo reading, yielding a "reserve" of
+    32.234 GiB — from a 9.13 GiB directory inside a 29.6 GiB tree. Two
+    invariants caught it: *union ≤ sum of parts* and *union ≤ whole tree*, both
+    violated. **Assert both whenever a `du` figure is about to be acted on.**
+    The failure produced the most desirable possible answer at the magnitude
+    that would have made a contended board look solvable.
 - Never a bare `cargo clean`; never `git stash` here (see the rule above).
 - Announce heavy lanes as **rate vs resident** — a flat 20 GiB is a different
   ask than a climbing 20, and the process table cannot tell them apart.

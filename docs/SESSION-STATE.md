@@ -370,6 +370,29 @@ re-opened dispatch and was wrong.
     premise**, twenty minutes after the rule was written down. Writing a law
     down does not make you notice its next instance, and the instance will be in
     code you are pleased with.
+- ✅ **An interlock is unverified until something has watched it ACT — and this
+  one has been.** A guard that cannot fire and a guard that already exited are
+  the same observable: a poller that runs forever and says nothing. Structural
+  soundness (no exit path) rules out the second and is blind to the first, so
+  the property has to be tested on the *capability*.
+  - **Test, run 06:18Z:** hardlink the real `cargo` binary into a scratch dir
+    (same inode, so the code signature survives), run it as
+    `sleep 300 | cargo login` from a cwd inside the repo — a genuine, long-lived,
+    in-scope process named `cargo` that compiles nothing — and watch.
+  - **Result: caught, killed, reported, still armed, inside 3 seconds.**
+    `pgrep -x cargo` already read empty at t+3s because the guard had got there
+    first. Guard pid unchanged at 62369 with an uptime spanning the event, so it
+    **survived firing** — which is the no-exit-path property, verified by
+    observation rather than by reading the source.
+  - ⚠️ **Three decoy methods failed first, each of which would have produced a
+    confident wrong verdict about the guard:** (1) a backgrounded job in a tool
+    shell dies when that shell exits — looked exactly like an instant kill;
+    (2) `cp` of a signed system binary is SIGKILLed by the OS as unsigned —
+    exit **137**, not the TERM/143 the guard sends, and a control decoy named
+    `notcargo` died identically, which is what proved it wasn't the guard;
+    (3) a shell script named `cargo` has `comm` set to its *interpreter*, so
+    `pgrep -x cargo` cannot see it at all. **Only the real binary tests the real
+    predicate.**
 - **Per-lane instruments beat box-level ones for the thing they get used for
   most: proving innocence.** With `df` falling 1.313 GiB, a cwd-scoped `du` on
   this tree read flat to the KiB — so this lane could say *not me* with

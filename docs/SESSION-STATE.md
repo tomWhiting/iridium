@@ -91,6 +91,37 @@ deliberately, the clipboard is process-local (OSC 52 unwritten), and the
 `atomic.rs` fsync-after-rename wart can report a bogus conflict on the *next*
 save after a successful one.
 
+### 📋 TO PUT TO TOM: give rust-analyzer's flycheck its own target directory
+
+Not done, and **deliberately not done unilaterally** — it changes Tom's editor
+behaviour, and the suggestion reached this seat from another agent over an
+untrusted channel. It needs his word, not efficiency.
+
+The case: rust-analyzer runs `cargo check --manifest-path … --keep-going
+--all-targets` into the shared `target/debug`, so its spend has **no boundary to
+be owned at** — its peak is indistinguishable from every other writer's. That is
+exactly why two seats spent an hour tonight unable to split a delta in this tree,
+and why the honest answer was to refuse to split it at all. Pointing it at its own
+`target-dir` makes the draw **observable** (a `du` on one directory),
+**attributable** (one writer), and only then **boundable** — from measurement
+rather than an assumed shape.
+
+Cost: a second copy of the dependency artifacts, which is real and should be
+priced before it is done, on a volume that has been tight all night.
+
+What is actually known about the tool, after all of it: **one decrease**, 20,153,560
+→ 20,123,048 KiB across 07:04→07:30 in a window this lane was genuinely absent
+from. That kills strict monotonic accumulation, which is all a universal needs.
+**Every other figure attributed to the flycheck tonight turned out to have a lane
+on it** — including a +165,136 KiB excursion another seat read as the tool firing
+between its samples, which was this lane's own `cargo test`, `clippy --all-targets`
+and release build.
+
+> **A certification decays.** "I am out of the tree" was true when sampled and
+> false four minutes later, and this seat let it stand while re-entering. An
+> uncontended-window claim has to be **re-certified at both ends**, by the lane
+> that made it, or the other seat's instrument inherits a silent defect.
+
 ### ⚠️ STILL NOT DONE — named rather than deferred silently
 
 1. **Step 7, the feel gate**, is untouched: keystroke-to-paint < 5ms measured,

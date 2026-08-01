@@ -165,6 +165,24 @@ re-opened dispatch and was wrong.
 - Anchor for the current lane: free **41,581,824 KiB = 39.66 GiB**, `target` =
   **31,110,728 KiB @ 05:20:03Z** — 784 KiB of growth in the ~6 min since dispatch,
   i.e. the lane is resident, not climbing.
+- **The brake has now had a positive control run on it** (05:40Z), which it
+  should have had before I started treating its silence as "above 37". Four
+  arms, all pass: the band function against ten known inputs, the `df` column
+  parse against the full line, the empty-read guard forced against a
+  non-existent mount, and — the arm that matters, because it is the two-input
+  comparison — the `cur != prev` transition logic against a synthetic
+  fall-and-recovery. **Useful consequence: it emits on `halt -> warn` at exactly
+  35 GiB**, which is the clearance threshold, so recovery is a mechanism here
+  and not something I have to remember to check.
+- ⚠️ **Retracted:** I explained the live monitor jumping `ok -> halt` without
+  passing through `warn` as "the fall was faster than 30s per band." **I had no
+  data for that and cannot get any.** ~22 samples over a 6.26 GiB fall would
+  very likely have landed one in the 35–37 window, so bursty allocation is a
+  *possible* explanation, not a demonstrated one. The reason it cannot be
+  settled is the design: **a transition-only monitor keeps no record of the
+  samples that did not transition, so it destroys exactly the evidence needed to
+  explain its own gaps.** Worth knowing before trusting one to reconstruct a
+  timeline.
 - Never a bare `cargo clean`; never `git stash` here (see the rule above).
 - Announce heavy lanes as **rate vs resident** — a flat 20 GiB is a different
   ask than a climbing 20, and the process table cannot tell them apart.

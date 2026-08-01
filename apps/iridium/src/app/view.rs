@@ -97,7 +97,7 @@ impl App {
             .region_containing(line)
             .map(|region| region.start_line);
         let Some(start) = start else {
-            self.message = Some(Message::notice("nothing here folds".to_owned()));
+            self.message = Some(Message::notice("nothing here folds"));
             return Flow::Running;
         };
         self.editor.toggle_fold_at(start);
@@ -142,11 +142,11 @@ impl App {
 
     /// Scrolls so the caret is on screen, as cheaply as the kernel allows.
     ///
-    /// See the `app` module documentation for what the mutation at
-    /// the end of this costs, and why the two guards in front of it are there:
-    /// a pending key sequence means the caret has not moved and that aborting
-    /// the chord would eat the next keystroke, and a caret already on screen
-    /// needs nothing at all.
+    /// See the `app` module documentation for what the mutation at the end of
+    /// this costs, and why the two guards in front of it are there: a pending
+    /// key sequence means the caret has not moved and that aborting the chord
+    /// would eat the next keystroke, and a caret already on screen needs
+    /// nothing at all.
     pub(super) fn ensure_caret_visible(&mut self) {
         if !self.editor.pending_key_sequence().is_empty() {
             return;

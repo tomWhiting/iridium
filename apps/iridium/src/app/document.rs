@@ -100,7 +100,7 @@ impl App {
         if self.editor.state().read_only {
             // Nothing could have changed, so a save here can only write a
             // stale buffer over a file that something else may have moved on.
-            self.message = Some(Message::error("the document is read-only".to_owned()));
+            self.message = Some(Message::error("the document is read-only"));
             return Flow::Running;
         }
         if self.file.is_none() {
@@ -114,7 +114,7 @@ impl App {
             // Unreachable: the check above returned. Reported rather than
             // ignored so that a later edit cannot make it silent.
             None => {
-                self.message = Some(Message::error("there is no file to write".to_owned()));
+                self.message = Some(Message::error("there is no file to write"));
                 return Flow::Running;
             },
         };
@@ -153,7 +153,7 @@ impl App {
     /// Asks before re-reading a file over unsaved changes.
     pub(super) fn request_reload(&mut self) -> Flow {
         if self.file.is_none() {
-            self.message = Some(Message::error("there is no file to re-read".to_owned()));
+            self.message = Some(Message::error("there is no file to re-read"));
             return Flow::Running;
         }
         if self.is_dirty() {
@@ -171,7 +171,7 @@ impl App {
         let outcome = match self.file.as_mut() {
             Some(file) => file.reload().map(|text| (text, file.display_name())),
             None => {
-                self.message = Some(Message::error("there is no file to re-read".to_owned()));
+                self.message = Some(Message::error("there is no file to re-read"));
                 return Flow::Running;
             },
         };

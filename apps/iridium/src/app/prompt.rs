@@ -495,7 +495,8 @@ fn paint_line(buffer: &mut CellBuffer, row: usize, text: &str, style: Style, scr
     for column in 0..width {
         buffer.set_str(column, row, " ", style);
     }
-    for cluster in LineLayout::new(text, 1).clusters() {
+    let layout = LineLayout::new(text, 1);
+    for cluster in layout.clusters() {
         let Some(grapheme) = cluster.grapheme() else {
             continue;
         };

@@ -5,6 +5,34 @@ Live working state for whoever picks this up. Authoritative roadmap is
 architecture is `TRIPLE-FACE.md`. This file is the *baton*: what is in flight,
 what is outstanding, and what must not be lost.
 
+## ⚠️ PROCESS RULE, learned the hard way 1 Aug 04:48Z — NEVER `git stash` in this checkout
+
+**A subagent ran `git stash` / `git stash pop` to measure a baseline while a
+second agent had uncommitted work in the same tree.** The stash swept *both*
+agents' work; the `pop` then aborted on a conflict. Everything was recovered
+and verified — see below — but this was avoidable and must not recur.
+
+**The rule: a subagent must never run `git stash`, `git checkout -- .`, `git
+reset`, or anything else that mutates the working tree wholesale.** This
+checkout is shared. To measure a baseline, use `git show HEAD:path` or
+`git worktree` — never a tree-wide mutation. Every brief from here says so
+explicitly.
+
+**Verification that the recovery was clean** (done by me, not taken on trust):
+`stash@{0}` was diffed against the working tree. Four files differed, and each
+difference was accounted for as legitimate forward progress by the still-running
+agent — notably a 259-line reduction in `editor/fold_state/tests.rs`, which
+turned out to be that file being split into a `tests/` directory module
+(`history_replay.rs` 158 + `without_a_grammar.rs` 88, both declared). Nothing
+was lost.
+
+**`stash@{0}` is deliberately retained** as a safety net until both lanes are
+committed and green. Entries `{1}`–`{8}` are pre-existing and predate this work.
+
+**Also**: `cargo fmt --all` was run three times while the other agent's files
+were in the tree, so a formatting-only diff may appear in work its author did
+not write. `cargo fmt --all --check` is clean.
+
 ## IN FLIGHT as of 1 Aug 04:10Z — two agents running, nothing committed by them
 
 `main` is at `24ebcb1`, pushed, green (1364 tests, clippy 2 deliberate

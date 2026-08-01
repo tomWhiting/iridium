@@ -100,6 +100,46 @@ after every gate; total spend 2.082 GiB.
 > instant.** "Uncontended" written off one `pgrep` is a point generalised to an
 > interval. It was right at 06:40:52Z; that is luck, not method.
 
+### ☠️ `pgrep … | wc -l` FABRICATES A ZERO. Every builder count tonight used it.
+
+    valid:   pgrep -x cargo | wc -l  -> 1
+    invalid: pgrep -Z cargo | wc -l  -> 0     ← fabricated, identical shape
+
+A usage error goes to stderr, the pipe carries nothing, and `wc -l` reports a
+confident **0** that is indistinguishable from a true "nothing running" — no
+marker, right shape, right place. **This is the pipeline-status defect wearing a
+new coat.** `cmd | tail` masking exit 101 was already known here; `pgrep | wc -l`
+masks exit 2 the same way and then *converts the silence into a number*, which is
+strictly worse, because `tail` at least yields no datum to misread.
+
+Every "0 builders" reported from this seat tonight — including the reading the
+build window was opened on — came through that probe. They appear to have been
+true, and `ps` corroborates the live ones. **The instrument could not have said
+otherwise.**
+
+> **An instrument that reports its own failure as a legitimate measurement is
+> worse than one that crashes, because a crash cannot be quoted onward.**
+
+Fix: check the exit status, or count with `ps -o comm= -p "$(pgrep -x cargo)"`,
+or at minimum run the probe once with a deliberately bad flag and confirm it
+looks different from a real zero. The coordinating seat hit the identical bug via
+`pgrep -c … || echo 0` (macOS `pgrep` has **no `-c`**; the `|| echo 0` printed the
+fabricated value) and published it into three DMs before catching it.
+
+**The meta-lesson, which cost both seats the same way:** an anomaly was seen, and
+the *other* instrument was interrogated — never one's own invocation. **The probe
+nobody doubts is one's own.** Corollary from the same hour: a broken probe is
+caught when its answer is too weird to be a result (`ps -eo comm= -p PID` dumping
+200 lines of `launchd` because `-e` silently overrides `-p`). **The dangerous
+broken probe is the plausible one.**
+
+### Converted figures do not gain precision from being printed
+
+`22.063 GiB` carries ±0.0005 GiB = **±524 KiB**. Quoting it onward as
+`23,135,000 KiB` and then reconciling "to three places" claims resolution the
+input never had. State which numbers are measured and which are converted — the
+other seat caught its own over-claimed precision only because that was flagged.
+
 ### ⚠️ A CLAIM MADE FROM THIS SEAT WAS WRONG AND IS WITHDRAWN
 
 I told the coordinating seat that `target/wasm32-unknown-unknown` at 0.750 GiB

@@ -261,6 +261,35 @@ Rule adopted: **a measured figure leaves this seat only if it came from a
 command in that same message's tool output.** Anchor at dispatch and at close,
 both taken personally, both quoted with the reading that produced them.
 
+**The second sharpest, 1 Aug 05:37Z — a broken probe returns a finding, not
+nothing.** My own instance was `find -newermt '-20 minutes'`, which BSD `find`
+rejects silently: it returned no files and I read that as "nothing was
+modified." The probe had not run. A parallel seat then hit three in ninety
+minutes — an `awk` range whose end pattern matched its own start line, a `sed`
+BSD rejected outright, and both empties fed to `comm -13`, where **an empty
+reference set makes every observation an anomaly.** It printed a complete,
+formatted, plausible list of thirteen violations. Twice. Reading the manifest
+refuted the lot.
+
+Put side by side the two cases disagree in a way that fixes the law. Hers
+accused; mine exonerated. The difference was not the bug — it was that she was
+primed to find a breach and I was primed to find nothing wrong. So:
+
+> **A broken probe does not return noise. It returns the answer you were
+> already leaning toward** — a degenerate result gets read through the prior,
+> and an empty set is equally available to mean "all clear" or "everything is
+> an anomaly."
+
+That is why "the probe failed safe" is not a defence: safe is a direction, and
+a broken probe has no direction of its own.
+
+Rule adopted, and it is the discrimination rule this repo already runs on tests,
+moved one level out: **prove the probe fires on a known positive before
+believing its negative.** Every test written for a fix here must be shown to
+fail against the unfixed code first; a probe whose clean result is about to be
+acted on owes exactly the same demonstration. The instrument that keeps failing
+is the shell one-liner; the one that keeps working is reading the file.
+
 Three other times this week a real measurement was reported carrying more
 inference than its scope supported: the 1.66µs `note_edit` figure cited as "typing never
 parses"; the rope-copy blamed by reading code rather than timing it; a clippy

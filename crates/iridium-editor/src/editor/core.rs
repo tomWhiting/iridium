@@ -1026,21 +1026,16 @@ impl Editor {
     /// calls), the cursor is explicitly placed at the edit site — see
     /// [`replayed_command_caret`] — instead of being left wherever it was.
     pub fn undo(&mut self) -> bool {
-        if let Some(cmd) = self.state.history.undo() {
-            // Note: history.undo() already returns the inverse command,
-            // so we apply it directly without calling .inverse() again
-            if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
-                self.emit(&EditorEvent::Error {
-                    message: e.to_string(),
-                    code: "UNDO_FAILED".to_string(),
-                });
-                return false;
-            }
-            self.finish_history_replay(&cmd);
-            true
-        } else {
-            false
+        // Note: history.undo() already returns the inverse command, so it is
+        // applied directly without calling .inverse() again.
+        let Some(cmd) = self.state.history.undo() else {
+            return false;
+        };
+        if !self.apply_replayed_command(&cmd, "UNDO_FAILED") {
+            return false;
         }
+        self.finish_history_replay(&cmd);
+        true
     }
 
     /// Performs redo.
@@ -1051,19 +1046,14 @@ impl Editor {
     /// carrying a `SetSelection` restore the cursor state themselves, and
     /// bare content commands place the cursor at the edit site.
     pub fn redo(&mut self) -> bool {
-        if let Some(cmd) = self.state.history.redo() {
-            if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
-                self.emit(&EditorEvent::Error {
-                    message: e.to_string(),
-                    code: "REDO_FAILED".to_string(),
-                });
-                return false;
-            }
-            self.finish_history_replay(&cmd);
-            true
-        } else {
-            false
+        let Some(cmd) = self.state.history.redo() else {
+            return false;
+        };
+        if !self.apply_replayed_command(&cmd, "REDO_FAILED") {
+            return false;
         }
+        self.finish_history_replay(&cmd);
+        true
     }
 
     /// Shared post-processing for a successfully applied undo/redo command.
@@ -1071,6 +1061,8 @@ impl Editor {
     /// - Places the cursor at the edit site when the replayed command carries
     ///   no `SetSelection` of its own (documented behavior of [`Self::undo`]
     ///   and [`Self::redo`]).
+    /// - Brings the parse tree and the fold regions back in step with the
+    ///   document.
     /// - Re-synchronizes the active search with the mutated document.
     /// - Emits content, search, and selection events.
     ///
@@ -1102,6 +1094,13 @@ impl Editor {
         self.keyboard_handler.invalidate_cursor_order();
         self.keyboard_handler
             .revalidate_vertical_columns(&self.state.cursor, self.state.document.revision());
+
+        // A replay changes the document exactly as a command does, so the tree
+        // and the folds derived from it have to move with it. Without this an
+        // undo left every fold region describing the document as it was before
+        // the undo, until some later content command happened to refresh them —
+        // and the renderer reads those regions on the very next frame.
+        self.state.refresh_syntax();
 
         if self.state.refresh_search() {
             self.emit_search_updated();

@@ -4,7 +4,6 @@
 //! via WebAssembly. It wraps the editor and rendering functionality in
 //! wasm-bindgen exports.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
@@ -16,11 +15,12 @@ use crate::edit_tracking::{
 use crate::key_map::key_code_from_dom_key;
 use crate::palette;
 use crate::text_range::text_range;
+use crate::web_folds::WebFoldSyntax;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
     CommandArgs, CommandId, EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
     commands::{builtin, palette::CommandMru},
-    editor::{Editor, FoldState, SyntaxDelta},
+    editor::{Editor, FoldState},
     history::{Command, UndoNodeId},
     input::{
         ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
@@ -30,7 +30,7 @@ use iridium_editor::{
         CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
         Viewport, ViewportConfig, WebSurface,
     },
-    syntax_stubs::{Language, SyntaxTree},
+    syntax_stubs::Language,
     theme::Theme,
 };
 
@@ -181,13 +181,11 @@ pub struct WebEditor {
     gutter_enabled: bool,
     /// Code folding state
     fold_state: FoldState,
-    /// The parse tree the fold regions are read from.
+    /// The parse state the fold regions are read from.
     ///
-    /// Without the `syntax` feature — which is every wasm build — this is the
-    /// stub tree and costs nothing; the fold detector on this path matches
-    /// braces and ignores it. The field exists so the call shape here is the
-    /// same one the native kernel uses.
-    fold_tree: SyntaxTree,
+    /// See [`WebFoldSyntax`]: it is what makes a fold refresh cost the edit
+    /// rather than the document.
+    fold_syntax: WebFoldSyntax,
     /// Vertical scroll offset in pixels
     scroll_y: f32,
     /// Cached character width (measured from actual font metrics)
@@ -422,7 +420,7 @@ pub async fn create_web_editor(
         syntax_enabled: true,
         gutter_enabled: true,
         fold_state,
-        fold_tree: SyntaxTree::new(Language::Rust).unwrap_or_else(|_| SyntaxTree::default()),
+        fold_syntax: WebFoldSyntax::new(Language::C),
         scroll_y: 0.0,
         cached_char_width: 14.0 * 0.6, // Default until font is loaded
         ts_highlights: Vec::new(),
@@ -500,8 +498,10 @@ impl WebEditor {
         // A full content replacement invalidates any pending incremental
         // edit; consumers do a full parse of the new content.
         self.pending_edit = PendingEdit::None;
-        // Update fold regions for new content
-        self.refresh_fold_regions(content);
+        // The document was replaced, not edited: a revision comparison cannot
+        // see that on its own, because a fresh document starts counting again.
+        self.fold_syntax.invalidate();
+        self.refresh_fold_regions();
         self.needs_redraw = true;
     }
 
@@ -960,8 +960,9 @@ impl WebEditor {
         self.keyboard_handler.reset_vertical_state();
         self.keyboard_handler.invalidate_cursor_order();
         self.record_edit(span);
-        let content = self.editor.content();
-        self.refresh_fold_regions(&content);
+        self.fold_syntax
+            .note_edit(&self.editor.state().document, &span);
+        self.refresh_fold_regions();
         self.needs_redraw = true;
         Ok(())
     }
@@ -1174,13 +1175,17 @@ impl WebEditor {
 
         if modifies_content {
             match span {
-                Ok(Some(span)) => self.record_edit(span),
+                Ok(Some(span)) => {
+                    self.record_edit(span);
+                    self.fold_syntax
+                        .note_edit(&self.editor.state().document, &span);
+                },
                 // Never report a wrong span: unresolvable positions degrade
-                // the pending edit to a full reparse.
+                // the pending edit to a full reparse, and leave the fold state
+                // to notice the revision it was never told about.
                 Ok(None) | Err(EditSpanError) => self.pending_edit = PendingEdit::Degraded,
             }
-            let content = self.editor.content();
-            self.refresh_fold_regions(&content);
+            self.refresh_fold_regions();
         }
 
         self.cursor_renderer.reset_blink();
@@ -3004,9 +3009,11 @@ impl WebEditor {
                 },
                 None => self.pending_edit = PendingEdit::Degraded,
             }
-            // Update fold regions after content change
-            let content = self.editor.content();
-            self.refresh_fold_regions(&content);
+            // A traversal moves the document by an amount this surface never
+            // measured, so there is no honest span to report; guessing one
+            // would cost correctness rather than speed.
+            self.fold_syntax.invalidate();
+            self.refresh_fold_regions();
             self.needs_redraw = true;
         }
         result
@@ -3852,8 +3859,7 @@ impl WebEditor {
     /// Call this after any text changes if you want fold regions to update.
     #[wasm_bindgen(js_name = updateFolds)]
     pub fn update_folds(&mut self) {
-        let content = self.editor.content();
-        self.refresh_fold_regions(&content);
+        self.refresh_fold_regions();
         self.needs_redraw = true;
     }
 
@@ -3994,22 +4000,16 @@ pub async fn is_webgpu_supported() -> bool {
 ///
 /// A private method cannot live in a `#[wasm_bindgen]` impl, so it lives here.
 impl WebEditor {
-    /// Reparses `content` and refreshes the fold regions from the result.
+    /// Refreshes the fold regions from the current document.
     ///
-    /// The fold detector borrows a tree rather than owning one, so every path
-    /// that changes the document comes through here — one place that knows how
-    /// folds are recomputed, rather than five that each remember to.
-    ///
-    /// The parse here is always a full one, so the delta reported to the fold
-    /// state is [`SyntaxDelta::Full`]. That is the honest description: this
-    /// surface keeps its own tree rather than sharing the kernel's, so there is
-    /// no previous tree to say what moved. Claiming an incremental delta would
-    /// be a lie the detector would act on.
-    fn refresh_fold_regions(&mut self, content: &str) -> bool {
-        let Some(tree) = self.fold_tree.parse(content) else {
-            return false;
-        };
-        self.fold_state
-            .update_regions(tree, &SyntaxDelta::Full, || Cow::Borrowed(content))
+    /// Every path that changes the document comes through here, and what it
+    /// costs depends on what that path said first: one that reported its edit
+    /// span through [`WebFoldSyntax::note_edit`] gets a refresh proportional to
+    /// that edit; one that reported nothing, or declared the document replaced,
+    /// gets a rescan. Both are correct, so a path with nothing accurate to say
+    /// can safely stay silent.
+    fn refresh_fold_regions(&mut self) -> bool {
+        self.fold_syntax
+            .refresh(&self.editor.state().document, &mut self.fold_state)
     }
 }

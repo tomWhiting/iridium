@@ -45,6 +45,7 @@
 #![doc(html_root_url = "https://docs.rs/iridium-editor/0.1.0")]
 
 // Module declarations only - no implementation here
+pub mod brace_folds;
 pub mod commands;
 pub mod document;
 pub mod editor;

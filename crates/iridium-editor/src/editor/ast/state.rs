@@ -348,14 +348,38 @@ const fn edit_for(
     }
 }
 
-/// Builds the stub edit descriptor, which carries nothing.
+/// Builds the stub edit descriptor.
+///
+/// Identical arithmetic to the tree-sitter one, and it has to be: with no parser
+/// the fold detector is a brace scan of the document text, and the only thing
+/// that keeps that scan off the whole document is knowing which rows this edit
+/// moved. The descriptor carried nothing until it needed to, which is why the
+/// scan read everything.
 #[cfg(not(feature = "syntax"))]
 const fn edit_for(
-    _span: &EditSpan,
-    _start: (usize, usize),
-    _new_end: (usize, usize),
+    span: &EditSpan,
+    start: (usize, usize),
+    new_end: (usize, usize),
 ) -> crate::syntax_stubs::InputEdit {
-    crate::syntax_stubs::InputEdit
+    use crate::syntax_stubs::{InputEdit, Point};
+
+    InputEdit {
+        start_byte: span.start_byte,
+        old_end_byte: span.old_end_byte,
+        new_end_byte: span.new_end_byte,
+        start_position: Point {
+            row: start.0,
+            column: start.1,
+        },
+        old_end_position: Point {
+            row: span.old_end_row,
+            column: span.old_end_column,
+        },
+        new_end_position: Point {
+            row: new_end.0,
+            column: new_end.1,
+        },
+    }
 }
 
 // The tests exercise real parsing against real grammars; with the stub they

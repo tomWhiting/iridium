@@ -1,5 +1,9 @@
 //! Tests for fold state, folding operations and the line mapping.
 
+mod history_replay;
+#[cfg(not(feature = "syntax"))]
+mod without_a_grammar;
+
 use std::borrow::Cow;
 
 use super::*;

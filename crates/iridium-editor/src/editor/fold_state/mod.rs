@@ -201,6 +201,18 @@ impl FoldState {
         self.folds.as_ref().map_or(0, Folds::nodes_visited)
     }
 
+    /// How many lines the brace scanner has read since this state was created.
+    ///
+    /// The same claim as [`FoldState::fold_nodes_visited`], counted in the unit
+    /// the configuration without a parser works in. Deliberately absent with the
+    /// `syntax` feature: there is no brace scanner then, and a zero reported
+    /// here would look like a claim rather than an absence.
+    #[cfg(not(feature = "syntax"))]
+    #[must_use]
+    pub fn fold_lines_scanned(&self) -> u64 {
+        self.folds.as_ref().map_or(0, Folds::lines_scanned)
+    }
+
     /// Returns the fold region at the given line, if any.
     #[must_use]
     pub fn region_at(&self, line: usize) -> Option<&FoldRegion> {

@@ -202,6 +202,16 @@ impl SyntaxTree {
     pub const fn reparse(&mut self, _source: &str) -> Option<&Tree> {
         Some(&self.tree)
     }
+
+    /// Reports that nothing changed, because nothing was ever parsed.
+    ///
+    /// Empty is the honest answer here and also the safe one: a consumer that
+    /// treats it as "no structural change" is right, and the fold detector that
+    /// stands in without the `syntax` feature does not read it at all.
+    #[must_use]
+    pub fn changed_ranges(&self, _old: &Tree) -> Vec<std::ops::Range<usize>> {
+        Vec::new()
+    }
 }
 
 /// Simple brace-based fold detector for when syntax feature is disabled.

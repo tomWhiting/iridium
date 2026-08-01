@@ -5,7 +5,10 @@
 //! `Editor::apply_command_internal` pays on every content change, so the fix
 //! targets whichever actually dominates rather than the first one spotted.
 
+use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::hint::black_box;
+use std::io::{self, Write as _};
 use std::time::Instant;
 
 use iridium_editor::document::compute_edit_span;
@@ -17,10 +20,14 @@ use iridium_editor::{Command, Language, Position};
 fn json_document(lines: usize) -> String {
     let mut out = String::from("[\n");
     for i in 0..lines {
-        out.push_str(&format!(
-            "  {{ \"id\": {i}, \"name\": \"record-{i}\", \"active\": true, \"score\": {}.5 }},\n",
+        // `write!` into the buffer rather than `push_str(&format!(..))`, which
+        // would allocate a throwaway `String` per line. Writing to a `String`
+        // is infallible, so the result is discarded deliberately.
+        let _ = writeln!(
+            out,
+            "  {{ \"id\": {i}, \"name\": \"record-{i}\", \"active\": true, \"score\": {}.5 }},",
             i % 97
-        ));
+        );
     }
     out.push_str("  null\n]\n");
     out
@@ -43,11 +50,30 @@ fn time_it<F: FnMut()>(runs: usize, mut f: F) -> f64 {
     median_micros(samples)
 }
 
-fn main() {
-    println!(
+/// Brings `syntax` and `folds` up to date with `editor`'s document.
+///
+/// The same three steps `EditorState::refresh_syntax` takes, spelled out here
+/// because the harness needs a clock between the second and the third.
+fn prime_folds(syntax: &mut SyntaxState, folds: &mut FoldState, editor: &Editor) {
+    let document = &editor.state().document;
+    syntax.sync(document);
+    let delta = syntax.take_delta();
+    if let Some(tree) = syntax.tree() {
+        folds.update_regions(tree, &delta, || Cow::Owned(document.text()));
+    }
+}
+
+fn main() -> io::Result<()> {
+    // One locked handle for the whole run rather than `println!`, which
+    // re-locks stdout on every call.
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    writeln!(
+        out,
         "{:>8} {:>12} {:>12} {:>12} {:>12} {:>12}",
         "lines", "keystroke", "text()", "sync", "folds", "unattributed"
-    );
+    )?;
 
     for lines in [10_000_usize, 50_000, 100_000] {
         let content = json_document(lines);
@@ -104,32 +130,68 @@ fn main() {
             black_box(syntax2.sync(&sync_editor.state().document));
         });
 
-        // (4) Fold detection alone, over an already-parsed tree.
+        // (4) Fold refreshing alone, as a keystroke actually pays for it.
+        //
+        // Not a full recompute over a finished tree: that is what the editor
+        // used to do and the whole point of the fix is that it no longer does.
+        // Each iteration applies a real edit, reports it, reparses, and times
+        // *only* the fold refresh that follows — the same three calls
+        // `EditorState::refresh_syntax` makes, with the clock around the last
+        // one.
         let mut fold_editor = Editor::new(EditorConfig::default());
         fold_editor.set_content(&content);
         let mut syntax3 = SyntaxState::new();
         syntax3.set_language(Language::Json);
-        let text = fold_editor.state().document.text();
-        let mut folds = FoldState::new();
-        folds.set_language(Language::Json);
-        let fold_cost = syntax3.sync(&fold_editor.state().document).map_or(0.0, |tree| {
-            let tree = tree.clone();
-            time_it(9, || {
-                black_box(folds.update_regions(&tree, &text));
-            })
-        });
+        let mut folds = FoldState::for_language(Language::Json);
+        prime_folds(&mut syntax3, &mut folds, &fold_editor);
+
+        let mut nodes_before = folds.fold_nodes_visited();
+        let mut fold_samples = Vec::with_capacity(9);
+        let mut fold_nodes_per_keystroke = 0;
+        for step in 0..9 {
+            let cmd = Command::Insert {
+                position: Position::new(1, 3 + step),
+                text: "z".to_string(),
+            };
+            let span = compute_edit_span(&fold_editor.state().document, &cmd)
+                .ok()
+                .flatten();
+            fold_editor.apply_command(cmd);
+            let document = &fold_editor.state().document;
+            if let Some(span) = span {
+                syntax3.note_edit(document, &span);
+            }
+            syntax3.sync(document);
+            let delta = syntax3.take_delta();
+            let Some(tree) = syntax3.tree() else {
+                continue;
+            };
+            let start = Instant::now();
+            black_box(folds.update_regions(tree, &delta, || Cow::Owned(document.text())));
+            fold_samples.push(start.elapsed().as_secs_f64() * 1e6);
+
+            let nodes_after = folds.fold_nodes_visited();
+            fold_nodes_per_keystroke = nodes_after - nodes_before;
+            nodes_before = nodes_after;
+        }
+        let fold_cost = median_micros(fold_samples);
 
         let attributed = text_once + sync_cost + fold_cost;
-        println!(
+        writeln!(
+            out,
             "{lines:>8} {keystroke:>11.0}µ {text_once:>11.0}µ {sync_cost:>11.0}µ \
              {fold_cost:>11.0}µ {:>11.0}µ",
             keystroke - attributed
-        );
-        println!(
-            "         parses: full={} incremental={}   regions={}",
+        )?;
+        writeln!(
+            out,
+            "         parses: full={} incremental={}   regions={}   \
+             fold nodes/keystroke={fold_nodes_per_keystroke}",
             syntax2.full_parses(),
             syntax2.incremental_parses(),
             folds.regions().len()
-        );
+        )?;
     }
+
+    Ok(())
 }

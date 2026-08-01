@@ -4,6 +4,7 @@
 //! via WebAssembly. It wraps the editor and rendering functionality in
 //! wasm-bindgen exports.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
@@ -19,7 +20,7 @@ use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
     CommandArgs, CommandId, EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
     commands::{builtin, palette::CommandMru},
-    editor::{Editor, FoldState},
+    editor::{Editor, FoldState, SyntaxDelta},
     history::{Command, UndoNodeId},
     input::{
         ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
@@ -3998,10 +3999,17 @@ impl WebEditor {
     /// The fold detector borrows a tree rather than owning one, so every path
     /// that changes the document comes through here — one place that knows how
     /// folds are recomputed, rather than five that each remember to.
+    ///
+    /// The parse here is always a full one, so the delta reported to the fold
+    /// state is [`SyntaxDelta::Full`]. That is the honest description: this
+    /// surface keeps its own tree rather than sharing the kernel's, so there is
+    /// no previous tree to say what moved. Claiming an incremental delta would
+    /// be a lie the detector would act on.
     fn refresh_fold_regions(&mut self, content: &str) -> bool {
         let Some(tree) = self.fold_tree.parse(content) else {
             return false;
         };
-        self.fold_state.update_regions(tree, content)
+        self.fold_state
+            .update_regions(tree, &SyntaxDelta::Full, || Cow::Borrowed(content))
     }
 }

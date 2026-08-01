@@ -7,6 +7,7 @@
 //! [`SyntaxState`] is the whole of this module for now. The verbs that navigate
 //! by node arrive on top of it.
 
+mod delta;
 mod expand;
 mod state;
 #[cfg(feature = "syntax")]
@@ -14,5 +15,6 @@ mod textobject;
 #[cfg(feature = "syntax")]
 mod walk;
 
+pub use delta::SyntaxDelta;
 pub use expand::ExpandStack;
 pub use state::SyntaxState;

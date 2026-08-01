@@ -40,7 +40,7 @@ pub mod navigate;
 pub mod query;
 mod tree;
 
-pub use folding::{FoldDetector, FoldKind, FoldRegion};
+pub use folding::{FoldCache, FoldDetector, FoldKind, FoldRegion};
 pub use highlight::{HighlightSpan, HighlightType, Highlighter};
 pub use query::QueryKind;
 pub use tree::{SyntaxTree, byte_point};

@@ -18,11 +18,12 @@
 //! thing standing between the tree and the truth.
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{Language, SyntaxTree, Tree};
+use crate::syntax_stubs::{InputEdit, Language, SyntaxTree, Tree};
 #[cfg(feature = "syntax")]
-use iridium_syntax::{Language, SyntaxTree, Tree};
+use iridium_syntax::{InputEdit, Language, SyntaxTree, Tree};
 
 use super::ExpandStack;
+use super::delta::SyntaxDelta;
 use super::expand::selection_for;
 use crate::document::{CursorState, Document, EditSpan, byte_point};
 use crate::input::keyboard::AstRequest;
@@ -61,6 +62,15 @@ pub struct SyntaxState {
     /// the selection came from, and it must survive a keymap being pushed or
     /// popped underneath it.
     expand: ExpandStack,
+    /// Edits reported since the last parse, in the order they were applied.
+    ///
+    /// A [`Vec`] rather than a single slot because nothing stops a caller from
+    /// reporting two edits before anything syncs. Two edits describe their
+    /// effects in two different coordinate spaces, so the delta degrades to
+    /// [`SyntaxDelta::Full`] rather than pretending they compose.
+    pending_edits: Vec<InputEdit>,
+    /// What has happened to the tree since a consumer last took the delta.
+    pending_delta: SyntaxDelta,
 }
 
 impl SyntaxState {
@@ -86,6 +96,11 @@ impl SyntaxState {
         self.dirty = false;
         self.replaced = false;
         self.expand.clear();
+        // Edits recorded against the discarded tree describe nodes that no
+        // longer exist, and nothing derived from that tree survives a grammar
+        // change either.
+        self.pending_edits.clear();
+        self.pending_delta = SyntaxDelta::Full;
         // Nothing has been parsed for this language yet. Zero cannot collide
         // with a live document revision, which starts above it and only rises.
         self.tracked_revision = 0;
@@ -115,6 +130,8 @@ impl SyntaxState {
     pub fn invalidate(&mut self) {
         self.replaced = true;
         self.expand.clear();
+        self.pending_edits.clear();
+        self.pending_delta = SyntaxDelta::Full;
     }
 
     /// Clears the language and drops the tree.
@@ -124,7 +141,20 @@ impl SyntaxState {
         self.dirty = false;
         self.replaced = false;
         self.expand.clear();
+        self.pending_edits.clear();
+        self.pending_delta = SyntaxDelta::Full;
         self.tracked_revision = 0;
+    }
+
+    /// Takes the description of everything that has happened to the tree since
+    /// this was last called, leaving [`SyntaxDelta::Unchanged`] behind.
+    ///
+    /// Taken rather than read, so that two consumers cannot both believe they
+    /// are seeing the change for the first time. There is one consumer today —
+    /// fold detection — and it is the only thing that recomputes from the tree
+    /// on every keystroke.
+    pub fn take_delta(&mut self) -> SyntaxDelta {
+        std::mem::take(&mut self.pending_delta)
     }
 
     /// Returns the retained tree without parsing.
@@ -168,11 +198,15 @@ impl SyntaxState {
             return;
         };
 
-        tree.edit(&edit_for(
+        let edit = edit_for(
             span,
             (start_row, start_column),
             (new_end_row, new_end_column),
-        ));
+        );
+        tree.edit(&edit);
+        // Recorded only once the tree has actually been shifted by it, so the
+        // list never describes an edit the tree has not seen.
+        self.pending_edits.push(edit);
         self.tracked_revision = document.revision();
         self.dirty = true;
     }
@@ -191,21 +225,56 @@ impl SyntaxState {
         let stale = self.replaced || self.tracked_revision != revision;
         let tree = self.tree.as_mut()?;
 
-        if stale || tree.tree().is_none() {
+        let observed = if stale || tree.tree().is_none() {
             // Either an edit never reached `note_edit` or there is no tree to
             // build on. Both are answered the same way, and the answer is
             // always right.
             tree.parse(&document.text());
             self.full_parses += 1;
+            SyntaxDelta::Full
         } else if self.dirty {
+            // Cloning a tree-sitter tree is a reference-count bump, not a copy
+            // of the nodes, and the clone is what makes `changed_ranges`
+            // possible: the reparse consumes the tree it builds on.
+            let previous = tree.tree().cloned();
             tree.reparse(&document.text());
             self.incremental_parses += 1;
-        }
+            incremental_delta(tree, previous.as_ref(), &self.pending_edits)
+        } else {
+            SyntaxDelta::Unchanged
+        };
+
+        // A full parse or an unchanged tree leaves nothing an edit list could
+        // describe; an incremental one has already consumed it.
+        self.pending_edits.clear();
+        self.pending_delta = std::mem::take(&mut self.pending_delta).then(observed);
 
         self.tracked_revision = revision;
         self.dirty = false;
         self.replaced = false;
         tree.tree()
+    }
+}
+
+/// Describes an incremental reparse, or gives up and says [`SyntaxDelta::Full`].
+///
+/// It gives up in exactly two cases, and both are honest rather than lazy.
+/// There was no previous tree to compare against, so nothing can be said about
+/// what moved; or more than one edit was reported since the last parse, in
+/// which case each edit's span is expressed in a coordinate space the next edit
+/// then moved, and a consumer given the raw list would apply them against the
+/// wrong offsets.
+fn incremental_delta(
+    tree: &SyntaxTree,
+    previous: Option<&Tree>,
+    edits: &[InputEdit],
+) -> SyntaxDelta {
+    let (Some(previous), [edit]) = (previous, edits) else {
+        return SyntaxDelta::Full;
+    };
+    SyntaxDelta::Incremental {
+        edit: *edit,
+        changed: tree.changed_ranges(previous),
     }
 }
 

@@ -411,6 +411,9 @@ mod tests {
     /// The detector borrows a tree rather than owning one, so a test that wants
     /// regions has to parse first — exactly as the editor does.
     fn update_regions_of(state: &mut FoldState, source: &str) -> bool {
+        use std::borrow::Cow;
+
+        use crate::editor::SyntaxDelta;
         #[cfg(not(feature = "syntax"))]
         use crate::syntax_stubs::SyntaxTree;
         #[cfg(feature = "syntax")]
@@ -425,7 +428,9 @@ mod tests {
         let Some(parsed) = tree.parse(source) else {
             return false;
         };
-        state.update_regions(parsed, source)
+        // A fresh parse of a fresh tree: nothing about the previous one is known,
+        // which is exactly what `Full` says.
+        state.update_regions(parsed, &SyntaxDelta::Full, || Cow::Borrowed(source))
     }
     use super::*;
     use ropey::Rope;

@@ -1,5 +1,7 @@
 //! Core editor state and main editor instance.
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 use super::ast::SyntaxState;
@@ -262,14 +264,23 @@ impl EditorState {
     /// document has not moved, so calling this more often than necessary costs
     /// a revision comparison rather than a parse.
     pub fn refresh_syntax(&mut self) -> bool {
-        let Some(tree) = self.syntax.sync(&self.document) else {
+        if self.syntax.sync(&self.document).is_none() {
+            return false;
+        }
+        // What `sync` just did, taken before the tree is borrowed again. This is
+        // what keeps a keystroke off the O(document) path: with it, fold
+        // detection re-reads only the part of the tree that moved.
+        let delta = self.syntax.take_delta();
+        let Some(tree) = self.syntax.tree() else {
             return false;
         };
         // The tree and the text must be one document's worth. `sync` has just
-        // parsed this exact revision, so reading the text again here is the
-        // same document by construction.
-        let text = self.document.text();
-        self.fold_state.update_regions(tree, &text)
+        // parsed this exact revision, so they are by construction. The text is
+        // passed as a closure and, with the `syntax` feature on, is never
+        // built: nothing in tree-sitter fold detection reads it.
+        let document = &self.document;
+        self.fold_state
+            .update_regions(tree, &delta, || Cow::Owned(document.text()))
     }
 
     /// Returns the current language, if any.

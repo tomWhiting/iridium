@@ -72,6 +72,14 @@ web = [
 criterion.workspace = true
 tracing-subscriber.workspace = true
 
+# The attribution harness measures where a keystroke's time goes when a language
+# is set. Without `syntax` there is no parser, `sync` returns early and folds
+# come off a brace scan — the configuration the cost never existed in, and one
+# where the harness has no node counter to read.
+[[example]]
+name = "attribute_keystroke"
+required-features = ["syntax"]
+
 [[bench]]
 name = "editing"
 harness = false
@@ -86,5 +94,14 @@ harness = false
 # number for work that never happened.
 [[bench]]
 name = "syntax"
+harness = false
+required-features = ["syntax"]
+
+# The per-keystroke cost with a language set. Required rather than optional for
+# the same reason: without `syntax` there is no parser, `sync` returns early, and
+# the benchmark would report a healthy number for the exact configuration the bug
+# could not occur in — which is how the bug survived in the first place.
+[[bench]]
+name = "folding"
 harness = false
 required-features = ["syntax"]

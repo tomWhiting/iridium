@@ -20,7 +20,7 @@ mod history_nav;
 #[cfg(test)]
 mod command_api_tests;
 
-pub use ast::SyntaxState;
+pub use ast::{SyntaxDelta, SyntaxState};
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 pub use fold_state::{FoldInfo, FoldState};

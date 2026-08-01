@@ -5,6 +5,47 @@ Live working state for whoever picks this up. Authoritative roadmap is
 architecture is `TRIPLE-FACE.md`. This file is the *baton*: what is in flight,
 what is outstanding, and what must not be lost.
 
+## IN FLIGHT as of 1 Aug 04:10Z — two agents running, nothing committed by them
+
+`main` is at `24ebcb1`, pushed, green (1364 tests, clippy 2 deliberate
+locations in `input/mouse.rs`, fmt clean, wasm32 compiles).
+
+Tom's direction, verbatim: *"I don't want to leave things behind where we can
+avoid it. You've got approval to go ahead with whatever, I don't mind."*
+
+**Lane A — terminal face step 5, search & replace UI.** `crates/iridium-tui/`
+only. The kernel's search engine has existed for months with no UI in any
+face. Must drive `Editor::find`/`update_search`/`goto_next_match`/
+`replace_current_match`/`replace_all_matches`/`close_search` rather than
+reimplement, and follow the existing `frame/palette.rs` overlay pattern.
+
+**Lane B — the two things `48f79ea` deliberately left.** Both verified real by
+hand before dispatch, do not re-derive:
+1. `Editor::finish_history_replay` (`core.rs:1084`) refreshes search but
+   **never calls `refresh_syntax`**, so folds go stale after every undo/redo.
+   Left out when refreshing cost 500ms; that reason died with `48f79ea`.
+2. `WebEditor::refresh_fold_regions` (`wasm.rs:~4008`) full-parses and passes
+   `SyntaxDelta::Full` on **every** refresh — the whole-document rescan the
+   kernel no longer does, so the browser never got the win. Note `web` does
+   **not** enable `syntax` (`bindings/Cargo.toml`), so the browser uses the
+   brace-scanner stubs, not tree-sitter. Making tree-sitter compile for wasm32
+   is `docs/WASM-SYNTAX-SPIKE.md` and is explicitly **out of scope**.
+
+**Deliberately not being done, on the list, not dropped:** the 100k-line JSON
+keystroke cost (tree-sitter's own parser, near worst case for a flat array
+with 200k direct children); `core.rs` at 2,610 lines against a 500-line cap.
+
+### Process note worth keeping
+
+Three times this week a real measurement was reported carrying more inference
+than its scope supported: the 1.66µs `note_edit` figure cited as "typing never
+parses"; the rope-copy blamed by reading code rather than timing it; a clippy
+baseline of 2 quoted when it was 6. Each was caught by **re-measurement, not by
+more careful reasoning.** The subagent that caught the clippy baseline did so
+because its brief told it to verify the baselines it was given. That
+instruction is now standard in every brief here, and it is the cheapest
+safeguard in this repo.
+
 ## Branch and commits
 
 Working branch **`feature/terminal-face`**. `main` is at `c048cf0` and has been

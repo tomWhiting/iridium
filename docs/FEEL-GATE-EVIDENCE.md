@@ -46,16 +46,23 @@ the editor's cost is the excess over them. Three runs each.
 | the atomic save writes 9.4 MiB correctly | saved torture file, 100,000 lines, edited line correct |
 | a dirty buffer refuses a bare quit | a flood that accidentally typed `MARK` hung the harness on the quit prompt — the guard held against a robot |
 
-## Defect found by the torture run
+## Defect found by the torture run — FIXED at `60eae56`
 
-**`PageUp` / `PageDown` are bound to nothing, in every face.** The kernel's
-`KeyCode` carries them, the TUI maps them faithfully, the default keymap never
-binds them, and the keyboard handler has no page-motion action to bind. Proven
+**`PageUp` / `PageDown` were bound to nothing, in every face.** The kernel's
+`KeyCode` carried them, the TUI mapped them faithfully, the default keymap never
+bound them, and the keyboard handler had no page-motion action to bind. Proven
 end-to-end: three PageDowns from the top of the 100k file left the caret on
-line 1 (`1:MARK…`). The browser face has the identical hole. Fixing it needs a
-kernel verb (page motion must respect folds and the sticky column), so it joins
-the keybinding conversation already open with Tom rather than being invented
-unilaterally.
+line 1 (`1:MARK…`).
+
+Fixed with standard semantics — `cursor.pageUp`/`cursor.pageDown` + Shift-select
+variants as kernel verbs, the hop one viewport-height with sticky columns kept,
+bound to the page keys in the default keymap so every face inherits them.
+Re-proven by the same harness on the same file: three PageDowns at `LINES=40`
+marked **line 118** in the saved artifact — 3 × 39 rows, the pty's 40 minus one
+row of chrome. The scroll-without-caret variant some editors also offer remains
+a separate open question with Tom; the browser face additionally needs its host
+to sync the viewport height (`KeyboardHandler::set_page_rows`) before its pages
+are more than one line.
 
 ## Harness traps, for whoever measures next
 

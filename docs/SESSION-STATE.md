@@ -954,7 +954,43 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
-## 🔴 CRITICAL, UNFIXED (1 Aug) — typing is O(document) with syntax on
+## ✅ FIXED at `48f79ea` (1 Aug) — typing was O(document) with syntax on
+
+**Fold detection is now incremental: 519 ms → 12 µs per keystroke at 100k
+lines, and the nodes examined per keystroke is 5, constant across 10k/50k/100k.**
+Verified independently of the agent that wrote it — all six gate commands
+re-run, the fix disabled by hand to confirm the three new tests actually fail
+without it, and the benchmark re-run from a clean build.
+
+**What is still over budget, and it is not fold detection.** A 100k-line flat
+JSON array costs 106 ms per keystroke, now bounded *entirely* by tree-sitter's
+own incremental reparse. That shape — one array node with 200,000 direct
+children — is close to worst case for tree-sitter, which rebuilds the parent's
+child list on any edit inside it. Realistic code is fine (`keystroke_rust_10k`
+= 1.04 ms); JSON at 10k lines sits right on the line at 8.08 ms. **The next
+performance question is the parser, not the folds.**
+
+Three things this fix deliberately did *not* address, all still open:
+
+- **The browser face is unchanged.** wasm builds without `syntax`, so
+  `WebEditor` uses the stub brace scanner and its own `fold_tree`, which
+  full-parses on every keystroke. Both were already O(document) and both are
+  untouched. Making `WebEditor` share the kernel's fold state is a real
+  behaviour change and was not made unilaterally.
+- **Undo/redo never calls `refresh_syntax`** (`finish_history_replay`,
+  `core.rs`), so folds go stale after an undo until the next content command.
+  Pre-existing.
+- **`core.rs` is 2,610 lines**, far over the module cap. Pre-existing.
+
+**The `changed_ranges` contract is an assumption, not a proof.** The scheme
+rests on tree-sitter guaranteeing that outside the reported ranges the old
+edited tree and the new tree agree. What backs it is
+`cache_matches_a_full_recompute_across_long_edit_sequences`: 200 edits × 4
+languages, asserting byte-for-byte equality against a full walk after every
+single edit, both against the incrementally parsed tree and a fresh parse. 800
+edits, zero divergence. That is evidence, not proof.
+
+### Original report, kept for the record
 
 **The single most important open item. Found while checking a claim that the
 browser caps out at 4,000 lines.** That claim is false — there is no line limit

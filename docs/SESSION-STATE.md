@@ -329,6 +329,43 @@ re-opened dispatch and was wrong.
     returned 2 during the pre-sweep safety check when the true count of live
     compilers was 0. **Counting matches is not identifying processes:** resolve
     with `ps -o args=` before treating a count as a builder census.
+- **A control that can ACT must name the event that RETIRES it in the same
+  artifact that arms it.** Learned by building the defect: a guard armed to kill
+  any compiler in this tree during a no-build window would have killed the
+  *authorised* compile too — same cwd, same process name — within 5 seconds,
+  repeatedly, presenting as a phantom toolchain fault against a running ceiling.
+  **A threshold outlives its premise; adding a kill verb turns a stale premise
+  from noise into an outage.** Retiring it by hand at clearance would only move
+  the retirement back into someone's attention, which is the failure being
+  fixed. The working shape is one guard with two modes and the transition
+  written into the script:
+
+      NO-BUILD mode   in-scope compiler -> kill, then report; + size backstop
+      ── retires on a sentinel file appearing ──
+      CEILING mode    compiler NOT killed; fresh anchor at the flip;
+                      reports each 1 GiB; HARD STOP -> TERMs the build
+
+  Consequence worth noting: this makes a **self-stop obligation a mechanism
+  rather than a promise.** A sequencer seat cannot enforce a stop in another
+  seat's lane; a 5-second poller in that lane can.
+- **Scope a control by blast radius, never by actor — the actor list is the
+  thing you can be wrong about.** Proven the same hour by a hazard nobody
+  dispatched: rust-analyzer's flycheck runs `cargo check` into *this* `target`,
+  fires on file changes, and `incremental` was at zero after the sweep — so
+  permitted source writes could have triggered a cold multi-GiB rebuild inside
+  another lane's committed window. An actor-scoped guard misses it entirely; a
+  cwd-scoped one catches it **without needing to know it exists**, which is the
+  only coverage that survives an incomplete threat model. Detection here is
+  `cwd under repo` **OR** `repo path in argv`, the second catching
+  `cargo --manifest-path` invoked from a parent directory.
+  - ⚠️ **Never point a killing guard at a tree anyone intends to keep.**
+    `kill -TERM` on `rustc` mid-write leaves partial artefacts. Acceptable only
+    because `incremental` is cargo's to reconstruct and this tree is going to be
+    rebuilt regardless.
+- **"I looked and saw nothing" needs a positive control in the same
+  invocation.** Confirming a guard was down used `ps | grep` for its body — and
+  the same probe grepping for a *known-live* monitor returned 5 matches, which
+  is what makes the empty result a finding rather than a broken instrument.
 - Never a bare `cargo clean`; never `git stash` here (see the rule above).
 - Announce heavy lanes as **rate vs resident** — a flat 20 GiB is a different
   ask than a climbing 20, and the process table cannot tell them apart.

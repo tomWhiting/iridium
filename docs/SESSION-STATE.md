@@ -17,6 +17,15 @@ a ceiling of 3, hard stop 4.** Close anchor 06:34:12Z — free 42.999 GiB, targe
 22.064 GiB. Clearance retired immediately after (sentinel removed, guard back to
 NO-BUILD).
 
+### ⚠️ The write-agent is STILL RUNNING — expect uncommitted changes on top of `d3f00aa`
+
+At 06:35Z it was still editing `app/{document,prompt,view}.rs` *after* the commit
+landed. **`d3f00aa` captured a compiling, committed checkpoint; anything dirty in
+the working tree on top of it is that agent's continuing work, not stray edits.**
+Do not sweep it. Re-run `cargo build -p iridium` before trusting the tree to
+still compile — the commit is the last state verified green, not necessarily the
+state on disk.
+
 ### ⚠️ NOT DONE — the next two things, named rather than deferred silently
 
 1. **The test target does not compile.** `App` does not implement `Debug`, which

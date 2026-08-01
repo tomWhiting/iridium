@@ -743,6 +743,14 @@ impl Default for MinimapRenderData {
 mod tests {
     use super::*;
 
+    /// Returns the bit patterns of a color's components.
+    ///
+    /// Uniform structs copy theme colors verbatim, so the correct assertion is
+    /// bitwise identity rather than an approximate float comparison.
+    fn color_bits(color: ThemeColor) -> [u32; 4] {
+        color.to_array().map(f32::to_bits)
+    }
+
     #[test]
     fn render_config_default() {
         let config = RenderConfig::default();
@@ -768,11 +776,12 @@ mod tests {
         let theme = Theme::dark();
         let uniforms = ThemeUniforms::from_theme(&theme);
 
-        // Verify background color matches theme
-        assert_eq!(uniforms.background[0], theme.editor.background.r);
-        assert_eq!(uniforms.background[1], theme.editor.background.g);
-        assert_eq!(uniforms.background[2], theme.editor.background.b);
-        assert_eq!(uniforms.background[3], theme.editor.background.a);
+        // Verify background color matches theme. The uniform is a verbatim copy
+        // of the theme color, so compare bit patterns rather than float values.
+        assert_eq!(
+            uniforms.background.map(f32::to_bits),
+            color_bits(theme.editor.background)
+        );
     }
 
     #[test]
@@ -780,11 +789,12 @@ mod tests {
         let theme = Theme::light();
         let uniforms = SyntaxUniforms::from_theme(&theme);
 
-        // Verify keyword color matches theme
-        assert_eq!(uniforms.keyword[0], theme.syntax.keyword.r);
-        assert_eq!(uniforms.keyword[1], theme.syntax.keyword.g);
-        assert_eq!(uniforms.keyword[2], theme.syntax.keyword.b);
-        assert_eq!(uniforms.keyword[3], theme.syntax.keyword.a);
+        // Verify keyword color matches theme. The uniform is a verbatim copy of
+        // the theme color, so compare bit patterns rather than float values.
+        assert_eq!(
+            uniforms.keyword.map(f32::to_bits),
+            color_bits(theme.syntax.keyword)
+        );
     }
 
     #[test]

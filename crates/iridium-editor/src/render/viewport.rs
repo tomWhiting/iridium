@@ -150,11 +150,11 @@ impl Viewport {
         }
 
         // Convert document line to visual line
-        if let Some(visual_line) = fold_state.document_to_visual_line(line) {
-            visual_line >= self.first_line && visual_line < self.first_line + self.visible_lines
-        } else {
-            false
-        }
+        fold_state
+            .document_to_visual_line(line)
+            .is_some_and(|visual_line| {
+                visual_line >= self.first_line && visual_line < self.first_line + self.visible_lines
+            })
     }
 
     /// Returns an iterator over visible document lines, accounting for folds.
@@ -180,8 +180,7 @@ impl Viewport {
     pub fn scroll_to_position_with_folds(&mut self, position: Position, fold_state: &FoldState) {
         let target_line = if fold_state.is_line_hidden(position.line) {
             // Find the fold that hides this line and scroll to its start
-            self.find_enclosing_fold_start(position.line, fold_state)
-                .unwrap_or(position.line)
+            Self::find_enclosing_fold_start(position.line, fold_state).unwrap_or(position.line)
         } else {
             position.line
         };
@@ -199,7 +198,7 @@ impl Viewport {
     }
 
     /// Finds the start line of the fold that contains the given line.
-    fn find_enclosing_fold_start(&self, line: usize, fold_state: &FoldState) -> Option<usize> {
+    fn find_enclosing_fold_start(line: usize, fold_state: &FoldState) -> Option<usize> {
         for folded_line in fold_state.folded_lines() {
             if let Some(region) = fold_state.region_at(folded_line) {
                 if line > region.start_line && line <= region.end_line {

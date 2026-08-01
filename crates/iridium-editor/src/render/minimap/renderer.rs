@@ -294,7 +294,7 @@ impl MinimapRenderer {
             .start(clicked_line, viewport.first_line, viewport.visible_lines);
 
         // Calculate target line to center the viewport
-        let target = self.calculate_scroll_target(clicked_line, viewport, dimensions.total_lines);
+        let target = Self::calculate_scroll_target(clicked_line, viewport, dimensions.total_lines);
 
         Some(target)
     }
@@ -351,7 +351,6 @@ impl MinimapRenderer {
 
     /// Calculates the scroll target to center a line in the viewport.
     const fn calculate_scroll_target(
-        &self,
         clicked_line: usize,
         viewport: &Viewport,
         total_lines: usize,

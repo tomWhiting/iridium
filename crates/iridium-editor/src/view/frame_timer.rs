@@ -19,8 +19,8 @@ pub const TARGET_FRAME_DURATION: Duration = Duration::from_micros(8333);
 const FRAME_HISTORY_SIZE: usize = 60;
 
 /// Frame budget thresholds for adaptive quality.
-const BUDGET_WARNING_THRESHOLD: Duration = Duration::from_micros(7000);
-const BUDGET_CRITICAL_THRESHOLD: Duration = Duration::from_micros(8000);
+const BUDGET_WARNING_THRESHOLD: Duration = Duration::from_millis(7);
+const BUDGET_CRITICAL_THRESHOLD: Duration = Duration::from_millis(8);
 
 /// Frame budget status for adaptive rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,8 +243,10 @@ impl FrameTimer {
             return FrameStats::default();
         }
 
-        let count = self.frame_times.len();
-        let avg_frame_time = self.frame_time_sum / count as u32;
+        // The history is trimmed to `FRAME_HISTORY_SIZE` on every push, so the
+        // conversion cannot saturate; the guard above rules out a zero divisor.
+        let count = u32::try_from(self.frame_times.len()).unwrap_or(u32::MAX);
+        let avg_frame_time = self.frame_time_sum / count;
 
         let mut min_frame_time = Duration::MAX;
         let mut max_frame_time = Duration::ZERO;
@@ -271,7 +273,9 @@ impl FrameTimer {
         if self.frame_times.is_empty() {
             Duration::ZERO
         } else {
-            self.frame_time_sum / self.frame_times.len() as u32
+            // Bounded by `FRAME_HISTORY_SIZE`, so the conversion cannot saturate.
+            let count = u32::try_from(self.frame_times.len()).unwrap_or(u32::MAX);
+            self.frame_time_sum / count
         }
     }
 
@@ -383,10 +387,9 @@ mod tests {
     fn frame_timer_default_target() {
         let timer = FrameTimer::new();
         // Allow small tolerance due to floating-point calculation
-        let diff =
-            timer.target_duration().as_nanos() as i128 - TARGET_FRAME_DURATION.as_nanos() as i128;
+        let diff = timer.target_duration().abs_diff(TARGET_FRAME_DURATION);
         assert!(
-            diff.abs() < 1000,
+            diff < Duration::from_micros(1),
             "Target duration should be approximately 8.33ms"
         );
     }
@@ -396,8 +399,8 @@ mod tests {
         let timer = FrameTimer::with_target_fps(60);
         // 60fps = ~16.67ms per frame
         let target = Duration::from_secs_f64(1.0 / 60.0);
-        let diff = timer.target_duration().as_nanos() as i128 - target.as_nanos() as i128;
-        assert!(diff.abs() < 1000); // Allow 1us tolerance
+        let diff = timer.target_duration().abs_diff(target);
+        assert!(diff < Duration::from_micros(1)); // Allow 1us tolerance
     }
 
     #[test]

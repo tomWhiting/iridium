@@ -307,7 +307,7 @@ impl MouseHandler {
             MouseEventKind::Drag if event.button == Some(MouseButton::Left) => {
                 self.handle_drag(event, document, cursor, viewport)
             },
-            MouseEventKind::Scroll => self.handle_scroll(event),
+            MouseEventKind::Scroll => Self::handle_scroll(event),
             _ => MouseResult::Ignored,
         }
     }
@@ -329,9 +329,7 @@ impl MouseHandler {
         let click_count = self.detect_multi_click(event.x, event.y);
 
         // Convert pixel position to document position
-        let Some(position) = self.pixel_to_position(event.x, event.y, document, viewport) else {
-            return MouseResult::Ignored;
-        };
+        let position = self.pixel_to_position(event.x, event.y, document, viewport);
 
         // Record drag anchor
         self.is_dragging = true;
@@ -388,7 +386,7 @@ impl MouseHandler {
 
     /// Handles mouse drag.
     fn handle_drag(
-        &mut self,
+        &self,
         event: &MouseEvent,
         document: &Document,
         cursor: &CursorState,
@@ -402,15 +400,13 @@ impl MouseHandler {
             return MouseResult::Ignored;
         };
 
-        let Some(position) = self.pixel_to_position(event.x, event.y, document, viewport) else {
-            return MouseResult::Ignored;
-        };
+        let position = self.pixel_to_position(event.x, event.y, document, viewport);
 
         // Create selection from anchor to current position, respecting selection mode
         let selection = match self.selection_mode {
             SelectionMode::Character => Selection::new(anchor, position),
-            SelectionMode::Word => self.create_word_selection(anchor, position, document),
-            SelectionMode::Line => self.create_line_selection(anchor, position, document),
+            SelectionMode::Word => Self::create_word_selection(anchor, position, document),
+            SelectionMode::Line => Self::create_line_selection(anchor, position, document),
         };
 
         let new_cursor = CursorState::new(selection);
@@ -426,7 +422,7 @@ impl MouseHandler {
     }
 
     /// Handles scroll wheel event.
-    const fn handle_scroll(&mut self, event: &MouseEvent) -> MouseResult {
+    const fn handle_scroll(event: &MouseEvent) -> MouseResult {
         MouseResult::Scroll {
             delta_x: event.scroll_x,
             delta_y: event.scroll_y,
@@ -475,7 +471,7 @@ impl MouseHandler {
     ) -> MouseResult {
         self.selection_mode = SelectionMode::Word;
 
-        let selection = self.select_word_at(position, document);
+        let selection = Self::select_word_at(position, document);
         let new_cursor = CursorState::new(selection);
 
         // Update drag anchor to word start for proper word-wise dragging
@@ -496,7 +492,7 @@ impl MouseHandler {
     ) -> MouseResult {
         self.selection_mode = SelectionMode::Line;
 
-        let selection = self.select_line_at(position, document);
+        let selection = Self::select_line_at(position, document);
         let new_cursor = CursorState::new(selection);
 
         // Update drag anchor to line start for proper line-wise dragging
@@ -537,13 +533,17 @@ impl MouseHandler {
     }
 
     /// Converts pixel coordinates to document position.
+    ///
+    /// Every pixel maps to a position: coordinates above or left of the text
+    /// area clamp to the first line and column, and coordinates past the end of
+    /// the document clamp to its last line and that line's length.
     fn pixel_to_position(
         &self,
         x: f32,
         y: f32,
         document: &Document,
         viewport: &Viewport,
-    ) -> Option<Position> {
+    ) -> Position {
         // Calculate line from y position
         let line_f = (y + viewport.scroll_offset_y) / viewport.line_height;
         let line = (line_f.floor() as usize).saturating_add(viewport.first_line);
@@ -562,11 +562,11 @@ impl MouseHandler {
         let line_len = document.line_len(line).unwrap_or(0);
         let column = column.min(line_len);
 
-        Some(Position::new(line, column))
+        Position::new(line, column)
     }
 
     /// Selects the word at the given position.
-    fn select_word_at(&self, position: Position, document: &Document) -> Selection {
+    fn select_word_at(position: Position, document: &Document) -> Selection {
         let line_text = document.line(position.line).unwrap_or_default();
         let chars: Vec<char> = line_text.chars().collect();
 
@@ -624,7 +624,7 @@ impl MouseHandler {
     }
 
     /// Selects the line at the given position.
-    fn select_line_at(&self, position: Position, document: &Document) -> Selection {
+    fn select_line_at(position: Position, document: &Document) -> Selection {
         let line = position.line;
         let line_len = document.line_len(line).unwrap_or(0);
 
@@ -641,13 +641,12 @@ impl MouseHandler {
 
     /// Creates a word selection spanning from anchor word to current word.
     fn create_word_selection(
-        &self,
         anchor: Position,
         current: Position,
         document: &Document,
     ) -> Selection {
-        let anchor_word = self.select_word_at(anchor, document);
-        let current_word = self.select_word_at(current, document);
+        let anchor_word = Self::select_word_at(anchor, document);
+        let current_word = Self::select_word_at(current, document);
 
         if anchor <= current {
             Selection::new(anchor_word.start(), current_word.end())
@@ -658,13 +657,12 @@ impl MouseHandler {
 
     /// Creates a line selection spanning from anchor line to current line.
     fn create_line_selection(
-        &self,
         anchor: Position,
         current: Position,
         document: &Document,
     ) -> Selection {
-        let anchor_line = self.select_line_at(anchor, document);
-        let current_line = self.select_line_at(current, document);
+        let anchor_line = Self::select_line_at(anchor, document);
+        let current_line = Self::select_line_at(current, document);
 
         if anchor.line <= current.line {
             Selection::new(anchor_line.start(), current_line.end())
@@ -700,13 +698,11 @@ impl MouseHandler {
             return MouseResult::Ignored;
         }
 
-        if let Some(target_line) =
-            minimap_renderer.handle_click(event.x, event.y, minimap_dimensions, viewport)
-        {
-            MouseResult::ScrollToLine { target_line }
-        } else {
-            MouseResult::Ignored
-        }
+        minimap_renderer
+            .handle_click(event.x, event.y, minimap_dimensions, viewport)
+            .map_or(MouseResult::Ignored, |target_line| {
+                MouseResult::ScrollToLine { target_line }
+            })
     }
 
     /// Handles a minimap drag event (T143: drag-to-scroll).
@@ -736,13 +732,11 @@ impl MouseHandler {
             return MouseResult::Ignored;
         }
 
-        if let Some(target_line) =
-            minimap_renderer.handle_drag(event.x, event.y, minimap_dimensions, viewport)
-        {
-            MouseResult::ScrollToLine { target_line }
-        } else {
-            MouseResult::Ignored
-        }
+        minimap_renderer
+            .handle_drag(event.x, event.y, minimap_dimensions, viewport)
+            .map_or(MouseResult::Ignored, |target_line| {
+                MouseResult::ScrollToLine { target_line }
+            })
     }
 
     /// Handles a minimap release event to end dragging.
@@ -750,7 +744,7 @@ impl MouseHandler {
     /// # Arguments
     ///
     /// * `minimap_renderer` - The minimap renderer to notify
-    pub fn handle_minimap_release(
+    pub const fn handle_minimap_release(
         &mut self,
         minimap_renderer: &mut crate::render::MinimapRenderer,
     ) {
@@ -784,7 +778,7 @@ mod tests {
         if let MouseResult::Command(Command::SetSelection { new_state, .. }) = result {
             assert!(new_state.primary.is_collapsed());
             // The exact position depends on pixel calculations
-            assert!(new_state.primary.head.line == 0);
+            assert_eq!(new_state.primary.head.line, 0);
         } else {
             panic!("Expected SetSelection command");
         }
@@ -854,9 +848,8 @@ mod tests {
     #[test]
     fn word_selection() {
         let doc = create_test_document();
-        let handler = MouseHandler::new();
 
-        let selection = handler.select_word_at(Position::new(0, 2), &doc);
+        let selection = MouseHandler::select_word_at(Position::new(0, 2), &doc);
         assert_eq!(selection.start(), Position::new(0, 0));
         assert_eq!(selection.end(), Position::new(0, 5)); // "Hello"
     }
@@ -864,9 +857,8 @@ mod tests {
     #[test]
     fn line_selection() {
         let doc = create_test_document();
-        let handler = MouseHandler::new();
 
-        let selection = handler.select_line_at(Position::new(0, 2), &doc);
+        let selection = MouseHandler::select_line_at(Position::new(0, 2), &doc);
         assert_eq!(selection.start(), Position::new(0, 0));
         assert_eq!(selection.end(), Position::new(1, 0)); // To start of next line
     }

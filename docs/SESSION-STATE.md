@@ -5,7 +5,49 @@ Live working state for whoever picks this up. Authoritative roadmap is
 architecture is `TRIPLE-FACE.md`. This file is the *baton*: what is in flight,
 what is outstanding, and what must not be lost.
 
-## 🛑 STEP 6 HALTED MID-FLIGHT 1 Aug 05:31Z — work is UNCOMMITTED and must not be swept
+## ✅ STEP 6 LANDED 1 Aug 06:34Z — `d3f00aa`, pushed. Supersedes the halt section below.
+
+`apps/iridium` compiles and is committed. `cargo build -p iridium` → binary
+16,788,456 bytes, exit 0, verified twice unpiped **and by checking the artifact
+rather than the status**. 4,618 lines across `run.rs`, `main.rs`,
+`app/{mod,commands,prompt,document,view,tests}.rs`, `cli.rs`, `file/`, `theme.rs`.
+
+Built under an imposed disk ceiling on a shared box: **growth 0.217 GiB against
+a ceiling of 3, hard stop 4.** Close anchor 06:34:12Z — free 42.999 GiB, target
+22.064 GiB. Clearance retired immediately after (sentinel removed, guard back to
+NO-BUILD).
+
+### ⚠️ NOT DONE — the next two things, named rather than deferred silently
+
+1. **The test target does not compile.** `App` does not implement `Debug`, which
+   `app/tests.rs` requires (`app/mod.rs:86`, `app/tests.rs:151`). The lib and bin
+   build fine. **`cargo test` has never been run on this crate.** This is the
+   first thing the next window does.
+2. **The four gates have never been run** on the new crate: workspace tests,
+   GPU-free kernel, GPU-free+syntax, wasm32 check, clippy, fmt. Step 7 (the feel
+   gate) is untouched.
+3. **`file/atomic.rs` contract defect, found by reading, still unfixed** — see
+   the detailed write-up further down. It is a contract decision between
+   atomicity and durability and belongs to whoever owns that module.
+
+### The ceiling was 14× larger than needed, and the reason matters
+
+The ceiling was re-derived 2 → 3 **because a sweep had left `incremental` cold**,
+making it "a different workload class". The build then finished in **4.05
+seconds** — because the sweep removed `incremental`, **not `deps`**, and `deps`
+is what dominates. The dependency `.rlib`s were never lost.
+
+> **"Imposed, not self-supplied" protects the CONTROL, not the NUMBER.** A bound
+> imposed from outside stays a control rather than becoming a prediction — but
+> its *value* still inherits every error in whatever description it was derived
+> from, including one the lane volunteered in good faith. The bound held because
+> 3 > 0.217, not because 3 was right.
+
+Also worth carrying: **70% of the window's spend (0.152 of 0.217 GiB) was
+rust-analyzer's flycheck**, not this lane's build — an undispatched debit that
+re-fires on every source edit and that no clearance regime can reach.
+
+## 🛑 (superseded) STEP 6 HALTED MID-FLIGHT 1 Aug 05:31Z
 
 The `apps/iridium` agent (`a370e541a81129d00`) was stopped by me on the 35 GiB
 band crossing. **Its partial work is live in the working tree and is not

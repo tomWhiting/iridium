@@ -954,6 +954,67 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
+## 🔴 CRITICAL, UNFIXED (1 Aug) — typing is O(document) with syntax on
+
+**The single most important open item. Found while checking a claim that the
+browser caps out at 4,000 lines.** That claim is false — there is no line limit
+anywhere, and 500,000 lines loads in 13.6 ms with O(1) scrolling (42 ns). But
+looking for it found something worse.
+
+### Measured, release mode, per keystroke
+
+| lines | no language | **language set** |
+|---|---|---|
+| 10,000 | 20 µs | **39 ms** |
+| 50,000 | 2.0 ms | **156 ms** |
+| 100,000 | 162 µs | **227 ms** |
+
+The budget is **8 ms**. At 100k lines with syntax on we are **28× over**, and it
+grows with document size. This makes large files unusable *in every face*, not
+just the browser.
+
+### Why, exactly
+
+`Editor::apply_command_internal` (`editor/core.rs:956`) calls
+`self.state.refresh_syntax()` on **every content change**. `refresh_syntax`
+(`core.rs:264`) does two O(document) things per keystroke:
+
+1. `self.syntax.sync(&self.document)` — a **reparse**, and
+2. `let text = self.document.text()` — materialises the **entire rope into a
+   fresh `String`**, then re-runs `fold_state.update_regions(tree, &text)` over
+   the whole document.
+
+With no language, `sync` returns `None` and it exits early — which is why the
+no-language column is fast and why nothing caught this.
+
+### This falsifies a claim I verified earlier today
+
+The benchmark work recorded below measured `note_edit` at 1.66 µs and concluded
+*typing never parses*. **That conclusion is wrong for the real editor path.**
+The benchmark measured `note_edit` in isolation; the actual keystroke path calls
+`refresh_syntax` right after it, which parses *and* copies the whole document.
+The benchmark's own caveat said "typing stays free as a whole keystroke is
+larger than `note_edit`" — that caveat turns out to have been the whole story.
+
+**Do not trust the 1.66 µs number as evidence that typing is cheap.** It is
+evidence that one function is cheap.
+
+### The fix, not yet started
+
+Folds do not need recomputing over the whole document on every keystroke, and
+nothing needs the rope as a `String`. Two directions, both already flagged
+elsewhere in this file:
+
+- Feed tree-sitter a **chunk callback** over the rope instead of
+  `document.text()` (already noted as the headroom lead in the benchmark
+  section).
+- Make the fold refresh **lazy** — it is refreshed eagerly with the comment
+  "folds are read by the renderer on the very next frame", but the renderer
+  could pull them, and a viewport-scoped refresh would be O(visible).
+
+A benchmark asserting per-keystroke cost **with a language set** must land with
+the fix; its absence is why this survived.
+
 ## TERMINAL FACE STARTED (1 Aug) — Tom cleared Phase 4; steps 1 and 2 landed
 
 Plan in `docs/TERMINAL-FACE-PLAN.md`. `crates/iridium-tui` exists and is wired

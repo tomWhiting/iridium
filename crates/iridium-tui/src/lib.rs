@@ -27,5 +27,6 @@
 pub mod cell;
 /// The terminal itself: lifecycle, repaint, capabilities and the event loop.
 pub mod driver;
+pub mod frame;
 /// Terminal input, converted to the kernel's platform-neutral key presses.
 pub mod input;

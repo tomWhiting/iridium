@@ -25,6 +25,8 @@
 
 /// Cell buffers and the damage diff that drives repainting.
 pub mod cell;
+/// The terminal itself: lifecycle, repaint, capabilities and the event loop.
+pub mod driver;
 /// Terminal input, converted to the kernel's platform-neutral key presses.
 pub mod input;
 pub mod frame;

@@ -948,6 +948,50 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
+## The plan's two performance claims are now MEASURED (1 Aug) — both pass
+
+The plan's Verification section mandated two benchmarks that were never written,
+so section 4 landed with its central architectural claim — *typing never
+parses* — asserted but unmeasured. `crates/iridium-editor/benches/syntax.rs`
+now measures both. Numbers re-run by me, not taken on report:
+
+| Benchmark | Measured | Claim | Headroom |
+|---|---|---|---|
+| `note_edit` | **1.66 µs** | under 10 µs | ~6× |
+| `expand_after_edit_10k_lines` | **336 µs** | under 1 ms | ~3× |
+
+Fixture is generated in code: ~10,038 lines / 264 KB of *varied* Rust source
+(239 distinct blocks), edited mid-file at line 5020 — reparse cost depends on
+where the damage lands, and 10k identical lines would parse unrepresentatively.
+
+**The benchmarks prove they are measuring something.** This was the real risk —
+a mis-`black_box`ed benchmark measures nothing and reports a wonderful number.
+`note_edit` asserts after the run that `full_parses() == 1` and
+`incremental_parses() == 0`: across 3.0M edits, typing parsed exactly zero
+times. The expand benchmark asserts `incremental_parses()` equals its own
+iteration count exactly, so a single reused sync would fail it. Both guards run
+at the top of their benchmark functions. `required-features = ["syntax"]` is
+set, because without it `SyntaxState` degrades to the stub surface and the bench
+would happily report a fast number for work that never happened.
+
+No production code was touched — the parse counters were already public.
+
+**Scope caveats, stated rather than buried.** "Typing stays free" as a whole
+keystroke is larger than `note_edit`: a real keypress also pays
+`compute_edit_span` and the rope mutation, neither of which is in the 1.66 µs.
+The expand benchmark calls `apply_ast_request` directly, so it excludes keymap
+resolution, undo recording and event emission.
+
+### Incidental finding — the obvious place to look for headroom
+
+`SyntaxState::sync` calls `tree.reparse(&document.text())`, and
+`Document::text()` materialises the **entire rope into a fresh `String`** on
+every sync (`editor/ast/state.rs:198,201`). On a 264 KB document that
+allocate-and-copy is plausibly a real fraction of the 336 µs. Nothing was
+changed — the claim passes comfortably — but if that budget ever needs room,
+feeding tree-sitter a chunk callback over the rope instead of a full `String`
+copy is the first thing to try.
+
 ## Clippy backlog CLEARED (1 Aug) — 59 locations to 2, no suppressions
 
 Three delegated batches, each verified by me before merging rather than taken

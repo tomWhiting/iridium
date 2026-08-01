@@ -17,6 +17,12 @@ Evidence updated in `docs/FEEL-GATE-EVIDENCE.md`.
 20,282,180 KiB) is being closed explicitly with this commit** — if the close
 does not appear in her DM, that is a defect; send it.
 
+**The web demo dev server is retired, 1 Aug 14:34Z, by estate policy** (no
+long-lived Vite processes; Vite is a run-once compile step only). Anywhere the
+docs say the demo "runs at localhost:12223", it no longer does: to serve
+`examples/web`, run `vite build` once and serve the `dist` through frame-host —
+do **not** start `npm run dev`.
+
 **Blocked-on-Tom, unchanged:** fold-key chords (Mac Option problem), the
 scroll-without-caret page variant (standard semantics are in; the exotic
 variant is still his call), `atomic.rs` contract, flycheck target-dir. Two

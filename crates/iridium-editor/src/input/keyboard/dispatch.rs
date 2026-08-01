@@ -259,8 +259,8 @@ impl KeyboardHandler {
     }
 
     /// Returns true when the command consumes and re-establishes the sticky
-    /// preferred columns: vertical caret movement (plain or selection-extending)
-    /// and vertical add-cursor.
+    /// preferred columns: vertical caret movement (plain or selection-extending,
+    /// one line or one page) and vertical add-cursor.
     ///
     /// The line operations are excluded — they move whole lines and must not
     /// preserve sticky columns.
@@ -272,6 +272,10 @@ impl KeyboardHandler {
                     | KeyboardAction::LineUpSelect
                     | KeyboardAction::LineDown
                     | KeyboardAction::LineDownSelect
+                    | KeyboardAction::PageUp
+                    | KeyboardAction::PageUpSelect
+                    | KeyboardAction::PageDown
+                    | KeyboardAction::PageDownSelect
                     | KeyboardAction::AddCursorAbove
                     | KeyboardAction::AddCursorBelow
             )

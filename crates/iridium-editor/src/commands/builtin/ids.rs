@@ -24,6 +24,10 @@ pub const CURSOR_WORD_RIGHT: CommandId = CommandId::from_static("cursor.wordRigh
 pub const CURSOR_LINE_UP: CommandId = CommandId::from_static("cursor.lineUp");
 /// Move every caret one line down, honouring its sticky column.
 pub const CURSOR_LINE_DOWN: CommandId = CommandId::from_static("cursor.lineDown");
+/// Move every caret one viewport-height up, honouring its sticky column.
+pub const CURSOR_PAGE_UP: CommandId = CommandId::from_static("cursor.pageUp");
+/// Move every caret one viewport-height down, honouring its sticky column.
+pub const CURSOR_PAGE_DOWN: CommandId = CommandId::from_static("cursor.pageDown");
 /// Move every caret to the start of its line (smart home).
 pub const CURSOR_LINE_START: CommandId = CommandId::from_static("cursor.lineStart");
 /// Move every caret to the end of its line.
@@ -47,6 +51,10 @@ pub const CURSOR_WORD_RIGHT_SELECT: CommandId = CommandId::from_static("cursor.w
 pub const CURSOR_LINE_UP_SELECT: CommandId = CommandId::from_static("cursor.lineUpSelect");
 /// Extend every selection one line down.
 pub const CURSOR_LINE_DOWN_SELECT: CommandId = CommandId::from_static("cursor.lineDownSelect");
+/// Extend every selection one viewport-height up.
+pub const CURSOR_PAGE_UP_SELECT: CommandId = CommandId::from_static("cursor.pageUpSelect");
+/// Extend every selection one viewport-height down.
+pub const CURSOR_PAGE_DOWN_SELECT: CommandId = CommandId::from_static("cursor.pageDownSelect");
 /// Extend every selection to the start of its line (smart home).
 pub const CURSOR_LINE_START_SELECT: CommandId = CommandId::from_static("cursor.lineStartSelect");
 /// Extend every selection to the end of its line.

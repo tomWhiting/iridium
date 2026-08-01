@@ -91,6 +91,10 @@ impl KeyboardHandler {
             Action::LineUpSelect => self.vertical_motion(document, cursor, true, Up),
             Action::LineDown => self.vertical_motion(document, cursor, false, Down),
             Action::LineDownSelect => self.vertical_motion(document, cursor, true, Down),
+            Action::PageUp => self.page_motion(document, cursor, false, Up),
+            Action::PageUpSelect => self.page_motion(document, cursor, true, Up),
+            Action::PageDown => self.page_motion(document, cursor, false, Down),
+            Action::PageDownSelect => self.page_motion(document, cursor, true, Down),
             Action::SelectAll => Self::handle_select_all(document, cursor),
             Action::CollapseToPrimary => Self::handle_collapse_to_primary(cursor),
 

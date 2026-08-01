@@ -516,6 +516,12 @@ impl Editor {
     /// Returns an `EditorKeyResult` indicating if a clipboard or search action
     /// was requested. The caller is responsible for handling these operations.
     pub fn handle_key(&mut self, event: &KeyEvent) -> EditorKeyResult {
+        // The page-motion hop is the viewport height, which is this editor's
+        // state and not the handler's; synced at every dispatch so a resize —
+        // or a host writing `state_mut().viewport` directly — can never leave
+        // a page key hopping yesterday's layout.
+        self.keyboard_handler
+            .set_page_rows(self.state.viewport.visible_lines);
         let result = self.keyboard_handler.handle_key(
             event,
             &self.state.document,
@@ -579,6 +585,10 @@ impl Editor {
         id: &str,
         args: CommandArgs,
     ) -> Result<EditorKeyResult, CommandRunError> {
+        // See `handle_key`: a palette-invoked page motion must hop exactly the
+        // page a keypress would.
+        self.keyboard_handler
+            .set_page_rows(self.state.viewport.visible_lines);
         let result = self.keyboard_handler.run_command(
             id,
             args,
@@ -2190,6 +2200,117 @@ line 5";
             .map(|range| range.start)
             .collect();
         assert_eq!(starts, vec![Position::new(0, 0), Position::new(0, 8)]);
+    }
+
+    // =========================================================================
+    // Page motion: the hop is the viewport's height, from either entry point
+    // =========================================================================
+
+    /// A hundred numbered lines, so any wrong hop lands on a nameable line.
+    fn hundred_lines() -> String {
+        let lines: Vec<String> = (0..100).map(|index| format!("line {index}")).collect();
+        lines.join("\n")
+    }
+
+    #[test]
+    fn page_down_hops_the_caret_one_viewportful() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content(&hundred_lines());
+        // 600px of text at 20px per line: 30 visible rows.
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageDown));
+        assert_eq!(editor.cursor(), Position::new(30, 0));
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageUp));
+        assert_eq!(editor.cursor(), Position::new(0, 0));
+    }
+
+    #[test]
+    fn page_down_pages_identically_from_the_palette() {
+        // `Editor::run_command` must page exactly as the key does: the palette
+        // and the keyboard share one implementation, viewport hop included.
+        let mut editor = Editor::with_defaults();
+        editor.set_content(&hundred_lines());
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+
+        editor
+            .run_command("cursor.pageDown", CommandArgs::NONE)
+            .unwrap_or_else(|error| panic!("cursor.pageDown must be a kernel command: {error}"));
+        assert_eq!(editor.cursor(), Position::new(30, 0));
+    }
+
+    #[test]
+    fn a_zero_row_viewport_still_pages_one_line() {
+        // `visible_lines == 0` is legitimate — chrome can consume every row a
+        // terminal has (the viewport panic of 699327f) — and a page key pressed
+        // in that state must neither die nor panic. It degrades to one line,
+        // so the key always does something visible.
+        let mut editor = Editor::with_defaults();
+        editor.set_content(&hundred_lines());
+        editor.state_mut().viewport = Viewport::new(800.0, 0.0, 20.0);
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageDown));
+        assert_eq!(editor.cursor(), Position::new(1, 0));
+    }
+
+    #[test]
+    fn shift_page_down_extends_the_selection_a_viewportful() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content(&hundred_lines());
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+
+        editor.handle_key(&KeyEvent::new(KeyCode::PageDown, Modifiers::shift()));
+        let selection = editor.state().cursor.primary;
+        assert_eq!(selection.anchor, Position::new(0, 0));
+        assert_eq!(selection.head, Position::new(30, 0));
+    }
+
+    #[test]
+    fn page_motion_keeps_the_sticky_column_through_short_lines() {
+        // Paging from a long line across a short one and on again must return
+        // to the remembered column, exactly as single-line vertical motion
+        // does — a page hop is vertical motion, so it shares the sticky state.
+        let mut editor = Editor::with_defaults();
+        // Line 0 and line 2 are 10 wide; line 1 is 2 wide. One-row pages.
+        editor.set_content("aaaaaaaaaa\nbb\ncccccccccc");
+        editor.state_mut().viewport = Viewport::new(800.0, 20.0, 20.0);
+        editor.set_cursor(Position::new(0, 8));
+
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageDown));
+        assert_eq!(editor.cursor(), Position::new(1, 2));
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageDown));
+        assert_eq!(
+            editor.cursor(),
+            Position::new(2, 8),
+            "the page hop must remember the column the way arrow motion does"
+        );
+    }
+
+    #[test]
+    fn page_down_clamps_to_the_last_line_and_page_up_to_the_first() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content(&hundred_lines());
+        // 30-row pages over a 100-line document.
+        editor.state_mut().viewport = Viewport::new(800.0, 600.0, 20.0);
+        editor.set_cursor(Position::new(90, 3));
+
+        // 90 + 30 overshoots: clamp to line 99, keeping the column.
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageDown));
+        assert_eq!(editor.cursor(), Position::new(99, 3));
+
+        // Already at the last line: to the line end, as Down does.
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageDown));
+        assert_eq!(editor.cursor(), Position::new(99, 7));
+
+        // 20 - 30 undershoots: clamp to line 0, keeping the column.
+        editor.set_cursor(Position::new(20, 3));
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageUp));
+        assert_eq!(editor.cursor(), Position::new(0, 3));
+
+        // Already at the first line: to the document start, as Up does.
+        editor.handle_key(&KeyEvent::simple(KeyCode::PageUp));
+        assert_eq!(editor.cursor(), Position::new(0, 0));
     }
 
     // =========================================================================

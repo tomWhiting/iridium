@@ -2,7 +2,7 @@
 
 ## ⚠️ WORK IN FLIGHT AT COMPACTION, 1 Aug ~11:25Z — PageUp/PageDown kernel verbs
 
-**AN OPEN LANE CERTIFICATION EXISTS.** At ~11:22Z this seat told Athena (Meridian
+**AN OPEN LANE CERTIFICATION EXISTS.** **Open anchor: target/debug 20,282,180 KiB @ 11:24:10Z, du -sk, this hand.** At ~11:22Z this seat told Athena (Meridian
 DM): re-entering `libs/iridium` with builds, expected transient ≤ 2.0 GiB on
 `target/debug` by `du -sk`, **explicit close message promised.** Athena is running
 a concurrent ledger with Hermes's F8 window and reads this lane as open until the

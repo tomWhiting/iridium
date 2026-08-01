@@ -58,6 +58,35 @@ to `Ok` once the rename lands and surface sync failure through a distinct
 channel, or widen the contract — but the doc and the code must agree, and right
 now they do not.
 
+#### …and it composes into something worse than a wrong error message
+
+Reading `file/mod.rs` against it: `TextFile::save` (`:315-319`) does
+
+```rust
+write_atomically(&self.path, &bytes).map_err(...)?;   // early return on Err
+self.baseline = Some(bytes);                          // never reached
+```
+
+so on the post-rename `Err` the **baseline is not updated while the disk is**.
+The in-memory record of "what the disk holds" now says the old bytes; the disk
+holds the new ones. `disk_state` compares exactly those two things.
+
+The user's next save therefore reports **`DiskState::Differs` — "changed on
+disk"** — naming their own successful save as an external modification by
+another program. The only way past it is `force`, which is precisely the
+operation a user should never be trained to reach for reflexively, and which by
+design skips the check that protects them from a *real* concurrent writer.
+
+So the single defect produces, in order: a save that succeeded reported as
+failed, then a false report that another process touched the file, then a nudge
+toward the one command that disables the safety. Each layer is individually
+defensible and the composition is not. **Fix the contract in `atomic.rs` and all
+three go away**; patching `save` to update the baseline on that error path would
+paper over the first two and leave the contract still lying.
+
+Neither module is at fault on its own reading — which is the point worth keeping:
+this is only visible from the seam, and the seam is what nobody's tests cover.
+
 ## ⚠️ PROCESS RULE, learned the hard way 1 Aug 04:48Z — NEVER `git stash` in this checkout
 
 **A subagent ran `git stash` / `git stash pop` to measure a baseline while a

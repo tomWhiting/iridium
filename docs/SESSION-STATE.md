@@ -1,5 +1,54 @@
 # Session state — 2026-07-30
 
+## ⚠️ WORK IN FLIGHT AT COMPACTION, 1 Aug ~11:25Z — PageUp/PageDown kernel verbs
+
+**AN OPEN LANE CERTIFICATION EXISTS.** At ~11:22Z this seat told Athena (Meridian
+DM): re-entering `libs/iridium` with builds, expected transient ≤ 2.0 GiB on
+`target/debug` by `du -sk`, **explicit close message promised.** Athena is running
+a concurrent ledger with Hermes's F8 window and reads this lane as open until the
+close is sent. **Whatever happens to this work, SEND THE CLOSE** — a certification
+that decays silently is the night's worst defect. If the work is abandoned, close
+as a no-op with the anchor unchanged.
+
+**The task** (autonomous, judged safe as standard-semantics continuation): add
+`cursor.pageUp` / `cursor.pageDown` + Shift-select variants to the **kernel**,
+bound to PageUp/PageDown in the **default keymap** (Home/End/arrows are already
+bound there — the page keys belong beside them). Face bindings unchanged; the
+exotic scroll-without-caret option stays queued for Tom's answer. Defect evidence
+is in `docs/FEEL-GATE-EVIDENCE.md`.
+
+**Reconnaissance already done — the pattern, verified:**
+- ids: `crates/iridium-editor/src/commands/builtin/ids.rs` (`CURSOR_LINE_UP` at
+  :24 is the model; there are select variants further down — check `SELECT_LINE_UP`).
+- metadata: `commands/builtin/mod.rs`; table: `commands/builtin/table.rs`.
+- actions enum: `input/keyboard/actions/mod.rs` (`LineUp` :92, `LineUpSelect` :114).
+- dispatch: `input/keyboard/actions/run.rs` :90-93 —
+  `Action::LineUp => self.vertical_motion(document, cursor, false, Up)`.
+- command→action table: `input/keyboard/actions/table.rs` :27-28.
+- the motion body: `input/keyboard/navigation.rs` :37 `vertical_motion` (handler
+  method, per-cursor sticky columns); the pure move: `motions.rs` :237
+  `vertical_move` — **moves exactly one line, no fold awareness at this layer**;
+  read `navigation.rs` to see where folds/sticky are handled before designing the
+  page hop. Page size comes from `state.viewport.visible_lines` (may be 0 — the
+  viewport panic fix `699327f` is the cautionary tale; a 0-row page move should
+  move 0 lines or clamp to 1, decide and document).
+- default keymap rows: `commands/default_keymap.rs` :247+ (`KeyCode::Down`,
+  `NO_SHIFT` → move, `WITH_SHIFT` → select). `KeyCode::PageUp/PageDown` exist in
+  the kernel and the TUI maps them (`iridium-tui/src/input/keys.rs:70`).
+- **Count assertions that WILL fire:** `DEFAULT_KEYMAP_BINDING_COUNT`
+  (`default_keymap.rs:64`), `IMPLEMENTED_COMMAND_COUNT == BUILTIN_COMMAND_COUNT`
+  (`dispatch_tests.rs`), `every_registered_command_is_bound_except_the_typing_fall_through`
+  (`default_keymap_tests.rs`), and `command_api_tests.rs` id-count assertions.
+- Rules: tests proven failing before the fix lands; no `#[allow]`; docs on all
+  public items; the face's `no_binding_collides_with_the_default_keymap` test
+  guards the face side automatically.
+
+**Blocked-on-Tom, unchanged:** fold-key chords (Mac Option problem), scroll-only
+page variant, `atomic.rs` contract, flycheck target-dir. Two batched questions
+sit answered-pending in his Meridian DM. He has been driving the installed
+binary (`~/.local/bin/iridium`, from `7f1a5bc`) for ~3.5h — **do not replace it
+while `pgrep -x iridium` shows his session.**
+
 Live working state for whoever picks this up. Authoritative roadmap is
 `PLAN.md`; requirements and decisions are `THE-CORE-LOOP.md`; the three-face
 architecture is `TRIPLE-FACE.md`. This file is the *baton*: what is in flight,

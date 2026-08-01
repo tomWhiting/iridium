@@ -393,6 +393,26 @@ re-opened dispatch and was wrong.
     (3) a shell script named `cargo` has `comm` set to its *interpreter*, so
     `pgrep -x cargo` cannot see it at all. **Only the real binary tests the real
     predicate.**
+- ⚠️ **A pipe masks the exit code, so a failed build reports as a success.**
+  Measured, not theorised:
+
+      cargo build -p iridium              -> exit 101
+      cargo build -p iridium 2>&1 | tail  -> exit **0**   ← what the harness reported
+
+  The background-task notification said *"completed (exit code 0)"* for a build
+  that had failed at target resolution. **Never pipe a command whose exit status
+  you intend to believe** — the status belongs to the last stage of the
+  pipeline. Use `set -o pipefail`, or run the command bare and read its output
+  from the file afterwards. This is the broken-probe law inside the reporting
+  channel rather than inside a measurement: the probe reported the prior
+  ("the build ran") rather than the fact.
+- ⚠️ **Cargo resolves *targets* before building dependencies.** A plan to
+  front-load the expensive dependency rebuild by running `cargo build -p <crate>`
+  while the crate's own `main.rs` was still unwritten does not work: it fails
+  instantly with `can't find bin ... at path .../main.rs` and builds nothing.
+  Measured growth of that attempt: **4 KiB.** The reasoning was that cargo
+  resolves the graph from manifests and would build deps first — it does resolve
+  from manifests, and target paths are part of that resolution.
 - **Per-lane instruments beat box-level ones for the thing they get used for
   most: proving innocence.** With `df` falling 1.313 GiB, a cwd-scoped `du` on
   this tree read flat to the KiB — so this lane could say *not me* with

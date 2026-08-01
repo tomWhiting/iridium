@@ -133,6 +133,48 @@ caught when its answer is too weird to be a result (`ps -eo comm= -p PID` dumpin
 200 lines of `launchd` because `-e` silently overrides `-p`). **The dangerous
 broken probe is the plausible one.**
 
+### A green gate does not audit itself — the wasm32 gate was checked, and it discriminates
+
+An exit code is **not evidence a gate ran**; it is evidence something exited. A
+declared-but-never-executed gate and a passing gate emit the same silence.
+
+Five of the six gates print positive evidence — test counts, clippy warnings, fmt
+diffs. **The wasm32 check was reported as bare `exit 0`.** The evidence existed
+in the log the whole time (`Checking iridium-bindings`, two warnings out of
+`wasm.rs`, `Finished in 5.57s`); it simply was not quoted. The gate was not
+silent, the *report* was.
+
+Audited by discrimination, the same rule this repo holds tests to:
+
+    appended a deliberate type error to crates/iridium-bindings/src/wasm.rs
+      — gated on all(feature = "web", target_arch = "wasm32"),
+        so NO other gate in the workspace compiles that file
+    gate -> EXIT 101, two E0308      ← it does go red
+    restored from a scratchpad backup, never `git checkout`
+    gate -> EXIT 0, Checking iridium-bindings, Finished in 0.74s
+    git status: clean
+
+> **A gate must emit a positive artifact — a count, a named crate, a duration —
+> and the report must quote the artifact, not the status.** That turns "declared
+> but never executed" from silence into a missing field, which a checklist can
+> actually check.
+
+### `cargo clean` prints BINARY units and its `GiB` label is honest
+
+Tested, because a neighbouring seat was about to bank the opposite:
+
+    sparse file of exactly 100,000,000 bytes in a scratch target/
+    cargo clean -> "Removed 2 files, 95.4MiB total"
+    100000000/1048576 = 95.4   (binary)      100000000/1000000 = 100.0 (decimal)
+
+So a `cargo clean` figure and a `du -sk` figure are the same noun and any gap
+between them is real, not a unit artifact. **The first version of this probe was
+inconclusive and nearly reported as a result**: at 1,070,961 bytes binary gives
+1.021 and decimal 1.071, and cargo prints one decimal place, so both can render
+`1.0`. It was a discriminating experiment with less resolution than the thing it
+was meant to discriminate — **choose a magnitude at which the competing
+hypotheses cannot print the same string.**
+
 ### Converted figures do not gain precision from being printed
 
 `22.063 GiB` carries ±0.0005 GiB = **±524 KiB**. Quoting it onward as

@@ -30,6 +30,32 @@ NO-BUILD).
    the detailed write-up further down. It is a contract decision between
    atomicity and durability and belongs to whoever owns that module.
 
+### ⚠️ ALL LANE CONTROLS ARE RETIRED — re-arm before the next contended window
+
+The disk guard (`bidqoc2wx`) and the build sentinel are **down**. That is correct
+while the box is healthy and nothing here is running, and **wrong the instant
+another contended window opens in this tree.** Whoever takes the next build
+window re-arms first; the design is described above and below.
+
+**Why it was retired, which is the third instance of the same law tonight:**
+after the lane closed, the guard reverted to NO-BUILD mode and killed
+rust-analyzer's flycheck on sight — correct *by its rules*, wrong *in fact*.
+Left armed it would have killed Tom's editor diagnostics on every file save all
+night, and the failure would have presented as a broken editor rather than as a
+guard doing its job.
+
+> **A guard with no "done" state defaults to its strictest behaviour forever.**
+> The retirement path written into it covered only the *no-build → ceiling*
+> transition. Nothing covered *lane closed*, so it fell back to the most
+> aggressive mode it had. This is the opposite failure from the exit-path defect
+> and lives one step past it: a control must name its retirement **and** its
+> owner must perform it when the condition arrives.
+
+Consequence to carry: this lane is **owner-by-boundary** for flycheck's
+undispatched debit — it writes here, spends this tree's ceiling, and was bounded
+only by this lane's interlock. With the interlock retired, **that debit now has
+no bound in this tree at all.**
+
 ### The ceiling was 14× larger than needed, and the reason matters
 
 The ceiling was re-derived 2 → 3 **because a sweep had left `incremental` cold**,

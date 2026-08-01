@@ -193,6 +193,15 @@ re-opened dispatch and was wrong.
     number that is true, and it is stated rather than left implied by the name.
   - Fresh `du -sk` anchor at start — **not** the stale 05:20 one — then `du` at a
     fixed cadence, reporting **growth actual against the ceiling**.
+  - **The gauge has a noise floor of roughly ±50 MiB, measured.** With the lane
+    halted since 05:31 and nothing of mine running, `target` read 31,110,452 KiB
+    at 05:31:10Z and 31,059,124 KiB at 05:45:39Z — **−51,328 KiB with no
+    mechanism I can name.** Both `incremental` dirs were intact, so the other
+    seat's sweep did not touch this tree; the cause is an honest gap and is
+    recorded as one rather than explained away. Operationally: **a single
+    reading under ~0.1 GiB is not a signal**, and cadence reports say
+    `growth ± ~50 MiB`. That is the resolution field on my own gauge, which I
+    was about to use as though it were exact.
   - **Stop at the hard stop without being told.** No other seat can stop this
     lane; that is established, not assumed.
   - Conjunctive: my own consumption ceiling **and** the band.

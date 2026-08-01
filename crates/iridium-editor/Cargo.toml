@@ -79,3 +79,12 @@ harness = false
 [[bench]]
 name = "rendering"
 harness = false
+
+# Without `syntax` there is no parser, and `SyntaxState` degrades to the stub
+# surface — the benchmark would still build and would then measure two functions
+# that do nothing. Required rather than optional so it cannot report a passing
+# number for work that never happened.
+[[bench]]
+name = "syntax"
+harness = false
+required-features = ["syntax"]

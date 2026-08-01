@@ -41,7 +41,26 @@ impl KeyboardHandler {
         extend: bool,
         direction: VerticalDirection,
     ) -> KeyResult {
-        let new_cursor = self.move_vertically(document, cursor, extend, direction);
+        let new_cursor = self.move_vertically(document, cursor, extend, direction, 1);
+        Self::create_selection_command(cursor, &new_cursor)
+    }
+
+    /// Moves every cursor one page up or down, honouring the sticky columns, and
+    /// emits the resulting selection command.
+    ///
+    /// A page is [`Self::page_rows`] lines — the viewport height the host last
+    /// synced. A host that reports zero rows (chrome can consume every row a
+    /// terminal has) or has never synced still pages **one** line: the key must
+    /// always do something visible rather than silently die with the layout.
+    pub(super) fn page_motion(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        extend: bool,
+        direction: VerticalDirection,
+    ) -> KeyResult {
+        let lines = self.page_rows.max(1);
+        let new_cursor = self.move_vertically(document, cursor, extend, direction, lines);
         Self::create_selection_command(cursor, &new_cursor)
     }
 
@@ -61,13 +80,15 @@ impl KeyboardHandler {
         Self::create_selection_command(cursor, &new_cursor)
     }
 
-    /// Moves every cursor one line up or down with per-cursor sticky columns.
+    /// Moves every cursor `lines` lines up or down with per-cursor sticky
+    /// columns.
     fn move_vertically(
         &mut self,
         document: &Document,
         cursor: &CursorState,
         extend_selection: bool,
         direction: VerticalDirection,
+        lines: usize,
     ) -> CursorState {
         let count = cursor.cursor_count();
         let revision = document.revision();
@@ -79,7 +100,8 @@ impl KeyboardHandler {
 
         let new_cursor = motions::apply_to_all(cursor, extend_selection, |index, sel| {
             let target = preferred.get(index).copied().unwrap_or(sel.head.column);
-            let (head, sticky) = motions::vertical_move(document, sel.head, target, direction);
+            let (head, sticky) =
+                motions::vertical_move_by(document, sel.head, target, direction, lines);
             if let Some(slot) = preferred.get_mut(index) {
                 *slot = sticky;
             }

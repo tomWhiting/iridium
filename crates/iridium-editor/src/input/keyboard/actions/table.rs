@@ -26,6 +26,8 @@ pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     (builtin::CURSOR_WORD_RIGHT, Action::WordRight),
     (builtin::CURSOR_LINE_UP, Action::LineUp),
     (builtin::CURSOR_LINE_DOWN, Action::LineDown),
+    (builtin::CURSOR_PAGE_UP, Action::PageUp),
+    (builtin::CURSOR_PAGE_DOWN, Action::PageDown),
     (builtin::CURSOR_LINE_START, Action::LineStart),
     (builtin::CURSOR_LINE_END, Action::LineEnd),
     (builtin::CURSOR_DOCUMENT_START, Action::DocumentStart),
@@ -37,6 +39,8 @@ pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     (builtin::CURSOR_WORD_RIGHT_SELECT, Action::WordRightSelect),
     (builtin::CURSOR_LINE_UP_SELECT, Action::LineUpSelect),
     (builtin::CURSOR_LINE_DOWN_SELECT, Action::LineDownSelect),
+    (builtin::CURSOR_PAGE_UP_SELECT, Action::PageUpSelect),
+    (builtin::CURSOR_PAGE_DOWN_SELECT, Action::PageDownSelect),
     (builtin::CURSOR_LINE_START_SELECT, Action::LineStartSelect),
     (builtin::CURSOR_LINE_END_SELECT, Action::LineEndSelect),
     (

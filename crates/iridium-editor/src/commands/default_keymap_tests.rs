@@ -396,6 +396,26 @@ fn vertical_navigation_and_its_chords_match_the_current_dispatch() {
 }
 
 #[test]
+fn page_keys_match_the_vertical_navigation_shape() {
+    let stack = default_keymap_stack();
+    let cases: &[(KeyCode, Modifiers, Option<&str>)] = &[
+        (KeyCode::PageUp, NONE, Some("cursor.pageUp")),
+        (KeyCode::PageUp, SHIFT, Some("cursor.pageUpSelect")),
+        (KeyCode::PageDown, NONE, Some("cursor.pageDown")),
+        (KeyCode::PageDown, SHIFT, Some("cursor.pageDownSelect")),
+        // Like the plain arrows, only Shift is read: a terminal that adds Ctrl
+        // or Alt to a page key must not turn it into a dead key.
+        (KeyCode::PageUp, CTRL, Some("cursor.pageUp")),
+        (KeyCode::PageUp, META, Some("cursor.pageUp")),
+        (KeyCode::PageDown, ALT, Some("cursor.pageDown")),
+        (KeyCode::PageDown, CTRL_SHIFT, Some("cursor.pageDownSelect")),
+    ];
+    for &(key, modifiers, expected) in cases {
+        expect(&stack, key, modifiers, expected);
+    }
+}
+
+#[test]
 fn alt_graph_arrows_never_add_cursors() {
     let stack = default_keymap_stack();
     // AltGr is reported as Ctrl+Alt plus the AltGraph bit. The add-cursor chord
@@ -591,10 +611,10 @@ fn search_keys_match_the_current_dispatch() {
 fn keys_the_dispatch_ignores_stay_unbound() {
     let stack = default_keymap_stack();
     let cases: &[(KeyCode, Modifiers)] = &[
-        // Page keys are the viewport's business, not the keyboard handler's.
-        (KeyCode::PageUp, NONE),
-        (KeyCode::PageDown, NONE),
-        (KeyCode::PageUp, CTRL),
+        // The page keys used to sit here, described as "the viewport's
+        // business" — and stayed dead in every face because no face picked
+        // them up. They are caret motions now (`cursor.pageUp`/`Down`), and
+        // their bindings are asserted in `page_keys_match_the_vertical_navigation_shape`.
         // Function keys other than F3.
         (KeyCode::F1, NONE),
         (KeyCode::F2, NONE),

@@ -41,7 +41,8 @@ use super::builtin::{
     CURSOR_CHAR_RIGHT, CURSOR_CHAR_RIGHT_SELECT, CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT,
     CURSOR_DOCUMENT_START, CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_DOWN, CURSOR_LINE_DOWN_SELECT,
     CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START, CURSOR_LINE_START_SELECT,
-    CURSOR_LINE_UP, CURSOR_LINE_UP_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT,
+    CURSOR_LINE_UP, CURSOR_LINE_UP_SELECT, CURSOR_PAGE_DOWN, CURSOR_PAGE_DOWN_SELECT,
+    CURSOR_PAGE_UP, CURSOR_PAGE_UP_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT,
     CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_BACKWARD, EDIT_DELETE_FORWARD,
     EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, EDIT_INSERT_NEWLINE, EDIT_OUTDENT,
     EDIT_TAB, HISTORY_NEXT_BRANCH, HISTORY_PREVIOUS_BRANCH, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
@@ -59,7 +60,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 58;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 62;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -252,6 +253,29 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         StrokePattern::new(KeyCode::Down, WITH_SHIFT),
         CHORD,
         CURSOR_LINE_DOWN_SELECT,
+    ),
+    // The page keys read only `Shift`, exactly as the plain arrows do: a
+    // terminal that decorates them with Ctrl or Alt must still page rather
+    // than deliver a dead key.
+    (
+        StrokePattern::new(KeyCode::PageUp, NO_SHIFT),
+        CHORD,
+        CURSOR_PAGE_UP,
+    ),
+    (
+        StrokePattern::new(KeyCode::PageUp, WITH_SHIFT),
+        CHORD,
+        CURSOR_PAGE_UP_SELECT,
+    ),
+    (
+        StrokePattern::new(KeyCode::PageDown, NO_SHIFT),
+        CHORD,
+        CURSOR_PAGE_DOWN,
+    ),
+    (
+        StrokePattern::new(KeyCode::PageDown, WITH_SHIFT),
+        CHORD,
+        CURSOR_PAGE_DOWN_SELECT,
     ),
     // ----- Line operations -----
     (

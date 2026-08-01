@@ -240,13 +240,33 @@ pub fn vertical_move(
     target_column: usize,
     direction: VerticalDirection,
 ) -> (Position, usize) {
+    vertical_move_by(document, head, target_column, direction, 1)
+}
+
+/// Moves a position `lines` lines up or down, honoring a preferred ("sticky")
+/// column.
+///
+/// The many-line generalisation of [`vertical_move`], with identical boundary
+/// behaviour: a hop that overshoots either end of the document clamps to the
+/// boundary line keeping the sticky column, while a move *starting* on a
+/// boundary line collapses to the document start (up) or the line end (down),
+/// exactly as a single-line move does. A page motion is therefore
+/// indistinguishable from a line motion everywhere but the hop size — folds and
+/// sticky columns are handled by the caller for both, at the same layer.
+pub fn vertical_move_by(
+    document: &Document,
+    head: Position,
+    target_column: usize,
+    direction: VerticalDirection,
+    lines: usize,
+) -> (Position, usize) {
     match direction {
         VerticalDirection::Up => {
             if head.line == 0 {
                 // Already at first line: go to document start.
                 (Position::new(0, 0), 0)
             } else {
-                let line = head.line - 1;
+                let line = head.line.saturating_sub(lines);
                 let line_len = document.line_len(line).unwrap_or(0);
                 (
                     Position::new(line, target_column.min(line_len)),
@@ -261,7 +281,7 @@ pub fn vertical_move(
                 let line_len = document.line_len(last_line).unwrap_or(0);
                 (Position::new(last_line, line_len), line_len)
             } else {
-                let line = head.line + 1;
+                let line = head.line.saturating_add(lines).min(last_line);
                 let line_len = document.line_len(line).unwrap_or(0);
                 (
                     Position::new(line, target_column.min(line_len)),

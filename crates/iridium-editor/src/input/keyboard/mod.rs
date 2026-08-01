@@ -218,6 +218,20 @@ pub struct KeyboardHandler {
     /// stack whenever the document changed, so skip/remove-last-cursor never
     /// slice a stale range as the search term.
     add_order_revision: Option<u64>,
+
+    /// How many lines a page motion hops: the viewport height, in text rows.
+    ///
+    /// View state mirrored from the host, not owned here — the keyboard layer
+    /// has no viewport, but `cursor.pageUp`/`cursor.pageDown` are caret motions
+    /// with sticky columns, which are this handler's, so the one integer they
+    /// need travels to them rather than the motion moving to the view. Synced
+    /// through [`Self::set_page_rows`]; [`crate::Editor`] does so from its own
+    /// viewport before every dispatch, so it can never go stale on that path. A
+    /// host driving this handler directly syncs it whenever its layout changes.
+    ///
+    /// Zero — the initial value, and legitimate whenever chrome consumes every
+    /// row — pages one line (see [`Self::page_motion`]).
+    page_rows: usize,
 }
 
 impl Default for KeyboardHandler {
@@ -255,7 +269,17 @@ impl KeyboardHandler {
             cursor_add_order: Vec::new(),
             add_order_anchor: None,
             add_order_revision: None,
+            page_rows: 0,
         }
+    }
+
+    /// Syncs the viewport height, in text rows, that a page motion hops.
+    ///
+    /// See [`Self::page_rows`] for who calls this and when. Idempotent and
+    /// cheap, so syncing on every dispatch costs nothing; zero is a legitimate
+    /// value and pages one line.
+    pub const fn set_page_rows(&mut self, rows: usize) {
+        self.page_rows = rows;
     }
 
     /// Handles a keyboard event.

@@ -26,6 +26,7 @@ use super::ids::{
     CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START, CURSOR_DOCUMENT_START_SELECT,
     CURSOR_LINE_DOWN, CURSOR_LINE_DOWN_SELECT, CURSOR_LINE_END, CURSOR_LINE_END_SELECT,
     CURSOR_LINE_START, CURSOR_LINE_START_SELECT, CURSOR_LINE_UP, CURSOR_LINE_UP_SELECT,
+    CURSOR_PAGE_DOWN, CURSOR_PAGE_DOWN_SELECT, CURSOR_PAGE_UP, CURSOR_PAGE_UP_SELECT,
     CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT,
     EDIT_DELETE_BACKWARD, EDIT_DELETE_FORWARD, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
     EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, EDIT_INSERT_CHARACTER,
@@ -77,6 +78,20 @@ pub static BUILTIN: &[CommandMeta] = &[
         NAV,
     ),
     CommandMeta::described(
+        CURSOR_PAGE_UP,
+        "Cursor Page Up",
+        "One viewport-height up, keeping each cursor's sticky preferred column.",
+        NAV,
+    )
+    .with_aliases(&["pgup"]),
+    CommandMeta::described(
+        CURSOR_PAGE_DOWN,
+        "Cursor Page Down",
+        "One viewport-height down, keeping each cursor's sticky preferred column.",
+        NAV,
+    )
+    .with_aliases(&["pgdn"]),
+    CommandMeta::described(
         CURSOR_LINE_START,
         "Cursor to Line Start",
         "Smart home: the first non-whitespace character, or column zero when already there.",
@@ -105,6 +120,8 @@ pub static BUILTIN: &[CommandMeta] = &[
     CommandMeta::from_static(CURSOR_WORD_RIGHT_SELECT, "Extend Selection Word Right", SEL),
     CommandMeta::from_static(CURSOR_LINE_UP_SELECT, "Extend Selection Up", SEL),
     CommandMeta::from_static(CURSOR_LINE_DOWN_SELECT, "Extend Selection Down", SEL),
+    CommandMeta::from_static(CURSOR_PAGE_UP_SELECT, "Extend Selection Page Up", SEL),
+    CommandMeta::from_static(CURSOR_PAGE_DOWN_SELECT, "Extend Selection Page Down", SEL),
     CommandMeta::from_static(
         CURSOR_LINE_START_SELECT,
         "Extend Selection to Line Start",

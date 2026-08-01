@@ -29,7 +29,7 @@
 //! to write them is an outcome rather than a panic. `println!` panics on a
 //! broken pipe, and `iridium --help | head` is a broken pipe.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal as _, Write};
 use std::process::ExitCode;
 
 use iridium_tui::driver::{Driver, DriverEvent};
@@ -80,10 +80,57 @@ fn edit(options: Options) -> ExitStatus {
 
 /// Enters the terminal, drives the editor, and leaves the terminal.
 fn session(app: &mut App) -> io::Result<()> {
-    let mut driver = Driver::open()?;
+    let mut driver = Driver::open().map_err(|error| explain_missing_terminal(&error))?;
     let outcome = drive(app, &mut driver);
     let closed = driver.close();
     outcome.and(closed)
+}
+
+/// Turns a failure to enter the terminal into something a person can act on.
+///
+/// [`Driver::open`] reports the operating system's error unchanged, and by far
+/// the most common one — running with output redirected, piped, or captured by
+/// a tool — arrives as `Device not configured (os error 6)`. That names the
+/// errno rather than the mistake, and the mistake is one sentence away from
+/// being fixable.
+fn explain_missing_terminal(error: &io::Error) -> io::Error {
+    describe_missing_terminal(error, io::stdin().is_terminal(), io::stdout().is_terminal())
+}
+
+/// The message for a failed terminal open, given what the streams are.
+///
+/// Split from [`explain_missing_terminal`] so the wording can be tested: the
+/// caller reads the real streams, and this decides. A test that asked the
+/// process about its own standard input would be asserting on how the test
+/// harness was launched, which is not a property of this program.
+///
+/// A driver can fail for reasons that have nothing to do with the streams — a
+/// terminal that refuses raw mode, for one — so when both really are terminals
+/// the operating system's error is passed through untouched rather than
+/// dressed up in a guess.
+fn describe_missing_terminal(
+    error: &io::Error,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+) -> io::Error {
+    if stdin_is_terminal && stdout_is_terminal {
+        return io::Error::new(error.kind(), error.to_string());
+    }
+    let which = if stdin_is_terminal {
+        "standard output is not a terminal"
+    } else if stdout_is_terminal {
+        "standard input is not a terminal"
+    } else {
+        "neither standard input nor standard output is a terminal"
+    };
+    io::Error::new(
+        error.kind(),
+        format!(
+            "an interactive terminal is required, and {which}. Run `iridium` \
+             in a terminal rather than through a pipe, a redirect, or a tool \
+             that captures output ({error})"
+        ),
+    )
 }
 
 /// The loop itself.
@@ -124,4 +171,78 @@ fn report(sink: &mut impl Write, text: &str) -> ExitStatus {
 fn fail(text: &str) -> ExitStatus {
     let _ = report(&mut io::stderr(), text);
     ExitStatus::Failure
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExitStatus, describe_missing_terminal, report};
+    use std::io;
+
+    /// The error a driver open really produces when there is no terminal.
+    fn enxio() -> io::Error {
+        io::Error::from_raw_os_error(6)
+    }
+
+    #[test]
+    fn no_terminal_at_all_says_what_to_do_instead() {
+        let explained = describe_missing_terminal(&enxio(), false, false).to_string();
+        assert!(
+            explained.contains("neither standard input nor standard output"),
+            "{explained}"
+        );
+        assert!(
+            explained.contains("Run `iridium` in a terminal"),
+            "{explained}"
+        );
+        // The operating system's own words are kept: they are what a bug
+        // report needs, and dropping them to look tidy would cost the one
+        // detail nobody can reconstruct afterwards.
+        assert!(explained.contains("os error 6"), "{explained}");
+    }
+
+    #[test]
+    fn a_redirected_output_names_the_stream_that_is_wrong() {
+        let explained = describe_missing_terminal(&enxio(), true, false).to_string();
+        assert!(
+            explained.contains("standard output is not a terminal"),
+            "{explained}"
+        );
+        assert!(!explained.contains("neither"), "{explained}");
+    }
+
+    #[test]
+    fn a_piped_input_names_the_other_stream() {
+        let explained = describe_missing_terminal(&enxio(), false, true).to_string();
+        assert!(
+            explained.contains("standard input is not a terminal"),
+            "{explained}"
+        );
+    }
+
+    #[test]
+    fn a_real_terminal_that_fails_is_reported_verbatim() {
+        // Both streams are terminals, so the terminal is not the problem and
+        // this program has nothing to add. Guessing here would bury the real
+        // cause under a confident and wrong explanation.
+        let original = io::Error::other("the terminal refused raw mode");
+        let passed_through = describe_missing_terminal(&original, true, true);
+        assert_eq!(passed_through.to_string(), original.to_string());
+        assert!(!passed_through.to_string().contains("interactive terminal"));
+    }
+
+    #[test]
+    fn a_sink_that_cannot_be_written_is_a_failure_not_a_panic() {
+        // `iridium --help | head` closes the pipe early. `println!` panics on
+        // that; this must not.
+        struct Broken;
+        impl io::Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
+        }
+        assert_eq!(report(&mut Broken, "anything"), ExitStatus::Failure);
+    }
 }

@@ -761,7 +761,13 @@ per-cursor edit intents it consumes), `actions.rs` → `actions/{mod,run}.rs`
 Counts now: **845** all-features, **787** GPU-free, **829** syntax-without-GPU,
 110 bindings, 30 syntax, 55 bun.
 
-## Section 3 (undo tree) — kernel + wasm DONE (`b547c00`), PANEL NOT STARTED
+## Section 3 (undo tree) — COMPLETE, panel included
+
+(This header read "PANEL NOT STARTED" long after the panel landed. It is
+complete: kernel and wasm in `b547c00`, tests in `b812f02`, TypeScript in
+`cb5758f`, and the panel itself across `5be331a`, `d4c75b7`, `8922a9f` and
+`432493c`. The "what is NOT done" list below is kept because each entry records
+*how* it was closed, not because anything in it is outstanding.)
 
 ### What is done
 

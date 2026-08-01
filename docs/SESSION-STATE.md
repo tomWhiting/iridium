@@ -954,6 +954,56 @@ them rather than discover them live:
   exported. Still unpressed by a human, so demonstrate it privately once before
   putting it in front of anyone.
 
+## TERMINAL FACE STARTED (1 Aug) — Tom cleared Phase 4; steps 1 and 2 landed
+
+Plan in `docs/TERMINAL-FACE-PLAN.md`. `crates/iridium-tui` exists and is wired
+into the workspace with the verified terminal stack; **124 tui tests**, no
+suppression of any kind in the crate.
+
+- **Step 1, cell buffer + damage diff** — `src/cell/` (directory module, 7
+  files, all under cap). 97 tests. 32 deliberate breaks tried, **31 caught**.
+- **Step 2, input adapter** — `src/input/`. 27 tests, 16 breaks, all caught.
+- **Steps 3–7 remain**: driver, frame, search UI, `apps/iridium`, feel gate.
+
+### The load-bearing decision
+
+The terminal drives the kernel's **existing** fold-aware `Viewport` in cell
+units — `line_height = 1.0`, `width = columns as f32`. There is no second layout
+model, which is the same reason termwiz was rejected in favour of termina.
+
+### What building against the stack corrected in TERMINAL-STACK.md
+
+Facts do not survive contact unexamined; three did not.
+
+- `Ctrl+Shift+Z` is **not** byte-identical to `Ctrl+Z` in terminput's *encoder*
+  — the encoder **errors**, because the legacy encoding has no form for it. True
+  of the wire, false of the API. Now pinned by a test asserting all three facts.
+- Three more legacy collisions found and pinned: `Ctrl+I`=Tab, `Ctrl+M`=Enter,
+  `Ctrl+Backspace`=`Ctrl+H`; Super/Hyper/Meta absent from the legacy stream
+  entirely; releases and repeats are kitty-only.
+- **`REPORT_ALL_KEYS_AS_ESCAPE_CODES` must not be pushed.** It puts printable
+  keys in CSI-u form naming the *key*, and terminput 0.5.15 ignores the
+  associated-text field — so with it set, **typing `!` inserts `1`**. The
+  correct flag set is recorded in `TERMINAL-STACK.md`. Step 3 must not
+  rediscover this.
+- Upstream: terminput's kitty encoder emits `ESC[5~u` for PageUp/PageDown, which
+  its own parser rejects. Harmless — we only parse.
+
+### Two judgement calls I made on the agents' work
+
+1. **Dropped three redundant test-module `#[allow]`s.** `clippy.toml` already
+   sets `allow-{unwrap,expect,panic}-in-tests` and its comment says it exists so
+   those blocks are unnecessary. The ones elsewhere in the tree **predate that
+   config** — copying them is copying a leftover, not a convention. Verified
+   redundant before removing.
+2. **Kept the one uncaught branch.** The backwards span expansion in
+   `append_row_runs` is unreachable while the buffer's invariants hold, and no
+   mutation catches it. Kept as defence in depth rather than deleted, because
+   the alternative — `debug_assert` — becomes a panic, and a panic with the
+   terminal in raw mode is this face's worst failure mode. The comment says
+   which half of that loop is load-bearing and which is not. A second branch of
+   the same kind in `build_run` is untested for the same reason.
+
 ## The plan's two performance claims are now MEASURED (1 Aug) — both pass
 
 The plan's Verification section mandated two benchmarks that were never written,

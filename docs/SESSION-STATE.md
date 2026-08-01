@@ -207,12 +207,25 @@ re-opened dispatch and was wrong.
     their cwd is `examples/web`, which is a *sibling* of `target`, not under it.
     Flycheck by size: 4 KiB total. Deletion by directory mtime: zero dirs
     touched. My own lane by being halted. No fifth cause is named.
-  - 🔴 **Real attribution hazard for the ceiling: rust-analyzer writes into this
-    `target`.** `target/flycheck0/{stdout,stderr}` are live, and flycheck runs
-    `cargo check` into the same directory — so **`du -sk target` cannot separate
-    this lane's build from rust-analyzer's**, and a ceiling enforced on that
-    total is enforced against someone else's work. Account for it explicitly at
-    the gate rather than reporting a blurred number.
+  - **rust-analyzer writes into this `target`** (`target/flycheck0/`, pids 3165
+    and 22748 live), and its flycheck runs `cargo check` into the same
+    directory, so `du -sk target` cannot separate this lane's build from its.
+    **Enforce the ceiling on the contaminated total anyway — deliberately.**
+    The first framing of this, that a shared writer makes the gauge unusable,
+    was wrong about what the control is for: **the disk does not care who wrote
+    the bytes.** A ceiling on `target` growth bounds the *box's* exposure, and
+    if flycheck adds 300 MiB during the window the box really has lost it.
+    **Attribution is a blame question, not a control question.** Subtracting
+    would make the number more accurate about this lane and less accurate about
+    the volume — permitting 2 GiB of own-consumption while the tree grew 2.3.
+    Enforcing on the total is conservative in the right direction (the stop
+    number is never *less* than own consumption) and puts no estimate anywhere
+    in the chain. The residual — stopping early having used less than 2 — costs
+    a queue slot, not a floor.
+  - **Do not quiesce rust-analyzer to clean up the measurement.** It is the
+    live editing loop; stopping it would be editing someone else's environment
+    to make this gauge prettier, which is the guard-edited-to-fit-the-work trade
+    in another currency.
   - ⚠️ **A broken probe of my own, caught mid-investigation by the rule above.**
     `touch -t 202608010531` for a `find -newer` marker: `touch` takes **local**
     time and that was a **UTC** value, putting the marker 10 hours early. It

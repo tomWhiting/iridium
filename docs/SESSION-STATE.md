@@ -193,15 +193,35 @@ re-opened dispatch and was wrong.
     number that is true, and it is stated rather than left implied by the name.
   - Fresh `du -sk` anchor at start — **not** the stale 05:20 one — then `du` at a
     fixed cadence, reporting **growth actual against the ceiling**.
-  - **The gauge has a noise floor of roughly ±50 MiB, measured.** With the lane
-    halted since 05:31 and nothing of mine running, `target` read 31,110,452 KiB
-    at 05:31:10Z and 31,059,124 KiB at 05:45:39Z — **−51,328 KiB with no
-    mechanism I can name.** Both `incremental` dirs were intact, so the other
-    seat's sweep did not touch this tree; the cause is an honest gap and is
-    recorded as one rather than explained away. Operationally: **a single
-    reading under ~0.1 GiB is not a signal**, and cadence reports say
-    `growth ± ~50 MiB`. That is the resolution field on my own gauge, which I
-    was about to use as though it were exact.
+  - **`du -sk` is exact — do not widen the reporting band.** Four readings on a
+    quiescent tree, 05:47:57Z–05:48:11Z, all `31,059,124` to the byte. An
+    earlier pair fourteen minutes apart differed by −51,328 KiB and I priced
+    that as a ±50 MiB instrument noise floor. **Wrong, and wrong in the
+    expensive direction:** a difference between two instants is the instrument
+    *plus everything that happened between them*, so it cannot yield a
+    resolution — only repeated readings at one state can. A ±50 MiB band would
+    have **hidden real consumption inside claimed noise** while enforcing a
+    2 GiB ceiling. Retracted; the tolerance is zero.
+  - **The 51,328 KiB remains unexplained, with every candidate eliminated by
+    measurement** — not by argument. `vite`/`esbuild` (pids 7005/7063) by path:
+    their cwd is `examples/web`, which is a *sibling* of `target`, not under it.
+    Flycheck by size: 4 KiB total. Deletion by directory mtime: zero dirs
+    touched. My own lane by being halted. No fifth cause is named.
+  - 🔴 **Real attribution hazard for the ceiling: rust-analyzer writes into this
+    `target`.** `target/flycheck0/{stdout,stderr}` are live, and flycheck runs
+    `cargo check` into the same directory — so **`du -sk target` cannot separate
+    this lane's build from rust-analyzer's**, and a ceiling enforced on that
+    total is enforced against someone else's work. Account for it explicitly at
+    the gate rather than reporting a blurred number.
+  - ⚠️ **A broken probe of my own, caught mid-investigation by the rule above.**
+    `touch -t 202608010531` for a `find -newer` marker: `touch` takes **local**
+    time and that was a **UTC** value, putting the marker 10 hours early. It
+    returned **145,080 files** and would have been reported as "the tree is
+    written to constantly." With a corrected marker *and* a positive control —
+    a file known to be newer, confirmed to fire — the true answer is **2 files,
+    4 KiB**. The broken probe's answer was 72,540× the real one, and it was
+    directionally the story already being told. The positive control is what
+    made the difference, one message after the rule was written down.
   - **Stop at the hard stop without being told.** No other seat can stop this
     lane; that is established, not assumed.
   - Conjunctive: my own consumption ceiling **and** the band.

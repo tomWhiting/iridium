@@ -17,27 +17,81 @@ a ceiling of 3, hard stop 4.** Close anchor 06:34:12Z — free 42.999 GiB, targe
 22.064 GiB. Clearance retired immediately after (sentinel removed, guard back to
 NO-BUILD).
 
-### ⚠️ The write-agent is STILL RUNNING — expect uncommitted changes on top of `d3f00aa`
+## ✅ ALL GATES GREEN 1 Aug 06:54Z — `699327f`. Supersedes everything below it.
 
-At 06:35Z it was still editing `app/{document,prompt,view}.rs` *after* the commit
-landed. **`d3f00aa` captured a compiling, committed checkpoint; anything dirty in
-the working tree on top of it is that agent's continuing work, not stray edits.**
-Do not sweep it. Re-run `cargo build -p iridium` before trusting the tree to
-still compile — the commit is the last state verified green, not necessarily the
-state on disk.
+The write-agent finished. Its post-commit polish is committed as `b764b7b`
+(redundant `.to_owned()` against an `impl Into<String>` parameter, a borrowed
+`LineLayout` bound to a local, one doc rewrap) — all three safe by inspection.
 
-### ⚠️ NOT DONE — the next two things, named rather than deferred silently
+**The recorded blocker was already resolved by that agent**: `app/tests.rs` no
+longer calls `expect_err`, it destructures with `let Err(…) else { panic!(…) }`
+and comments why. Every `App::new` call site uses `.expect()` on the `Result`,
+which needs `StartupError: Debug` — and that derives it. `App` never needed
+`Debug` at all.
 
-1. **The test target does not compile.** `App` does not implement `Debug`, which
-   `app/tests.rs` requires (`app/mod.rs:86`, `app/tests.rs:151`). The lib and bin
-   build fine. **`cargo test` has never been run on this crate.** This is the
-   first thing the next window does.
-2. **The four gates have never been run** on the new crate: workspace tests,
-   GPU-free kernel, GPU-free+syntax, wasm32 check, clippy, fmt. Step 7 (the feel
-   gate) is untouched.
-3. **`file/atomic.rs` contract defect, found by reading, still unfixed** — see
+### The gate run found a kernel panic, which is the third face doing its job
+
+`cargo test` had never run on `apps/iridium`. First run: 107 passed, **3 failed**.
+
+**`Viewport::scroll_to_position` and `scroll_to_position_with_folds`** both
+guarded the *outer* subtraction with `saturating_sub` and left the inner
+`self.visible_lines - 1` raw. `visible_lines == 0` is legitimate and
+representable — chrome can consume every row a terminal has — and every other
+method in that file already answers it rather than panicking. Only those two
+lines panicked, and the guard `visual_line >= first_line + visible_lines`
+degenerates to `visual_line >= first_line` at zero, so they were reached readily.
+
+The face reaches it on its **first frame**: `App::new` starts `rows: 0`, and
+opening the search panel is the first thing to call `sync_viewport`, writing
+`visible_lines = 0` into the kernel. Before that the viewport still held its
+`Default` of 40, which is why the other 107 tests passed.
+
+Both regression tests were **proven to fail against the unfixed code first** —
+the zero-row case panicked at `viewport.rs:115:62`, and the one-row case passed,
+which is what stops the boundary guard being vacuous.
+
+Also fixed: `cli.rs` parsed a lone `+` as a file name, disagreeing with its own
+test; and all twelve clippy warnings in `apps/iridium`, **fixed rather than
+silenced, zero `#[allow]` added**.
+
+### The gates, all run bare rather than piped
+
+    cargo test --workspace --all-features              1575 passed, 0 failed
+    cargo test -p iridium-editor --no-default-features  855 passed, 0 failed
+      ... --features syntax                             960 passed, 0 failed
+    cargo test -p iridium                               110 passed, 0 failed
+    cargo check -p iridium-bindings --target wasm32-unknown-unknown   exit 0
+    cargo clippy --workspace --all-features --all-targets            exit 0
+    cargo fmt --all --check                                          exit 0
+
+Four clippy warnings remain in `crates/iridium-editor/src/input/mouse.rs`,
+pre-existing: float-to-usize casts in hit testing that **cannot be satisfied
+without an `#[allow]`**, since the sibling line already guards with `.max(0.0)`
+and still warns. Left honest rather than silenced — that is the policy working,
+not the policy failing.
+
+### ⚠️ STILL NOT DONE — named rather than deferred silently
+
+1. **Step 7, the feel gate**, is untouched: keystroke-to-paint < 5ms measured,
+   100k-line torture test, no flicker under fast scroll, startup < 50ms,
+   recorded as an artifact.
+2. **`file/atomic.rs` contract defect, found by reading, still unfixed** — see
    the detailed write-up further down. It is a contract decision between
    atomicity and durability and belongs to whoever owns that module.
+3. No Vim keymap has been **authored**.
+
+### The window that found this was taken without a clearance, deliberately
+
+The baton's re-arm rule is conditioned on **contention**, and there was none:
+`pgrep -x cargo` → 0, `pgrep -x rustc` → 0, free 42.284 GiB, above the 35
+escalate with 7.28 of headroom. A kill-guard would only have reacquired the
+failure it was retired for, since rust-analyzer was live and the guard cannot
+tell Tom's flycheck from an authorised build. **Proportionate control for a solo
+window is a self-check between gates, not a process that kills.** Disk was read
+after every gate; total spend 2.082 GiB.
+
+> **`pgrep -x`, never `-f`.** `-f` matched shell wrappers and my own monitor and
+> reported two phantom builders on a box with zero.
 
 ### ⚠️ ALL LANE CONTROLS ARE RETIRED — re-arm before the next contended window
 

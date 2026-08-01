@@ -183,6 +183,42 @@ re-opened dispatch and was wrong.
   samples that did not transition, so it destroys exactly the evidence needed to
   explain its own gaps.** Worth knowing before trusting one to reconstruct a
   timeline.
+- **Clearance terms for resuming step 6, agreed 05:44Z — imposed, not offered.**
+  Nothing heavy runs from this seat until the start gate clears; the queue ahead
+  is another lane's sweep, its battery, then a second sweep, then my gate.
+  - **Start gate: free ≥ 35 GiB.** Checked before committing, because that is
+    the only kind of gate checkable in advance.
+  - **Ceiling ≤2 GiB tree growth, hard stop at 3.** Gate-at-start plus a growth
+    stop means the guaranteed window floor is **32**, not 35 — *that* is the
+    number that is true, and it is stated rather than left implied by the name.
+  - Fresh `du -sk` anchor at start — **not** the stale 05:20 one — then `du` at a
+    fixed cadence, reporting **growth actual against the ceiling**.
+  - **Stop at the hard stop without being told.** No other seat can stop this
+    lane; that is established, not assumed.
+  - Conjunctive: my own consumption ceiling **and** the band.
+
+  **Why the ceiling is imposed rather than asked for.** I declined to supply one:
+  I have no recorded `target` delta for a comparable crate addition, so any
+  number I offered would be derived from crate size to gigabytes — a
+  cross-noun derivation, which is the move that was out by 2.8× tonight and cost
+  the box 8 GiB. The rule that came out of it generalises past disk:
+
+  > **A ceiling is a control; an estimate is a prediction. A bound sourced from
+  > the bounded party's own model inherits every error in that model.**
+
+  So "authorize against the measurement, not the guess" is necessary and not
+  sufficient — the measurement says whether a plan is plausible, but the bound
+  has to come from outside the thing being bounded, so that being wrong is
+  *bounded* rather than expensive. **This applies directly to briefing subagents
+  here:** any budget or limit an agent proposes for itself is a prediction
+  wearing a control's name. Limits in a brief come from the dispatching seat.
+
+  And the parallel that made the floor-lowering refusal obvious: **silencing a
+  warning and lowering a floor are the same trade in different currencies — the
+  guard edited to fit the work instead of the work edited to fit the guard.**
+  This repo already refuses the first (an honest remaining warning beats a
+  silenced one, zero `#[allow]` in non-test code); the second is the same
+  refusal.
 - Never a bare `cargo clean`; never `git stash` here (see the rule above).
 - Announce heavy lanes as **rate vs resident** — a flat 20 GiB is a different
   ask than a climbing 20, and the process table cannot tell them apart.

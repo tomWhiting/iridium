@@ -33,7 +33,55 @@ committed and green. Entries `{1}`–`{8}` are pre-existing and predate this wor
 were in the tree, so a formatting-only diff may appear in work its author did
 not write. `cargo fmt --all --check` is clean.
 
-## IN FLIGHT as of 1 Aug 04:10Z — two agents running, nothing committed by them
+## BOTH LANES LANDED 1 Aug 05:0xZ — `9428ba6` and `b47d6bc`
+
+Superseding the "IN FLIGHT" section below. **1463 workspace tests, zero
+failures**; GPU-free 834 / GPU-free+syntax 939; clippy exactly the 2
+deliberate `input/mouse.rs` locations; fmt clean; wasm32 compiles.
+
+**`9428ba6` — the two things `48f79ea` left.** Folds now refresh after
+undo/redo (incrementally — the replay measures its edit span before applying,
+so no full parse was needed), and the browser's brace scanner is incremental
+instead of rescanning the whole document per keystroke: 10k lines 0.453 ms →
+0.017 ms, 100k lines 4.363 ms → 0.138 ms. `FoldCache` could **not** be reused —
+it rests on tree-sitter handing it `changed_ranges`, and a left-to-right text
+scan has no such oracle, so the boundary is *measured* via a convergence point
+rather than given. Also fixed a latent bug: `WebEditor` parsed its fold tree as
+`Language::Rust` while its `FoldState` was built for `Language::C`.
+
+**`b47d6bc` — terminal search & replace panel.** tui tests 198 → 277.
+
+### Verified by me, not taken on report
+
+Both fixes were **broken by hand** and the tests confirmed to go red: 4 for the
+undo path (`an undo did not reparse at all…`), 4 for the incremental scan
+(`one keystroke read 60 lines in a 60-line document and 6000 in a 6,000-line
+one`), and 1 spot-check on the tui panel's viewport. Probes removed and green
+re-confirmed.
+
+**The one reported flake did not reproduce**:
+`frame::search::tests::the_current_match_marking_follows_navigation` was seen
+failing once in an intermediate run. **0 failures in 40 isolated runs and 12
+full-suite runs.** Both agents independently reported the mechanism — the tui
+tree was being rewritten underneath a concurrent build, and an mtime-preserving
+file restore made cargo reuse a stale build. Not a defect in the test. 52 clean
+runs is not proof of non-flakiness, but the mechanism accounts for it.
+
+### Still open, deliberately
+
+- **The rope→`String` copy is now the browser's dominant fold cost** (~1.25 ms
+  at 100k lines against 0.14 ms of scanning). The ranking flipped; making the
+  scanner rope-aware is the next move there.
+- **100k-line flat JSON keystroke ≈ 106 ms**, bounded by tree-sitter's own
+  reparse. Realistic code is 1.04 ms.
+- **`wasm.rs`'s five call sites are unexecuted by any test** — the module is
+  `cfg(target_arch = "wasm32")` so nothing there runs on the host. The logic was
+  moved to `web_folds.rs` and tested natively; the call sites were read, not run.
+- **`core.rs` 2,616 lines** against the 500-line cap. Pre-existing.
+- **`stash@{0}` retained** as a safety net (see the rule above); safe to drop
+  now that both lanes are committed and green.
+
+## IN FLIGHT as of 1 Aug 04:10Z (superseded — kept for the record)
 
 `main` is at `24ebcb1`, pushed, green (1364 tests, clippy 2 deliberate
 locations in `input/mouse.rs`, fmt clean, wasm32 compiles).

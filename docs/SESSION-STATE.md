@@ -33,6 +33,49 @@ committed and green. Entries `{1}`–`{8}` are pre-existing and predate this wor
 were in the tree, so a formatting-only diff may appear in work its author did
 not write. `cargo fmt --all --check` is clean.
 
+## ▶ IN FLIGHT 1 Aug 05:11Z — step 6, `apps/iridium` (one agent, uncommitted)
+
+`main` at `c50a4f4`, pushed, green: **1463 tests**, clippy 2 deliberate
+locations (`input/mouse.rs:549`, `:559`), fmt clean, wasm32 compiles.
+
+**Lane:** build `apps/iridium` — the terminal application binary. Does not
+exist yet; the agent creates it and adds it to `members` in the root
+`Cargo.toml`. Scope from `docs/TERMINAL-FACE-PLAN.md` step 6: open/save with
+**atomic write** (temp file + fsync + rename — a truncated save is the worst
+thing this binary can do), external-change detection, go-to-line, theme
+loading, folds, the multi-cursor verb set. Logic must live in testable modules
+with a thin `main.rs`.
+
+**When it reports:** re-run all four gates personally, and **break the atomic
+write and the change detection by hand** — those are the two places a silent
+failure costs someone their data.
+
+**After this, step 7 is the last:** the feel gate — keystroke-to-paint < 5 ms
+measured, 100k-line torture test, no flicker under fast scroll, startup
+< 50 ms, recorded as an artifact rather than vibes.
+
+### Box coordination — obligations I am under
+
+The box is shared and near its bands. A sequencer seat (`Athena`) holds the
+map; **every heavy dispatch needs a named clearance from her, per lane.** That
+rule does *not* move when the band moves — I inferred once that a band clearing
+re-opened dispatch and was wrong.
+
+- **Bands: 50 notify / 35 escalate / 25 hard floor**, `df -k /System/Volumes/Data`
+  (not `/`, which is the sealed system snapshot).
+- **Standing condition on the current lane: HALT the agent at 35, then report.**
+  Halt first, so it does not wait on my attention.
+- **Dispatch anchor, taken personally:** `libs/iridium/target` =
+  **31,109,944 KiB = 29.669 GiB @ 05:13:47Z**. Take the close anchor the same
+  way and report the growth actual against the announced 2–4 GiB.
+- Disk monitor is `pid 9622`, verified alive in the process table. **It alerts;
+  it cannot halt.** There is no automatic brake anywhere on this box — the
+  sequencer's seat is read-only, so self-imposed lane brakes are the only real
+  floor.
+- Never a bare `cargo clean`; never `git stash` here (see the rule above).
+- Announce heavy lanes as **rate vs resident** — a flat 20 GiB is a different
+  ask than a climbing 20, and the process table cannot tell them apart.
+
 ## BOTH LANES LANDED 1 Aug 05:0xZ — `9428ba6` and `b47d6bc`
 
 Superseding the "IN FLIGHT" section below. **1463 workspace tests, zero

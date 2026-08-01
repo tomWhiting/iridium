@@ -413,6 +413,26 @@ re-opened dispatch and was wrong.
   Measured growth of that attempt: **4 KiB.** The reasoning was that cargo
   resolves the graph from manifests and would build deps first — it does resolve
   from manifests, and target paths are part of that resolution.
+- ⭐ **A per-lane clearance regime leaves the SUM as nobody's noun — fix it in
+  the lane, since that is where the actuator is.** Every lane on a shared box
+  gets priced against a floor at *its own* fire moment. Free at that moment
+  contains everyone who fired before and none of who fires after, so two
+  individually-sound clearances can combine into a crossing neither owner
+  authorised. The sequencer seat can see the sum but cannot stop anything; the
+  lane can stop itself but was only watching itself.
+  - The working guard is therefore **conjunctive in fact, not just in name**:
+    an *own-growth* arm (ceiling / hard stop against a carried anchor) **and** a
+    *shared-resource* arm — `free < 30 GiB` halts this lane **regardless of its
+    own growth being well inside ceiling.** Both arms kill, revert to no-build,
+    and stay armed.
+  - **The floor is deliberately not the escalate band.** That crossing was
+    pre-attributed and expected; a control that fires on a sanctioned event is a
+    control people learn to ignore. Set it between the sanctioned crossing and
+    the real floor.
+  - ⚠️ **The defect this fixed was mine and it was the conjunctive rule
+    unimplemented in my own instrument** — written as a rule two hours earlier,
+    then built as a guard that watched only its own consumption. Holding a
+    standard and applying it outward, again.
 - **Per-lane instruments beat box-level ones for the thing they get used for
   most: proving innocence.** With `df` falling 1.313 GiB, a cwd-scoped `du` on
   this tree read flat to the KiB — so this lane could say *not me* with

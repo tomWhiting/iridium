@@ -22,6 +22,16 @@ Present: `lib.rs` 64, `theme.rs` 256, `cli.rs` 422, `app/commands.rs` 343,
 message on the same task id with its context intact — that is the intended path
 once disk clears, not a re-dispatch from scratch.
 
+**Order of work when it resumes: compile → commit → *then* gates.** Deliberate,
+and it inverts the natural finish-then-verify order. Disk on this box is scarce
+enough that a working window can end before the lane does, and the lane is
+stopped in the worst possible state for that: 2,291 lines, uncommitted, not
+compiling. **The window's first job is a durable checkpoint, not completion.**
+Once it compiles and is committed, an interruption costs a resumption rather
+than the work, and the gates can run in any later window — or on a box under no
+pressure at all. Generalises: **when the scarce resource is a window rather than
+a budget, order the work so that an interruption leaves something durable.**
+
 ### A real defect found in the halted work, by reading (not yet fixed)
 
 `apps/iridium/src/file/atomic.rs` — **`write_atomically` can return `Err` after

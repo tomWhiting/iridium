@@ -148,11 +148,51 @@ let n = ev.encode(&mut buf, Encoding::Kitty(KittyFlags::all()))?; // 8 bytes: ES
 
 Those two encodings are the whole kitty-protocol argument in one line, and both
 outputs above were **observed, not predicted**. Under legacy xterm, Ctrl+Z is
-the single byte `26` — byte-identical to Ctrl+Shift+Z, so the two can never be
-told apart. Under the kitty protocol it is `ESC[122;5u`, carrying the base
-keycode and a modifier bitmask, so they can. Any editor that wants
-Ctrl+Shift+something as a distinct binding needs the kitty protocol; there is
-no cleverness that recovers it from the legacy stream.
+the single byte `26`, and a real terminal sends that same byte for Ctrl+Shift+Z,
+so the two can never be told apart. Under the kitty protocol it is `ESC[122;5u`,
+carrying the base keycode and a modifier bitmask, so they can. Any editor that
+wants Ctrl+Shift+something as a distinct binding needs the kitty protocol; there
+is no cleverness that recovers it from the legacy stream.
+
+**Correction (1 Aug), found while building the input adapter.** The sentence
+above originally said the two were "byte-identical". That is true of the *wire*
+but not of terminput's encoder: `encode(Ctrl+Shift+Z, Encoding::Xterm)` does not
+produce byte 26, it **returns an error** — the legacy encoding simply has no
+form for that chord. All three facts are now pinned by
+`ctrl_shift_z_is_indistinguishable_from_ctrl_z_under_xterm_only` in
+`iridium-tui`: Ctrl+Z encodes to `[26]`, Ctrl+Shift+Z fails to encode, and the
+byte `26` parses back as Ctrl+Z with shift absent.
+
+Three further legacy collisions were found and are pinned by the same test file,
+because each is a fact about terminals rather than a gap to paper over: under
+xterm `Ctrl+I` is Tab, `Ctrl+M` is Enter and `Ctrl+Backspace` is `Ctrl+H` (all
+resolved in favour of the named key, which is what the byte has meant since the
+VT100); Super/Hyper/Meta do not exist in the legacy stream at all, so `Super+P`
+arrives as a bare `p`; and key *releases* and *repeats* are kitty-only.
+
+## Which keyboard-enhancement flags the driver must push
+
+Established while building the adapter and pinned by
+`report_all_keys_costs_the_shifted_character`. Push:
+
+```text
+DISAMBIGUATE_ESCAPE_CODES | REPORT_EVENT_TYPES | REPORT_ALTERNATE_KEYS
+```
+
+and **not** `REPORT_ALL_KEYS_AS_ESCAPE_CODES`. That last flag puts every
+printable key into CSI-u form, where the sequence names the *key* rather than
+the character produced — and terminput 0.5.15 emits an alternate codepoint only
+for ASCII letters, ignoring the associated-text field entirely. The consequence
+is concrete: with it set, typing `!` would insert `1`. Leaving printable keys in
+their legacy form avoids the whole class.
+
+## Upstream bug to carry (terminput 0.5.15)
+
+The **kitty encoder mis-encodes PageUp/PageDown**: it appends its `u` terminator
+to the legacy form, emitting `ESC[5~u`, which terminput's own parser then
+rejects. Harmless to Iridium — we only ever *parse*, and both protocols use the
+same `CSI 5 ~` bytes for those keys — so the affected tests write the bytes
+literally and say why. Worth reporting upstream.
 
 `Encoding` has exactly two variants — `Xterm` and `Kitty(KittyFlags)` — so
 tests can pin behaviour under both, which is what a legacy-fallback path

@@ -91,7 +91,47 @@ window is a self-check between gates, not a process that kills.** Disk was read
 after every gate; total spend 2.082 GiB.
 
 > **`pgrep -x`, never `-f`.** `-f` matched shell wrappers and my own monitor and
-> reported two phantom builders on a box with zero.
+> reported two phantom builders on a box with zero. `-x` matches `comm`, the
+> executable's basename, so an absolute toolchain path is still visible (tested:
+> 15/15 samples). Its one blind spot is a wrapper *script* named `cargo`, whose
+> `comm` is its interpreter.
+>
+> **But no process sample can establish quiet — only that it was quiet at an
+> instant.** "Uncontended" written off one `pgrep` is a point generalised to an
+> interval. It was right at 06:40:52Z; that is luck, not method.
+
+### ⚠️ A CLAIM MADE FROM THIS SEAT WAS WRONG AND IS WITHDRAWN
+
+I told the coordinating seat that `target/wasm32-unknown-unknown` at 0.750 GiB
+was "unambiguously mine — 36% of the delta attributed cleanly." **It is not.**
+
+    wasm32 ALL bytes           814,434,917 = 0.7585 GiB
+    newer than my anchor        61,664,678 = 0.0574 GiB  (23 files, by mtime)
+    oldest file                 2026-07-31T08:11:05      ← a day before my window
+
+> **A size cannot be attributed on evidence of authorship.** "Nothing else in
+> this tree targets wasm32" establishes *who writes there*. It is silent on *how
+> many bytes arrived in the window*. The directory predated the anchor, so almost
+> all of its bytes were already **inside** it and cannot appear in a delta
+> measured **from** it. Worse, a rebuild **rewrites** — bytes touched are not
+> bytes added, so even the 0.0574 is an upper bound, not a figure.
+
+The aggravating factor, which is the part worth carrying: it was **the most
+attractive number in the message**, the one clean entirely-mine figure in a
+paragraph otherwise admitting it could not split anything. The `debug/` ambiguity
+got scrutinised *because* it was inconvenient; the wasm32 figure got none
+*because* it flattered. **The reading least likely to be examined is the one that
+already says what you wanted it to.**
+
+Corollary now believed: the whole 2.082 GiB delta is jointly owned and **nothing
+in it can be attributed by this seat.** The refusal to split `debug/` was right;
+it should have been extended to the entire delta.
+
+Also observed, from the other seat's own self-correction and confirmed by hand: a
+**directory's ctime is silent about writes into its descendants** — the wasm32
+top dir reads 2026-07-31T09:55:47 while 37 entries below it carry ctimes after
+the anchor. Two seats put a size question to a timestamp field in the same minute,
+in opposite directions.
 
 ### ⚠️ ALL LANE CONTROLS ARE RETIRED — re-arm before the next contended window
 

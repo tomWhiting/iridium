@@ -32,6 +32,23 @@ impl Op {
             Self::PopKeyboard(count) => Self::PushKeyboard(count),
         }
     }
+
+    /// Whether `self` undoes `other`.
+    ///
+    /// Not simply `self == other.inverse()`, because the keyboard stack is the
+    /// one pair whose two halves carry *different kinds* of number: a push
+    /// carries a flag bitmask (`CSI > 11 u`) and a pop carries a count of stack
+    /// entries to remove (`CSI < 1 u`). Comparing the two payloads asks whether
+    /// a bitmask equals a count, which is meaningless — and answering it "no"
+    /// would report a correct teardown as an unbalanced one.
+    ///
+    /// A pop of one therefore undoes a push whatever flags that push carried.
+    fn undoes(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::PopKeyboard(count), Self::PushKeyboard(_)) => count == 1,
+            _ => self == other.inverse(),
+        }
+    }
 }
 
 /// Every mode change in a byte stream, in the order it was written.
@@ -107,14 +124,14 @@ fn every_mode_that_is_set_is_reset() {
     assert!(!entered.is_empty(), "entering must change something");
     for op in &entered {
         assert!(
-            left.contains(&op.inverse()),
+            left.iter().any(|undo| undo.undoes(*op)),
             "{op:?} was never undone; leaving wrote {left:?}"
         );
     }
     for op in &left {
         assert!(
-            entered.contains(&op.inverse()),
-            "{op:?} undoes something that was never done"
+            entered.iter().any(|done| op.undoes(*done)),
+            "{op:?} undoes something that was never done; entering wrote {entered:?}"
         );
     }
 }
@@ -158,7 +175,10 @@ fn a_legacy_terminal_is_never_popped() {
             "a terminal without the protocol has no stack to push or pop: {op:?}"
         );
     }
-    assert!(scan(&entry).contains(&Op::Set(1049)), "it is still a screen");
+    assert!(
+        scan(&entry).contains(&Op::Set(1049)),
+        "it is still a screen"
+    );
 }
 
 #[test]

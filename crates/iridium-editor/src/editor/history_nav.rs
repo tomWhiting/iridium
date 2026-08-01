@@ -14,10 +14,51 @@
 //! emission behave identically however the tree was traversed.
 
 use super::core::{Editor, EditorEvent};
+use crate::document::compute_edit_span;
 use crate::history::{Command, UndoNodeId, UndoNodeInfo, UndoTreeSnapshot};
 use crate::input::HistoryRequest;
 
 impl Editor {
+    /// Applies one replayed history command and reports it to the syntax state.
+    ///
+    /// Every path that replays history — [`Editor::undo`], [`Editor::redo`],
+    /// [`Editor::redo_branch`], [`Editor::jump_to_history_node`] — goes through
+    /// here, so that the parse tree learns about a replayed edit by exactly the
+    /// same route it learns about a typed one.
+    ///
+    /// The span is measured **before** the command is applied, because
+    /// [`compute_edit_span`] expresses it in the coordinates of the document
+    /// that is about to stop existing. That is what makes the reparse after a
+    /// replay incremental rather than a full one; it is an optimisation, not the
+    /// correctness argument. If the span cannot be computed the edit is left
+    /// unreported, the document revision then disagrees with the one the tree
+    /// was told about, and the next sync parses the document whole — slower, and
+    /// still right.
+    ///
+    /// Returns false — having emitted `code` — when the command does not apply.
+    /// The tree pointer has already moved by then, which matches the
+    /// pre-existing behaviour of [`Editor::undo`] and [`Editor::redo`]: a
+    /// command that fails against the document it was recorded for means the
+    /// document was mutated outside the history, and no local recovery can make
+    /// the two agree again.
+    pub(super) fn apply_replayed_command(&mut self, cmd: &Command, code: &str) -> bool {
+        let span = compute_edit_span(&self.state.document, cmd).ok().flatten();
+
+        if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
+            self.emit(&EditorEvent::Error {
+                message: e.to_string(),
+                code: code.to_owned(),
+            });
+            return false;
+        }
+
+        if let Some(span) = span {
+            self.state.syntax.note_edit(&self.state.document, &span);
+        }
+
+        true
+    }
+
     /// Performs one [`HistoryRequest`], reporting whether anything changed.
     ///
     /// The single funnel every history *command* goes through, so `Ctrl+Z`, the
@@ -115,8 +156,14 @@ impl Editor {
             return true;
         };
 
+        // The leading commands are applied without the post-replay step, which
+        // only the final one should trigger: a jump crosses several nodes, and
+        // running cursor restoration and firing a content-changed event per
+        // edge would make hosts observe intermediate document states that were
+        // never a destination. Each edit is still reported to the syntax state,
+        // so the tree is carried across every one of them.
         for cmd in leading {
-            if !self.apply_replayed_silently(cmd, "HISTORY_JUMP_FAILED") {
+            if !self.apply_replayed_command(cmd, "HISTORY_JUMP_FAILED") {
                 return false;
             }
         }
@@ -125,41 +172,12 @@ impl Editor {
     }
 
     /// Applies one replayed command and runs the shared post-replay step.
-    ///
-    /// On failure the error is emitted and `false` returned. The tree pointer
-    /// has already moved by this point, which matches the pre-existing
-    /// behaviour of [`Editor::undo`] and [`Editor::redo`]: a command that
-    /// fails to apply to the document it was recorded against indicates the
-    /// document was mutated outside the history, and no local recovery can
-    /// make the two agree again.
     fn apply_replayed(&mut self, cmd: &Command, code: &str) -> bool {
-        if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
-            self.emit(&EditorEvent::Error {
-                message: e.to_string(),
-                code: code.to_string(),
-            });
+        if !self.apply_replayed_command(cmd, code) {
             return false;
         }
 
         self.finish_history_replay(cmd);
-        true
-    }
-
-    /// Applies one command of a multi-step replay without the post-replay
-    /// step, which only the final command should trigger.
-    ///
-    /// A jump crosses several nodes; running cursor restoration and firing a
-    /// content-changed event per edge would make hosts observe intermediate
-    /// document states that were never a destination.
-    fn apply_replayed_silently(&mut self, cmd: &Command, code: &str) -> bool {
-        if let Err(e) = cmd.apply(&mut self.state.document, &mut self.state.cursor) {
-            self.emit(&EditorEvent::Error {
-                message: e.to_string(),
-                code: code.to_string(),
-            });
-            return false;
-        }
-
         true
     }
 }

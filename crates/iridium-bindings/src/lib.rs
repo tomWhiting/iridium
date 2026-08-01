@@ -49,6 +49,8 @@ pub mod key_map;
 pub mod palette;
 pub mod remote_edit;
 pub mod text_range;
+#[cfg(feature = "web")]
+pub mod web_folds;
 
 // Napi modules (Node.js bindings)
 #[cfg(feature = "napi")]

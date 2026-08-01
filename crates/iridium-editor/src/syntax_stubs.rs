@@ -149,11 +149,40 @@ impl FoldRegion {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Tree;
 
+/// Stub position, mirroring `tree_sitter::Point`.
+///
+/// The column is in **bytes** within its row, as tree-sitter's is, so the same
+/// arithmetic is valid in both configurations.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Point {
+    /// Zero-based line.
+    pub row: usize,
+    /// Zero-based byte offset within the line.
+    pub column: usize,
+}
+
 /// Stub edit descriptor, mirroring `tree_sitter::InputEdit`.
 ///
-/// Carries nothing: with no parser there is no tree to shift.
+/// It carries the whole description rather than nothing. There is no tree to
+/// shift without a parser, but there is still a *document* to shift, and the
+/// brace scanner that stands in for tree-sitter fold detection needs to know
+/// which lines the edit moved in order to rescan only those. An edit descriptor
+/// that carried nothing forced it to rescan everything.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct InputEdit;
+pub struct InputEdit {
+    /// Byte offset where the edit begins, in both documents.
+    pub start_byte: usize,
+    /// Byte offset where the replaced text ended, in the pre-edit document.
+    pub old_end_byte: usize,
+    /// Byte offset where the new text ends, in the post-edit document.
+    pub new_end_byte: usize,
+    /// Position where the edit begins, in both documents.
+    pub start_position: Point,
+    /// Position where the replaced text ended, in the pre-edit document.
+    pub old_end_position: Point,
+    /// Position where the new text ends, in the post-edit document.
+    pub new_end_position: Point,
+}
 
 /// Stub retained tree, mirroring `iridium_syntax::SyntaxTree`.
 ///
@@ -214,121 +243,19 @@ impl SyntaxTree {
     }
 }
 
-/// Simple brace-based fold detector for when syntax feature is disabled.
+/// Presents one brace pair as a fold region.
 ///
-/// This provides basic code folding by matching braces `{}` without
-/// requiring tree-sitter. It handles:
-/// - Nested braces
-/// - Skipping braces inside string literals (basic heuristic)
-/// - Multi-line blocks only (single-line braces are not foldable)
-#[derive(Debug)]
-pub struct FoldDetector;
-
-impl FoldDetector {
-    /// Creates a new brace-based fold detector.
-    #[must_use]
-    pub const fn new(_language: Language) -> Self {
-        Self
-    }
-
-    /// Detects fold regions by matching braces, ignoring the stub tree.
-    #[must_use]
-    pub fn regions_in(&self, _tree: &Tree, source: &str) -> Vec<FoldRegion> {
-        Self::detect_brace_folds(source)
-    }
-
-    /// Detects foldable regions by matching braces.
-    fn detect_brace_folds(source: &str) -> Vec<FoldRegion> {
-        let mut regions = Vec::new();
-        let mut brace_stack: Vec<(usize, usize)> = Vec::new(); // (line, char_index)
-        let mut in_string = false;
-        let mut string_char = '"';
-        let mut in_block_comment = false;
-        let mut prev_char = '\0';
-
-        // A line comment always runs to the end of its line, so the scan
-        // breaks out rather than tracking a flag that could never be read
-        // again before being reset.
-        for (line_num, line) in source.lines().enumerate() {
-            let chars: Vec<char> = line.chars().collect();
-            let mut i = 0;
-
-            while i < chars.len() {
-                let ch = chars[i];
-                let next_char = chars.get(i + 1).copied().unwrap_or('\0');
-
-                // Handle block comment start
-                if !in_string && !in_block_comment && ch == '/' && next_char == '*' {
-                    in_block_comment = true;
-                    i += 2;
-                    continue;
-                }
-
-                // Handle block comment end
-                if in_block_comment && ch == '*' && next_char == '/' {
-                    in_block_comment = false;
-                    i += 2;
-                    continue;
-                }
-
-                // Skip if in block comment
-                if in_block_comment {
-                    i += 1;
-                    continue;
-                }
-
-                // Handle line comment start
-                if !in_string && ch == '/' && next_char == '/' {
-                    break; // Rest of line is comment
-                }
-
-                // Handle string literals (basic - doesn't handle all escape sequences)
-                if ch == '"' || ch == '\'' {
-                    if !in_string {
-                        in_string = true;
-                        string_char = ch;
-                    } else if ch == string_char && prev_char != '\\' {
-                        in_string = false;
-                    }
-                    prev_char = ch;
-                    i += 1;
-                    continue;
-                }
-
-                // Skip if in string
-                if in_string {
-                    prev_char = ch;
-                    i += 1;
-                    continue;
-                }
-
-                // Handle opening brace
-                if ch == '{' {
-                    brace_stack.push((line_num, i));
-                }
-
-                // Handle closing brace
-                if ch == '}' {
-                    if let Some((start_line, _)) = brace_stack.pop() {
-                        // Only create fold region if it spans multiple lines
-                        if line_num > start_line {
-                            regions.push(FoldRegion {
-                                start_line,
-                                end_line: line_num,
-                                kind: FoldKind::Block,
-                            });
-                        }
-                    }
-                }
-
-                prev_char = ch;
-                i += 1;
-            }
-        }
-
-        // Sort by start line for consistent ordering
-        regions.sort_by_key(|r| r.start_line);
-        regions
+/// Fold detection without a grammar is brace matching, and it lives in
+/// [`crate::brace_folds`] because it is maintained across edits rather than
+/// redone per keystroke. This is the one line of translation between what that
+/// scanner finds and what a fold consumer expects: every brace pair is a block,
+/// because the scanner has no way to recognise any other kind and inventing one
+/// would report a fold shape nothing detected.
+pub(crate) fn fold_region_for(region: &crate::brace_folds::BraceRegion) -> FoldRegion {
+    FoldRegion {
+        start_line: region.start_line,
+        end_line: region.end_line,
+        kind: FoldKind::Block,
     }
 }
 

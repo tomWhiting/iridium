@@ -1,22 +1,44 @@
 # Session state — 2026-07-30
 
-## ⚠️ WORK IN FLIGHT AT COMPACTION 3 Aug ~10:00Z — SEVEN RULINGS OWED
+## ✅ SEVEN RULINGS DELIVERED 2 Aug ~23:5xZ (3 Aug ~09:55 local) — the grunk primitive lane is unblocked
 
-Athena (via Waffles, message 56de2d2d in the Waffles DM
-`dm:896955e1-…`) asked for seven rulings BEFORE the grunk primitive builds
-start; the build sequence holds until they land. Verbatim-faithful list is in
-that Meridian message — headline: (1) disabled-reason FORM (inline vs chip,
-tooltip banned) + is Affordance's closed-with-reason the wire type MenuSurface
-consumes; (2) form-family seams (SelectMenu/MenuSurface/CommandStore sharing;
-ToggleGroup re-click-to-clear single-select-only?); (3) KeybindingRegistry
-scope-token migration (live consumers exist); (4) DataTable extend vs compose
-with TreeView (gates TreeView's row model); (5) Avatar sanitiser seam
-(security, rule before build); (6) VirtualFeed behavioural contract written
-before implementation (hardest to retrofit); (7) caller-declared closed
-vocabulary as a grunk-wide convention (cheapest, recurs everywhere — Waffles
-suggests ruling it first). Read the inventory doc §11 rows for each before
-ruling; my prior D-series rulings (below) are the frame. No urgency declared,
-but the primitive lane is gated on these.
+Athena's seven pre-build rulings (asked via Waffles, message 56de2d2d) were
+delivered to the Waffles DM (`dm:896955e1-…`), each grounded in same-morning
+source reads of grunk (`stack/frame/packages/grunk`) and Meridian
+(`apps/meridian/apps/web`), gathered by three read-only fan-out agents.
+Headlines: (1) disabled reason = inline muted second line (chip refused —
+reasons are sentences); menu items take an `Affordance` value (`open |
+closed-with-required-reason`), never `enabled?/reason?` — D1 as a compiler
+fact; reason composed once from structured facts, never a relayed server
+sentence. (2) One `ListboxCore` EXTRACTED from CommandStore (its nav slice
+reads only `ordered`), serving both virtual focus and real roving focus;
+ToggleGroup declares mode `single-required | single-nullable | multi` — the
+`''` sentinel is banned; clear-on-reclick = single-select-and-nullable only.
+(3) KeyScope union STAYS closed; migration = instance token on registerHandler
++ `setActiveInstance`, mirroring Meridian's two-axis model — zero edits at
+the 12 live scope sites. (4) DataTable: compose with TreeView, never extend;
+TreeView owns the interactive row model with caller-element rows, tree-table
+= treegrid rendering mode. (5) Avatar: parser-backed ALLOWLIST seam
+(regex sanitisation refused — Meridian's single-pass stripTag is
+reconstruction-bypassable), discriminated input (no sniffing), total fallback
+chain ending in initials. (6) VirtualFeed contract written: anchor by
+identity never length, declared edge-following with caller thresholds, named
+seek outcomes with no IO in the primitive, capped window with two-edge
+eviction compensation, pure-function maths. (7) Caller-declared closed
+vocabulary convention: set at construction + typed refusal, data-* plus
+visible text token, attention-vs-telemetry zero discriminator (CountBadge
+zero renders nothing; CounterPanel's "0" stays). Also endorsed Athena's §10
+ast-grep gate rules. Closed with "the sequence is unblocked from this seat's
+side."
+
+**Waffles's receipt of the D-series** (his 23:39Z message + manifold commit
+`5bc6f43`, `docs/briefs/GRUNK-CONVERSION-rulings.md`): D1–D7 rulings are on
+the record verbatim alongside Athena's sequence and gate condition. Two are
+now binding sequencing constraints: **Affordance builds first**, and **no
+listbox primitive gets briefed until the shared listbox/roving-focus core
+design exists**. He will carry the level principle into the remaining
+conversion briefs, and primitive-law friction comes back as findings, never
+silent accommodations.
 
 ## 📌 RESUME POINT, written 2 Aug ~08:00Z under a weekly-budget freeze warning
 

@@ -5,10 +5,11 @@
 Nothing is in flight; every landed thing is committed and pushed. If this seat
 froze for days, here is what a resuming hand holds:
 
-- **Standing promise to Tom:** rebuild + install `~/.local/bin/iridium` the
-  moment his editor session (pid 8839, `pgrep -x iridium`) is gone — his binary
-  predates the page-motion fix. Never replace it while the pid lives. After
-  install, verify with `iridium --version` (signature can die in the copy).
+- **✅ DISCHARGED 3 Aug ~23:33Z:** the page-motion release binary is installed
+  at `~/.local/bin/iridium` (swap done after his session ended, old binary
+  backed up in this seat's scratchpad as `iridium-installed-backup-7f1a5bc`,
+  swap proven by pty artifact — three PageDowns marked line 118 on the
+  installed binary). Lane opened and closed with Athena, +0.063 GiB actual.
 - **Waiting on Tom, batched in his Meridian DM:** fold-key chords (Mac Option),
   scroll-only page variant, `atomic.rs` contract, flycheck target-dir. A full
   wrap-up was delivered to him 2 Aug ~07:30Z; answers may arrive any time.

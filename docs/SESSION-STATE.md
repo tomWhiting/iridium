@@ -19,6 +19,19 @@ froze for days, here is what a resuming hand holds:
   COMPOSITION.md step 3. Both wait for the design landing at Tom's desk;
   Waffles flags before any brief touches them. My design rulings are law in
   the manifold repo at `docs/briefs/FACE-owner-rulings.md` (`8abb10d`).
+- **D-series rulings delivered 3 Aug ~09:5xZ** on the Meridian-rebuild
+  inventory (`manifold docs/design/MERIDIAN-FUNCTIONAL-INVENTORY.md`): the
+  sorting principle is *a doctrine becomes law at the level where violation
+  can be made impossible or loud*. Grunk-level: no-disabled-boolean (enforced
+  via `Affordance`, build it first), absent-unrepresentable-not-unrendered,
+  composer-destroys-input-only-on-explicit-accept. Assembly/wire-level:
+  four-states (fragment contract), named-outcome results (wire), failure
+  routing (assembly notice service). D6 is React history, not law. Warned:
+  MenuSurface/SelectMenu/TriggerCompletion/CommandSurface need one shared
+  listbox core or they drift. Endorsed palette-first order and the
+  KeybindingRegistry scope token, offered iridium's `commands/` as reference.
+  Frame-assembler fixes (`.js` specifiers; shared structureCss compose fn)
+  queue on Athena's board with my rulings attached — her pen, not mine.
 - **No Vite dev servers, ever** — see the retired-demo note below and the
   `vite-ban` memory. The lane ledger with Athena is CLOSED (0.909 GiB actual);
   re-certify at both ends before any re-entry with builds.

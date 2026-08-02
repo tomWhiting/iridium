@@ -29,7 +29,11 @@ vocabulary convention: set at construction + typed refusal, data-* plus
 visible text token, attention-vs-telemetry zero discriminator (CountBadge
 zero renders nothing; CounterPanel's "0" stays). Also endorsed Athena's §10
 ast-grep gate rules. Closed with "the sequence is unblocked from this seat's
-side."
+side." Waffles confirmed all seven landed verbatim on the record — manifold
+`39ad8e0`, same file as the D-series (`docs/briefs/GRUNK-CONVERSION-rulings.md`).
+The topics slice brief will cite the VirtualFeed contract as its spine.
+Sequence unblocked both sides; Athena's browser-gate wiring is the last
+condition standing before StreamedResults.
 
 **Waffles's receipt of the D-series** (his 23:39Z message + manifold commit
 `5bc6f43`, `docs/briefs/GRUNK-CONVERSION-rulings.md`): D1–D7 rulings are on

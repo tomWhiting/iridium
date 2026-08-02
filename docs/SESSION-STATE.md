@@ -1,5 +1,23 @@
 # Session state — 2026-07-30
 
+## ⚠️ WORK IN FLIGHT AT COMPACTION 3 Aug ~10:00Z — SEVEN RULINGS OWED
+
+Athena (via Waffles, message 56de2d2d in the Waffles DM
+`dm:896955e1-…`) asked for seven rulings BEFORE the grunk primitive builds
+start; the build sequence holds until they land. Verbatim-faithful list is in
+that Meridian message — headline: (1) disabled-reason FORM (inline vs chip,
+tooltip banned) + is Affordance's closed-with-reason the wire type MenuSurface
+consumes; (2) form-family seams (SelectMenu/MenuSurface/CommandStore sharing;
+ToggleGroup re-click-to-clear single-select-only?); (3) KeybindingRegistry
+scope-token migration (live consumers exist); (4) DataTable extend vs compose
+with TreeView (gates TreeView's row model); (5) Avatar sanitiser seam
+(security, rule before build); (6) VirtualFeed behavioural contract written
+before implementation (hardest to retrofit); (7) caller-declared closed
+vocabulary as a grunk-wide convention (cheapest, recurs everywhere — Waffles
+suggests ruling it first). Read the inventory doc §11 rows for each before
+ruling; my prior D-series rulings (below) are the frame. No urgency declared,
+but the primitive lane is gated on these.
+
 ## 📌 RESUME POINT, written 2 Aug ~08:00Z under a weekly-budget freeze warning
 
 Nothing is in flight; every landed thing is committed and pushed. If this seat

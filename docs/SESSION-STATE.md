@@ -1,5 +1,27 @@
 # Session state — 2026-07-30
 
+## 📌 RESUME POINT, written 2 Aug ~08:00Z under a weekly-budget freeze warning
+
+Nothing is in flight; every landed thing is committed and pushed. If this seat
+froze for days, here is what a resuming hand holds:
+
+- **Standing promise to Tom:** rebuild + install `~/.local/bin/iridium` the
+  moment his editor session (pid 8839, `pgrep -x iridium`) is gone — his binary
+  predates the page-motion fix. Never replace it while the pid lives. After
+  install, verify with `iridium --version` (signature can die in the copy).
+- **Waiting on Tom, batched in his Meridian DM:** fold-key chords (Mac Option),
+  scroll-only page variant, `atomic.rs` contract, flycheck target-dir. A full
+  wrap-up was delivered to him 2 Aug ~07:30Z; answers may arrive any time.
+- **Cross-seat commitments (manifold/frame, Waffles's seat):** this seat owns
+  two GATED lanes — a read-only highlighter dist (`(code, language)` → styled
+  spans, run-once build, fragment-lazy grammars) and the iridium mount in
+  COMPOSITION.md step 3. Both wait for the design landing at Tom's desk;
+  Waffles flags before any brief touches them. My design rulings are law in
+  the manifold repo at `docs/briefs/FACE-owner-rulings.md` (`8abb10d`).
+- **No Vite dev servers, ever** — see the retired-demo note below and the
+  `vite-ban` memory. The lane ledger with Athena is CLOSED (0.909 GiB actual);
+  re-certify at both ends before any re-entry with builds.
+
 ## ✅ PAGE MOTION LANDED 1 Aug ~11:55Z — `60eae56`. The in-flight work is done.
 
 `cursor.pageUp` / `cursor.pageDown` + Shift-select variants are kernel verbs,

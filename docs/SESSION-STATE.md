@@ -78,6 +78,24 @@ designed against the instance-token scope model, both seats at the table
 + one fragment kind in a bordered region) went to Tom as Waffles's
 recommendation. No build starts without Tom's window.
 
+**Tom's daily-drive ask, 3 Aug ~03:59Z (his DM):** he's making the terminal
+editor his daily driver (others too) and asked for a walkthrough, its limits,
+and web/desktop status. Delivered: `docs/TERMINAL-WALKTHROUGH.md` (`829997d`),
+compiled from a full source inventory (agent-swept, receipts throughout).
+**Headline finding: the terminal face has NO palette UI** — kernel palette
+machinery (matcher/MRU/aliases/hints) is complete and `Ctrl+K`/`Ctrl+P` are
+bound, but the face doesn't draw it, so 41 palette-only kernel commands are
+unreachable in the terminal (all 15 transforms, 20/22 ast verbs,
+deleteToLineStart/End, redoBranch; only skipLastOccurrence was rescued at
+`Ctrl+Alt+D`). Undo-tree panel same state. Recommended to Tom: terminal
+palette UI as the next build (unlocks all 41); then OSC 52 clipboard, undo
+panel, mouse (needs his kernel decision). **OFFERED to build the palette,
+awaiting his word — do not start a build lane unasked.** Web status sent to
+him: palette + undo panel + multi-caret landed in the React demo, dist built
+on disk (untracked), ast deliberately no-op in wasm (syntax off,
+`wasm.rs:616-627` routes anyway). Desktop: no shell exists (no winit
+anywhere); kernel `render` feature (wgpu/glyphon) is the GPU half.
+
 **Cally Ray census, 3 Aug ~03:53Z:** stack-lead completion census answered in
 her three buckets with receipts (terminal face runnable receipt, page motion
 `60eae56` + gate battery, ten rulings on the manifold record, Vite-ban

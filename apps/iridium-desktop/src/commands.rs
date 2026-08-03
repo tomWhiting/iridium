@@ -22,10 +22,11 @@
 //! reliably see ⌘ — and every one of its patterns forbids `meta`, so a bare
 //! ⌘C on this face would fall through dead. This layer is where the desktop
 //! plan's "⌘C/⌘V/⌘Z work natively" line is honored: the ⌘ rows below bind
-//! **kernel-implemented** commands (clipboard, undo, redo, select-all) to
-//! their macOS chords. Nothing is reimplemented — the rows route the mac
-//! chord to the verb the kernel already runs for the `Ctrl` spelling, so the
-//! two spellings cannot disagree.
+//! **kernel-implemented** commands (clipboard, undo, redo, select-all,
+//! search) and **kernel-named host commands** (the palette, the undo-tree
+//! panel) to their macOS chords. Nothing is reimplemented — the rows route
+//! the mac chord to the verb the kernel already resolves for the `Ctrl`
+//! spelling, so the two spellings cannot disagree.
 //!
 //! | Key | Command | Note |
 //! |---|---|---|
@@ -37,13 +38,17 @@
 //! | `⌘Z` | `history.undo` | kernel verb, mac chord |
 //! | `⌘⇧Z` | `history.redo` | kernel verb, mac chord |
 //! | `⌘A` | `selection.selectAll` | kernel verb, mac chord |
+//! | `⌘F` | `search.open` | kernel verb, mac chord |
+//! | `⌘K` | `palette.open` | kernel-named host command, mac chord |
+//! | `⌘⌥H` | `history.togglePanel` | kernel-named host command, mac chord |
 //!
-//! The `Ctrl` spellings of the kernel verbs stay bound by the default keymap
-//! underneath this layer; both work.
+//! The `Ctrl` spellings stay bound by the default keymap underneath this
+//! layer — `Ctrl+F`, `Ctrl+K`, `Ctrl+P` and `Ctrl+Alt+H` included; both
+//! spellings work.
 
 use iridium_editor::commands::builtin::{
-    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, HISTORY_REDO, HISTORY_UNDO,
-    SELECTION_SELECT_ALL,
+    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
+    HISTORY_UNDO, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL,
 };
 use iridium_editor::{
     CommandCategory, CommandId, CommandMeta, KeyBinding, KeyCode, Keymap, ModifierPattern,
@@ -148,6 +153,17 @@ const BINDINGS: &[(StrokePattern, CommandId)] = &[
         StrokePattern::new(KeyCode::Char('a'), META),
         SELECTION_SELECT_ALL,
     ),
+    (StrokePattern::new(KeyCode::Char('f'), META), SEARCH_OPEN),
+    // `Shift` forbidden for the reason the default keymap's `Ctrl+K` forbids
+    // it: the shifted spelling must stay free to mean something else.
+    (
+        StrokePattern::new(KeyCode::Char('k'), META_NO_SHIFT),
+        PALETTE_OPEN,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('h'), META_ALT),
+        HISTORY_TOGGLE_PANEL,
+    ),
 ];
 
 /// The number of bindings this face adds.
@@ -199,17 +215,22 @@ mod tests {
 
     #[test]
     fn every_borrowed_kernel_verb_is_still_a_kernel_verb() {
-        // The ⌘ layer binds only verbs the kernel implements; a row here for
-        // an id the kernel dropped would be a mac chord that consumes the key
+        // The ⌘ layer binds only verbs the kernel implements or host commands
+        // the kernel *names* (which this face dispatches); a row here for an
+        // id the kernel dropped would be a mac chord that consumes the key
         // and does nothing.
         let ours: BTreeSet<&str> = COMMANDS.iter().map(|meta| meta.id().as_str()).collect();
+        let named: BTreeSet<&str> = iridium_editor::commands::builtin::host_command_metas()
+            .iter()
+            .map(|meta| meta.id().as_str())
+            .collect();
         for (_, command) in BINDINGS {
             if ours.contains(command.as_str()) {
                 continue;
             }
             assert!(
-                Editor::implements_command(command.as_str()),
-                "{command} is bound here but the kernel does not implement it"
+                Editor::implements_command(command.as_str()) || named.contains(command.as_str()),
+                "{command} is bound here but the kernel neither implements nor names it"
             );
         }
     }

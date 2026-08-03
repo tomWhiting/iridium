@@ -10,11 +10,14 @@
 //!
 //! Everything shown comes from one call:
 //! [`Editor::history_snapshot`], whose
-//! [`UndoNodeInfo`] rows already carry parentage, branch order, the preferred
-//! redo child, ages and the current position. Jumping is
-//! [`Editor::jump_to_history_node`], the kernel's own multi-edge replay that
-//! emits exactly one content-changed event. What is here is a row layout, a
-//! selection and a box.
+//! [`UndoNodeInfo`](iridium_editor::history::UndoNodeInfo) rows already carry
+//! parentage, branch order, the preferred redo child, ages and the current
+//! position. So is the *shape* of the panel: the linearized rows and the
+//! selection browsing them are
+//! [`tree_view`](iridium_editor::history::tree_view), shared with every other
+//! face that draws the tree. Jumping is [`Editor::jump_to_history_node`], the
+//! kernel's own multi-edge replay that emits exactly one content-changed
+//! event. What is here is a key map, a row painter and a box.
 //!
 //! # Reading the panel
 //!
@@ -48,7 +51,8 @@ mod paint;
 #[cfg(test)]
 mod tests;
 
-use iridium_editor::history::{UndoNodeId, UndoNodeInfo, UndoTreeSnapshot};
+use iridium_editor::history::UndoNodeId;
+use iridium_editor::history::tree_view::{TreeViewSelection, linearize};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers};
 
 use super::palette::Palette;
@@ -76,59 +80,42 @@ pub enum HistoryOutcome {
 /// and paints it over the finished frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HistoryPanel {
-    /// The selected node, or `None` to follow the document's current node.
-    ///
-    /// A node id rather than a row index: a jump reshapes nothing but a
-    /// refresh re-linearizes the tree, and an index would silently point at a
-    /// different state after one.
-    selected: Option<u64>,
-    /// The first visible row: the scroll position of the list window.
-    scroll: usize,
-    /// How many rows the last paint showed — the page the page keys hop.
-    window: usize,
-}
-
-/// One row of the linearized tree: a node, its indent, and whether it lies on
-/// the active undo/redo path.
-struct TreeRow<'a> {
-    /// The node this row shows.
-    node: &'a UndoNodeInfo,
-    /// How many branch points lie between the root and this node.
-    indent: usize,
-    /// Whether plain undo/redo travels through this node.
-    on_active_path: bool,
+    /// The kernel's selection model: which node is selected, and which slice
+    /// of the rows the window shows.
+    selection: TreeViewSelection,
 }
 
 impl HistoryPanel {
     /// A closed panel.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            window: super::panel::MAX_VISIBLE_ROWS,
-            ..Self::default()
+            selection: TreeViewSelection::with_window(super::panel::MAX_VISIBLE_ROWS),
         }
     }
 
     /// Resets the panel for opening: the selection follows the current node.
     pub const fn open(&mut self) {
-        self.selected = None;
-        self.scroll = 0;
+        self.selection.reset();
     }
 
     /// Handles one key press. Every key is consumed; see the module docs.
     pub fn handle_key(&mut self, event: &KeyEvent, editor: &Editor) -> HistoryOutcome {
         let snapshot = editor.history_snapshot();
         let rows = linearize(&snapshot);
-        let page = self.window.max(1);
+        let page = isize_of(self.selection.page());
         match (chord(event.modifiers), event.key) {
             (Chord::Plain, KeyCode::Escape) | (Chord::CtrlAlt, KeyCode::Char('h' | 'H')) => {
                 HistoryOutcome::Closed
             },
-            (Chord::Plain, KeyCode::Enter) => self.jump_to_selected(&rows),
+            (Chord::Plain, KeyCode::Enter) => self
+                .selection
+                .selected_node(&rows)
+                .map_or(HistoryOutcome::Handled, HistoryOutcome::Jump),
             (Chord::Plain, KeyCode::Up) => self.move_selection(&rows, -1),
             (Chord::Plain, KeyCode::Down) => self.move_selection(&rows, 1),
-            (Chord::Plain, KeyCode::PageUp) => self.move_selection(&rows, -isize_of(page)),
-            (Chord::Plain, KeyCode::PageDown) => self.move_selection(&rows, isize_of(page)),
+            (Chord::Plain, KeyCode::PageUp) => self.move_selection(&rows, -page),
+            (Chord::Plain, KeyCode::PageDown) => self.move_selection(&rows, page),
             (Chord::Plain, KeyCode::Home) => self.move_selection(&rows, isize::MIN),
             (Chord::Plain, KeyCode::End) => self.move_selection(&rows, isize::MAX),
             // Modal: everything else is swallowed, not passed to the document.
@@ -146,133 +133,15 @@ impl HistoryPanel {
         paint::paint(self, buffer, editor, styles);
     }
 
-    /// The selected row's node, resolved against the rows on screen.
-    ///
-    /// Falls back to the current node's row when nothing was selected yet or
-    /// the selected node no longer exists.
-    fn selected_row(&self, rows: &[TreeRow<'_>]) -> Option<usize> {
-        let explicit = self.selected.and_then(|wanted| {
-            rows.iter()
-                .position(|row| row.node.id.parse::<u64>().ok() == Some(wanted))
-        });
-        explicit.or_else(|| rows.iter().position(|row| row.node.is_current))
-    }
-
-    /// Emits a jump to the selected node.
-    fn jump_to_selected(&self, rows: &[TreeRow<'_>]) -> HistoryOutcome {
-        let Some(index) = self.selected_row(rows) else {
-            return HistoryOutcome::Handled;
-        };
-        let Some(row) = rows.get(index) else {
-            return HistoryOutcome::Handled;
-        };
-        row.node
-            .id
-            .parse::<u64>()
-            .map_or(HistoryOutcome::Handled, |id| {
-                HistoryOutcome::Jump(UndoNodeId::from_u64(id))
-            })
-    }
-
     /// Moves the selection by `delta` rows, clamping at both ends.
-    fn move_selection(&mut self, rows: &[TreeRow<'_>], delta: isize) -> HistoryOutcome {
-        let Some(last) = rows.len().checked_sub(1) else {
-            return HistoryOutcome::Handled;
-        };
-        let current = self.selected_row(rows).unwrap_or(0).min(last);
-        let target = if delta < 0 {
-            current.saturating_sub(delta.unsigned_abs())
-        } else {
-            current.saturating_add(delta.unsigned_abs()).min(last)
-        };
-        if let Some(row) = rows.get(target) {
-            self.selected = row.node.id.parse::<u64>().ok();
-        }
+    fn move_selection(
+        &mut self,
+        rows: &[iridium_editor::history::tree_view::TreeViewRow<'_>],
+        delta: isize,
+    ) -> HistoryOutcome {
+        self.selection.move_by(rows, delta);
         HistoryOutcome::Handled
     }
-
-    /// Slides the scroll window so the selection is inside `visible` rows,
-    /// and remembers `visible` as the page size. Called from the paint pass.
-    fn follow_selection(&mut self, rows: &[TreeRow<'_>], visible: usize) {
-        self.window = visible.max(1);
-        if visible == 0 || rows.is_empty() {
-            self.scroll = 0;
-            return;
-        }
-        let selected = self.selected_row(rows).unwrap_or(0);
-        if selected < self.scroll {
-            self.scroll = selected;
-        } else if selected >= self.scroll + visible {
-            self.scroll = selected + 1 - visible;
-        }
-        self.scroll = self.scroll.min(rows.len().saturating_sub(visible));
-    }
-}
-
-/// Linearizes the tree for display: root first, depth-first, children in
-/// creation order, so time runs downward and a fork's branches sit under it.
-///
-/// The indent counts branch points, not depth — a two-hundred-edit straight
-/// history stays flush left, and only genuine forks move text sideways.
-fn linearize(snapshot: &UndoTreeSnapshot) -> Vec<TreeRow<'_>> {
-    let by_id: std::collections::HashMap<&str, &UndoNodeInfo> = snapshot
-        .nodes
-        .iter()
-        .map(|node| (node.id.as_str(), node))
-        .collect();
-
-    let active = active_path(snapshot, &by_id);
-
-    let mut rows = Vec::with_capacity(snapshot.nodes.len());
-    let mut stack: Vec<(&str, usize)> = vec![(snapshot.info.root_id.as_str(), 0)];
-    while let Some((id, indent)) = stack.pop() {
-        let Some(node) = by_id.get(id) else {
-            continue;
-        };
-        rows.push(TreeRow {
-            node,
-            indent,
-            on_active_path: active.contains(id),
-        });
-        let child_indent = if node.child_ids.len() > 1 {
-            indent + 1
-        } else {
-            indent
-        };
-        // Reversed so the first child is popped first and appears first.
-        for child in node.child_ids.iter().rev() {
-            stack.push((child.as_str(), child_indent));
-        }
-    }
-    rows
-}
-
-/// The node ids plain undo and redo travel through: the current node, its
-/// ancestors, and the preferred-child descent below it.
-fn active_path<'a>(
-    snapshot: &'a UndoTreeSnapshot,
-    by_id: &std::collections::HashMap<&str, &'a UndoNodeInfo>,
-) -> std::collections::HashSet<&'a str> {
-    let mut active = std::collections::HashSet::new();
-    let mut upward: Option<&str> = Some(snapshot.info.current_id.as_str());
-    while let Some(id) = upward {
-        if !active.insert(id) {
-            break;
-        }
-        upward = by_id.get(id).and_then(|node| node.parent_id.as_deref());
-    }
-    let mut downward = by_id
-        .get(snapshot.info.current_id.as_str())
-        .and_then(|node| node.preferred_child_id.as_deref());
-    while let Some(id) = downward {
-        if !active.insert(id) {
-            break;
-        }
-        downward = by_id
-            .get(id)
-            .and_then(|node| node.preferred_child_id.as_deref());
-    }
-    active
 }
 
 /// `value` as an `isize`, saturating on a page size no terminal can reach.

@@ -64,12 +64,14 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iridium_editor::input::SearchAction;
+use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
+use iridium_editor::commands::palette::CommandMru;
+use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
 use iridium_editor::theme::Color;
 use iridium_editor::{
-    ClipboardOperation, CommandId, Editor, EditorKeyResult, KeyCode, KeyEvent, KeymapError,
-    Language, MouseResult, RegistryError,
+    ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyCode, KeyEvent,
+    KeymapError, Language, MouseResult, RegistryError,
 };
 use iridium_file::{FileError, TextFile};
 use winit::application::ApplicationHandler;
@@ -78,11 +80,14 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
+use crate::command_palette::{CommandPalette, PaletteOutcome};
 use crate::commands;
+use crate::history_overlay::{HistoryOutcome, HistoryPanel};
 use crate::keys;
 use crate::mouse::{self, Grid, Pointer};
-use crate::overlay::{OverlayPainter, StripContent};
+use crate::overlay::{OverlayPainter, PanelContent, StripContent};
 use crate::prompt::{Answer, Deed, Message, Prompt};
+use crate::search::{SearchOutcome, SearchOverlay};
 use crate::surface::NativeSurface;
 use crate::units::{index_to_f32, pixel_from_f64, scale_to_f32, u32_to_f32};
 
@@ -230,6 +235,26 @@ pub struct DesktopApp {
     clipboard: Option<arboard::Clipboard>,
     /// The file being edited, if the session named one.
     file: Option<TextFile>,
+    /// The search panel. Kept across closes so re-opening offers the last
+    /// query back, which is what [`SearchOverlay`] is built for.
+    search: SearchOverlay,
+    /// Whether the search panel is on screen. It is not modal: keys it does
+    /// not bind stay the host's, so a save chord works mid-search.
+    search_open: bool,
+    /// The command palette panel.
+    palette: CommandPalette,
+    /// Whether the palette is on screen. While it is, it is modal: every key
+    /// goes to it, exactly as with a prompt.
+    palette_open: bool,
+    /// Which commands ran recently, feeding the palette's recency ranking.
+    ///
+    /// Recorded only after a command actually ran — an entry for a command
+    /// that errored would rank a failure as a favourite.
+    mru: CommandMru,
+    /// The undo-tree panel.
+    history: HistoryPanel,
+    /// Whether the undo-tree panel is on screen. Modal while it is.
+    history_open: bool,
     /// The question on the prompt strip, if one is open. Modal while it is.
     prompt: Option<Prompt>,
     /// What the last input had to say, shown on the strip until the next key.
@@ -296,6 +321,13 @@ impl DesktopApp {
             pointer: Pointer::new(),
             clipboard: None,
             file,
+            search: SearchOverlay::new(),
+            search_open: false,
+            palette: CommandPalette::new(),
+            palette_open: false,
+            mru: CommandMru::default(),
+            history: HistoryPanel::new(),
+            history_open: false,
             prompt: None,
             message: None,
             title: String::new(),
@@ -326,20 +358,22 @@ impl DesktopApp {
         *self.editor.state().document.rope() != saved
     }
 
-    /// Handles one translated key press: the open prompt if there is one,
-    /// the kernel otherwise, then whatever the kernel handed back, then
-    /// scroll-to-caret, then a repaint.
+    /// Handles one translated key press, in the terminal face's order: the
+    /// open prompt if there is one, then the modal palette, then the modal
+    /// undo-tree panel, then the search panel (which leaves unbound keys to
+    /// the kernel), then the kernel — then scroll-to-caret and a repaint.
     fn press(&mut self, event: &KeyEvent) -> Flow {
         // A message describes the key before this one.
         self.message = None;
 
         let flow = if self.prompt.is_some() {
             self.prompt_key(event)
+        } else if self.palette_open {
+            self.drive_palette(event)
+        } else if self.history_open {
+            self.drive_history(event)
         } else {
-            let result = self.editor.handle_key(event);
-            let flow = self.consume(result);
-            self.ensure_caret_visible();
-            flow
+            self.search_or_document_key(event)
         };
 
         self.refresh_title();
@@ -350,6 +384,108 @@ impl DesktopApp {
             shell.window.request_redraw();
         }
         flow
+    }
+
+    /// Hands a key to the open search panel, and to the kernel for anything
+    /// the panel does not bind.
+    ///
+    /// The panel leaves what it does not bind to the host, so a save chord is
+    /// not dead while a search is open — the exact rule the terminal face
+    /// applies.
+    fn search_or_document_key(&mut self, event: &KeyEvent) -> Flow {
+        if self.search_open {
+            match self.search.handle_key(event, &mut self.editor) {
+                SearchOutcome::Ignored => {},
+                SearchOutcome::Handled | SearchOutcome::Replaced(_) => {
+                    self.ensure_caret_visible();
+                    return Flow::Running;
+                },
+                SearchOutcome::Closed => {
+                    self.search_open = false;
+                    self.ensure_caret_visible();
+                    return Flow::Running;
+                },
+            }
+        }
+        let result = self.editor.handle_key(event);
+        let flow = self.consume(result);
+        self.ensure_caret_visible();
+        flow
+    }
+
+    /// Hands a key to the open palette and acts on the outcome.
+    ///
+    /// One chord is intercepted before the palette sees it: the paste chord,
+    /// which pastes the system clipboard into the query — the palette is
+    /// modal, so a paste belongs to its field, not to the document under it.
+    fn drive_palette(&mut self, event: &KeyEvent) -> Flow {
+        if is_paste_chord(event) {
+            match self.clipboard_text() {
+                Ok(text) => self.palette.paste(&text),
+                Err(message) => self.message = Some(message),
+            }
+            return Flow::Running;
+        }
+        match self.palette.handle_key(event, &self.editor, &self.mru) {
+            PaletteOutcome::Handled => Flow::Running,
+            PaletteOutcome::Closed => {
+                self.palette_open = false;
+                Flow::Running
+            },
+            PaletteOutcome::Run(command) => {
+                self.palette_open = false;
+                self.run_palette_command(&command)
+            },
+        }
+    }
+
+    /// Hands a key to the open undo-tree panel and acts on the outcome.
+    fn drive_history(&mut self, event: &KeyEvent) -> Flow {
+        match self.history.handle_key(event, &self.editor) {
+            HistoryOutcome::Handled => Flow::Running,
+            HistoryOutcome::Closed => {
+                self.history_open = false;
+                Flow::Running
+            },
+            HistoryOutcome::Jump(node) => {
+                // The panel stays open: hopping between states and watching
+                // the document change underneath is what the tree is for.
+                if !self.editor.jump_to_history_node(node) {
+                    self.message = Some(Message::error(
+                        "that history state no longer exists".to_owned(),
+                    ));
+                }
+                self.ensure_caret_visible();
+                Flow::Running
+            },
+        }
+    }
+
+    /// Runs a command the palette resolved: the kernel's own if it implements
+    /// it, this face's if not, and an honest message when neither does.
+    ///
+    /// The recency list records only commands that actually dispatched, so a
+    /// palette entry nothing runs cannot become a ranked favourite.
+    fn run_palette_command(&mut self, command: &CommandId) -> Flow {
+        match self.editor.run_command(command.as_str(), CommandArgs::NONE) {
+            Ok(result) => {
+                self.mru.record(command);
+                let flow = self.consume(result);
+                self.ensure_caret_visible();
+                flow
+            },
+            Err(CommandRunError::Unimplemented { .. }) => {
+                if let Some(flow) = self.dispatch_host_command(command) {
+                    self.mru.record(command);
+                    self.ensure_caret_visible();
+                    return flow;
+                }
+                self.message = Some(Message::error(format!(
+                    "`{command}` is not available in the desktop yet"
+                )));
+                Flow::Running
+            },
+        }
     }
 
     /// Hands a key to the open prompt and acts on the answer.
@@ -412,9 +548,8 @@ impl DesktopApp {
     ///
     /// The kernel reports a command it does not implement rather than
     /// dropping the keypress; a host command this face does not implement
-    /// either — the palette, the undo-tree panel — surfaces on the prompt
-    /// strip. Saying so is the only honest answer: the key was consumed, and
-    /// silence would look like a dead key.
+    /// either surfaces on the prompt strip. Saying so is the only honest
+    /// answer: the key was consumed, and silence would look like a dead key.
     fn run_host_command(&mut self, command: &CommandId) -> Flow {
         self.dispatch_host_command(command).unwrap_or_else(|| {
             self.message = Some(Message::error(format!(
@@ -431,6 +566,19 @@ impl DesktopApp {
             self.save(false)
         } else if command == &commands::FILE_SAVE_FORCE {
             self.save(true)
+        } else if command == &PALETTE_OPEN {
+            self.palette_open = true;
+            self.palette.open();
+            Flow::Running
+        } else if command == &HISTORY_TOGGLE_PANEL {
+            // A toggle, exactly as the kernel names it: the panel has no
+            // query to abandon, so the chord that opened it is how it is put
+            // away.
+            self.history_open = !self.history_open;
+            if self.history_open {
+                self.history.open();
+            }
+            Flow::Running
         } else {
             return None;
         };
@@ -441,8 +589,8 @@ impl DesktopApp {
     ///
     /// An unnamed buffer is not a dead end: it asks for a name on the prompt
     /// strip. A file that changed on disk refuses the unforced save and names
-    /// the chord that overwrites — the desktop face has no palette yet to
-    /// discover it in.
+    /// the chord that overwrites, because a refusal that does not say the way
+    /// out is a dead end with better manners.
     fn save(&mut self, force: bool) -> Flow {
         if self.editor.state().read_only {
             // Nothing could have changed, so a save here can only write a
@@ -585,19 +733,23 @@ impl DesktopApp {
         }
     }
 
-    /// Acts on a search action the kernel reported.
+    /// Opens or closes the search panel.
     ///
-    /// The kernel has already moved to the next or previous match by the time
-    /// it reports one; the panel actions name UI this slice has not painted,
-    /// and say so instead of dying silently.
+    /// Only the two panel actions need anything here: the kernel has already
+    /// moved to the next or previous match by the time it reports one.
     fn search_action(&mut self, action: &SearchAction) {
         match action {
             SearchAction::OpenSearch => {
-                self.message = Some(Message::error(
-                    "the search panel is not built in the desktop shell yet",
-                ));
+                self.search_open = true;
+                self.search.open(&mut self.editor);
             },
-            SearchAction::CloseSearch | SearchAction::NextMatch | SearchAction::PreviousMatch => {},
+            SearchAction::CloseSearch => {
+                if self.search_open {
+                    self.search_open = false;
+                    self.search.close(&mut self.editor);
+                }
+            },
+            SearchAction::NextMatch | SearchAction::PreviousMatch => {},
         }
     }
 
@@ -769,12 +921,23 @@ impl DesktopApp {
     /// Y comes from the compositor, wrap-aware when the caret's line has not
     /// changed; the scroll decision stays here, on the face that owns
     /// `scroll_y`.
+    ///
+    /// While the search panel is up, the rows it covers at the bottom do not
+    /// count as visible — the terminal face shrinks its viewport for the same
+    /// reason, so a match is never scrolled to a row the panel that found it
+    /// is covering.
     fn ensure_caret_visible(&mut self) {
+        let search_open = self.search_open;
         let Some(shell) = &self.shell else {
             return;
         };
         let line_height = shell.compositor.line_height();
-        let viewport_height = u32_to_f32(shell.surface.height());
+        let bottom_inset = if search_open {
+            shell.overlay.panel_height(2)
+        } else {
+            0.0
+        };
+        let viewport_height = (u32_to_f32(shell.surface.height()) - bottom_inset).max(line_height);
         let caret_y = shell
             .compositor
             .cursor_anchor_y(&self.editor, self.editor.fold_state());
@@ -889,17 +1052,23 @@ impl DesktopApp {
     }
 
     /// Composes and presents one frame: the document through the compositor,
-    /// then — when a prompt or message is up — the strip as a second pass on
-    /// the same texture view. See [`crate::overlay`] for the pass structure.
+    /// then — when a prompt, a message or any panel is up — the overlays as a
+    /// second pass on the same texture view. See [`crate::overlay`] for the
+    /// pass structure.
+    ///
+    /// The panels are composed here, against the window's current grid, so
+    /// every frame shows the selection window and the match counts as they
+    /// are *now* — the undo tree's `*` moves the frame after a jump.
     ///
     /// A failed frame is reported on standard error and the session carries
     /// on — the web face does the same. The next event requests the next
     /// attempt; a fault that persists keeps naming itself rather than
     /// silently freezing the window.
     fn redraw(&mut self) {
+        let strip = self.strip_content();
+        let panels = self.panel_contents();
         let editor = &self.editor;
         let scroll_y = self.scroll_y;
-        let strip = self.strip_content();
         let Some(shell) = &mut self.shell else {
             return;
         };
@@ -915,6 +1084,7 @@ impl DesktopApp {
         let fold_state = editor.fold_state();
         let theme = &editor.state().theme;
         let mut highlights = BuiltinHighlights;
+        let panel_refs: Vec<&PanelContent> = panels.iter().collect();
 
         let outcome = surface.render_frame(|view, device, queue| {
             compositor.compose(
@@ -930,7 +1100,7 @@ impl DesktopApp {
                     height,
                 },
             )?;
-            if let Some(content) = &strip {
+            if strip.is_some() || !panel_refs.is_empty() {
                 overlay.paint(
                     FrameTarget {
                         view,
@@ -939,7 +1109,8 @@ impl DesktopApp {
                         width,
                         height,
                     },
-                    content,
+                    strip.as_ref(),
+                    &panel_refs,
                     theme,
                 )?;
             }
@@ -949,6 +1120,35 @@ impl DesktopApp {
         if let Err(error) = outcome {
             let _ = writeln!(io::stderr(), "iridium-desktop: frame failed: {error}");
         }
+    }
+
+    /// Composes every open panel for this frame, bottom-most first so the
+    /// palette — the most modal thing on screen — paints on top.
+    ///
+    /// A window too small for an honest panel composes none; the panels' keys
+    /// keep working regardless, so `Escape` is never trapped behind a resize.
+    fn panel_contents(&mut self) -> Vec<PanelContent> {
+        let Some(shell) = &mut self.shell else {
+            return Vec::new();
+        };
+        let Some(fit) = shell
+            .overlay
+            .panel_fit(shell.surface.width(), shell.surface.height())
+        else {
+            return Vec::new();
+        };
+        let theme = &self.editor.state().theme;
+        let mut panels = Vec::new();
+        if self.search_open {
+            panels.push(self.search.content(&self.editor, theme, fit));
+        }
+        if self.history_open {
+            panels.push(self.history.content(&self.editor, theme, fit));
+        }
+        if self.palette_open {
+            panels.push(self.palette.content(&self.editor, &self.mru, theme, fit));
+        }
+        panels
     }
 }
 
@@ -1272,22 +1472,205 @@ mod tests {
         );
     }
 
+    /// A `Ctrl+Alt` chord.
+    fn ctrl_alt(key: KeyCode) -> KeyEvent {
+        chord(
+            key,
+            Modifiers {
+                ctrl: true,
+                alt: true,
+                ..Modifiers::none()
+            },
+        )
+    }
+
+    /// A bare ⌘ chord.
+    fn meta(key: KeyCode) -> KeyEvent {
+        chord(
+            key,
+            Modifiers {
+                meta: true,
+                ..Modifiers::none()
+            },
+        )
+    }
+
     #[test]
-    fn an_unwired_host_command_reports_itself() {
+    fn the_palette_is_modal_and_escape_gives_the_document_back() {
         let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
-        // Ctrl+K resolves to the kernel's `palette.open` host command, which
-        // this slice has no painting for.
         assert_eq!(
             app.press(&chord(KeyCode::Char('k'), Modifiers::ctrl())),
             Flow::Running
         );
-        let message = app.message.as_ref().expect("the gap was reported");
-        assert!(message.is_error());
-        assert!(
-            message.text().contains("not wired into the desktop shell"),
-            "{}",
-            message.text()
+        assert!(app.palette_open, "Ctrl+K opens the palette");
+
+        // Modal: typing goes to the query, not the document.
+        assert_eq!(app.press(&press(KeyCode::Char('x'))), Flow::Running);
+        assert_eq!(app.editor.content(), "", "the keystroke fed the query");
+        assert_eq!(app.palette.query(), "x");
+
+        assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
+        assert!(!app.palette_open);
+        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+        assert_eq!(app.editor.content(), "y", "the document is back");
+    }
+
+    #[test]
+    fn the_mac_spellings_reach_the_same_overlays() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        assert!(app.palette_open, "⌘K opens the palette");
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        assert!(!app.palette_open, "⌘K closes it again");
+
+        let meta_alt = Modifiers {
+            meta: true,
+            alt: true,
+            ..Modifiers::none()
+        };
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('h'), meta_alt)),
+            Flow::Running
         );
+        assert!(app.history_open, "⌘⌥H toggles the undo tree");
+
+        let mut second = DesktopApp::new(Options { path: None }).expect("a session opened");
+        assert_eq!(second.press(&meta(KeyCode::Char('f'))), Flow::Running);
+        assert!(second.search_open, "⌘F opens the search panel");
+    }
+
+    #[test]
+    fn a_kernel_command_runs_from_the_palette_and_is_remembered() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "hello");
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('k'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        type_into(&mut app, "select all");
+        assert_eq!(app.press(&press(KeyCode::Enter)), Flow::Running);
+        assert!(!app.palette_open, "running a command closes the palette");
+
+        // The whole document is selected, so typing replaces it.
+        type_into(&mut app, "z");
+        assert_eq!(app.editor.content(), "z");
+        assert!(
+            !app.mru.is_empty(),
+            "the dispatched command was recorded for recency"
+        );
+    }
+
+    #[test]
+    fn a_face_command_runs_from_the_palette() {
+        let directory = TempDir::new("desktop-palette-save");
+        let (mut app, path) = open(&directory, "a.txt", "one");
+        type_into(&mut app, "x");
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('k'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        type_into(&mut app, "save");
+        assert_eq!(app.press(&press(KeyCode::Enter)), Flow::Running);
+        assert!(
+            std::fs::read_to_string(&path)
+                .expect("the file reads back")
+                .contains('x'),
+            "the palette's Save reached the same save path as the chord"
+        );
+        assert!(!app.is_dirty());
+    }
+
+    #[test]
+    fn reopening_the_palette_clears_the_query() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        type_into(&mut app, "fold");
+        assert_eq!(app.palette.query(), "fold");
+        assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        assert_eq!(app.palette.query(), "", "a palette opens aimed at nothing");
+    }
+
+    #[test]
+    fn the_history_panel_toggles_and_is_modal() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "a");
+        assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
+        assert!(app.history_open, "Ctrl+Alt+H opens the undo tree");
+
+        // Modal: typing must not reach the document while history is open.
+        assert_eq!(app.press(&press(KeyCode::Char('x'))), Flow::Running);
+        assert_eq!(app.editor.content(), "a");
+
+        assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
+        assert!(!app.history_open, "the toggle chord closes it");
+    }
+
+    #[test]
+    fn jumping_from_the_history_panel_walks_states_and_keeps_the_panel_open() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        // One node per edit, so the rows are predictable.
+        app.editor.state_mut().history.set_group_timeout_ms(0);
+        type_into(&mut app, "a");
+        type_into(&mut app, "b");
+        assert_eq!(app.editor.content(), "ab");
+
+        assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
+        assert_eq!(app.press(&press(KeyCode::Up)), Flow::Running);
+        assert_eq!(app.press(&press(KeyCode::Enter)), Flow::Running);
+        assert_eq!(app.editor.content(), "a", "one row up is one edit back");
+        assert!(
+            app.history_open,
+            "the panel stays open so the * can be watched moving"
+        );
+        assert!(app.message.is_none(), "a good jump reports nothing");
+    }
+
+    #[test]
+    fn the_search_panel_opens_finds_and_closes_without_disturbing_the_document() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "alpha beta alpha");
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        assert!(app.search_open, "Ctrl+F opens the search panel");
+
+        type_into(&mut app, "alpha");
+        assert_eq!(app.editor.search_match_count(), 2, "typing searches live");
+        assert_eq!(
+            app.editor.content(),
+            "alpha beta alpha",
+            "the query went to the field, not the document"
+        );
+
+        assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
+        assert!(!app.search_open);
+        assert_eq!(
+            app.editor.search_match_count(),
+            0,
+            "closing the panel closes the kernel's search"
+        );
+        assert_eq!(app.editor.content(), "alpha beta alpha");
+    }
+
+    #[test]
+    fn a_save_chord_still_works_while_the_search_panel_is_open() {
+        let directory = TempDir::new("desktop-search-save");
+        let (mut app, path) = open(&directory, "a.txt", "one");
+        type_into(&mut app, "!");
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        assert_eq!(app.press(&ctrl_s()), Flow::Running);
+        assert!(
+            std::fs::read_to_string(&path)
+                .expect("the file reads back")
+                .contains('!'),
+            "the panel left the save chord to the host"
+        );
+        assert!(app.search_open, "saving did not close the search");
     }
 
     #[test]

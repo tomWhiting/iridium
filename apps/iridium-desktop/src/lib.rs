@@ -16,10 +16,10 @@
 //! redraw is requested after input, resize and actual mouse effects, never
 //! from a loop. An idle editor costs nothing.
 //!
-//! # What slice 2 delivers
+//! # What slices 2 and 3 deliver
 //!
-//! This is slice 2 of the desktop shell (`docs/DESKTOP-SHELL-PLAN.md`,
-//! step 2), on top of slice 1's window, surface, compositor and keyboard:
+//! On top of slice 1's window, surface, compositor and keyboard
+//! (`docs/DESKTOP-SHELL-PLAN.md`, step 2):
 //!
 //! - **Mouse, per Tom's v1 ruling**: click places the caret, shift-click
 //!   extends, drag selects, double-click selects the word and triple-click
@@ -36,28 +36,35 @@
 //!   chord named, an unnamed buffer prompts for a path, the title carries
 //!   the document's name and ` [+]` dirty marker, and closing the window
 //!   over unsaved changes asks first.
-//! - **The first painted overlay**: a one-line prompt strip at the bottom of
-//!   the window — save-as entry, quit confirmation, notices — drawn by the
-//!   kernel's own `QuadRenderer` and `TextRenderer` in a second `LoadOp::Load`
-//!   render pass. [`overlay`] documents the pass structure the remaining
-//!   overlays will reuse.
+//! - **The painted overlays, the full set of Tom's D-C ruling**: the prompt
+//!   strip ([`prompt`]), the search and replace panel ([`search`]), the
+//!   command palette ([`command_palette`]) and the undo-tree panel
+//!   ([`history_overlay`]) — all drawn by the kernel's own `QuadRenderer`
+//!   and `TextRenderer` in a second `LoadOp::Load` render pass ([`overlay`]
+//!   documents the pass structure), all keeping the terminal face's
+//!   semantics exactly, with the terminal's test suites as the
+//!   specification. `Ctrl+F`/`⌘F` searches, `Ctrl+K`/`⌘K`/`Ctrl+P` opens
+//!   the palette, `Ctrl+Alt+H`/`⌘⌥H` toggles the undo tree.
 //!
 //! # What still is not here
 //!
-//! The search panel, the command palette and the undo-tree panel are not
-//! painted yet — their chords resolve and report themselves on the prompt
-//! strip rather than dying silently. Tree-sitter highlighting runs the
-//! compositor's built-in fallback (the face does not feed the highlight seam
-//! yet), IME composition is not wired, and there is no `.app` bundle — the
-//! binary runs from the command line.
+//! Tree-sitter highlighting runs the compositor's built-in fallback (the
+//! face does not feed the highlight seam yet), document-wide search-match
+//! marking waits on the compositor growing a highlight pass for it, IME
+//! composition is not wired, and there is no `.app` bundle — the binary runs
+//! from the command line.
 
 pub mod app;
+pub mod command_palette;
 pub mod commands;
+pub mod history_overlay;
 pub mod keys;
+mod line;
 pub mod mouse;
 pub mod overlay;
 pub mod prompt;
 pub mod run;
+pub mod search;
 pub mod surface;
 pub mod units;
 

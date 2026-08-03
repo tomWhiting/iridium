@@ -5,6 +5,7 @@
 //! users never lose work.
 
 mod commands;
+pub mod tree_view;
 mod undo_tree;
 
 pub use commands::Command;

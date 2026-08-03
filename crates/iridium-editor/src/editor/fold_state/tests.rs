@@ -147,6 +147,73 @@ fn non_foldable_line() {
     assert!(!state.toggle_fold_at(0));
 }
 
+/// The generation counter is what lets a retained frame notice a fold:
+/// folding never touches the document revision, so every mutation that can
+/// change what folding makes visible must move this counter — and the
+/// no-op paths must not, or every frame would rebuild for nothing.
+#[test]
+fn generation_moves_with_every_fold_mutation_and_only_those() {
+    let source = "fn main() {\n    println!(\"hello\");\n}";
+    let mut state = setup_rust_fold_state(source);
+    let after_setup = state.generation();
+    assert!(
+        after_setup > 0,
+        "update_regions producing fresh regions moves the generation"
+    );
+
+    // Queries move nothing.
+    let _ = state.is_foldable(0);
+    let _ = state.is_folded(0);
+    let _ = state.is_line_hidden(1);
+    let _ = state.visual_to_document_line(0);
+    assert_eq!(state.generation(), after_setup, "queries are not mutations");
+
+    // The no-op mutation paths move nothing either.
+    assert!(!state.fold_at(99), "line 99 is not foldable");
+    assert!(!state.unfold_at(0), "line 0 is not folded yet");
+    assert_eq!(
+        state.generation(),
+        after_setup,
+        "refused fold operations change nothing observable"
+    );
+
+    // Every successful mutation moves it.
+    assert!(state.fold_at(0));
+    let after_fold = state.generation();
+    assert_ne!(after_fold, after_setup, "folding moves the generation");
+
+    assert!(state.unfold_at(0));
+    let after_unfold = state.generation();
+    assert_ne!(after_unfold, after_fold, "unfolding moves the generation");
+
+    state.fold_all();
+    let after_fold_all = state.generation();
+    assert_ne!(after_fold_all, after_unfold);
+
+    state.unfold_all();
+    let after_unfold_all = state.generation();
+    assert_ne!(after_unfold_all, after_fold_all);
+
+    let info = state.export_fold_info();
+    state.import_fold_info(&info);
+    let after_import = state.generation();
+    assert_ne!(after_import, after_unfold_all, "import rebuilds fold state");
+
+    state.set_language(state.language().expect("a language was set"));
+    assert_eq!(
+        state.generation(),
+        after_import,
+        "setting the same language is the documented early-out"
+    );
+
+    state.clear_language();
+    assert_ne!(
+        state.generation(),
+        after_import,
+        "clearing the language clears folds and must say so"
+    );
+}
+
 #[test]
 fn export_import() {
     let source = "fn main() {\n    println!(\"hello\");\n}";

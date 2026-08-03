@@ -22,16 +22,30 @@
 //! just of encoding the commands. Presentation is a swapchain's business
 //! and has no headless equivalent; it is the one step outside the number.
 //!
-//! # The three cases
+//! # The five cases
 //!
 //! - **`steady_state`**: compose repeatedly with nothing changed — the pure
-//!   redraw cost, what a caret blink or an overlay repaint pays.
+//!   redraw cost, what a caret blink or an overlay repaint pays. Since
+//!   retained shaping landed this is the cache-*hit* path; the scenario is
+//!   unchanged and keeps its name, and `first_frame` preserves the number
+//!   the name used to mean.
+//! - **`first_frame`**: the cold compose — every iteration forces a full
+//!   rebuild of the retained shapes (through the gutter generation, a real
+//!   host-facing invalidation), measuring exactly what `steady_state`
+//!   measured before retention existed so the historical comparison stays
+//!   honest.
 //! - **`after_mid_file_edit`**: each iteration types one character at the
 //!   middle of the document through the kernel's normal key path and then
 //!   composes; the compensating backspace runs outside the timed region
 //!   (via `iter_custom`, this bench's equivalent of `iter_batched`'s
 //!   untimed setup), so the document is the same 10k lines at every
-//!   iteration's start.
+//!   iteration's start. With retained shaping this is the per-line
+//!   diffing path: one line reshapes.
+//! - **`after_small_scroll`**: each iteration composes at a sub-line
+//!   scroll offset alternating within one document line — the viewport
+//!   line range is unchanged, so this is a cache hit whose remainder is
+//!   applied at the text area's top edge. A one-*line* scroll is a full
+//!   miss until stage 2b lands and is what `after_scroll_change` bounds.
 //! - **`after_scroll_change`**: each iteration composes at a scroll offset
 //!   a screenful away from the previous one, forcing the viewport
 //!   extraction and visual-line-map rebuild a real scroll pays.
@@ -87,6 +101,11 @@ struct NoHighlights;
 impl HighlightSource for NoHighlights {
     fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         None
+    }
+
+    fn generation(&self) -> u64 {
+        // The answer is `None` forever; a constant is the honest generation.
+        0
     }
 }
 
@@ -242,8 +261,24 @@ fn compose_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("compose_frame");
 
     // (a) The steady-state redraw: nothing changed since the last frame.
+    // With retained shaping this is the cache-hit path — the scenario the
+    // name always described, now at the cost it always should have had.
     group.bench_function("steady_state", |b| {
         b.iter(|| compose_once(&mut compositor, &editor, mid_scroll, &gpu));
+    });
+
+    // (a′) The cold frame: every iteration forces a full rebuild of the
+    // retained shapes through `set_custom_gutter_lines(None)` — a real
+    // host-facing call whose generation bump invalidates the whole key, so
+    // the timed region is exactly the full extraction + shape + render
+    // path `steady_state` measured before retention existed. The forcing
+    // call itself is a counter bump and a `None` assignment — nanoseconds
+    // against a millisecond-scale frame.
+    group.bench_function("first_frame", |b| {
+        b.iter(|| {
+            compositor.set_custom_gutter_lines(None);
+            compose_once(&mut compositor, &editor, mid_scroll, &gpu);
+        });
     });
 
     // (b) The frame after a one-character edit at the middle of the file.
@@ -265,7 +300,27 @@ fn compose_benchmark(c: &mut Criterion) {
         });
     });
 
-    // (c) The frame after a scroll change: every iteration lands a
+    // (c) The frame after a sub-line scroll: the offset alternates within
+    // one document line, so the viewport line range — and with it the
+    // whole shape key — is unchanged and only the remainder applied at the
+    // text area's top edge moves. This is the retained-shaping hit case a
+    // smooth pixel scroll pays; a scroll that crosses a line boundary is a
+    // full miss until stage 2b.
+    group.bench_function("after_small_scroll", |b| {
+        // Anchor to the line boundary at or below mid_scroll so both
+        // offsets provably share `floor(scroll_y / line_height)`.
+        let anchored_line = (mid_scroll / line_height).floor();
+        let low = anchored_line.mul_add(line_height, 0.1 * line_height);
+        let high = anchored_line.mul_add(line_height, 0.6 * line_height);
+        let mut nudged = false;
+        b.iter(|| {
+            nudged = !nudged;
+            let scroll_y = if nudged { high } else { low };
+            compose_once(&mut compositor, &editor, scroll_y, &gpu);
+        });
+    });
+
+    // (d) The frame after a scroll change: every iteration lands a
     // screenful away from the last, so the viewport extraction and the
     // visual line map rebuild against fresh lines each time.
     group.bench_function("after_scroll_change", |b| {

@@ -92,6 +92,15 @@ name = "compose_frame"
 harness = false
 required-features = ["render"]
 
+# The retained-shaping proof harness: the staleness matrix over every shape-key
+# input and the hot-vs-cold pixel-identity oracle for the compositor's shape
+# cache. Headless GPU by construction, exactly like the compose bench. Without
+# `render` there is no compositor to prove; the fold rows need a parser for
+# regions, so `syntax` is required too.
+[[test]]
+name = "retained_shaping"
+required-features = ["render", "syntax"]
+
 [[bench]]
 name = "rendering"
 harness = false

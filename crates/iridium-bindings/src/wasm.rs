@@ -179,6 +179,12 @@ pub struct WebEditor {
     use_ts_highlights: bool,
     /// Span index for efficient viewport-based queries (O(log n + k))
     span_index: WebSpanIndex,
+    /// The highlight generation reported to the compositor's
+    /// retained-shaping key: bumped by every mutation of the span state
+    /// above (worker spans arriving, spans cleared, spans shifted across an
+    /// edit), per the [`HighlightSource::generation`] contract — a span
+    /// change without a bump would leave stale colours on a retained frame.
+    highlight_generation: u64,
 
     // =========================================================================
     // Git integration: read-only gating (presentation maps live on the
@@ -320,6 +326,7 @@ pub async fn create_web_editor(
         ts_highlights: Vec::new(),
         use_ts_highlights: false,
         span_index: WebSpanIndex::empty(),
+        highlight_generation: 0,
         // Git integration fields
         read_only: false,
         // Raw key event handling
@@ -1122,6 +1129,13 @@ impl WebEditor {
             })
             .collect();
         self.span_index = WebSpanIndex::new(web_spans);
+        // The spans moved (and some may have been dropped): a subsequent
+        // resolution answers differently for identical content, so the
+        // generation moves with them. The edit that triggered this shift
+        // already misses the retained-shape key on the document revision,
+        // but the generation contract is about the resolver's answer, not
+        // about who else happens to invalidate the frame.
+        self.highlight_generation = self.highlight_generation.wrapping_add(1);
     }
 
     /// Records a conservative whole-document edit (used by undo/redo, where
@@ -1581,6 +1595,7 @@ impl WebEditor {
             fold_state: &self.fold_state,
             scroll_y: self.scroll_y,
             surface_height: height as f32,
+            generation: self.highlight_generation,
         };
 
         let compositor = &mut self.compositor;
@@ -1689,6 +1704,9 @@ impl WebEditor {
         // Keep legacy spans for fallback (will be removed in future)
         self.ts_highlights = js_spans;
         self.use_ts_highlights = true;
+        // New spans mean a new resolution answer: move the generation so the
+        // compositor's retained shapes recolour.
+        self.highlight_generation = self.highlight_generation.wrapping_add(1);
         self.needs_redraw = true;
         Ok(())
     }
@@ -1735,6 +1753,9 @@ impl WebEditor {
     pub fn clear_tree_sitter_highlights(&mut self) {
         self.ts_highlights.clear();
         self.use_ts_highlights = false;
+        // Clearing changes the resolution answer as surely as new spans do —
+        // the span-clearing half of the generation contract.
+        self.highlight_generation = self.highlight_generation.wrapping_add(1);
         self.needs_redraw = true;
     }
 
@@ -2789,6 +2810,10 @@ struct WebHighlightSource<'a> {
     scroll_y: f32,
     /// Surface height in physical pixels.
     surface_height: f32,
+    /// The owning [`WebEditor`]'s highlight generation when the frame
+    /// began. The resolver's other frame inputs (scroll, surface height)
+    /// are functions of the viewport range the compositor already keys.
+    generation: u64,
 }
 
 impl HighlightSource for WebHighlightSource<'_> {
@@ -2842,6 +2867,10 @@ impl HighlightSource for WebHighlightSource<'_> {
             // built-in keyword highlighter.
             None
         }
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation
     }
 }
 

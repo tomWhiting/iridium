@@ -136,6 +136,22 @@ pub trait HighlightSource {
     /// Resolves this frame's highlight spans against the visible content, or
     /// `None` to use the compositor's built-in fallback highlighting.
     fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>>;
+
+    /// The face's highlight generation: a value that MUST change whenever a
+    /// subsequent [`Self::resolve`] could return different runs for an
+    /// identical context.
+    ///
+    /// The compositor retains its shaped buffers across frames and skips
+    /// `resolve` entirely while this value (and every other shaping input)
+    /// is unchanged — a face that mutates its spans, replaces them, clears
+    /// them, or changes anything else its resolution reads (span sets,
+    /// span-shifting after edits, resolver-side theme colors) without
+    /// moving this shows stale colors. That is the contract, including
+    /// span-*clearing* paths: removing a language or emptying the span set
+    /// changes the answer just as surely as new spans do, and must move
+    /// the generation. A source whose answer can never change (such as a
+    /// constant fallback) returns a constant.
+    fn generation(&self) -> u64;
 }
 
 /// Per-frame layout values shared by the quad-building passes.
@@ -165,6 +181,129 @@ struct FrameMetrics {
     surface_width: f32,
     /// Surface height in pixels.
     surface_height: f32,
+}
+
+/// Every input the shaped viewport buffers depend on, as one comparable
+/// value — the retained-shaping cache key.
+///
+/// The full input inventory lives in `docs/design/RETAINED-SHAPING-MAP.md`
+/// §2; every row is a field here or is subsumed by one (the viewport range
+/// subsumes the highlight resolver's own viewport dependence; the content
+/// width folds in surface width, gutter enablement, custom gutter text
+/// width, character width and digit rollover). `f32` inputs are keyed by
+/// bit pattern — bit-equality is the honest cache question ("did the input
+/// change"), not approximate equality. The face's scroll remainder within
+/// one line is deliberately absent: it is applied at the text area's top
+/// edge, so sub-line scrolls are cache hits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ShapeKey {
+    /// Document content (`Document::revision`, moved by every text
+    /// mutation and never by cursor motion).
+    document_revision: u64,
+    /// First document line included in the viewport buffer.
+    viewport_start: usize,
+    /// One past the last document line included in the viewport buffer.
+    viewport_end: usize,
+    /// Wrap width in pixels, as `f32::to_bits`.
+    content_width: u32,
+    /// Font size in pixels, as `f32::to_bits`.
+    font_size: u32,
+    /// Line height multiplier, as `f32::to_bits`.
+    line_height_factor: u32,
+    /// Loaded-font-data generation ([`FrameCompositor::load_font`]).
+    font_generation: u64,
+    /// Theme generation ([`FrameCompositor::set_dark_theme`]).
+    theme_generation: u64,
+    /// Whether syntax highlighting is enabled.
+    syntax_enabled: bool,
+    /// The face's [`HighlightSource::generation`].
+    highlight_generation: u64,
+    /// Capture-name map generation ([`FrameCompositor::syntax_theme_mut`]).
+    syntax_theme_generation: u64,
+    /// The [`FoldState::generation`] — folds never move the document
+    /// revision, so they need their own key member.
+    fold_generation: u64,
+    /// Custom gutter text / gutter enablement generation
+    /// ([`FrameCompositor::set_custom_gutter_lines`],
+    /// [`FrameCompositor::set_gutter_enabled`]).
+    gutter_text_generation: u64,
+}
+
+impl ShapeKey {
+    /// Whether a miss against `previous` may be served by per-line diffing
+    /// (stage 2a): only the document content and/or the highlight answer
+    /// moved, while every input the buffer's geometry, metrics and
+    /// attribute construction depend on — including the viewport range,
+    /// whose change re-maps every buffer line to a different document
+    /// line — is unchanged.
+    const fn permits_line_diff(&self, previous: &Self) -> bool {
+        // Destructured so a new key member cannot be forgotten here: adding
+        // a field forces this pattern to name it.
+        let Self {
+            document_revision: _,
+            highlight_generation: _,
+            viewport_start,
+            viewport_end,
+            content_width,
+            font_size,
+            line_height_factor,
+            font_generation,
+            theme_generation,
+            syntax_enabled,
+            syntax_theme_generation,
+            fold_generation,
+            gutter_text_generation,
+        } = *self;
+        viewport_start == previous.viewport_start
+            && viewport_end == previous.viewport_end
+            && content_width == previous.content_width
+            && font_size == previous.font_size
+            && line_height_factor == previous.line_height_factor
+            && font_generation == previous.font_generation
+            && theme_generation == previous.theme_generation
+            && syntax_enabled == previous.syntax_enabled
+            && syntax_theme_generation == previous.syntax_theme_generation
+            && fold_generation == previous.fold_generation
+            && gutter_text_generation == previous.gutter_text_generation
+    }
+}
+
+/// The shaped buffers from the last composed frame, with the exact inputs
+/// they were shaped under.
+struct RetainedShape {
+    /// The inputs the buffers were built from.
+    key: ShapeKey,
+    /// The main content buffer, shaped.
+    buffer: Buffer,
+    /// The line-number buffer, shaped; `None` when the gutter is off.
+    gutter: Option<Buffer>,
+    /// The gutter width (as `f32::to_bits`) the gutter buffer was created
+    /// with. The key's `content_width` almost always pins this too, but a
+    /// simultaneous surface-width and gutter-width change could cancel out
+    /// in the subtraction — the gutter buffer's own width is compared
+    /// directly rather than inferred.
+    gutter_width_bits: u32,
+}
+
+/// The per-frame geometry a retained-shape rebuild works against — the
+/// values [`FrameCompositor::compose`] derives before consulting the key.
+struct RebuildGeometry {
+    /// First document line in the viewport buffer.
+    viewport_start: usize,
+    /// One past the last document line in the viewport buffer.
+    viewport_end: usize,
+    /// Document byte offset where the visible content begins.
+    viewport_start_byte: usize,
+    /// Wrap width in pixels for the content buffer.
+    content_width: f32,
+    /// Gutter width in pixels for the gutter buffer.
+    gutter_width: f32,
+    /// Left edge of the content column.
+    content_offset_x: f32,
+    /// Line height in pixels.
+    line_height: f32,
+    /// Total document line count.
+    line_count: usize,
 }
 
 /// Composes editor state into frames, and answers layout questions between
@@ -205,6 +344,37 @@ pub struct FrameCompositor {
     cached_viewport_width: u32,
     /// See [`Self::cached_viewport_width`].
     cached_viewport_height: u32,
+
+    // =========================================================================
+    // Retained shaping: the shaped buffers survive across frames
+    // =========================================================================
+    /// The shaped viewport buffers from the last frame, with the exact
+    /// inputs they were shaped under; `None` before the first frame. A
+    /// frame whose [`ShapeKey`] matches skips content extraction, highlight
+    /// resolution and all shaping.
+    retained: Option<RetainedShape>,
+    /// Bumped by [`Self::load_font`]: new font data can change how
+    /// `Family::Monospace` resolves, which changes every shaped glyph.
+    font_generation: u64,
+    /// Bumped by [`Self::set_dark_theme`]: the theme feeds text colors and
+    /// the fallback highlighter's palette.
+    theme_generation: u64,
+    /// Bumped by every mutable borrow of [`Self::syntax_theme_mut`]: the
+    /// raw accessor defeats change tracking, so the borrow itself is the
+    /// change signal (over-invalidating only when the host actually calls
+    /// it, which coincides with real changes).
+    syntax_theme_generation: u64,
+    /// Bumped by [`Self::set_custom_gutter_lines`] and
+    /// [`Self::set_gutter_enabled`]: custom gutter text and gutter
+    /// enablement change both the gutter buffer's text and the content
+    /// column's width.
+    gutter_text_generation: u64,
+    /// How many times compose has run the rebuild path — the observable
+    /// that makes every cache claim testable without reading pixels.
+    shape_rebuilds: u64,
+    /// How many buffer lines the per-line diffing rebuild path has
+    /// actually reshaped, across the content and gutter buffers.
+    lines_reshaped: u64,
 
     // =========================================================================
     // Pre-allocated buffers for compose() — eliminates per-frame allocations
@@ -309,7 +479,13 @@ impl FrameCompositor {
         width: u32,
         height: u32,
     ) -> Result<Self, IridiumError> {
-        let text_renderer = TextRenderer::new(device, queue, format)?;
+        let mut text_renderer = TextRenderer::new(device, queue, format)?;
+        // Seed the glyph renderer's viewport uniform too: glyphon's starts
+        // at 0×0, which culls every glyph in `prepare`. The faces masked
+        // this by calling `resize` on their initial surface configure;
+        // a headless consumer composing at the creation dimensions never
+        // resizes and rendered no text at all.
+        text_renderer.update_viewport(queue, width, height);
 
         // Separate quad renderers with separate vertex buffers: multiple
         // queue.write_buffer calls to the same buffer within a frame cause
@@ -333,6 +509,14 @@ impl FrameCompositor {
             viewport_config: ViewportConfig::default(),
             cached_viewport_width: width,
             cached_viewport_height: height,
+            // Retained shaping: nothing is retained before the first frame
+            retained: None,
+            font_generation: 0,
+            theme_generation: 0,
+            syntax_theme_generation: 0,
+            gutter_text_generation: 0,
+            shape_rebuilds: 0,
+            lines_reshaped: 0,
             // Pre-allocated buffers to avoid per-frame allocations (120fps target)
             cpu_visible_content: String::with_capacity(10 * 1024), // 10KB typical viewport
             cpu_doc_to_visual: Vec::with_capacity(1024),           // 1K lines initial
@@ -370,6 +554,13 @@ impl FrameCompositor {
     /// background/selection/caret quads, and the render pass itself.
     /// `scroll_y` is the face's vertical offset in physical pixels;
     /// `highlights` is consulted only when syntax highlighting is enabled.
+    ///
+    /// The shaped buffers are retained across frames behind a [`ShapeKey`]
+    /// of every input they depend on: a frame whose key matches the last
+    /// one skips content extraction, highlight resolution and all shaping,
+    /// and pays only what a frame legitimately owes — cursor walk, quads,
+    /// glyph preparation and the render pass. Retention is an optimization
+    /// and nothing else: hit or miss, the composed output is identical.
     ///
     /// # Errors
     ///
@@ -412,9 +603,6 @@ impl FrameCompositor {
         // visible_content positions.
         let viewport_start_byte = doc.line_to_byte_offset(viewport_start).unwrap_or(0);
 
-        let doc_visual_lines =
-            self.build_visible_content(editor, fold_state, viewport_start, viewport_end);
-
         // Calculate layout dimensions
         let char_width = self.cached_char_width;
         let padding = 10.0_f32;
@@ -423,36 +611,55 @@ impl FrameCompositor {
         // before shaping)
         let gutter_width = self.frame_gutter_width(line_count);
         let content_offset_x = gutter_width + padding;
-
-        // Create and shape the main content buffer FIRST
         let content_width = u32_to_f32(width) - content_offset_x;
-        let mut buffer = self.text_renderer.create_buffer(Some(content_width));
 
-        self.fill_content_buffer(
-            &mut buffer,
-            highlights,
-            viewport_start_byte,
-            content_width,
-            line_height,
-        );
-        self.text_renderer.shape_buffer(&mut buffer);
-
-        self.rebuild_visual_line_map(&buffer, viewport_start, content_offset_x, doc_visual_lines);
-
-        // NOW build line numbers with proper spacing for wrapped lines
-        self.build_line_numbers(&buffer, line_count);
-
-        // Create gutter buffer AFTER we know the wrapping
-        let gutter_buffer = if self.gutter_enabled {
-            let mut gutter_buf = self.text_renderer.create_buffer(Some(gutter_width));
-            let line_number_color = self.theme.editor.line_number;
-            self.text_renderer
-                .set_text(&mut gutter_buf, &self.cpu_line_numbers, line_number_color);
-            self.text_renderer.shape_buffer(&mut gutter_buf);
-            Some(gutter_buf)
-        } else {
-            None
+        // The retained-shaping gate: every input the shaped buffers depend
+        // on, compared against the last frame's. On a hit the content
+        // extraction, highlight resolution, both shaping passes, the wrap
+        // readback and the gutter text are all skipped — the retained
+        // buffers and the between-frames caches (`cpu_visible_content`,
+        // `cpu_visible_doc_lines`, `cpu_doc_to_visual`,
+        // `cached_visual_line_map`, `cpu_line_numbers`,
+        // `cached_total_visual_lines`) are deterministic functions of the
+        // same key and already hold this frame's values.
+        let key = ShapeKey {
+            document_revision: doc.revision(),
+            viewport_start,
+            viewport_end,
+            content_width: content_width.to_bits(),
+            font_size: self.text_renderer.font_size().to_bits(),
+            line_height_factor: self.text_renderer.config().line_height.to_bits(),
+            font_generation: self.font_generation,
+            theme_generation: self.theme_generation,
+            syntax_enabled: self.syntax_enabled,
+            highlight_generation: highlights.generation(),
+            syntax_theme_generation: self.syntax_theme_generation,
+            fold_generation: fold_state.generation(),
+            gutter_text_generation: self.gutter_text_generation,
         };
+
+        let retained = match self.retained.take() {
+            Some(shape) if shape.key == key => shape,
+            previous => self.rebuild_retained(
+                previous,
+                key,
+                editor,
+                fold_state,
+                highlights,
+                &RebuildGeometry {
+                    viewport_start,
+                    viewport_end,
+                    viewport_start_byte,
+                    content_width,
+                    gutter_width,
+                    content_offset_x,
+                    line_height,
+                    line_count,
+                },
+            ),
+        };
+        let buffer = &retained.buffer;
+        let gutter_buffer = retained.gutter.as_ref();
 
         // Calculate cursor position (accounting for gutter offset, folding,
         // scroll, and line wrapping)
@@ -483,7 +690,7 @@ impl FrameCompositor {
         // *quads* — the primary's included — are positioned in the pass further
         // down, which walks every selection.
         let (_, wrap_y) = self.text_renderer.cursor_position_in_buffer(
-            &buffer,
+            buffer,
             cursor_line_in_buffer,
             cursor_pos.column,
             char_width,
@@ -529,8 +736,8 @@ impl FrameCompositor {
 
         self.build_line_background_quads(&metrics);
         self.build_gutter_change_quads(&metrics);
-        self.build_selection_quads(editor, &buffer, &metrics);
-        self.build_cursor_quads(editor, &buffer, &metrics);
+        self.build_selection_quads(editor, buffer, &metrics);
+        self.build_cursor_quads(editor, buffer, &metrics);
 
         // Text areas share the virtualized scroll position: the buffer starts
         // at viewport_start, so only the remainder of the scroll applies.
@@ -539,7 +746,7 @@ impl FrameCompositor {
 
         // Main content text area
         let main_text_area = TextRenderer::create_text_area(
-            &buffer,
+            buffer,
             content_offset_x,
             padding - adjusted_scroll_y,
             1.0,
@@ -595,7 +802,7 @@ impl FrameCompositor {
         let mut text_areas: Vec<TextArea> = Vec::with_capacity(3);
         text_areas.push(main_text_area);
 
-        if let Some(gutter_buf) = &gutter_buffer {
+        if let Some(gutter_buf) = gutter_buffer {
             text_areas.push(TextRenderer::create_text_area(
                 gutter_buf,
                 8.0, // Small padding from left edge
@@ -654,6 +861,11 @@ impl FrameCompositor {
 
         // Trim glyph cache periodically
         self.text_renderer.trim_cache();
+
+        // Keep the shaped buffers for the next frame. A frame that failed
+        // above simply drops them — the next frame rebuilds, which costs a
+        // miss and nothing else.
+        self.retained = Some(retained);
 
         Ok(())
     }
@@ -825,6 +1037,148 @@ impl FrameCompositor {
             // Plain text
             self.text_renderer
                 .set_text(buffer, &self.cpu_visible_content, foreground);
+        }
+    }
+
+    /// The stage-2a counterpart of [`Self::fill_content_buffer`]: the same
+    /// three-way span resolution, routed through the per-line diffing
+    /// setters so lines whose text and colors did not change keep their
+    /// shape caches. Returns how many lines were actually reshaped.
+    fn fill_content_buffer_diffed(
+        &self,
+        buffer: &mut Buffer,
+        highlights: &mut dyn HighlightSource,
+        content_start_byte: usize,
+        content_width: f32,
+        line_height: f32,
+    ) -> usize {
+        let foreground = self.theme.editor.foreground;
+        if self.syntax_enabled {
+            let context = HighlightContext {
+                content: &self.cpu_visible_content,
+                content_start_byte,
+                content_width,
+                line_height,
+                viewport_config: &self.viewport_config,
+                syntax_theme: &self.syntax_theme,
+                foreground,
+            };
+            if let Some(rich_spans) = highlights.resolve(&context) {
+                TextRenderer::set_rich_text_diffed(buffer, rich_spans.into_iter())
+            } else {
+                let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
+                TextRenderer::set_rich_text_diffed(
+                    buffer,
+                    spans.iter().map(|span| (span.text.as_str(), span.color)),
+                )
+            }
+        } else {
+            TextRenderer::set_text_diffed(buffer, &self.cpu_visible_content, foreground)
+        }
+    }
+
+    /// Rebuilds the retained shaped buffers for a frame whose [`ShapeKey`]
+    /// missed.
+    ///
+    /// When only the document content and/or the highlight answer moved
+    /// against the previous frame's key ([`ShapeKey::permits_line_diff`]),
+    /// the previous buffers are reclaimed and refilled through the per-line
+    /// diffing setters — a one-character keystroke reshapes one line. Any
+    /// other miss (viewport shift, resize, font, theme, folds, gutter) runs
+    /// the full path: fresh buffers, full fill, full shape. Both arms end
+    /// identically — shape, wrap readback, gutter text — so hit, diffed
+    /// miss and full miss all leave the same state behind.
+    fn rebuild_retained(
+        &mut self,
+        previous: Option<RetainedShape>,
+        key: ShapeKey,
+        editor: &Editor,
+        fold_state: &FoldState,
+        highlights: &mut dyn HighlightSource,
+        g: &RebuildGeometry,
+    ) -> RetainedShape {
+        self.shape_rebuilds = self.shape_rebuilds.wrapping_add(1);
+
+        let doc_visual_lines =
+            self.build_visible_content(editor, fold_state, g.viewport_start, g.viewport_end);
+
+        let reclaimed = match previous {
+            Some(prev) if key.permits_line_diff(&prev.key) => Some(prev),
+            _ => None,
+        };
+
+        let (mut buffer, previous_gutter, previous_gutter_width_bits) =
+            if let Some(prev) = reclaimed {
+                let mut buffer = prev.buffer;
+                let reshaped = self.fill_content_buffer_diffed(
+                    &mut buffer,
+                    highlights,
+                    g.viewport_start_byte,
+                    g.content_width,
+                    g.line_height,
+                );
+                self.lines_reshaped = self
+                    .lines_reshaped
+                    .wrapping_add(u64::try_from(reshaped).unwrap_or(u64::MAX));
+                (buffer, prev.gutter, Some(prev.gutter_width_bits))
+            } else {
+                let mut buffer = self.text_renderer.create_buffer(Some(g.content_width));
+                self.fill_content_buffer(
+                    &mut buffer,
+                    highlights,
+                    g.viewport_start_byte,
+                    g.content_width,
+                    g.line_height,
+                );
+                (buffer, None, None)
+            };
+        self.text_renderer.shape_buffer(&mut buffer);
+
+        self.rebuild_visual_line_map(
+            &buffer,
+            g.viewport_start,
+            g.content_offset_x,
+            doc_visual_lines,
+        );
+
+        // NOW build line numbers with proper spacing for wrapped lines
+        self.build_line_numbers(&buffer, g.line_count);
+
+        // Create/refresh the gutter buffer AFTER we know the wrapping
+        let gutter_width_bits = g.gutter_width.to_bits();
+        let gutter = if self.gutter_enabled {
+            let line_number_color = self.theme.editor.line_number;
+            // Reclaim the previous gutter buffer only when its width is
+            // bit-identical — see [`RetainedShape::gutter_width_bits`].
+            let reusable =
+                previous_gutter.filter(|_| previous_gutter_width_bits == Some(gutter_width_bits));
+            let mut gutter_buf = if let Some(mut existing) = reusable {
+                let reshaped = TextRenderer::set_text_diffed(
+                    &mut existing,
+                    &self.cpu_line_numbers,
+                    line_number_color,
+                );
+                self.lines_reshaped = self
+                    .lines_reshaped
+                    .wrapping_add(u64::try_from(reshaped).unwrap_or(u64::MAX));
+                existing
+            } else {
+                let mut fresh = self.text_renderer.create_buffer(Some(g.gutter_width));
+                self.text_renderer
+                    .set_text(&mut fresh, &self.cpu_line_numbers, line_number_color);
+                fresh
+            };
+            self.text_renderer.shape_buffer(&mut gutter_buf);
+            Some(gutter_buf)
+        } else {
+            None
+        };
+
+        RetainedShape {
+            key,
+            buffer,
+            gutter,
+            gutter_width_bits,
         }
     }
 
@@ -1534,6 +1888,31 @@ impl FrameCompositor {
         &self.cpu_visible_doc_lines
     }
 
+    /// How many times [`Self::compose`] has run the retained-shape rebuild
+    /// path since this compositor was created.
+    ///
+    /// The observable behind every retention claim: a frame whose shaping
+    /// inputs are unchanged must not move it, and a frame whose inputs
+    /// changed must. Exists so the cache is testable without reading
+    /// pixels — the exact pattern of the desktop face's
+    /// `HighlightCache::rebuilds`.
+    #[must_use]
+    pub const fn shape_rebuilds(&self) -> u64 {
+        self.shape_rebuilds
+    }
+
+    /// How many buffer lines the per-line diffing rebuild path has
+    /// actually reshaped, across the content and gutter buffers, since
+    /// this compositor was created.
+    ///
+    /// Full rebuilds do not move it — it counts only the diffed path's
+    /// work, so "a one-character keystroke reshapes one line" is a
+    /// testable claim rather than an asserted one.
+    #[must_use]
+    pub const fn lines_reshaped(&self) -> u64 {
+        self.lines_reshaped
+    }
+
     // =========================================================================
     // Host-facing state: fonts, theme, toggles, presentation inputs
     // =========================================================================
@@ -1544,6 +1923,9 @@ impl FrameCompositor {
         self.text_renderer.load_font(data);
         // Measure actual character width from the loaded font
         self.cached_char_width = self.text_renderer.char_width();
+        // New font data can change how Family::Monospace resolves — every
+        // retained shape is stale.
+        self.font_generation = self.font_generation.wrapping_add(1);
     }
 
     /// Sets the font size in pixels (already scaled for DPI by the face).
@@ -1589,6 +1971,9 @@ impl FrameCompositor {
             self.highlighter.set_light_theme();
             Theme::light()
         };
+        // Text colors and the fallback highlighter's palette both feed the
+        // shaped buffers.
+        self.theme_generation = self.theme_generation.wrapping_add(1);
     }
 
     /// The active theme, for hosts that derive colors from it (e.g. gutter
@@ -1608,8 +1993,13 @@ impl FrameCompositor {
     }
 
     /// Enables or disables the gutter (line numbers).
+    ///
+    /// Bumps the gutter generation unconditionally: toggling changes both
+    /// the gutter buffer's existence and the content column's width, and a
+    /// redundant call merely costs one rebuilt frame.
     pub const fn set_gutter_enabled(&mut self, enabled: bool) {
         self.gutter_enabled = enabled;
+        self.gutter_text_generation = self.gutter_text_generation.wrapping_add(1);
     }
 
     /// Whether the gutter is enabled.
@@ -1623,7 +2013,13 @@ impl FrameCompositor {
     /// Exposed as the raw map — rather than a setter taking a finished map —
     /// so a host that fails partway through parsing its theme leaves exactly
     /// the partial state it always did.
+    ///
+    /// Every mutable borrow bumps the syntax-theme generation: the raw
+    /// accessor defeats change tracking, so the borrow itself is the
+    /// change signal. It over-invalidates only when the host actually
+    /// calls this, which coincides with real theme changes.
     pub const fn syntax_theme_mut(&mut self) -> &mut HashMap<String, Color> {
+        self.syntax_theme_generation = self.syntax_theme_generation.wrapping_add(1);
         &mut self.syntax_theme
     }
 
@@ -1641,8 +2037,14 @@ impl FrameCompositor {
 
     /// Replaces the custom gutter text: one string per document line, or
     /// `None` to restore automatic line numbers.
+    ///
+    /// Bumps the gutter generation unconditionally — custom gutter text
+    /// changes both the gutter buffer's text and (through its measured
+    /// width) the content column — which also makes this call the honest
+    /// way for a host to force a full rebuild of the retained shapes.
     pub fn set_custom_gutter_lines(&mut self, lines: Option<Vec<String>>) {
         self.custom_gutter_lines = lines;
+        self.gutter_text_generation = self.gutter_text_generation.wrapping_add(1);
     }
 
     /// Per-line blame text (`doc_line` → formatted string), mutable for

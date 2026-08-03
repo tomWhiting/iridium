@@ -35,6 +35,25 @@ The topics slice brief will cite the VirtualFeed contract as its spine.
 Sequence unblocked both sides; Athena's browser-gate wiring is the last
 condition standing before StreamedResults.
 
+**Three palette-conversion rulings delivered 3 Aug ~00:2xZ** (Athena's ask in
+her cert thread, findings 6/7/10 of the palette conversion on manifold branch
+`palette-grunk-conversion`; verified at palette.ts + command-surface.ts +
+durable-slot.ts, not her relay): (6) CommandSurface gains `headerSlot` +
+`statusSlot` (StageFrame badge-slot idiom) and `setEmptyText` — visibility
+stays primitive truth, the sentence becomes live consumer truth; the slot
+design rides WITH StreamedResults as one unit (its brief's scope changes:
+correlation model + driver of both surfaces; mode chip is caller content in
+headerSlot, grunk never learns "mode"). (7) `DurableDraftConfig` gains a
+REQUIRED `onClose: "clear" | "keep"` — involuntary end (pagehide) always
+preserves, deliberate end is a declared intent; clear flushes the cleared
+state. (10) The law: the surface that EMBEDS a durable slot renders its
+degradation (slot never renders itself, consumer never relied on — finding 10
+is the existence proof); CommandSurface renders unavailable/evicted per the
+vocabulary convention, in the statusSlot region, hidden when
+pending/hydrated. Also acknowledged: finding 8's inventory correction (no
+cross-tab sync in the durable family) and the meridian.css 8-of-12 hook gap
+(her board's collection lane).
+
 **Waffles's receipt of the D-series** (his 23:39Z message + manifold commit
 `5bc6f43`, `docs/briefs/GRUNK-CONVERSION-rulings.md`): D1–D7 rulings are on
 the record verbatim alongside Athena's sequence and gate condition. Two are

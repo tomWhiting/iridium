@@ -25,13 +25,25 @@ sell"); name "iridium", icon "77"**. Plan: `docs/DESKTOP-SHELL-PLAN.md`
   iridium rides manifold's window as a pane via its web face, but its OWN
   desktop home is this native shell — webview latency is why.
 
-**NEXT (step 2): `apps/iridium-desktop`** — winit event loop + window,
-`NativeSurface` twin of WebSurface driving `FrameCompositor::compose`,
-winit→kernel input translation (⌘=meta, mac keymap layer), mouse via the
-compositor's `pixel_to_position`, arboard clipboard, host layer ported from
-apps/iridium, GPU-painted overlays (prompts, search, palette, undo-tree —
-ALL in v1 per ruling), hand-rolled .app bundle ("iridium", icon 77). Open
-a fresh lane with Athena before cargo work (per-work-window discipline).
+**Step 2 slice 1 LANDED — 3569ee5, smoke-verified.** `apps/iridium-desktop`
+exists: winit 0.30 event loop, `NativeSurface` (Backends::PRIMARY, retry on
+Lost/Outdated), FrameCompositor-driven frames, winit→kernel keys (⌘=meta,
+26-entry tested table), kernel-first dispatch, host commands surface in
+the window title, event-driven redraws, argv file load, NO SAVE (loud
+stderr + crate-doc warning). Five gates green from this seat; 7-second
+runtime smoke clean (window live, no wgpu errors, only the scaffold
+warning on stderr). Compositor API friction for later slices recorded in
+the scaffold agent's report: no char-width remeasure path (font reload
+works around it), units.rs private to kernel (restated locally), font
+family hardcoded to Family::Monospace, kernel viewport must be synced by
+the face for page motion, no blink-deadline accessor for event-driven
+caret blink.
+
+**NEXT SLICES (step 2 continues, own lanes per window):** mouse via
+compositor `pixel_to_position` (v1 per ruling), arboard clipboard, host
+layer port (save/prompts/messages), GPU-painted overlays (prompts, search,
+palette, undo-tree — ALL in v1), .app bundle ("iridium", icon 77). Then
+step 3: latency instrumentation + bench, numbers into the plan doc.
 
 ## ✅ UNDO-TREE PANEL LANDED 3 Aug ~15:25 local — commits 9d13c59 + 3118f2a, binary swapped
 

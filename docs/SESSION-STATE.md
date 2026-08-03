@@ -1,5 +1,63 @@
 # Session state — 2026-07-30
 
+## ⚠️ WORK IN FLIGHT AT COMPACTION 3 Aug ~15:2x local — UNDO-TREE PANEL, LANE OPEN
+
+Tom green-lit the undo-tree panel (~05:05Z his DM, called it "under tree").
+**CODE IS COMPLETE AND GREEN** — what remains is the delivery tail only:
+
+DONE (all tests passing, 122/0 in apps/iridium, 9 new panel tests + fmt'd):
+- Red test proven first (`the_history_key_opens_the_undo_tree_…` failed
+  against unfixed code, recorded).
+- `crates/iridium-tui/src/frame/panel.rs` NEW — shared `FloatingBox`
+  (rounded ╭╮╰╯ borders, MAX_WIDTH 64, TOP 1, MAX_VISIBLE_ROWS 12,
+  `fitted()` returns None on dishonest screens); command_palette/paint.rs
+  REFACTORED onto it (corner rationale doc moved to panel.rs).
+- `crates/iridium-tui/src/frame/history_panel/{mod,paint,tests}.rs` NEW —
+  modal panel; root-at-top DFS linearize (indent counts FORKS not depth,
+  capped at half width); active path = ancestors + preferred-descent, bright;
+  parked branches dim; current row `*` + overlay_toggle(true); ages
+  right-aligned ("now"/s/m/h/d from elapsed_ms); selection by NODE ID (not
+  row index) with follow-current fallback; keys Up/Down/PageUp/Dn/Home/End
+  clamp, Enter → `HistoryOutcome::Jump(UndoNodeId)` PANEL STAYS OPEN,
+  Escape/Ctrl+Alt+H → Closed, all else swallowed. Kernel API used:
+  `editor.history_snapshot()` (`UndoNodeInfo{id:String decimal, parent_id,
+  child_ids, preferred_child_id, elapsed_ms, description, is_current}`),
+  `UndoNodeId::from_u64(id.parse())`, `editor.jump_to_history_node(id)->bool`.
+  GOTCHA learned: UndoTree groups edits within 500ms into one node — tests
+  use `editor.state_mut().history.set_group_timeout_ms(0)`.
+- App wiring: fields `history: HistoryPanel`, `history_open`; modal branch
+  after palette in `handle_key`; `HISTORY_TOGGLE_PANEL` toggle arm in
+  `dispatch_host_command`; `drive_history` (Jump → `jump_to_history_node`,
+  error message "that history state no longer exists" on false, panel stays
+  open, `ensure_caret_visible`); paste swallowed while open; view.rs paints
+  after palette, cursor Hidden.
+
+REMAINING (in order):
+1. clippy zero-new check + full gate battery (workspace/GPU-free/syntax/
+   wasm32 check/fmt — unpiped exits; 4 pre-existing mouse.rs warnings are
+   NOT new). 2. Commit (feat(tui): undo-tree panel …). 3. Walkthrough
+   update: replace limits headline (undo-tree gap) with panel section + keys
+   table; "complete" list drops it. 4. pty proof: release build (ONE), then
+   `script` harness (COLUMNS=120 LINES=40, sleep 0.9, Ctrl+Alt+H = \x1b? NO
+   — Ctrl+Alt+H under xterm legacy = ESC prefix + 0x08: bytes `\x1b\x08`;
+   type text first, Up=\x1b[A, Enter=\r, quit \x11 with y for dirty confirm).
+   5. Swap: fresh `pgrep -x iridium` AT swap, backup old to scratchpad,
+   `~/.local/bin/iridium`. 6. Baton final + push. 7. LANE CLOSE Athena
+   (cert thread dm:45cf420e-…): anchor **26,906,852 KiB**, ceiling +4 GiB,
+   `du -sk target` same hand; NOTE Athena's correction: THREE cargo lanes
+   live (Artemis #67 ceiling 10.5, Hermes F8-2 at 4.0, mine 4) — band 46.5,
+   free was 87.8. 8. Report to Tom (dm:c9255b2a-…). 9. Then scope the
+   DESKTOP SHELL plan promised to Tom (winit shell crate reusing kernel wgpu
+   pipeline; no window code exists in tree today; ⌘-parity lands there;
+   bring PLAN not build). Also still open: Tom's emulator answer for ⌘
+   passthrough; his earlier batched questions.
+
+Palette background (landed earlier this window): commits 695e83b/91db00b/
+7ba0259; palette lane CLOSED with Athena (+270 MiB of 4 GiB, kilobyte-
+identical corroboration); binary at ~/.local/bin/iridium already carries the
+palette; backup `iridium.backup-pre-palette` in scratchpad. Tom's verdict:
+"looking really good."
+
 ## ✅ TERMINAL PALETTE LANDED 3 Aug ~14:35 local — commit 695e83b, binary swapped, lane closed
 
 Tom's green-lit terminal command palette is BUILT, TESTED, SWAPPED IN:

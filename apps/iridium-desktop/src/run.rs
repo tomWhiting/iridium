@@ -74,9 +74,14 @@ pub fn main() -> ExitStatus {
     match event_loop.run_app(&mut app) {
         // A failure inside the loop had no way out but the field; see
         // `DesktopApp::failure`.
-        Ok(()) => app.failure().map_or(ExitStatus::Success, |message| {
-            fail(&format!("iridium-desktop: {message}\n"))
-        }),
+        Ok(()) => {
+            // The window is closed; if `IRIDIUM_LATENCY` armed the monitor,
+            // the session's distribution prints now, once.
+            app.report_latency();
+            app.failure().map_or(ExitStatus::Success, |message| {
+                fail(&format!("iridium-desktop: {message}\n"))
+            })
+        },
         Err(error) => fail(&format!(
             "iridium-desktop: the event loop failed: {error}\n"
         )),

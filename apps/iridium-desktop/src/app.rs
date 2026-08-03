@@ -63,6 +63,7 @@
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
 use iridium_editor::commands::palette::CommandMru;
@@ -84,6 +85,7 @@ use crate::commands;
 use crate::highlight::HighlightCache;
 use crate::history_overlay::{HistoryOutcome, HistoryPanel};
 use crate::keys;
+use crate::latency::LatencyMonitor;
 use crate::mouse::{self, Grid, Pointer};
 use crate::overlay::{OverlayPainter, PanelContent, StripContent};
 use crate::prompt::{Answer, Deed, Message, Prompt};
@@ -249,6 +251,9 @@ pub struct DesktopApp {
     prompt: Option<Prompt>,
     /// What the last input had to say, shown on the strip until the next key.
     message: Option<Message>,
+    /// Keydown-to-present measurement, armed by `IRIDIUM_LATENCY`; one
+    /// branch per event when it is not. See [`crate::latency`].
+    latency: LatencyMonitor,
     /// The window title as last set, so an unchanged title costs nothing.
     title: String,
     /// What killed the session from inside the event loop, if anything;
@@ -321,6 +326,7 @@ impl DesktopApp {
             history_open: false,
             prompt: None,
             message: None,
+            latency: LatencyMonitor::from_env(),
             title: String::new(),
             failure: None,
         })
@@ -330,6 +336,24 @@ impl DesktopApp {
     #[must_use]
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
+    }
+
+    /// Writes the latency summary to standard error, when there is one to
+    /// write.
+    ///
+    /// Called by [`crate::run`] after the event loop returns cleanly — the
+    /// summary belongs to the whole session, so it prints once, at the end.
+    /// A disarmed monitor prints nothing at all; an armed one that never
+    /// recorded a sample says so rather than inventing a distribution.
+    pub fn report_latency(&self) {
+        if !self.latency.is_armed() {
+            return;
+        }
+        let line = self.latency.summary().map_or_else(
+            || "latency: no keydown->present samples were recorded".to_owned(),
+            |summary| summary.to_string(),
+        );
+        let _ = writeln!(io::stderr(), "{line}");
     }
 
     /// Whether the document differs from what is on disk.
@@ -1111,8 +1135,24 @@ impl DesktopApp {
             Ok(())
         });
 
-        if let Err(error) = outcome {
-            let _ = writeln!(io::stderr(), "iridium-desktop: frame failed: {error}");
+        match outcome {
+            Ok(()) => {
+                // The frame is submitted and presented; the pending keydown,
+                // if any, is answered. A failed frame keeps it pending — the
+                // keystroke's effect is still unpresented, so the eventual
+                // sample honestly spans the failed attempt.
+                if self.latency.is_armed()
+                    && let Some(milliseconds) = self.latency.frame_presented(Instant::now())
+                {
+                    let _ = writeln!(
+                        io::stderr(),
+                        "latency: keydown->present {milliseconds:.2}ms"
+                    );
+                }
+            },
+            Err(error) => {
+                let _ = writeln!(io::stderr(), "iridium-desktop: frame failed: {error}");
+            },
         }
     }
 
@@ -1233,15 +1273,32 @@ impl ApplicationHandler for DesktopApp {
                 is_synthetic,
                 ..
             } => {
+                // The latency clock starts at receipt, before translation —
+                // the user's finger does not care where the time went. When
+                // the flag is off this is the apparatus's whole cost: one
+                // branch, no clock read.
+                let received = if self.latency.is_armed() {
+                    Some(Instant::now())
+                } else {
+                    None
+                };
                 // Releases are not presses, and synthetic presses are focus
                 // bookkeeping, not typing.
                 if event.state == ElementState::Pressed
                     && !is_synthetic
                     && let Some(key) =
                         keys::translate(&event.logical_key, event.repeat, self.modifiers)
-                    && self.press(&key) == Flow::Exit
                 {
-                    event_loop.exit();
+                    // Recorded only for a dispatched key: `press` requests a
+                    // redraw for every one, so a pending timestamp always has
+                    // a frame coming. A dropped key's timestamp dies here —
+                    // see `crate::latency` for the whole policy.
+                    if let Some(at) = received {
+                        self.latency.key_dispatched(at);
+                    }
+                    if self.press(&key) == Flow::Exit {
+                        event_loop.exit();
+                    }
                 }
             },
             WindowEvent::CursorMoved { position, .. } => {

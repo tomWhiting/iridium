@@ -53,6 +53,14 @@ pub struct HighlightCache {
     /// How many times the spans have been rebuilt — the observable that
     /// proves the generation gate: a frame without an edit must not move it.
     rebuilds: u64,
+    /// The resolver generation handed to the compositor's retained-shaping
+    /// key: moves whenever a subsequent resolution could answer differently.
+    ///
+    /// `rebuilds` alone is not enough — removing the language clears the
+    /// spans *without* a rebuild, and the next resolution answers `None`
+    /// where it answered runs. So this moves on every span rebuild *and*
+    /// on every path that empties the entry while it held spans.
+    generation: u64,
 }
 
 /// One generation's worth of spans.
@@ -91,6 +99,7 @@ impl HighlightCache {
         Self {
             entry: None,
             rebuilds: 0,
+            generation: 0,
         }
     }
 
@@ -104,9 +113,16 @@ impl HighlightCache {
     /// only when the parse count or document revision moved, and the compiled
     /// highlighter survives every rebuild for the same language.
     pub fn refresh(&mut self, editor: &Editor) {
+        let had_entry = self.entry.is_some();
         let state = editor.state();
         let Some(language) = state.syntax.language() else {
             self.entry = None;
+            if had_entry {
+                // The spans are gone without a rebuild — the next resolution
+                // answers `None` where it answered runs, and the exposed
+                // generation must say so (the `rebuilds`-is-not-enough path).
+                self.generation = self.generation.wrapping_add(1);
+            }
             return;
         };
         let generation = Generation {
@@ -125,6 +141,12 @@ impl HighlightCache {
             _ => None,
         };
         let Some(highlighter) = reusable.or_else(|| Highlighter::try_new(language)) else {
+            // The entry was taken above and stays empty: a language whose
+            // highlight query does not compile degrades to the fallback. If
+            // spans were on screen, that is a change of answer too.
+            if had_entry {
+                self.generation = self.generation.wrapping_add(1);
+            }
             return;
         };
 
@@ -132,6 +154,7 @@ impl HighlightCache {
             SpanIndex::new(highlighter.spans_in(tree, &state.document.text()))
         });
         self.rebuilds = self.rebuilds.saturating_add(1);
+        self.generation = self.generation.wrapping_add(1);
         self.entry = Some(Spans {
             language,
             highlighter,
@@ -150,16 +173,31 @@ impl HighlightCache {
         self.rebuilds
     }
 
+    /// The generation the per-frame resolver reports to the compositor —
+    /// see the field documentation for what moves it.
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// One frame's resolver over the cached spans, coloured from `colors`.
     ///
     /// Borrows the cache immutably, so it can be handed to
     /// [`FrameCompositor::compose`](iridium_editor::render::FrameCompositor)
     /// alongside mutable borrows of the surface and compositor.
+    ///
+    /// The resolver's generation is this cache's. `colors` is a second
+    /// input to the resolution that the generation does not cover: today
+    /// the desktop face sets its theme once at startup and never again, so
+    /// the colours cannot change under a retained frame — if runtime theme
+    /// switching ever lands, the switch must move this generation too, or
+    /// retained frames keep the old palette.
     #[must_use]
     pub fn resolver<'a>(&'a self, colors: &'a SyntaxColors) -> FrameHighlights<'a> {
         FrameHighlights {
             index: self.entry.as_ref().map(|entry| &entry.index),
             colors,
+            generation: self.generation,
         }
     }
 }
@@ -173,12 +211,18 @@ pub struct FrameHighlights<'a> {
     index: Option<&'a SpanIndex>,
     /// The theme's syntax colours, mapped per highlight by the kernel.
     colors: &'a SyntaxColors,
+    /// The owning [`HighlightCache`]'s generation at construction.
+    generation: u64,
 }
 
 impl HighlightSource for FrameHighlights<'_> {
     fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         let index = self.index?;
         Some(rich_spans(index, context, self.colors))
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation
     }
 }
 
@@ -344,6 +388,81 @@ mod tests {
         assert_eq!(cache.rebuilds(), 2, "the edit's reparse invalidates once");
         cache.refresh(&editor);
         assert_eq!(cache.rebuilds(), 2, "and only once");
+    }
+
+    #[test]
+    fn generation_is_stable_across_no_op_refreshes_and_moves_on_edits() {
+        let mut editor = rust_editor("fn main() {}\n");
+        let mut cache = HighlightCache::new();
+        cache.refresh(&editor);
+        let after_build = cache.generation();
+
+        cache.refresh(&editor);
+        cache.refresh(&editor);
+        assert_eq!(
+            cache.generation(),
+            after_build,
+            "an unchanged document must not move the resolver generation"
+        );
+
+        editor.paste("// note\n");
+        cache.refresh(&editor);
+        assert_ne!(
+            cache.generation(),
+            after_build,
+            "a rebuild is a new answer and must move the generation"
+        );
+
+        let theme = Theme::default();
+        assert_eq!(
+            cache.resolver(&theme.syntax).generation(),
+            cache.generation(),
+            "the per-frame resolver reports the cache's generation"
+        );
+    }
+
+    /// The `rebuilds`-is-not-enough path: removing the language clears the
+    /// spans without a rebuild, and the next resolution answers `None`
+    /// where it answered runs — a retained frame keyed on the generation
+    /// must notice.
+    #[test]
+    fn removing_the_language_moves_the_generation_without_a_rebuild() {
+        let mut editor = rust_editor("fn main() {}\n");
+        let mut cache = HighlightCache::new();
+        cache.refresh(&editor);
+        assert_eq!(cache.rebuilds(), 1);
+        let with_spans = cache.generation();
+
+        editor.state_mut().syntax.clear_language();
+        cache.refresh(&editor);
+        assert_eq!(cache.rebuilds(), 1, "clearing the entry is not a rebuild");
+        assert_ne!(
+            cache.generation(),
+            with_spans,
+            "the cleared spans change the resolution answer"
+        );
+
+        let theme = Theme::default();
+        let syntax_theme = HashMap::new();
+        let viewport = ViewportConfig::default();
+        let context = context_over(
+            "fn main() {}\n",
+            &syntax_theme,
+            &viewport,
+            theme.editor.foreground,
+        );
+        assert!(
+            cache.resolver(&theme.syntax).resolve(&context).is_none(),
+            "and the answer really did change: the fallback takes over"
+        );
+
+        let cleared = cache.generation();
+        cache.refresh(&editor);
+        assert_eq!(
+            cache.generation(),
+            cleared,
+            "staying without a language moves nothing further"
+        );
     }
 
     #[test]

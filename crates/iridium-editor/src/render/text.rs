@@ -3,9 +3,11 @@
 //! This module provides GPU-accelerated text rendering using glyphon
 //! for glyph rasterization and cosmic-text for text shaping.
 
+use glyphon::cosmic_text::{BidiParagraphs, LineEnding, LineIter};
 use glyphon::{
-    Attrs, Buffer, Cache, Color as GlyphonColor, Family, FontSystem, Metrics, Resolution, Shaping,
-    SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer, Viewport,
+    Attrs, AttrsList, Buffer, BufferLine, Cache, Color as GlyphonColor, Family, FontSystem,
+    Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds,
+    TextRenderer as GlyphonTextRenderer, Viewport,
 };
 use wgpu::{Device, MultisampleState, Queue, TextureFormat};
 
@@ -302,6 +304,170 @@ impl TextRenderer {
     /// before rendering.
     pub fn shape_buffer(&mut self, buffer: &mut Buffer) {
         buffer.shape_until_scroll(&mut self.font_system, false);
+    }
+
+    /// Sets styled spans on a buffer by diffing per line, preserving the
+    /// shape caches of lines that did not change.
+    ///
+    /// [`Buffer::set_rich_text`] unconditionally resets every line's shape
+    /// and layout caches, so retained shaping cannot go through it. This is
+    /// the same construction routed through [`BufferLine::set_text`], which
+    /// diffs text, ending and attribute list and resets only lines that
+    /// actually differ — a one-character edit reshapes one line. It must
+    /// stay byte-for-byte faithful to what `set_rich_text` builds, or the
+    /// first diffed frame after a full rebuild would spuriously reshape
+    /// everything: the same [`BidiParagraphs`] line split over the
+    /// concatenated span text, `LineEnding::default()` on every line, a
+    /// per-line [`AttrsList`] whose defaults carry no color with spans
+    /// added only where they differ from those defaults, and one empty
+    /// line when the text is empty.
+    ///
+    /// Returns how many lines were actually reshaped (differing lines plus
+    /// lines appended to grow the buffer). Callers must still run
+    /// [`Self::shape_buffer`] afterwards; unchanged lines answer it from
+    /// their caches.
+    pub fn set_rich_text_diffed<'a>(
+        buffer: &mut Buffer,
+        spans: impl Iterator<Item = (&'a str, Color)>,
+    ) -> usize {
+        let default_attrs = Attrs::new().family(Family::Monospace);
+
+        // Concatenate the spans into one string with byte ranges, exactly as
+        // `Buffer::set_rich_text` does before splitting into lines.
+        let mut string = String::new();
+        let mut span_ranges: Vec<(Color, std::ops::Range<usize>)> = Vec::new();
+        for (text, color) in spans {
+            let start = string.len();
+            string.push_str(text);
+            span_ranges.push((color, start..string.len()));
+        }
+
+        let string_start = string.as_ptr() as usize;
+        let mut span_idx = 0_usize;
+        let mut line_count = 0_usize;
+        let mut reshaped = 0_usize;
+
+        for line in BidiParagraphs::new(&string) {
+            let line_start = line.as_ptr() as usize - string_start;
+            let line_range = line_start..line_start + line.len();
+
+            let mut attrs_list = AttrsList::new(&default_attrs);
+            while let Some((color, span_range)) = span_ranges.get(span_idx) {
+                // start..end is the intersection of this line and this span.
+                let start = line_range.start.max(span_range.start);
+                let end = line_range.end.min(span_range.end);
+                if start < end {
+                    let attrs = default_attrs.clone().color(Self::to_glyphon_color(*color));
+                    // Only add attrs if they don't match the defaults — the
+                    // rule `set_rich_text` applies.
+                    if attrs != attrs_list.defaults() {
+                        attrs_list
+                            .add_span(start - line_range.start..end - line_range.start, &attrs);
+                    }
+                }
+                // A span ending inside this line is followed by another span
+                // on the same line; a span reaching the line's end carries
+                // into the next line, whose empty intersection advances it.
+                if span_range.end < line_range.end {
+                    span_idx += 1;
+                } else {
+                    break;
+                }
+            }
+
+            reshaped += usize::from(Self::write_line(
+                buffer,
+                line_count,
+                line,
+                LineEnding::default(),
+                attrs_list,
+            ));
+            line_count += 1;
+        }
+
+        // Empty text still owns one empty line, as in `set_rich_text`.
+        if line_count == 0 {
+            reshaped += usize::from(Self::write_line(
+                buffer,
+                0,
+                "",
+                LineEnding::default(),
+                AttrsList::new(&default_attrs),
+            ));
+            line_count = 1;
+        }
+
+        buffer.lines.truncate(line_count);
+        reshaped
+    }
+
+    /// Sets uniformly colored text on a buffer by diffing per line — the
+    /// [`Self::set_text`] counterpart of [`Self::set_rich_text_diffed`].
+    ///
+    /// Mirrors [`Buffer::set_text`]'s construction exactly: [`LineIter`]
+    /// line splitting with each line's real ending, the given attributes
+    /// (family and color) as every line's [`AttrsList`] defaults with no
+    /// spans, and a trailing empty `LineEnding::None` line whenever the
+    /// last split line ends with a terminator (or the text is empty).
+    ///
+    /// Returns how many lines were actually reshaped. Callers must still
+    /// run [`Self::shape_buffer`] afterwards.
+    pub fn set_text_diffed(buffer: &mut Buffer, text: &str, color: Color) -> usize {
+        let attrs = Attrs::new()
+            .family(Family::Monospace)
+            .color(Self::to_glyphon_color(color));
+
+        let mut line_count = 0_usize;
+        let mut reshaped = 0_usize;
+        let mut last_ending = LineEnding::default();
+        for (range, ending) in LineIter::new(text) {
+            reshaped += usize::from(Self::write_line(
+                buffer,
+                line_count,
+                &text[range],
+                ending,
+                AttrsList::new(&attrs),
+            ));
+            line_count += 1;
+            last_ending = ending;
+        }
+
+        // Ensure there is an ending line with no line ending, as in
+        // `Buffer::set_text` (empty text hits this too: no lines were
+        // produced and the default ending above is not `None`).
+        if last_ending != LineEnding::None {
+            reshaped += usize::from(Self::write_line(
+                buffer,
+                line_count,
+                "",
+                LineEnding::None,
+                AttrsList::new(&attrs),
+            ));
+            line_count += 1;
+        }
+
+        buffer.lines.truncate(line_count);
+        reshaped
+    }
+
+    /// Writes one line into `buffer.lines[index]` through the diffing
+    /// [`BufferLine::set_text`], appending a fresh line when the buffer is
+    /// shorter. Returns whether the line's shape cache was reset.
+    fn write_line(
+        buffer: &mut Buffer,
+        index: usize,
+        text: &str,
+        ending: LineEnding,
+        attrs_list: AttrsList,
+    ) -> bool {
+        if let Some(line) = buffer.lines.get_mut(index) {
+            line.set_text(text, ending, attrs_list)
+        } else {
+            buffer
+                .lines
+                .push(BufferLine::new(text, ending, attrs_list, Shaping::Advanced));
+            true
+        }
     }
 
     /// Calculates cursor visual position accounting for line wrapping.

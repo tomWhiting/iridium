@@ -69,6 +69,12 @@ pub struct FoldState {
     /// Cached line mapping for O(log n) visual↔document conversion.
     /// Rebuilt when fold state changes.
     line_mapping: LineMapping,
+    /// Monotonic fold-state generation, moved by every mutation that can
+    /// change what folding makes visible. Folding does not touch the
+    /// document revision, so without this counter a retained frame could
+    /// keep showing unfolded text after a fold — see
+    /// [`Self::generation`].
+    generation: u64,
 }
 
 impl Default for FoldState {
@@ -86,6 +92,7 @@ impl FoldState {
             folded_lines: HashSet::new(),
             language: None,
             line_mapping: LineMapping::default(),
+            generation: 0,
         }
     }
 
@@ -97,12 +104,32 @@ impl FoldState {
             folded_lines: HashSet::new(),
             language: Some(language),
             line_mapping: LineMapping::default(),
+            generation: 0,
         }
     }
 
     /// Rebuilds the line mapping cache after fold state changes.
     fn rebuild_line_mapping(&mut self) {
         self.line_mapping = LineMapping::build(&self.folded_lines, self.regions());
+    }
+
+    /// The fold-state generation: moves on every mutation that can change
+    /// which lines folding hides or how a folded line renders.
+    ///
+    /// Fold operations deliberately do not bump the document revision — the
+    /// text is untouched — so a consumer caching anything derived from the
+    /// visible content must key on this counter as well. Two equal values
+    /// from the same instance guarantee the fold state is unchanged between
+    /// them; the counter wraps, which is harmless for equality comparison.
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Bumps [`Self::generation`]; called by every mutating operation that
+    /// actually changed observable fold state.
+    const fn bump_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     /// Returns the current language, if any.
@@ -122,6 +149,7 @@ impl FoldState {
         self.folds = Some(Folds::new(language));
         self.folded_lines.clear();
         self.line_mapping = LineMapping::default();
+        self.bump_generation();
     }
 
     /// Clears the language and all fold state.
@@ -130,6 +158,7 @@ impl FoldState {
         self.folds = None;
         self.folded_lines.clear();
         self.line_mapping = LineMapping::default();
+        self.bump_generation();
     }
 
     /// Updates the fold regions from a parse tree.
@@ -177,6 +206,7 @@ impl FoldState {
 
         // Rebuild line mapping if any folds are active
         self.rebuild_line_mapping();
+        self.bump_generation();
 
         true
     }
@@ -268,6 +298,7 @@ impl FoldState {
         }
         self.folded_lines.insert(line);
         self.rebuild_line_mapping();
+        self.bump_generation();
         true
     }
 
@@ -278,6 +309,7 @@ impl FoldState {
         let removed = self.folded_lines.remove(&line);
         if removed {
             self.rebuild_line_mapping();
+            self.bump_generation();
         }
         removed
     }
@@ -315,12 +347,14 @@ impl FoldState {
         let starts: Vec<usize> = self.regions().iter().map(|r| r.start_line).collect();
         self.folded_lines.extend(starts);
         self.rebuild_line_mapping();
+        self.bump_generation();
     }
 
     /// Unfolds all folded regions.
     pub fn unfold_all(&mut self) {
         self.folded_lines.clear();
         self.line_mapping = LineMapping::default();
+        self.bump_generation();
     }
 
     /// Folds all regions of a specific kind.
@@ -333,6 +367,7 @@ impl FoldState {
             .collect();
         self.folded_lines.extend(starts);
         self.rebuild_line_mapping();
+        self.bump_generation();
     }
 
     /// Unfolds all regions of a specific kind.
@@ -354,6 +389,7 @@ impl FoldState {
             self.folded_lines.remove(&line);
         }
         self.rebuild_line_mapping();
+        self.bump_generation();
     }
 
     /// Returns all currently folded start lines.
@@ -420,6 +456,7 @@ impl FoldState {
             }
         }
         self.rebuild_line_mapping();
+        self.bump_generation();
     }
 }
 

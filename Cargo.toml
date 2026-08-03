@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "apps/iridium",
+    "apps/iridium-desktop",
     "crates/iridium-editor",
     "crates/iridium-syntax",
     "crates/iridium-bindings",
@@ -28,6 +29,11 @@ unicode-segmentation = "1.12"
 wgpu = "28.0.0"
 glyphon = "0.10.0"
 cosmic-text = "0.16.0"
+
+# Native windowing (desktop shell). The 0.30 line speaks raw-window-handle 0.6,
+# the same version wgpu 28 consumes (Cargo.lock pins 0.6.2), so a winit window
+# is a wgpu surface target directly, with no bridging crate between them.
+winit = "0.30"
 
 # Text buffer
 ropey = { version = "2.0.0-beta.1", features = ["metric_chars", "metric_lines_lf_cr"] }

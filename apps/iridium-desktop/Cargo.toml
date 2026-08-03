@@ -1,0 +1,42 @@
+[package]
+name = "iridium-desktop"
+description = "The Iridium native desktop editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# The logic lives in the library so that everything a window is not needed for —
+# key translation, argument parsing, the numeric conversions — is testable on
+# the host. The binary is a shell over it, exactly as the terminal face's is.
+[lib]
+name = "iridium_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "iridium-desktop"
+path = "src/main.rs"
+
+[dependencies]
+# The kernel, with the GPU half on: this face renders through the kernel's
+# FrameCompositor rather than growing a frame assembly of its own.
+iridium-editor = { workspace = true, features = ["syntax", "render"] }
+
+# The window and its event loop. The only crate here that knows what a native
+# window is.
+winit.workspace = true
+
+# The GPU. Used only for the surface types NativeSurface hands the compositor.
+wgpu.workspace = true
+
+# Blocks the synchronous startup path on wgpu's async adapter/device requests.
+# Same version the kernel's `render` feature already carries.
+pollster = "0.4.0"
+
+# Error types for what can go wrong before a window exists.
+thiserror.workspace = true

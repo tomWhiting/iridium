@@ -52,14 +52,28 @@ title; stale-save refusal; save-as/quit-confirm/notices via a one-line
 GPU-painted strip — `overlay.rs` documents the second-pass LoadOp::Load
 pattern slice 3 reuses. 1680/0 workspace tests from this seat.
 
-**NEXT SLICES:** (3) the three remaining overlays — search, palette,
-undo-tree panel — reusing overlay.rs's pattern and the kernel data the TUI
-face already proved (search_text, history_snapshot, key hints); (4) .app
-bundle ("iridium", icon 77) + tree-sitter highlight seam wiring; then
-step 3: latency instrumentation + bench, numbers into the plan doc.
-Friction ledger for kernel follow-ups: MouseHandler resolved-position
-entry, units.rs privacy, Family::Monospace hardcode, blink deadline
-accessor, Editor::theme() getter.
+**Step 2 slice 3 LANDED — 8a30931, smoke-verified (7s alive, empty
+stderr).** All three overlays in the window: search (TUI semantics,
+non-modal, Ctrl+F/⌘F, panel-height-aware caret reveal), palette
+(Ctrl+K/⌘K/Ctrl+P, kernel-first dispatch, MacGlyphs hints, rich-text match
+highlighting per cluster), undo tree (Ctrl+Alt+H/⌘⌥H, jump keeps panel
+open). SHARED-LOGIC WIN: history tree-shaping moved to kernel
+`history::tree_view` — TUI panel shrank 189 lines, its 9 tests pass
+UNTOUCHED, both faces consume one implementation. Overlay painting: one
+pass for strip+panels, rounded ╭╮╰╯ glyph borders over inset quads,
+translucent selection quads. 1744/0 workspace tests from this seat.
+Friction added to ledger: compositor has no search-match highlight pass
+(TUI paints match cells itself; desktop buffer marking is a gap);
+primary_hint for kernel-layer chords renders ⌃ not ⌘ (kernel's binding
+choice, correct).
+
+**NEXT SLICES — v1 remainder:** (4) .app bundle ("iridium", icon 77) +
+tree-sitter highlight seam wiring (desktop currently uses the built-in
+keyword highlighter via the HighlightSource default); then step 3: latency
+instrumentation + bench, numbers into the plan doc. Kernel follow-up
+ledger: MouseHandler resolved-position entry, units.rs privacy,
+Family::Monospace hardcode, blink deadline accessor, Editor::theme()
+getter, compositor search-highlight pass.
 
 ## ✅ UNDO-TREE PANEL LANDED 3 Aug ~15:25 local — commits 9d13c59 + 3118f2a, binary swapped
 

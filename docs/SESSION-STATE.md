@@ -1,13 +1,44 @@
 # Session state — 2026-07-30
 
-## ⚠️ WORK IN FLIGHT AT COMPACTION 3 Aug ~04:15Z — TERMINAL PALETTE BUILD, LANE OPEN
+## ✅ TERMINAL PALETTE LANDED 3 Aug ~14:35 local — commit 695e83b, binary swapped, lane closed
 
-**Tom's direct green light** (his DM, ~04:07Z): build the terminal command
-palette UI. **He really likes ROUNDED corners, never sharp** — in cells that
-means `╭ ╮ ╰ ╯`, recorded in memory `tom-ui-preferences.md`. **BUILD LANE IS
-OPEN with Athena** (cert thread): anchor `du -sk target` = **26,638,472 KiB**,
-ceiling named **+4 GiB**, sole cargo lane, ~97.5 GiB free. Close with same
-instrument/hand and file the delta against the ceiling.
+Tom's green-lit terminal command palette is BUILT, TESTED, SWAPPED IN:
+- `crates/iridium-tui/src/frame/command_palette/{mod,paint,tests}.rs` —
+  floating modal panel, ROUNDED corners `╭ ╮ ╰ ╯` (Tom's preference, memory
+  `tom-ui-preferences.md`), horizontally centred, top-anchored one row down.
+  Kernel `palette::search_text` does all matching/ranking/recency; panel owns
+  a query `Field` (moved `frame/search/field.rs` → `frame/field.rs`, shared),
+  clamping selection, scroll window, match highlighting (char→cluster→cell),
+  non-title match annotations, right-aligned key hints
+  (`key_hints().primary_hint` → `label(KeyLabelStyle::Portable)`).
+- App wiring (`apps/iridium/src/app/`): `palette: CommandPalette`,
+  `palette_open`, `mru: CommandMru`. Modal before search in `handle_key`;
+  paste routes to the query; `dispatch_host_command` (Option<Flow>) split out
+  of `run_host_command`; `palette.open` arm opens it; `run_palette_command`
+  dispatches kernel-first then host, records MRU only on actual dispatch;
+  view.rs paints panel after prompt/message, palette caret wins.
+- Keys: Ctrl+K/Ctrl+P open (kernel default keymap, already bound); type to
+  filter; Up/Down/Ctrl+P/Ctrl+N clamp; PageUp/Dn hop by painted window;
+  Enter runs; Escape or Ctrl+K closes.
+- **Discipline receipts**: red test proven first (Ctrl+K error message,
+  failed pre-build, passes post). Gates ALL green: workspace 1604 passed/0
+  failed, GPU-free, syntax, wasm32 check, fmt — exits 0 unpiped; clippy zero
+  NEW warnings (4 pre-existing `input/mouse.rs` casts remain, untouched).
+  pty proof: release binary under `script`, Ctrl+A → Ctrl+K → "sort lines" →
+  Enter → Ctrl+S → Ctrl+Q; exit 0; file on disk sorted (palette-only
+  `transform.sortLines` ran end-to-end); `╭` present in emitted bytes.
+  Swap: `pgrep -x iridium` fresh at swap = no process; old binary backed up
+  to scratchpad (`iridium.backup-pre-palette`, 14,088,752 B); new
+  14,122,512 B at `~/.local/bin/iridium`, answers `--version`.
+- **Lane closed**: `du -sk target` = 26,915,036 KiB vs anchor 26,638,472 →
+  delta +276,564 KiB (~270 MiB) against the +4 GiB ceiling. Filed with
+  Athena (cert thread).
+- Docs: `docs/TERMINAL-WALKTHROUGH.md` gained a palette section; limits
+  headline is now the undo-tree panel; stale "no palette" rationales in
+  `app/commands.rs` rewritten.
+- **Still open after this**: undo-tree panel UI (kernel `history_snapshot`
+  ready, `Ctrl+Alt+H` still errors), OSC 52 clipboard, mouse (needs Tom's
+  kernel decision). Tom's batched questions in his DM remain unanswered.
 
 **Design settled so far** (sources read this session):
 - Kernel side is COMPLETE, use as-is: `commands::palette::{search_text, Query,

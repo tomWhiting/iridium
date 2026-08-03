@@ -1,6 +1,18 @@
 # The desktop shell — iridium as its own .app
 
-**Status: PLAN, awaiting Tom's green light. Nothing here is built.**
+**Status: GREEN-LIT 3 Aug 2026 — all four decisions ruled by Tom (his DM,
+~06:27Z). Build order is as planned: compositor extraction first.**
+
+Rulings:
+- **D-A — winit: ACCEPTED.** "If that really is the best solution then yeah
+  we'll go with that."
+- **D-B — mouse: IN v1.** Mouse matters for version one. The desktop face is
+  the first with honest pixel metrics, so the kernel's hit-testing gets used
+  as designed.
+- **D-C — overlays: THE FULL SET in v1.** "I don't want version one to be a
+  short sell at all — I want it to include the full everything." Prompts,
+  search, palette AND the undo-tree panel all ship in v1.
+- **D-D — identity: name "iridium", icon "77"** (the atomic number).
 
 Tom's bar, in his words: the snappiness is what makes him love it. That rules
 out any webview (compositor adds a frame or two of input latency; rAF may cap

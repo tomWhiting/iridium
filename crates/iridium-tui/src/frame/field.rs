@@ -1,14 +1,17 @@
-//! One editable line of text belonging to the search overlay.
+//! One editable line of text belonging to an overlay: a search query, a
+//! replacement, a palette filter.
 //!
 //! # Why this is not a kernel verb
 //!
 //! Editing text is the kernel's job and this crate must not have a second copy
-//! of it — but a search query is not a document. The kernel's editing verbs act
-//! on a [`Document`](iridium_editor::Document) through reversible commands and
-//! an undo tree; the query is a `&str` argument to
-//! [`Editor::find`](iridium_editor::Editor::find) and the kernel offers no way
-//! to edit one. So this is a field, not a buffer: no history, no selections, no
-//! commands, and nothing here is reachable from document text.
+//! of it — but an overlay's query is not a document. The kernel's editing verbs
+//! act on a [`Document`](iridium_editor::Document) through reversible commands
+//! and an undo tree; the query is a `&str` argument to
+//! [`Editor::find`](iridium_editor::Editor::find) or
+//! [`palette::search_text`](iridium_editor::commands::palette::search_text) and
+//! the kernel offers no way to edit one. So this is a field, not a buffer: no
+//! history, no selections, no commands, and nothing here is reachable from
+//! document text.
 //!
 //! # The caret is a byte offset on a cluster boundary
 //!

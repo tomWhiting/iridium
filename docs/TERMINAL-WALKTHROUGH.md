@@ -45,6 +45,7 @@ no runtime switch yet.
 | `Ctrl+G` | Go to line. |
 | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`) | Undo / redo. |
 | `Ctrl+F` | Find (and replace). |
+| `Ctrl+K` (or `Ctrl+P`) | The command palette: every command, by name. |
 | `Escape` | Collapse to a single cursor; close panels. |
 
 Saving is atomic: the file is written to a temp file in the same directory,
@@ -55,6 +56,34 @@ with a message.
 
 Dirtiness is content-based: undo back to exactly what is on disk and the `[+]`
 indicator clears — quitting then asks nothing.
+
+## The command palette
+
+`Ctrl+K` (or `Ctrl+P` / `Ctrl+Shift+P`, for VS Code muscle memory) opens a
+floating, rounded-cornered panel that runs any command by name — including the
+41 commands that have no key on purpose: all fifteen `transform.*` verbs (case
+conversions, sort lines, dedupe, trim trailing whitespace), the twenty `ast.*`
+structural walks beyond expand/shrink, `edit.deleteToLineStart`/`End`, and
+`history.redoBranch`.
+
+Open it empty and it lists everything, most recently used first. Type to
+filter — the fuzzy matcher, ranking and recency memory are the kernel's own,
+so the same query finds the same command here as in every other face. Matched
+characters are highlighted; a hit on an alias or a description shows the text
+it actually hit; every command that has a key shows it, right-aligned.
+
+| Key (palette open) | What it does |
+|---|---|
+| type | Narrow the list. |
+| `Down` / `Up` (or `Ctrl+N` / `Ctrl+P`) | Move the selection. It clamps at the ends — no wrapping. |
+| `PageDown` / `PageUp` | Hop a windowful. |
+| `Enter` | Run the selected command. |
+| `Escape` or `Ctrl+K` | Close. |
+
+The palette is modal: while it is open every key belongs to it, so `Ctrl+S`
+cannot save half-aimed. It floats over the document rather than taking rows
+from it — closing it restores the exact screen underneath. A paste while it is
+open lands in the query.
 
 ## Moving around
 
@@ -189,19 +218,11 @@ the viewport.
 
 ## The limits, honestly
 
-**The big one: there is no command palette UI in this face yet.** The kernel
-has the full palette machinery — fuzzy matcher, recency ranking, aliases, key
-hints — and `Ctrl+K` / `Ctrl+P` are bound to open it, but the terminal face
-does not draw it yet, so those keys currently report an error. Consequence: 41
-kernel commands that are palette-only by design are unreachable in the
-terminal today — all fifteen `transform.*` verbs (case conversions, sort
-lines, dedupe, trim trailing whitespace), twenty of the twenty-two `ast.*`
-verbs (sibling/child walks, select-inside-function, jump-to-next-function…),
-`edit.deleteToLineStart`/`End`, and `history.redoBranch`. Expand/shrink and
-everything in the tables above work fully. **Building the terminal palette is
-the single change that unlocks all 41 at once.** The undo-tree panel
-(`Ctrl+Alt+H`) is in the same state: the kernel query exists, the terminal UI
-does not.
+**The undo-tree panel (`Ctrl+Alt+H`) has no UI in this face yet.** The kernel
+query (`history_snapshot`) exists and the command is named and bound, but the
+terminal does not draw the panel, so the key reports an error. Branch cycling
+(`Ctrl+Alt+Z` / `Ctrl+Alt+Y`) and `history.redoBranch` through the palette
+cover navigating the tree blind until it lands.
 
 The rest:
 
@@ -233,8 +254,8 @@ The rest:
 
 ## What "complete" looks like from here
 
-In rough order of daily-driving value: the terminal palette UI (unlocks 41
-commands), OSC 52 clipboard, the undo-tree panel, mouse support (needs one
-kernel decision on cell-based hit-testing), runtime theme switching / config
-file, soft wrap (needs the layout decision recorded in
-`docs/SOFT-WRAP-DESIGN.md`), modal keymap layer.
+In rough order of daily-driving value: OSC 52 clipboard, the undo-tree panel,
+mouse support (needs one kernel decision on cell-based hit-testing), runtime
+theme switching / config file, soft wrap (needs the layout decision recorded
+in `docs/SOFT-WRAP-DESIGN.md`), modal keymap layer. The command palette landed
+on 3 Aug 2026 and unlocked the 41 palette-only commands.

@@ -46,6 +46,7 @@ no runtime switch yet.
 | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`) | Undo / redo. |
 | `Ctrl+F` | Find (and replace). |
 | `Ctrl+K` (or `Ctrl+P`) | The command palette: every command, by name. |
+| `Ctrl+Alt+H` | The undo-tree panel: every branch of the history, visually. |
 | `Escape` | Collapse to a single cursor; close panels. |
 
 Saving is atomic: the file is written to a temp file in the same directory,
@@ -191,6 +192,23 @@ abandoned branch is kept, so no sequence of undo/redo/type can lose work.
 | `Ctrl+Z` | Undo. |
 | `Ctrl+Shift+Z` / `Ctrl+Y` | Redo along the preferred branch. |
 | `Ctrl+Alt+Z` / `Ctrl+Alt+Y` | Cycle which branch redo will follow. |
+| `Ctrl+Alt+H` | Open the undo-tree panel. |
+
+The panel shows the whole tree: the state the file opened in at the top, time
+running downward, each fork indenting its children. `*` marks where the
+document is now; the bright rows are the path plain undo/redo travels;
+dim rows are parked branches; each row shows its age. While it is open:
+
+| Key (panel open) | What it does |
+|---|---|
+| `Up` / `Down` | Move the selection (clamps at the ends). |
+| `PageUp` / `PageDown` | Hop by a windowful. |
+| `Home` / `End` | The root / the newest state. |
+| `Enter` | Jump the document to the selected state — the panel stays open, so you can watch the `*` move and hop between states. |
+| `Escape` or `Ctrl+Alt+H` | Close. |
+
+The panel is modal, like the palette: browsing history while stray keys
+edited the document would grow the very tree being read.
 
 History is in-memory: it dies with the process, and `F5` (reload) replaces it
 along with the text — the confirm prompt exists because that discard is
@@ -217,14 +235,6 @@ the viewport.
   never eats your first keystroke.
 
 ## The limits, honestly
-
-**The undo-tree panel (`Ctrl+Alt+H`) has no UI in this face yet.** The kernel
-query (`history_snapshot`) exists and the command is named and bound, but the
-terminal does not draw the panel, so the key reports an error. Branch cycling
-(`Ctrl+Alt+Z` / `Ctrl+Alt+Y`) and `history.redoBranch` through the palette
-cover navigating the tree blind until it lands.
-
-The rest:
 
 - **One file per process.** No buffers, splits, tabs or windows. Run more than
   one `iridium`.
@@ -254,8 +264,9 @@ The rest:
 
 ## What "complete" looks like from here
 
-In rough order of daily-driving value: OSC 52 clipboard, the undo-tree panel,
-mouse support (needs one kernel decision on cell-based hit-testing), runtime
-theme switching / config file, soft wrap (needs the layout decision recorded
-in `docs/SOFT-WRAP-DESIGN.md`), modal keymap layer. The command palette landed
-on 3 Aug 2026 and unlocked the 41 palette-only commands.
+In rough order of daily-driving value: OSC 52 clipboard, mouse support (needs
+one kernel decision on cell-based hit-testing), runtime theme switching /
+config file, soft wrap (needs the layout decision recorded in
+`docs/SOFT-WRAP-DESIGN.md`), modal keymap layer. The command palette landed on
+3 Aug 2026 and unlocked the 41 palette-only commands; the undo-tree panel
+landed the same day.

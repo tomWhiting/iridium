@@ -53,7 +53,11 @@ pub mod app;
 /// The command line.
 pub mod cli;
 /// Reading and writing files, and noticing when one changed underneath us.
-pub mod file;
+///
+/// This lived here as `src/file` until the desktop shell needed the identical
+/// guarantees; it is now the `iridium-file` crate, re-exported under its old
+/// name so every path in this crate reads as it always did.
+pub use iridium_file as file;
 /// The terminal event loop.
 pub mod run;
 /// Loading a theme through the kernel's theme module.

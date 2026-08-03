@@ -12,17 +12,11 @@
 //! frames are composed only when one asked for a repaint. There is no
 //! interval to tune and no sleep to get wrong; an idle editor costs nothing.
 //!
-//! # The scaffold announces itself
-//!
-//! Slice 1 cannot save (see the crate documentation), and a build that cannot
-//! save must say so before anyone types into it — so the warning goes to
-//! standard error at startup, unconditionally, before the window opens.
-//!
 //! # Nothing is printed with `println!`
 //!
-//! The warning, usage and errors are written through [`io::Write`] so that a
-//! failure to write them is an outcome rather than a panic; `println!` panics
-//! on a broken pipe.
+//! Usage and errors are written through [`io::Write`] so that a failure to
+//! write them is an outcome rather than a panic; `println!` panics on a
+//! broken pipe.
 
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -34,10 +28,6 @@ use crate::app::{DesktopApp, Options};
 
 /// What an invocation looks like, shown for a command line that is not one.
 pub const USAGE: &str = "usage: iridium-desktop [file]\n";
-
-/// The warning every startup prints: this slice has no save path.
-const SCAFFOLD_WARNING: &str = "iridium-desktop: SCAFFOLD BUILD — there is no save in this slice.\n\
-     iridium-desktop: edits live in memory only and are DISCARDED when the window closes.\n";
 
 /// How the process ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,17 +47,14 @@ impl From<ExitStatus> for ExitCode {
     }
 }
 
-/// Runs the program: parses the command line, warns about the scaffold, then
-/// edits until the window closes.
+/// Runs the program: parses the command line, then edits until the window
+/// closes.
 #[must_use]
 pub fn main() -> ExitStatus {
     let options = match parse(std::env::args_os().skip(1)) {
         Ok(options) => options,
         Err(error) => return fail(&format!("iridium-desktop: {error}\n\n{USAGE}")),
     };
-
-    // Before the window opens, so it cannot be missed behind it.
-    let _ = io::stderr().write_all(SCAFFOLD_WARNING.as_bytes());
 
     let mut app = match DesktopApp::new(options) {
         Ok(app) => app,

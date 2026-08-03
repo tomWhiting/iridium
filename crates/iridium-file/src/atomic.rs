@@ -82,7 +82,10 @@ pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
 /// fails is exactly the partial write this module exists to survive, and no
 /// amount of testing the successful path would catch an implementation that
 /// wrote straight to the target.
-pub(super) fn write_atomically_with<F>(path: &Path, write_contents: F) -> io::Result<()>
+// `pub` rather than `pub(crate)`: the module is private, so this is already
+// unreachable from outside the crate, and the narrower spelling only restates
+// what the module boundary says.
+pub fn write_atomically_with<F>(path: &Path, write_contents: F) -> io::Result<()>
 where
     F: FnOnce(&mut File) -> io::Result<()>,
 {
@@ -131,7 +134,7 @@ fn resolve(path: &Path) -> io::Result<PathBuf> {
 ///
 /// A bare file name has no parent component, and an empty parent is not a
 /// directory any system call accepts, so both become the working directory.
-pub(super) fn parent_of(path: &Path) -> PathBuf {
+pub fn parent_of(path: &Path) -> PathBuf {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
         _ => PathBuf::from("."),

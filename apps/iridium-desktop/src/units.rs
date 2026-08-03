@@ -23,6 +23,53 @@ pub fn u32_to_f32(value: u32) -> f32 {
     f32::from(high).mul_add(65_536.0, f32::from(low))
 }
 
+/// Converts a line or column index to `f32` for grid arithmetic.
+///
+/// Indices up to 2^24 — far past any line a caret can reach in a real session
+/// — convert exactly; past that the value saturates through `u32` and rounds
+/// once, which is the same precision envelope the pixel pipeline itself lives
+/// in at those magnitudes.
+pub fn index_to_f32(value: usize) -> f32 {
+    u32_to_f32(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+/// Converts a physical cursor coordinate from winit's `f64` to `f32`.
+///
+/// The conversion goes through 1/256-pixel fixed point: exact for every
+/// coordinate below 2^24 device pixels, which is every window a display can
+/// show. Negative coordinates — a drag that left the window — clamp to zero,
+/// the window edge, which is where a selection dragged off-screen should
+/// anchor; `NaN` lands there too.
+pub fn pixel_from_f64(value: f64) -> f32 {
+    u32_to_f32(nearest_u32(value * 256.0)) / 256.0
+}
+
+/// Converts a pixel measure to a glyphon text bound.
+///
+/// Bounds are `i32` clip edges. Negative input clamps to zero and anything
+/// past `i32::MAX` saturates, neither of which a real strip geometry can
+/// produce.
+pub fn pixel_to_bound(value: f32) -> i32 {
+    i32::try_from(nearest_u32(f64::from(value))).unwrap_or(i32::MAX)
+}
+
+/// Converts a surface dimension to a glyphon text bound.
+pub fn dimension_to_bound(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+/// The number of whole character cells that fit in `width` pixels.
+///
+/// Zero when the character width is not positive — a font that has not
+/// measured yet must not turn a division into an absurd cell count.
+pub fn pixels_to_cells(width: f32, char_width: f32) -> usize {
+    if char_width <= 0.0 {
+        return 0;
+    }
+    let cells = (width / char_width).floor();
+    usize::try_from(nearest_u32(f64::from(cells))).unwrap_or(usize::MAX)
+}
+
 /// Converts a window scale factor to `f32` for font-size arithmetic.
 ///
 /// Scale factors are small positive rationals — 1.0 and 2.0 in practice, with
@@ -68,7 +115,64 @@ fn nearest_u32(value: f64) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{scale_to_f32, u32_to_f32};
+    use super::{
+        dimension_to_bound, index_to_f32, pixel_from_f64, pixel_to_bound, pixels_to_cells,
+        scale_to_f32, u32_to_f32,
+    };
+
+    /// Grid indices convert exactly across the range a session can reach.
+    #[test]
+    fn indices_convert_exactly() {
+        for value in [0_usize, 1, 79, 1_000, 65_536, (1 << 24) - 1] {
+            let expected = u32::try_from(value).unwrap();
+            assert_eq!(
+                index_to_f32(value).to_bits(),
+                u32_to_f32(expected).to_bits()
+            );
+        }
+    }
+
+    /// Cursor coordinates survive the trip from winit's `f64`.
+    #[test]
+    fn cursor_coordinates_convert_exactly() {
+        for (input, expected) in [
+            (0.0_f64, 0.0_f32),
+            (1.0, 1.0),
+            (799.5, 799.5),
+            (2_559.25, 2_559.25),
+            (16_383.0, 16_383.0),
+        ] {
+            assert_eq!(pixel_from_f64(input).to_bits(), expected.to_bits());
+        }
+    }
+
+    /// Coordinates no pointer can report still land somewhere defined.
+    #[test]
+    fn degenerate_cursor_coordinates_clamp() {
+        assert_eq!(pixel_from_f64(-5.0).to_bits(), 0.0_f32.to_bits());
+        assert_eq!(pixel_from_f64(f64::NAN).to_bits(), 0.0_f32.to_bits());
+        assert!(pixel_from_f64(f64::INFINITY).is_finite());
+    }
+
+    /// Bounds clamp instead of wrapping.
+    #[test]
+    fn bounds_are_clamped() {
+        assert_eq!(pixel_to_bound(0.0), 0);
+        assert_eq!(pixel_to_bound(10.4), 10);
+        assert_eq!(pixel_to_bound(-3.0), 0);
+        assert_eq!(dimension_to_bound(1_080), 1_080);
+        assert_eq!(dimension_to_bound(u32::MAX), i32::MAX);
+    }
+
+    /// Cell counts floor, and a degenerate character width yields none.
+    #[test]
+    fn cell_counts_floor() {
+        assert_eq!(pixels_to_cells(100.0, 10.0), 10);
+        assert_eq!(pixels_to_cells(99.9, 10.0), 9);
+        assert_eq!(pixels_to_cells(5.0, 10.0), 0);
+        assert_eq!(pixels_to_cells(100.0, 0.0), 0);
+        assert_eq!(pixels_to_cells(100.0, -1.0), 0);
+    }
 
     /// Every dimension a surface can realistically take converts exactly.
     #[test]

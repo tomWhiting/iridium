@@ -4,6 +4,7 @@ members = [
     "apps/iridium",
     "apps/iridium-desktop",
     "crates/iridium-editor",
+    "crates/iridium-file",
     "crates/iridium-syntax",
     "crates/iridium-bindings",
     "crates/iridium-tui",
@@ -34,6 +35,10 @@ cosmic-text = "0.16.0"
 # the same version wgpu 28 consumes (Cargo.lock pins 0.6.2), so a winit window
 # is a wgpu surface target directly, with no bridging crate between them.
 winit = "0.30"
+
+# System clipboard (desktop shell). Proven in the estate; the desktop face is
+# the first Iridium face with real cross-application copy and paste.
+arboard = "3.6"
 
 # Text buffer
 ropey = { version = "2.0.0-beta.1", features = ["metric_chars", "metric_lines_lf_cr"] }
@@ -96,6 +101,7 @@ criterion = { version = "0.8.1", features = ["html_reports"] }
 
 # Internal crates
 iridium-editor = { path = "crates/iridium-editor", default-features = false }
+iridium-file = { path = "crates/iridium-file" }
 iridium-syntax = { path = "crates/iridium-syntax" }
 iridium-bindings = { path = "crates/iridium-bindings" }
 iridium-tui = { path = "crates/iridium-tui" }

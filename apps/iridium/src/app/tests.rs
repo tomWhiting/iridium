@@ -17,7 +17,7 @@ use iridium_tui::input::TerminalInput;
 use super::prompt::Prompt;
 use super::{App, Flow};
 use crate::cli::Options;
-use crate::file::tests::TempDir;
+use crate::file::test_support::TempDir;
 
 /// A key press with no modifiers.
 fn press(key: KeyCode) -> TerminalInput {

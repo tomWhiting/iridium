@@ -28,3 +28,14 @@ iridium-editor = { workspace = true, features = ["syntax"] }
 # The face. The only crate here that knows what a terminal is. Cell width comes
 # from it too — `frame::LineLayout` — so this crate never counts characters.
 iridium-tui.workspace = true
+
+# The file layer: atomic saves and staleness detection, shared with the desktop
+# shell. It began life in this crate as `src/file` and moved out unchanged when
+# a second face needed the same guarantees; `src/lib.rs` re-exports it as
+# `file`, so every path in this crate reads as it always did.
+iridium-file.workspace = true
+
+[dev-dependencies]
+# The same crate again with its test fixtures on: `test_support::TempDir` is
+# the self-removing directory this crate's own tests were already built around.
+iridium-file = { workspace = true, features = ["test-support"] }

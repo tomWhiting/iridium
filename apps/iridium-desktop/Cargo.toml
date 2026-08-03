@@ -27,12 +27,29 @@ path = "src/main.rs"
 # FrameCompositor rather than growing a frame assembly of its own.
 iridium-editor = { workspace = true, features = ["syntax", "render"] }
 
+# The file layer shared with the terminal face: atomic saves, staleness by
+# byte comparison, read-only refusal. One save path across every face.
+iridium-file.workspace = true
+
 # The window and its event loop. The only crate here that knows what a native
 # window is.
 winit.workspace = true
 
-# The GPU. Used only for the surface types NativeSurface hands the compositor.
+# The GPU. Used only for the surface types NativeSurface hands the compositor
+# and the overlay's second render pass.
 wgpu.workspace = true
+
+# Text areas and bounds for the overlay strip. Same version the kernel's
+# render feature shapes text with; the renderers themselves are the kernel's.
+glyphon.workspace = true
+
+# The system clipboard. The desktop face is the first with real
+# cross-application copy and paste.
+arboard.workspace = true
+
+# Grapheme clusters for the prompt field, so backspace over a joined emoji
+# removes the whole cluster rather than leaving a dangling joiner.
+unicode-segmentation.workspace = true
 
 # Blocks the synchronous startup path on wgpu's async adapter/device requests.
 # Same version the kernel's `render` feature already carries.
@@ -40,3 +57,8 @@ pollster = "0.4.0"
 
 # Error types for what can go wrong before a window exists.
 thiserror.workspace = true
+
+[dev-dependencies]
+# The file crate's test fixtures: the self-removing temporary directory the
+# save tests write into.
+iridium-file = { workspace = true, features = ["test-support"] }

@@ -159,7 +159,7 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
-    use crate::file::tests::TempDir;
+    use crate::file::test_support::TempDir;
 
     #[test]
     fn the_builtin_names_need_no_file() {

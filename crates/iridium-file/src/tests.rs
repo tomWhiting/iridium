@@ -12,13 +12,10 @@
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::atomic::{parent_of, write_atomically_with};
+use super::test_support::TempDir;
 use super::{DiskState, FileError, TextFile, decode, encode, write_atomically};
-
-/// Distinguishes directories made by different tests in one run.
-static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Whether a file name is one [`write_atomically`] would have left behind.
 ///
@@ -29,37 +26,6 @@ fn has_temporary_extension(name: &str) -> bool {
     Path::new(name)
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("tmp"))
-}
-
-/// A directory that removes itself.
-///
-/// Written here rather than taken from `tempfile` because this workspace does
-/// not carry that dependency and the whole of it is nine lines.
-pub struct TempDir {
-    /// Where it is.
-    path: PathBuf,
-}
-
-impl TempDir {
-    /// Creates an empty directory named after the test using it.
-    pub fn new(label: &str) -> Self {
-        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path =
-            std::env::temp_dir().join(format!("iridium-{}-{label}-{sequence}", std::process::id()));
-        fs::create_dir_all(&path).expect("the test directory could be created");
-        Self { path }
-    }
-
-    /// Where it is.
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }
 
 /// Every entry in a directory, sorted, as strings.

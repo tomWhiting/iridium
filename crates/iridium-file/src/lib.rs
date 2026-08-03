@@ -1,5 +1,12 @@
 //! Reading and writing files, and noticing when one changed underneath us.
 //!
+//! This crate is the file layer every Iridium face shares. It began life
+//! inside the terminal face and was extracted unchanged when the desktop
+//! shell needed the same guarantees: one atomic save path, one staleness
+//! rule, one place that decides what a file's bytes mean. A face that wrote
+//! its own copy would eventually disagree with the others about the one
+//! thing an editor must never be wrong about.
+//!
 //! # What is compared, and what that costs
 //!
 //! A [`TextFile`] remembers the **exact bytes** that were on disk the last time
@@ -34,14 +41,13 @@
 //!
 //! # The bytes are not touched on the way through
 //!
-//! Line endings are the kernel's business: [`Document`](iridium_editor::Document)
-//! detects the file's convention on load and
-//! [`LineEnding`](iridium_editor::document::LineEnding) is what every newline
-//! the kernel inserts is made of. So this module normalises nothing. A CRLF
-//! file stays CRLF in the rope, is displayed without its carriage returns
-//! because the kernel strips them per line, and is written back byte for byte.
-//! An editor that normalised on load would rewrite every line of a file in
-//! which the user changed one.
+//! Line endings are the kernel's business: the kernel's `Document` detects the
+//! file's convention on load and its `LineEnding` is what every newline the
+//! kernel inserts is made of. So this crate normalises nothing. A CRLF file
+//! stays CRLF in the rope, is displayed without its carriage returns because
+//! the kernel strips them per line, and is written back byte for byte. An
+//! editor that normalised on load would rewrite every line of a file in which
+//! the user changed one.
 //!
 //! The single exception is a UTF-8 byte-order mark, which is stripped on load
 //! and restored on save. It is not part of the text — leaving it in would put
@@ -51,8 +57,11 @@
 
 mod atomic;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 
 use std::fmt;
 use std::io;

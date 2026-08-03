@@ -1,0 +1,28 @@
+[package]
+name = "iridium-file"
+description = "Reading and writing files for Iridium's faces, atomically"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "iridium_file"
+path = "src/lib.rs"
+
+[features]
+# Exposes the `test_support` module — the self-removing temporary directory the
+# faces' own test suites build their fixtures in. A feature rather than always
+# public because nothing outside a test should ever want it.
+test-support = []
+
+# No dependencies, deliberately: this crate touches the disk and nothing else.
+# Line endings are the kernel's business and stay out of it (see the crate
+# documentation); pulling the kernel in here would invert the dependency every
+# face relies on.
+[dependencies]

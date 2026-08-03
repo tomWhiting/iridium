@@ -26,10 +26,13 @@ terminput-termina = "0.3.1"
 unicode-width = "0.2.2"
 unicode-segmentation = "1.12"
 
-# GPU rendering
+# GPU rendering. cosmic-text is deliberately NOT a direct dependency: the
+# render path's shaping types come through glyphon's re-export of *its*
+# cosmic-text (0.15), and a direct dependency on another version is a
+# dormant second crate to Cargo — a version-drift trap for API verification
+# (docs/design/RETAINED-SHAPING-MAP.md §6, R7).
 wgpu = "28.0.0"
 glyphon = "0.10.0"
-cosmic-text = "0.16.0"
 
 # Native windowing (desktop shell). The 0.30 line speaks raw-window-handle 0.6,
 # the same version wgpu 28 consumes (Cargo.lock pins 0.6.2), so a winit window

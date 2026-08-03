@@ -103,7 +103,7 @@ impl CommandPalette {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            window: paint::MAX_VISIBLE_RESULTS,
+            window: super::panel::MAX_VISIBLE_ROWS,
             ..Self::default()
         }
     }

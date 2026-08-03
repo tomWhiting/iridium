@@ -18,7 +18,8 @@ use crate::text_range::text_range;
 use crate::web_folds::WebFoldSyntax;
 use crate::web_span_index::{WebSpan, WebSpanIndex};
 use iridium_editor::{
-    CommandArgs, CommandId, EditorConfig, Keymap, ModifierPattern, Position, Range, StrokePattern,
+    CommandArgs, CommandId, Document, EditorConfig, Keymap, ModifierPattern, Position, Range,
+    StrokePattern,
     commands::{builtin, palette::CommandMru},
     editor::{Editor, FoldState},
     history::{Command, UndoNodeId},
@@ -27,11 +28,10 @@ use iridium_editor::{
         KeyboardHandler, Modifiers, SearchAction,
     },
     render::{
-        CursorRenderer, GutterRenderer, Quad, QuadRenderer, SimpleHighlighter, TextRenderer,
-        Viewport, ViewportConfig, WebSurface,
+        FrameCompositor, FrameTarget, HighlightContext, HighlightSource, Viewport, WebSurface,
     },
     syntax_stubs::Language,
-    theme::Theme,
+    theme::Color,
 };
 
 /// Initialize panic hook for better error messages in browser console.
@@ -132,7 +132,6 @@ impl JsEditInfo {
     }
 }
 
-/// Maximum expected lines in viewport (for pre-allocation sizing).
 /// One host command a binding resolved to, on its way to JavaScript.
 ///
 /// Serialized rather than returned as separate accessors so the id and the
@@ -148,13 +147,6 @@ struct HostCommandRequest {
     captures: Vec<char>,
 }
 
-/// Typical: 50 lines visible + 20 overscan = 70 lines.
-const MAX_VIEWPORT_LINES: usize = 128;
-
-/// Maximum expected selection quads per frame.
-/// Typical: 1 quad per selected line, rarely more than viewport.
-const MAX_SELECTION_QUADS: usize = 128;
-
 /// WebEditor provides a complete browser-based editor experience.
 ///
 /// This wraps the Iridium editor with WebGPU rendering capabilities
@@ -163,22 +155,15 @@ const MAX_SELECTION_QUADS: usize = 128;
 pub struct WebEditor {
     editor: Editor,
     surface: WebSurface,
-    text_renderer: TextRenderer,
-    /// Quad renderer for background elements (gutter, selection highlights)
-    background_quad_renderer: QuadRenderer,
-    /// Quad renderer for foreground elements (cursor) - separate buffer to avoid GPU conflicts
-    cursor_quad_renderer: QuadRenderer,
-    cursor_renderer: CursorRenderer,
-    gutter_renderer: GutterRenderer,
-    highlighter: SimpleHighlighter,
-    theme: Theme,
+    /// The kernel's per-frame composition: owns the renderers, the layout
+    /// caches hit-testing reads between frames, and the presentation inputs
+    /// (theme, line backgrounds, gutter changes, blame). This face keeps only
+    /// what is genuinely web-shaped — the canvas surface, the scroll offset,
+    /// the tree-sitter span store — and drives `compose` once per frame.
+    compositor: FrameCompositor,
     needs_redraw: bool,
     /// Device pixel ratio for HiDPI scaling
     pixel_ratio: f32,
-    /// Whether syntax highlighting is enabled
-    syntax_enabled: bool,
-    /// Whether gutter (line numbers) is enabled
-    gutter_enabled: bool,
     /// Code folding state
     fold_state: FoldState,
     /// The parse state the fold regions are read from.
@@ -188,95 +173,19 @@ pub struct WebEditor {
     fold_syntax: WebFoldSyntax,
     /// Vertical scroll offset in pixels
     scroll_y: f32,
-    /// Cached character width (measured from actual font metrics)
-    cached_char_width: f32,
     /// Tree-sitter highlight spans from JavaScript (when available)
     ts_highlights: Vec<JsHighlightSpan>,
     /// Whether to use tree-sitter highlights from JS
     use_ts_highlights: bool,
     /// Span index for efficient viewport-based queries (O(log n + k))
     span_index: WebSpanIndex,
-    /// Viewport configuration for overscan buffer
-    viewport_config: ViewportConfig,
-    /// Cached viewport dimensions to avoid redundant GPU updates
-    cached_viewport_width: u32,
-    cached_viewport_height: u32,
 
     // =========================================================================
-    // Pre-allocated buffers for render_frame() - eliminates per-frame allocations
-    // =========================================================================
-    /// Pre-allocated buffer for visible content string.
-    /// Capacity: ~10KB (typical viewport worth of text).
-    cpu_visible_content: String,
-    /// Pre-allocated buffer for document-to-visual line mapping.
-    /// Capacity: document line count (grows as needed).
-    cpu_doc_to_visual: Vec<Option<usize>>,
-    /// Pre-allocated buffer for visible document line indices.
-    /// Capacity: MAX_VIEWPORT_LINES.
-    cpu_visible_doc_lines: Vec<usize>,
-    /// Pre-allocated buffer for line numbers string.
-    /// Capacity: ~2KB (typical viewport worth of line numbers).
-    cpu_line_numbers: String,
-    /// Pre-allocated buffer for gutter background quads.
-    /// Capacity: 1-2 quads typically.
-    cpu_gutter_quads: Vec<Quad>,
-    /// Pre-allocated buffer for selection highlight quads.
-    /// Capacity: MAX_SELECTION_QUADS.
-    cpu_selection_quads: Vec<Quad>,
-    /// Pre-allocated buffer for cursor quads.
-    /// Capacity: 1-2 quads typically.
-    cpu_cursor_quads: Vec<Quad>,
-    /// Pre-allocated buffer for combined background quads.
-    /// Capacity: gutter + selection quads.
-    cpu_background_quads: Vec<Quad>,
-
-    // =========================================================================
-    // Cached layout info for pixel-to-position mapping with word wrap
-    // =========================================================================
-    /// Cached visual line mapping built during render_frame.
-    /// Each entry maps a visual line to (buffer_line_index, start_column_in_line).
-    cached_visual_line_map: Vec<(usize, usize)>,
-    /// The viewport_start value when cached_visual_line_map was built.
-    cached_map_viewport_start: usize,
-    /// Content offset X when the map was built.
-    cached_content_offset_x: f32,
-
-    // =========================================================================
-    // Cached scroll data for word-wrap-aware scrolling
-    // =========================================================================
-    /// Total visual lines including wrapped sub-lines, updated each render_frame.
-    cached_total_visual_lines: usize,
-    /// Absolute cursor Y position (document space) from last render_frame.
-    cached_cursor_abs_y: f32,
-    /// The cursor doc line when cached_cursor_abs_y was computed.
-    cached_cursor_doc_line: usize,
-
-    // =========================================================================
-    // Externalized syntax theme — colors provided by host application
-    // =========================================================================
-    /// Map of capture name → color, populated via setSyntaxTheme from JS.
-    /// When non-empty, used by color_for_highlight_type with hierarchical fallback.
-    syntax_theme: HashMap<String, iridium_editor::theme::Color>,
-
-    // =========================================================================
-    // Git integration: read-only, line backgrounds, gutter changes, blame
+    // Git integration: read-only gating (presentation maps live on the
+    // compositor)
     // =========================================================================
     /// When true, all content-mutating operations (insert, delete, etc.) are no-ops.
     read_only: bool,
-    /// Per-line background colors (doc_line → color). Used for diff highlighting.
-    line_backgrounds: HashMap<usize, iridium_editor::theme::Color>,
-    /// Pre-allocated buffer for line background quads.
-    cpu_line_bg_quads: Vec<Quad>,
-    /// Per-line gutter change bar colors (doc_line → color). Used for change indicators.
-    gutter_changes: HashMap<usize, iridium_editor::theme::Color>,
-    /// Pre-allocated buffer for gutter change bar quads.
-    cpu_gutter_change_quads: Vec<Quad>,
-    /// Custom gutter text lines (replaces auto line numbers when Some).
-    custom_gutter_lines: Option<Vec<String>>,
-    /// Per-line blame text (doc_line → formatted blame string). Shown at end of cursor line.
-    blame_data: HashMap<usize, String>,
-    /// Pre-allocated buffer for blame text rendering.
-    cpu_blame_content: String,
 
     // =========================================================================
     // Raw key event handling (the Rust core owns all editing behavior)
@@ -361,40 +270,34 @@ pub async fn create_web_editor(
         })?;
     log("[Iridium] WebSurface created");
 
-    // Create the text renderer with scaled font size for HiDPI
-    log("[Iridium] Creating TextRenderer...");
-    let mut text_renderer = TextRenderer::new(surface.device(), surface.queue(), surface.format())
-        .map_err(|e| {
-            let msg = format!("[Iridium] TextRenderer error: {}", e);
-            log(&msg);
-            JsValue::from_str(&msg)
-        })?;
+    // Create the compositor (text renderer, quad renderers, theme, caches)
+    // with scaled font size for HiDPI
+    log("[Iridium] Creating FrameCompositor...");
+    let mut compositor = FrameCompositor::new(
+        surface.device(),
+        surface.queue(),
+        surface.format(),
+        width,
+        height,
+    )
+    .map_err(|e| {
+        let msg = format!("[Iridium] FrameCompositor error: {}", e);
+        log(&msg);
+        JsValue::from_str(&msg)
+    })?;
 
     // Scale font size for HiDPI displays
     let base_font_size = 14.0;
     let scaled_font_size = base_font_size * pixel_ratio;
-    text_renderer.set_font_size(scaled_font_size);
+    compositor.set_font_size(scaled_font_size);
     log(&format!(
         "[Iridium] Font size: {} (base {} * ratio {})",
         scaled_font_size, base_font_size, pixel_ratio
     ));
-    log("[Iridium] TextRenderer created");
-
-    // Create quad renderers - separate buffers to avoid GPU write conflicts
-    // (multiple queue.write_buffer calls to same buffer within a frame cause corruption)
-    log("[Iridium] Creating QuadRenderers...");
-    let mut background_quad_renderer = QuadRenderer::new(surface.device(), surface.format());
-    background_quad_renderer.update_viewport(surface.queue(), width, height);
-    let mut cursor_quad_renderer = QuadRenderer::new(surface.device(), surface.format());
-    cursor_quad_renderer.update_viewport(surface.queue(), width, height);
-    log("[Iridium] QuadRenderers created");
+    log("[Iridium] FrameCompositor created");
 
     // Create editor with default config
     let editor = Editor::new(EditorConfig::default());
-    let theme = Theme::dark();
-    let cursor_renderer = CursorRenderer::default();
-    let gutter_renderer = GutterRenderer::new();
-    let highlighter = SimpleHighlighter::new();
     // The web surface has no way to declare a language yet, so folding starts
     // brace-based. `Language::C` is the stand-in for "fold on braces": without
     // the `syntax` feature every language routes to the same brace scanner, and
@@ -408,55 +311,17 @@ pub async fn create_web_editor(
     Ok(WebEditor {
         editor,
         surface,
-        text_renderer,
-        background_quad_renderer,
-        cursor_quad_renderer,
-        cursor_renderer,
-        gutter_renderer,
-        highlighter,
-        theme,
+        compositor,
         needs_redraw: true,
         pixel_ratio,
-        syntax_enabled: true,
-        gutter_enabled: true,
         fold_state,
         fold_syntax: WebFoldSyntax::new(Language::C),
         scroll_y: 0.0,
-        cached_char_width: 14.0 * 0.6, // Default until font is loaded
         ts_highlights: Vec::new(),
         use_ts_highlights: false,
         span_index: WebSpanIndex::empty(),
-        viewport_config: ViewportConfig::default(),
-        cached_viewport_width: width,
-        cached_viewport_height: height,
-        // Pre-allocated buffers to avoid per-frame allocations (120fps target)
-        cpu_visible_content: String::with_capacity(10 * 1024), // 10KB typical viewport
-        cpu_doc_to_visual: Vec::with_capacity(1024),           // 1K lines initial
-        cpu_visible_doc_lines: Vec::with_capacity(MAX_VIEWPORT_LINES),
-        cpu_line_numbers: String::with_capacity(2 * 1024), // 2KB line numbers
-        cpu_gutter_quads: Vec::with_capacity(2),
-        cpu_selection_quads: Vec::with_capacity(MAX_SELECTION_QUADS),
-        cpu_cursor_quads: Vec::with_capacity(2),
-        cpu_background_quads: Vec::with_capacity(MAX_SELECTION_QUADS + 2),
-        // Cached layout info for pixel-to-position mapping with word wrap
-        cached_visual_line_map: Vec::with_capacity(MAX_VIEWPORT_LINES),
-        cached_map_viewport_start: 0,
-        cached_content_offset_x: 0.0,
-        // Cached scroll data for word-wrap-aware scrolling
-        cached_total_visual_lines: 0,
-        cached_cursor_abs_y: 0.0,
-        cached_cursor_doc_line: 0,
-        // Externalized syntax theme
-        syntax_theme: HashMap::new(),
         // Git integration fields
         read_only: false,
-        line_backgrounds: HashMap::new(),
-        cpu_line_bg_quads: Vec::with_capacity(MAX_VIEWPORT_LINES),
-        gutter_changes: HashMap::new(),
-        cpu_gutter_change_quads: Vec::with_capacity(MAX_VIEWPORT_LINES),
-        custom_gutter_lines: None,
-        blame_data: HashMap::new(),
-        cpu_blame_content: String::with_capacity(256),
         // Raw key event handling
         keyboard_handler: KeyboardHandler::new(),
         palette_mru: CommandMru::new(),
@@ -479,12 +344,11 @@ impl WebEditor {
     #[wasm_bindgen(js_name = loadFont)]
     pub fn load_font(&mut self, data: &[u8]) {
         log("[Iridium] Loading font...");
-        self.text_renderer.load_font(data.to_vec());
-        // Measure actual character width from the loaded font
-        self.cached_char_width = self.text_renderer.char_width();
+        // The compositor measures the actual character width from the loaded font.
+        self.compositor.load_font(data.to_vec());
         log(&format!(
             "[Iridium] Font loaded, char_width: {:.2}px",
-            self.cached_char_width
+            self.compositor.char_width()
         ));
         self.needs_redraw = true;
     }
@@ -605,7 +469,7 @@ impl WebEditor {
             KeyResult::Handled => {
                 // Consumed without producing a command (e.g. Escape with a
                 // single collapsed cursor).
-                self.cursor_renderer.reset_blink();
+                self.compositor.reset_blink();
                 self.needs_redraw = true;
                 "handled".to_string()
             },
@@ -620,7 +484,7 @@ impl WebEditor {
             // change needed, instead of a second implementation living here.
             KeyResult::Ast(request) => {
                 if self.editor.perform_ast_request(request) {
-                    self.cursor_renderer.reset_blink();
+                    self.compositor.reset_blink();
                     self.needs_redraw = true;
                 }
                 "handled".to_string()
@@ -634,7 +498,7 @@ impl WebEditor {
                     count: args.count(),
                     captures: args.captures().to_vec(),
                 });
-                self.cursor_renderer.reset_blink();
+                self.compositor.reset_blink();
                 self.needs_redraw = true;
                 "handled:command".to_string()
             },
@@ -761,7 +625,7 @@ impl WebEditor {
                     count: None,
                     captures: Vec::new(),
                 });
-                self.cursor_renderer.reset_blink();
+                self.compositor.reset_blink();
                 self.needs_redraw = true;
                 "handled:command".to_string()
             },
@@ -1077,7 +941,7 @@ impl WebEditor {
             // `Editor::handle_key`); the key is still consumed.
             if matches!(command, Command::SetSelection { .. }) {
                 self.editor.apply_command(command);
-                self.cursor_renderer.reset_blink();
+                self.compositor.reset_blink();
                 self.needs_redraw = true;
                 self.ensure_cursor_visible();
             }
@@ -1133,7 +997,7 @@ impl WebEditor {
                 // goto_next_match moves the cursor outside handle_key.
                 self.keyboard_handler.reset_vertical_state();
                 self.editor.goto_next_match();
-                self.cursor_renderer.reset_blink();
+                self.compositor.reset_blink();
                 self.needs_redraw = true;
                 self.ensure_cursor_visible();
                 "search:next".to_string()
@@ -1141,7 +1005,7 @@ impl WebEditor {
             SearchAction::PreviousMatch => {
                 self.keyboard_handler.reset_vertical_state();
                 self.editor.goto_previous_match();
-                self.cursor_renderer.reset_blink();
+                self.compositor.reset_blink();
                 self.needs_redraw = true;
                 self.ensure_cursor_visible();
                 "search:prev".to_string()
@@ -1188,7 +1052,7 @@ impl WebEditor {
             self.refresh_fold_regions();
         }
 
-        self.cursor_renderer.reset_blink();
+        self.compositor.reset_blink();
         self.needs_redraw = true;
         modifies_content
     }
@@ -1319,10 +1183,9 @@ impl WebEditor {
     /// Line numbers are 0-indexed document lines. Colors are hex strings.
     #[wasm_bindgen(js_name = setLineBackgrounds)]
     pub fn set_line_backgrounds(&mut self, backgrounds: &JsValue) -> Result<(), JsValue> {
-        use iridium_editor::theme::Color;
         use js_sys::{Array, Reflect};
 
-        self.line_backgrounds.clear();
+        self.compositor.line_backgrounds_mut().clear();
 
         let arr = Array::from(backgrounds);
         for i in 0..arr.length() {
@@ -1336,7 +1199,7 @@ impl WebEditor {
                 .ok_or_else(|| JsValue::from_str("color must be a hex string"))?;
             let color = Color::from_hex(&color_hex)
                 .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {}", color_hex)))?;
-            self.line_backgrounds.insert(line, color);
+            self.compositor.line_backgrounds_mut().insert(line, color);
         }
 
         self.needs_redraw = true;
@@ -1346,7 +1209,7 @@ impl WebEditor {
     /// Clears all per-line background colors.
     #[wasm_bindgen(js_name = clearLineBackgrounds)]
     pub fn clear_line_backgrounds(&mut self) {
-        self.line_backgrounds.clear();
+        self.compositor.line_backgrounds_mut().clear();
         self.needs_redraw = true;
     }
 
@@ -1362,7 +1225,7 @@ impl WebEditor {
     pub fn set_gutter_changes(&mut self, changes: &JsValue) -> Result<(), JsValue> {
         use js_sys::{Array, Reflect};
 
-        self.gutter_changes.clear();
+        self.compositor.gutter_changes_mut().clear();
 
         let arr = Array::from(changes);
         for i in 0..arr.length() {
@@ -1375,13 +1238,13 @@ impl WebEditor {
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("kind must be a string"))?;
             let color = match kind.as_str() {
-                "added" => self.theme.editor.change_added,
-                "modified" => self.theme.editor.change_modified,
-                "deleted" => self.theme.editor.change_deleted,
-                "error" => self.theme.editor.diagnostic_error,
-                "warning" => self.theme.editor.diagnostic_warning,
-                "info" => self.theme.editor.diagnostic_info,
-                "hint" => self.theme.editor.diagnostic_hint,
+                "added" => self.compositor.theme().editor.change_added,
+                "modified" => self.compositor.theme().editor.change_modified,
+                "deleted" => self.compositor.theme().editor.change_deleted,
+                "error" => self.compositor.theme().editor.diagnostic_error,
+                "warning" => self.compositor.theme().editor.diagnostic_warning,
+                "info" => self.compositor.theme().editor.diagnostic_info,
+                "hint" => self.compositor.theme().editor.diagnostic_hint,
                 _ => {
                     return Err(JsValue::from_str(&format!(
                         "unknown change kind: {} (expected added/modified/deleted/error/warning/info/hint)",
@@ -1389,7 +1252,7 @@ impl WebEditor {
                     )));
                 },
             };
-            self.gutter_changes.insert(line, color);
+            self.compositor.gutter_changes_mut().insert(line, color);
         }
 
         self.needs_redraw = true;
@@ -1399,7 +1262,7 @@ impl WebEditor {
     /// Clears all gutter change indicators.
     #[wasm_bindgen(js_name = clearGutterChanges)]
     pub fn clear_gutter_changes(&mut self) {
-        self.gutter_changes.clear();
+        self.compositor.gutter_changes_mut().clear();
         self.needs_redraw = true;
     }
 
@@ -1415,7 +1278,7 @@ impl WebEditor {
         use js_sys::Array;
 
         if lines.is_null() || lines.is_undefined() {
-            self.custom_gutter_lines = None;
+            self.compositor.set_custom_gutter_lines(None);
         } else {
             let arr = Array::from(lines);
             let mut result = Vec::with_capacity(arr.length() as usize);
@@ -1426,7 +1289,7 @@ impl WebEditor {
                     .ok_or_else(|| JsValue::from_str("gutter text entry must be a string"))?;
                 result.push(s);
             }
-            self.custom_gutter_lines = Some(result);
+            self.compositor.set_custom_gutter_lines(Some(result));
         }
 
         self.needs_redraw = true;
@@ -1445,7 +1308,7 @@ impl WebEditor {
     pub fn set_blame_data(&mut self, data: &JsValue) -> Result<(), JsValue> {
         use js_sys::{Array, Reflect};
 
-        self.blame_data.clear();
+        self.compositor.blame_data_mut().clear();
 
         let arr = Array::from(data);
         for i in 0..arr.length() {
@@ -1457,7 +1320,7 @@ impl WebEditor {
             let text = Reflect::get(&entry, &JsValue::from_str("text"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("text must be a string"))?;
-            self.blame_data.insert(line, text);
+            self.compositor.blame_data_mut().insert(line, text);
         }
 
         self.needs_redraw = true;
@@ -1467,7 +1330,7 @@ impl WebEditor {
     /// Clears all blame data.
     #[wasm_bindgen(js_name = clearBlameData)]
     pub fn clear_blame_data(&mut self) {
-        self.blame_data.clear();
+        self.compositor.blame_data_mut().clear();
         self.needs_redraw = true;
     }
 
@@ -1609,15 +1472,7 @@ impl WebEditor {
     /// Resizes the editor viewport.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.surface.resize(width, height);
-        self.text_renderer
-            .update_viewport(self.surface.queue(), width, height);
-        self.background_quad_renderer
-            .update_viewport(self.surface.queue(), width, height);
-        self.cursor_quad_renderer
-            .update_viewport(self.surface.queue(), width, height);
-        // Update cache to prevent redundant updates in render_frame
-        self.cached_viewport_width = width;
-        self.cached_viewport_height = height;
+        self.compositor.resize(self.surface.queue(), width, height);
         self.needs_redraw = true;
     }
 
@@ -1643,48 +1498,30 @@ impl WebEditor {
 
     /// Returns the maximum scroll offset.
     ///
-    /// Uses `cached_total_visual_lines` from the last render_frame to account
-    /// for word-wrapped lines that occupy multiple visual rows.
+    /// Uses the compositor's wrap-aware visual line total from the last
+    /// composed frame to account for word-wrapped lines that occupy multiple
+    /// visual rows.
     #[wasm_bindgen(js_name = getMaxScrollY)]
     pub fn max_scroll_y(&self) -> f32 {
-        let line_height = self.text_renderer.line_height();
-        let total_visual = if self.cached_total_visual_lines > 0 {
-            self.cached_total_visual_lines
-        } else {
-            // Before first render, fall back to fold-aware count (no wrapping info)
-            self.fold_state
-                .visible_line_count(self.editor.state().document.line_count())
-        };
-        let content_height = total_visual as f32 * line_height;
-        let viewport_height = self.surface.height() as f32;
-        (content_height - viewport_height + 20.0).max(0.0) // 20px padding
+        self.compositor
+            .max_scroll_y(&self.editor, &self.fold_state, self.surface.height() as f32)
     }
 
     /// Ensures the cursor is visible by scrolling if needed.
     ///
-    /// Uses the cached cursor absolute Y from the last render_frame when the
-    /// cursor line hasn't changed (common case: typing on the same line).
-    /// Falls back to fold-only estimation when the cursor has moved to a new line.
+    /// The cursor's document-space Y comes from the compositor (cached and
+    /// wrap-aware when the cursor line hasn't changed, fold-only estimation
+    /// when it has); the scroll decision itself stays on this face, which
+    /// owns `scroll_y`.
     #[wasm_bindgen(js_name = ensureCursorVisible)]
     pub fn ensure_cursor_visible(&mut self) {
-        let line_height = self.text_renderer.line_height();
+        let line_height = self.compositor.line_height();
         let padding = 10.0;
         let viewport_height = self.surface.height() as f32;
 
-        let cursor_line = self.editor.cursor().line;
-        let cursor_y =
-            if cursor_line == self.cached_cursor_doc_line && self.cached_cursor_abs_y > 0.0 {
-                // Cursor on the same line as last render — use cached position
-                // (accounts for wrapping within this line)
-                self.cached_cursor_abs_y
-            } else {
-                // Cursor moved to a different line — approximate using fold mapping
-                let visual_line = self
-                    .fold_state
-                    .document_to_visual_line(cursor_line)
-                    .unwrap_or(0);
-                padding + (visual_line as f32 * line_height)
-            };
+        let cursor_y = self
+            .compositor
+            .cursor_anchor_y(&self.editor, &self.fold_state);
 
         // Scroll up if cursor is above viewport
         if cursor_y < self.scroll_y + padding {
@@ -1695,167 +1532,6 @@ impl WebEditor {
         else if cursor_y + line_height > self.scroll_y + viewport_height - padding {
             self.scroll_y = cursor_y + line_height - viewport_height + padding;
             self.needs_redraw = true;
-        }
-    }
-
-    /// Converts highlight spans (from WebSpanIndex query) to colored text spans for rendering.
-    ///
-    /// This is the optimized version that works with WebSpan from the WebSpanIndex.
-    /// The spans are collected, sorted, and processed only for the visible viewport.
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The visible content string
-    /// * `spans` - Iterator of WebSpan from WebSpanIndex::query()
-    /// * `content_start_byte` - The document byte offset where content begins
-    fn build_rich_spans_viewport<'a>(
-        &self,
-        content: &'a str,
-        spans: impl Iterator<Item = WebSpan>,
-        content_start_byte: usize,
-    ) -> Vec<(&'a str, iridium_editor::theme::Color)> {
-        let foreground = self.theme.editor.foreground;
-        let mut result = Vec::new();
-        let mut last_end = 0;
-        let content_end_byte = content_start_byte + content.len();
-
-        // Collect and sort spans by start position
-        let mut sorted_spans: Vec<WebSpan> = spans.collect();
-        sorted_spans.sort_by_key(|s| s.start);
-
-        for span in &sorted_spans {
-            // Calculate span positions relative to content
-            let span_start = span.start.saturating_sub(content_start_byte);
-            let span_end = span.end.saturating_sub(content_start_byte);
-
-            // Skip spans that are completely outside content
-            if span.end <= content_start_byte || span.start >= content_end_byte {
-                continue;
-            }
-
-            // Clamp to content bounds
-            let span_start = span_start.min(content.len());
-            let span_end = span_end.min(content.len());
-
-            // Skip empty or invalid spans
-            if span_start >= span_end {
-                continue;
-            }
-
-            // Add gap before this span if needed
-            if span_start > last_end {
-                let gap_text = &content[last_end..span_start];
-                if !gap_text.is_empty() {
-                    result.push((gap_text, foreground));
-                }
-            }
-
-            // Skip overlapping spans
-            if span_start < last_end {
-                continue;
-            }
-
-            // Get the color for this highlight type (using string-based lookup)
-            let color = self.color_for_highlight_type(&span.highlight_type);
-
-            // Add the highlighted span
-            let text = &content[span_start..span_end];
-            if !text.is_empty() {
-                result.push((text, color));
-            }
-
-            last_end = span_end;
-        }
-
-        // Add remaining text after last span
-        if last_end < content.len() {
-            let remaining = &content[last_end..];
-            if !remaining.is_empty() {
-                result.push((remaining, foreground));
-            }
-        }
-
-        result
-    }
-
-    /// Converts tree-sitter highlight spans to colored text spans for rendering.
-    /// (Legacy version - kept for fallback when SpanIndex is empty)
-    ///
-    /// Maps tree-sitter capture names to theme colors and handles gaps between
-    /// highlighted regions with default foreground color.
-    fn build_rich_spans_from_ts<'a>(
-        &self,
-        content: &'a str,
-        mut sorted_spans: Vec<JsHighlightSpan>,
-    ) -> Vec<(&'a str, iridium_editor::theme::Color)> {
-        let foreground = self.theme.editor.foreground;
-        let mut result = Vec::new();
-        let mut last_end = 0;
-
-        // Sort spans by start position
-        sorted_spans.sort_by_key(|s| s.start);
-
-        for span in &sorted_spans {
-            // Skip spans that are out of bounds
-            if span.start >= content.len() || span.end > content.len() {
-                continue;
-            }
-
-            // Add gap before this span if needed
-            if span.start > last_end {
-                let gap_text = &content[last_end..span.start];
-                if !gap_text.is_empty() {
-                    result.push((gap_text, foreground));
-                }
-            }
-
-            // Skip overlapping spans
-            if span.start < last_end {
-                continue;
-            }
-
-            // Get the color for this highlight type
-            let color = self.color_for_highlight_type(&span.highlight_type);
-
-            // Add the highlighted span
-            let text = &content[span.start..span.end];
-            if !text.is_empty() {
-                result.push((text, color));
-            }
-
-            last_end = span.end;
-        }
-
-        // Add remaining text after last span
-        if last_end < content.len() {
-            let remaining = &content[last_end..];
-            if !remaining.is_empty() {
-                result.push((remaining, foreground));
-            }
-        }
-
-        result
-    }
-
-    /// Maps a tree-sitter highlight type to a theme color.
-    ///
-    /// Looks up the `syntax_theme` HashMap with hierarchical resolution:
-    /// for a capture name like `punctuation.list_marker.markup`, tries the full name
-    /// first, then walks up the dot-separated hierarchy (`punctuation.list_marker`,
-    /// then `punctuation`) until a match is found. Falls back to editor foreground.
-    ///
-    /// Colors are provided by the host application via `setSyntaxTheme()`,
-    /// making the editor fully theme-agnostic.
-    fn color_for_highlight_type(&self, highlight_type: &str) -> iridium_editor::theme::Color {
-        let mut name = highlight_type;
-        loop {
-            if let Some(color) = self.syntax_theme.get(name) {
-                return *color;
-            }
-            match name.rsplit_once('.') {
-                Some((parent, _)) => name = parent,
-                None => return self.theme.editor.foreground,
-            }
         }
     }
 
@@ -1879,851 +1555,55 @@ impl WebEditor {
     }
 
     /// Internal render implementation.
-    #[allow(clippy::cast_precision_loss)]
+    ///
+    /// The per-frame composition itself lives in the kernel's
+    /// [`FrameCompositor`]; this face contributes exactly what is web-shaped —
+    /// the canvas surface's frame acquisition, the scroll offset it owns, the
+    /// tree-sitter span resolver, and the frame timer whose slow-frame warning
+    /// goes to the browser console.
     fn render_frame(&mut self) -> Result<(), JsValue> {
-        use glyphon::{TextArea, TextBounds};
         use web_time::Instant;
-        use wgpu::{
-            Color, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
-        };
 
         // T042: Track frame time for performance monitoring
         let frame_start = Instant::now();
 
-        // PERF: Only update viewport uniforms when dimensions actually change
-        // Avoids 3 GPU buffer writes per frame when dimensions are unchanged
-        let current_width = self.surface.width();
-        let current_height = self.surface.height();
-        if current_width != self.cached_viewport_width
-            || current_height != self.cached_viewport_height
-        {
-            self.cached_viewport_width = current_width;
-            self.cached_viewport_height = current_height;
-            self.text_renderer
-                .update_viewport(self.surface.queue(), current_width, current_height);
-            self.background_quad_renderer.update_viewport(
-                self.surface.queue(),
-                current_width,
-                current_height,
-            );
-            self.cursor_quad_renderer.update_viewport(
-                self.surface.queue(),
-                current_width,
-                current_height,
-            );
-        }
+        let width = self.surface.width();
+        let height = self.surface.height();
 
-        // Get the content to render, handling folded lines
-        let doc = &self.editor.state().document;
-        let line_count = doc.line_count();
-
-        // Calculate visible line range for viewport virtualization
-        let line_height = self.text_renderer.line_height();
-        let surface_height = self.surface.height() as f32;
-        let first_visible_line = (self.scroll_y / line_height).floor() as usize;
-        let visible_line_count = (surface_height / line_height).ceil() as usize + 2;
-        let overscan = 10; // Extra lines above/below for smooth scrolling
-        let viewport_start = first_visible_line.saturating_sub(overscan);
-        let viewport_end = (first_visible_line + visible_line_count + overscan).min(line_count);
-
-        // Calculate the byte offset where visible_content starts in the full document
-        // This is needed to correctly map span byte offsets to visible_content positions
-        let viewport_start_byte = doc.line_to_byte_offset(viewport_start).unwrap_or(0);
-
-        // Build visible content, only including lines in viewport
-        // Line numbers are built AFTER shaping to account for line wrapping
-        // PERF: Reuse pre-allocated buffers to avoid per-frame allocations
-        self.cpu_visible_content.clear();
-        self.cpu_visible_doc_lines.clear();
-
-        // Ensure doc_to_visual has capacity for all lines (grows if needed, never shrinks)
-        if self.cpu_doc_to_visual.capacity() < line_count {
-            self.cpu_doc_to_visual
-                .reserve(line_count - self.cpu_doc_to_visual.capacity());
-        }
-        self.cpu_doc_to_visual.clear();
-
-        let mut visual_line = 0;
-
-        // Pre-fill doc_to_visual for lines before viewport
-        for doc_line in 0..viewport_start {
-            if !self.fold_state.is_line_hidden(doc_line) {
-                self.cpu_doc_to_visual.push(Some(visual_line));
-                visual_line += 1;
-            } else {
-                self.cpu_doc_to_visual.push(None);
-            }
-        }
-
-        // Only process lines in viewport range
-        for doc_line in viewport_start..viewport_end {
-            if self.fold_state.is_line_hidden(doc_line) {
-                self.cpu_doc_to_visual.push(None);
-                continue;
-            }
-
-            // Add newline separator (except for first visible line in our buffer)
-            if !self.cpu_visible_doc_lines.is_empty() {
-                self.cpu_visible_content.push('\n');
-            }
-
-            // Add line content
-            if let Some(line_text) = doc.line(doc_line) {
-                self.cpu_visible_content.push_str(&line_text);
-            }
-
-            // If this line is folded, also append the closing brace from the fold end
-            if self.fold_state.is_folded(doc_line) {
-                if let Some(region) = self.fold_state.region_at(doc_line) {
-                    // Get the end line and find the closing brace
-                    if let Some(end_line_text) = doc.line(region.end_line) {
-                        let trimmed = end_line_text.trim();
-                        // Append the closing portion (usually just "}")
-                        if !trimmed.is_empty() {
-                            self.cpu_visible_content.push_str(" ... ");
-                            self.cpu_visible_content.push_str(trimmed);
-                        }
-                    }
-                }
-            }
-
-            self.cpu_visible_doc_lines.push(doc_line);
-            self.cpu_doc_to_visual.push(Some(visual_line));
-            visual_line += 1;
-        }
-
-        // Fill remaining doc_to_visual for lines after viewport
-        for doc_line in viewport_end..line_count {
-            if !self.fold_state.is_line_hidden(doc_line) {
-                self.cpu_doc_to_visual.push(Some(visual_line));
-                visual_line += 1;
-            } else {
-                self.cpu_doc_to_visual.push(None);
-            }
-        }
-
-        // Calculate layout dimensions
-        let line_height = self.text_renderer.line_height();
-        let char_width = self.cached_char_width;
-        let padding = 10.0_f32;
-
-        // Calculate gutter width (based on digit count or custom text width, before shaping)
-        let gutter_width = if self.gutter_enabled {
-            if let Some(ref custom_lines) = self.custom_gutter_lines {
-                // Width from longest custom gutter line
-                let max_chars = custom_lines.iter().map(|s| s.len()).max().unwrap_or(1);
-                // Same padding formula as GutterRenderer::calculate_width
-                (max_chars as f32 * char_width) + (char_width * 2.0)
-            } else {
-                self.gutter_renderer.calculate_width(line_count, char_width)
-            }
-        } else {
-            0.0
-        };
-        let content_offset_x = gutter_width + padding;
-
-        // Create and shape the main content buffer FIRST
-        let content_width = self.surface.width() as f32 - content_offset_x;
-        let mut buffer = self.text_renderer.create_buffer(Some(content_width));
-
-        // Set the text with syntax highlighting if enabled
-        let foreground = self.theme.editor.foreground;
-        if self.syntax_enabled {
-            if self.use_ts_highlights && !self.span_index.is_empty() {
-                // Calculate viewport for efficient span query (T020)
-                // Only query spans in the visible range instead of iterating all spans
-                let surface_height = self.surface.height() as f32;
-                let first_line = (self.scroll_y / line_height).floor() as usize;
-                let visible_lines = (surface_height / line_height).ceil() as usize + 1;
-
-                let viewport = Viewport {
-                    first_line,
-                    visible_lines,
-                    line_height,
-                    height: surface_height,
-                    width: content_width,
-                    ..Viewport::default()
-                };
-
-                // Query byte range with overscan buffer (T023)
-                let doc = &self.editor.state().document;
-                let (start_byte, end_byte) =
-                    viewport.query_byte_range(doc.rope(), &self.fold_state, &self.viewport_config);
-
-                // Query only viewport spans: O(log n + k) vs O(n) clone + sort (T021)
-                // This eliminates per-frame clone (T018) and sort (T019)
-                let rich_spans = self.build_rich_spans_viewport(
-                    &self.cpu_visible_content,
-                    self.span_index.query(start_byte, end_byte),
-                    viewport_start_byte, // Byte offset where visible_content starts
-                );
-                self.text_renderer
-                    .set_rich_text(&mut buffer, rich_spans.into_iter());
-            } else if !self.ts_highlights.is_empty() {
-                // Legacy fallback: use JsHighlightSpan when SpanIndex not available
-                // PERF: This path clones ts_highlights to sort them. This is acceptable because:
-                // 1. With WebSpanIndex, this path is rarely hit (only during transition)
-                // 2. The clone happens only when span_index.is_empty() returns true
-                // 3. Full optimization would require pre-sorted storage or sorted indices
-                let spans = self.ts_highlights.clone();
-                let rich_spans = self.build_rich_spans_from_ts(&self.cpu_visible_content, spans);
-                self.text_renderer
-                    .set_rich_text(&mut buffer, rich_spans.into_iter());
-            } else {
-                // Fall back to simple keyword-based highlighting
-                // PERF: Pass iterator directly instead of collecting into Vec
-                let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
-                self.text_renderer.set_rich_text(
-                    &mut buffer,
-                    spans.iter().map(|span| (span.text.as_str(), span.color)),
-                );
-            }
-        } else {
-            // Plain text
-            self.text_renderer
-                .set_text(&mut buffer, &self.cpu_visible_content, foreground);
-        }
-        self.text_renderer.shape_buffer(&mut buffer);
-
-        // Build cached visual line map from layout_runs() for pixel_to_position.
-        // Each entry maps a visual line (within the buffer) to (buffer_line_index, run_start_column).
-        // This allows pixel_to_position to correctly resolve clicks on wrapped lines.
-        self.cached_visual_line_map.clear();
-        self.cached_map_viewport_start = viewport_start;
-        self.cached_content_offset_x = content_offset_x;
-        for run in buffer.layout_runs() {
-            let run_start_col = if run.glyphs.is_empty() {
-                0
-            } else {
-                run.glyphs.first().map(|g| g.start).unwrap_or(0)
-            };
-            self.cached_visual_line_map
-                .push((run.line_i, run_start_col));
-        }
-
-        // Cache total visual lines for max_scroll_y.
-        // visual_line (from the doc_to_visual loop above) counts all visible doc lines as 1 each.
-        // The actual buffer visual lines (from layout_runs) may be more due to wrapping.
-        // Extra wrapped lines = buffer_visual_lines - buffer_logical_lines.
-        let buffer_visual_lines = self.cached_visual_line_map.len();
-        let buffer_logical_lines = self.cpu_visible_doc_lines.len();
-        let extra_wrap_lines = buffer_visual_lines.saturating_sub(buffer_logical_lines);
-        self.cached_total_visual_lines = visual_line + extra_wrap_lines;
-
-        // NOW build line numbers with proper spacing for wrapped lines
-        // PERF: Reuse pre-allocated string buffer, use write!() to avoid format!() allocation
-        use std::fmt::Write;
-        let visual_lines_per_line = self.text_renderer.visual_lines_per_logical_line(&buffer);
-        self.cpu_line_numbers.clear();
-
-        if let Some(ref custom_lines) = self.custom_gutter_lines {
-            // Custom gutter text: use provided strings instead of auto line numbers.
-            // This is used for diff views with dual line numbers + markers.
-            for (i, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
-                if i > 0 {
-                    self.cpu_line_numbers.push('\n');
-                }
-
-                // Use custom text for this doc_line, or empty string if out of range
-                let text = custom_lines.get(doc_line).map(|s| s.as_str()).unwrap_or("");
-                self.cpu_line_numbers.push_str(text);
-
-                // Add blank lines for wrapped visual lines
-                let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
-                let text_len = text.len();
-                for _ in 1..wrap_count {
-                    self.cpu_line_numbers.push('\n');
-                    for _ in 0..text_len {
-                        self.cpu_line_numbers.push(' ');
-                    }
-                }
-            }
-
-            if self.cpu_visible_doc_lines.is_empty() {
-                self.cpu_line_numbers.push(' ');
-            }
-        } else {
-            // Standard auto line numbers
-            let digit_width = GutterRenderer::digit_columns(line_count);
-
-            for (i, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
-                // Add newline separator (except for first visible line)
-                if i > 0 {
-                    self.cpu_line_numbers.push('\n');
-                }
-
-                // Add line number (1-indexed) directly into buffer without allocation
-                // write!() into String never fails, so we can ignore the Result
-                let _ = write!(
-                    self.cpu_line_numbers,
-                    "{:>width$}",
-                    doc_line + 1,
-                    width = digit_width,
-                );
-
-                // Add blank lines for wrapped visual lines (continuation lines)
-                let wrap_count = visual_lines_per_line.get(i).copied().unwrap_or(1);
-                for _ in 1..wrap_count {
-                    self.cpu_line_numbers.push('\n');
-                    // Add blank spacing to maintain alignment
-                    for _ in 0..digit_width {
-                        self.cpu_line_numbers.push(' ');
-                    }
-                }
-            }
-
-            // Handle empty document
-            if line_count == 0 {
-                self.cpu_line_numbers.push_str(" 1");
-            }
-        }
-
-        // Create gutter buffer AFTER we know the wrapping
-        let gutter_buffer = if self.gutter_enabled {
-            let mut gutter_buf = self.text_renderer.create_buffer(Some(gutter_width));
-            let line_number_color = self.theme.editor.line_number;
-            self.text_renderer
-                .set_text(&mut gutter_buf, &self.cpu_line_numbers, line_number_color);
-            self.text_renderer.shape_buffer(&mut gutter_buf);
-            Some(gutter_buf)
-        } else {
-            None
+        // The highlight seam: tree-sitter spans arrive from JavaScript and
+        // stay on this face; the compositor asks this resolver for them once
+        // per frame.
+        let mut highlights = WebHighlightSource {
+            span_index: &self.span_index,
+            ts_highlights: &self.ts_highlights,
+            use_ts_highlights: self.use_ts_highlights,
+            document: &self.editor.state().document,
+            fold_state: &self.fold_state,
+            scroll_y: self.scroll_y,
+            surface_height: height as f32,
         };
 
-        // Calculate cursor position (accounting for gutter offset, folding, scroll, and line wrapping)
-        let cursor_pos = self.editor.cursor();
-        let visual_cursor_line = self
-            .cpu_doc_to_visual
-            .get(cursor_pos.line)
-            .and_then(|v| *v)
-            .unwrap_or(0);
-
-        // Calculate virtual scroll offset for viewport virtualization
-        // This must match the offset used for text rendering (uses viewport_start directly)
-        let virtual_scroll_offset = viewport_start as f32 * line_height;
-
-        // Calculate cursor's line index within the viewport buffer
-        // The buffer only contains lines from viewport_start, so we need relative positioning
-        let viewport_start_visual = self
-            .cpu_doc_to_visual
-            .get(viewport_start)
-            .and_then(|v| *v)
-            .unwrap_or(0);
-        let cursor_line_in_buffer = visual_cursor_line.saturating_sub(viewport_start_visual);
-
-        // Use buffer layout to get accurate position with line wrapping.
-        //
-        // Only the vertical position is wanted here. Scrolling follows the
-        // primary caret alone, and inline blame sits on its line; the caret
-        // *quads* — the primary's included — are positioned in the loop further
-        // down, which walks every selection.
-        let (_, wrap_y) = self.text_renderer.cursor_position_in_buffer(
-            &buffer,
-            cursor_line_in_buffer,
-            cursor_pos.column,
-            char_width,
-        );
-        // Absolute cursor Y in document space (for ensure_cursor_visible)
-        let cursor_abs_y = padding + wrap_y + virtual_scroll_offset;
-        // Viewport-relative cursor Y for rendering
-        let cursor_y = cursor_abs_y - self.scroll_y;
-
-        // Cache cursor position for ensure_cursor_visible
-        self.cached_cursor_abs_y = cursor_abs_y;
-        self.cached_cursor_doc_line = cursor_pos.line;
-
-        // Update cursor blink state
-        self.cursor_renderer.update(Instant::now());
-
-        // PERF: Reuse pre-allocated quad buffers
-        // Create gutter background quad
-        self.cpu_gutter_quads.clear();
-        if self.gutter_enabled {
-            let gutter_bg_color = self.theme.editor.gutter;
-            self.cpu_gutter_quads.push(Quad::new(
-                0.0,
-                0.0,
-                gutter_width,
-                self.surface.height() as f32,
-                gutter_bg_color,
-            ));
-        }
-
-        // Create line background quads for diff highlighting
-        // These render behind selection highlights so diffs are visible even when selected.
-        self.cpu_line_bg_quads.clear();
-        if !self.line_backgrounds.is_empty() {
-            let surface_height = self.surface.height() as f32;
-            let viewport_width = self.surface.width() as f32;
-            for (vi, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
-                if let Some(&bg_color) = self.line_backgrounds.get(&doc_line) {
-                    // Walk the visual line map to find which visual rows correspond
-                    // to this logical line (accounts for wrapping).
-                    let buffer_line = self
-                        .cpu_doc_to_visual
-                        .get(doc_line)
-                        .and_then(|v| *v)
-                        .unwrap_or(0)
-                        .saturating_sub(
-                            self.cpu_doc_to_visual
-                                .get(viewport_start)
-                                .and_then(|v| *v)
-                                .unwrap_or(0),
-                        );
-
-                    let mut emitted = false;
-                    for (vline_idx, &(buf_idx, _)) in self.cached_visual_line_map.iter().enumerate()
-                    {
-                        if buf_idx != buffer_line {
-                            continue;
-                        }
-                        let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
-                            - self.scroll_y;
-                        if y + line_height > 0.0 && y < surface_height {
-                            self.cpu_line_bg_quads.push(Quad::new(
-                                content_offset_x,
-                                y,
-                                viewport_width - content_offset_x,
-                                line_height,
-                                bg_color,
-                            ));
-                        }
-                        emitted = true;
-                    }
-
-                    // Fallback: if visual line map wasn't built yet, use simple position
-                    if !emitted {
-                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
-                            - self.scroll_y;
-                        if y + line_height > 0.0 && y < surface_height {
-                            self.cpu_line_bg_quads.push(Quad::new(
-                                content_offset_x,
-                                y,
-                                viewport_width - content_offset_x,
-                                line_height,
-                                bg_color,
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Create gutter change indicator quads (thin colored bars at left edge)
-        self.cpu_gutter_change_quads.clear();
-        if !self.gutter_changes.is_empty() && self.gutter_enabled {
-            let surface_height = self.surface.height() as f32;
-            for (vi, &doc_line) in self.cpu_visible_doc_lines.iter().enumerate() {
-                if let Some(&bar_color) = self.gutter_changes.get(&doc_line) {
-                    let buffer_line = self
-                        .cpu_doc_to_visual
-                        .get(doc_line)
-                        .and_then(|v| *v)
-                        .unwrap_or(0)
-                        .saturating_sub(
-                            self.cpu_doc_to_visual
-                                .get(viewport_start)
-                                .and_then(|v| *v)
-                                .unwrap_or(0),
-                        );
-
-                    let mut emitted = false;
-                    for (vline_idx, &(buf_idx, _)) in self.cached_visual_line_map.iter().enumerate()
-                    {
-                        if buf_idx != buffer_line {
-                            continue;
-                        }
-                        let y = padding + (vline_idx as f32 * line_height) + virtual_scroll_offset
-                            - self.scroll_y;
-                        if y + line_height > 0.0 && y < surface_height {
-                            // 3px wide bar at left gutter edge
-                            self.cpu_gutter_change_quads.push(Quad::new(
-                                2.0,
-                                y,
-                                3.0,
-                                line_height,
-                                bar_color,
-                            ));
-                        }
-                        emitted = true;
-                    }
-
-                    if !emitted {
-                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
-                            - self.scroll_y;
-                        if y + line_height > 0.0 && y < surface_height {
-                            self.cpu_gutter_change_quads.push(Quad::new(
-                                2.0,
-                                y,
-                                3.0,
-                                line_height,
-                                bar_color,
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Create selection highlight quads (render before text)
-        // Uses cursor_position_in_buffer for wrap-aware positioning so that
-        // selection highlights align with text even when lines wrap.
-        self.cpu_selection_quads.clear();
-        let selection_color = self.theme.editor.selection;
-        let surface_height = self.surface.height() as f32;
-        // Every cursor's selection, not only the primary's.
-        //
-        // Drawing just the primary is what made multi-cursor invisible in this
-        // face: the kernel held N selections and the screen showed one, so a
-        // command that worked perfectly looked like a command that did nothing.
-        for selection in self.editor.state().cursor.all_selections() {
-            if selection.is_collapsed() {
-                continue;
-            }
-            let sel_start = selection.start();
-            let sel_end = selection.end();
-
-            for doc_line in sel_start.line..=sel_end.line {
-                // Skip hidden/folded lines
-                let Some(vis_line) = self.cpu_doc_to_visual.get(doc_line).and_then(|v| *v) else {
-                    continue;
-                };
-
-                let line_content = self.editor.state().document.line(doc_line);
-                let line_len = line_content.map(|l| l.chars().count()).unwrap_or(0);
-
-                // Determine selection columns for this line
-                let sel_col_start = if doc_line == sel_start.line {
-                    sel_start.column
-                } else {
-                    0
-                };
-                let sel_col_end = if doc_line == sel_end.line {
-                    sel_end.column
-                } else {
-                    line_len
-                };
-
-                // Extra width for newline visualization on non-final lines
-                let newline_extra = if doc_line != sel_end.line && sel_col_end == line_len {
-                    char_width * 0.5
-                } else {
-                    0.0
-                };
-
-                if sel_col_start >= sel_col_end && newline_extra == 0.0 {
-                    continue;
-                }
-
-                // Get buffer-relative line index for this doc line
-                let buffer_line = vis_line.saturating_sub(viewport_start_visual);
-
-                // Walk the visual line map to find which visual rows this buffer line
-                // spans and emit a quad for each wrapped segment that overlaps the selection.
-                let mut handled = false;
-                for (vi, &(buf_idx, run_start_col)) in
-                    self.cached_visual_line_map.iter().enumerate()
-                {
-                    if buf_idx != buffer_line {
-                        continue;
-                    }
-
-                    // Determine the end column of this visual segment
-                    let run_end_col = self
-                        .cached_visual_line_map
-                        .get(vi + 1)
-                        .filter(|(next_buf, _)| *next_buf == buffer_line)
-                        .map(|(_, next_start)| *next_start)
-                        .unwrap_or(line_len);
-
-                    // Intersect this segment with the selection range
-                    let seg_start = sel_col_start.max(run_start_col);
-                    let seg_end = sel_col_end.min(run_end_col);
-
-                    // Extra width only applies on the last segment of the line
-                    let seg_extra = if run_end_col >= line_len {
-                        newline_extra
-                    } else {
-                        0.0
-                    };
-
-                    if seg_start < seg_end || (seg_start == seg_end && seg_extra > 0.0) {
-                        let x =
-                            content_offset_x + ((seg_start - run_start_col) as f32 * char_width);
-                        let y = padding + (vi as f32 * line_height) + virtual_scroll_offset
-                            - self.scroll_y;
-                        let width = (seg_end - seg_start) as f32 * char_width + seg_extra;
-
-                        if y + line_height > 0.0 && y < surface_height {
-                            self.cpu_selection_quads.push(Quad::new(
-                                x,
-                                y,
-                                width,
-                                line_height,
-                                selection_color,
-                            ));
-                        }
-                        handled = true;
-                    }
-                }
-
-                // Fallback for lines not in the visual map (shouldn't happen, but safe)
-                if !handled {
-                    let (sx, sy) = self.text_renderer.cursor_position_in_buffer(
-                        &buffer,
-                        buffer_line,
-                        sel_col_start,
-                        char_width,
-                    );
-                    let x = content_offset_x + sx;
-                    let y = padding + sy + virtual_scroll_offset - self.scroll_y;
-                    let width = (sel_col_end - sel_col_start) as f32 * char_width + newline_extra;
-
-                    if y + line_height > 0.0 && y < surface_height {
-                        self.cpu_selection_quads.push(Quad::new(
-                            x,
-                            y,
-                            width,
-                            line_height,
-                            selection_color,
-                        ));
-                    }
-                }
-            }
-        }
-
-        // Create a cursor quad (2px wide line) for **every** caret.
-        //
-        // The primary's position is computed above and kept there, because
-        // `ensure_cursor_visible` scrolls to it and must keep following the
-        // primary alone. The others are derived here the same way.
-        //
-        // Blink is shared on purpose: carets blinking out of phase read as a
-        // rendering fault rather than as one multi-cursor edit.
-        let cursor_color = self.theme.editor.cursor;
-        self.cpu_cursor_quads.clear();
-        if self.cursor_renderer.is_visible() {
-            for selection in self.editor.state().cursor.all_selections() {
-                let head = selection.head;
-                let head_visual_line = self
-                    .cpu_doc_to_visual
-                    .get(head.line)
-                    .and_then(|v| *v)
-                    .unwrap_or(0);
-                let head_line_in_buffer = head_visual_line.saturating_sub(viewport_start_visual);
-                let (head_x, head_y) = self.text_renderer.cursor_position_in_buffer(
-                    &buffer,
-                    head_line_in_buffer,
-                    head.column,
-                    char_width,
-                );
-                let x = content_offset_x + head_x;
-                let y = padding + head_y + virtual_scroll_offset - self.scroll_y;
-                // Off-screen carets are skipped, exactly as selection quads are.
-                if y + line_height > 0.0 && y < surface_height {
-                    self.cpu_cursor_quads
-                        .push(Quad::new(x, y, 2.0, line_height, cursor_color));
-                }
-            }
-        }
-
-        // PERF: Use stack-allocated array instead of Vec for text areas
-        // We know there are at most 2 text areas (main content + gutter)
-        // Calculate virtual scroll offset for viewport virtualization
-        let virtual_scroll_offset = viewport_start as f32 * line_height;
-        let adjusted_scroll_y = self.scroll_y - virtual_scroll_offset;
-
-        // Main content text area
-        let main_text_area = TextArea {
-            buffer: &buffer,
-            left: content_offset_x,
-            top: padding - adjusted_scroll_y,
-            scale: 1.0,
-            bounds: TextBounds {
-                left: 0,
-                top: 0,
-                right: self.surface.width() as i32,
-                bottom: self.surface.height() as i32,
-            },
-            default_color: glyphon::Color::rgba(
-                (foreground.r * 255.0) as u8,
-                (foreground.g * 255.0) as u8,
-                (foreground.b * 255.0) as u8,
-                (foreground.a * 255.0) as u8,
-            ),
-            custom_glyphs: &[],
-        };
-
-        // Build blame buffer if blame data exists for the cursor line.
-        // This creates a third TextArea rendered as ghost text after the line content.
-        let blame_fg = self.theme.editor.blame_foreground;
-        let blame_buffer = if !self.blame_data.is_empty() {
-            let cursor_doc_line = self.editor.cursor().line;
-            if let Some(blame_text) = self.blame_data.get(&cursor_doc_line) {
-                self.cpu_blame_content.clear();
-                // Pad with spaces to separate from line content
-                self.cpu_blame_content.push_str("  ");
-                self.cpu_blame_content.push_str(blame_text);
-                let mut blame_buf = self.text_renderer.create_buffer(None);
-                self.text_renderer
-                    .set_text(&mut blame_buf, &self.cpu_blame_content, blame_fg);
-                self.text_renderer.shape_buffer(&mut blame_buf);
-                Some(blame_buf)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        // Calculate blame text area position: after the end of the cursor line content
-        let blame_left = if blame_buffer.is_some() {
-            let cursor_doc_line = self.editor.cursor().line;
-            let line_len = self
-                .editor
-                .state()
-                .document
-                .line(cursor_doc_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
-            content_offset_x + (line_len as f32 * char_width)
-        } else {
-            0.0
-        };
-
-        // Prepare text for rendering - use Vec for dynamic text area count
-        let line_number_color = self.theme.editor.line_number;
-
-        // Build text areas list dynamically based on what's enabled
-        let mut text_areas: Vec<TextArea> = Vec::with_capacity(3);
-        text_areas.push(main_text_area);
-
-        if let Some(ref gutter_buf) = gutter_buffer {
-            text_areas.push(TextArea {
-                buffer: gutter_buf,
-                left: 8.0, // Small padding from left edge
-                top: padding - adjusted_scroll_y,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: 0,
-                    top: 0,
-                    right: gutter_width as i32,
-                    bottom: self.surface.height() as i32,
-                },
-                default_color: glyphon::Color::rgba(
-                    (line_number_color.r * 255.0) as u8,
-                    (line_number_color.g * 255.0) as u8,
-                    (line_number_color.b * 255.0) as u8,
-                    (line_number_color.a * 255.0) as u8,
-                ),
-                custom_glyphs: &[],
-            });
-        }
-
-        if let Some(ref blame_buf) = blame_buffer {
-            text_areas.push(TextArea {
-                buffer: blame_buf,
-                left: blame_left,
-                top: cursor_y,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: blame_left as i32,
-                    top: 0,
-                    right: self.surface.width() as i32,
-                    bottom: self.surface.height() as i32,
-                },
-                default_color: glyphon::Color::rgba(
-                    (blame_fg.r * 255.0) as u8,
-                    (blame_fg.g * 255.0) as u8,
-                    (blame_fg.b * 255.0) as u8,
-                    (blame_fg.a * 255.0) as u8,
-                ),
-                custom_glyphs: &[],
-            });
-        }
-
-        self.text_renderer
-            .prepare(self.surface.device(), self.surface.queue(), text_areas)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-        // Get background color from theme
-        let bg = self.theme.editor.background;
-        let clear_color = Color {
-            r: f64::from(bg.r),
-            g: f64::from(bg.g),
-            b: f64::from(bg.b),
-            a: f64::from(bg.a),
-        };
-
-        // PERF: Batch all background quads using pre-allocated buffer.
-        // Render order (back to front): gutter bg → line backgrounds → gutter change bars → selection
-        self.cpu_background_quads.clear();
-        self.cpu_background_quads
-            .extend(self.cpu_gutter_quads.iter().copied());
-        self.cpu_background_quads
-            .extend(self.cpu_line_bg_quads.iter().copied());
-        self.cpu_background_quads
-            .extend(self.cpu_gutter_change_quads.iter().copied());
-        self.cpu_background_quads
-            .extend(self.cpu_selection_quads.iter().copied());
-
-        // Render frame using SEPARATE quad renderers for background and cursor
-        // This is critical: queue.write_buffer() to the same buffer multiple times within
-        // a frame causes only the last write to be visible. Using separate QuadRenderers
-        // with separate vertex buffers avoids this GPU synchronization issue.
-        let text_renderer = &self.text_renderer;
-        let background_quad_renderer = &mut self.background_quad_renderer;
-        let cursor_quad_renderer = &mut self.cursor_quad_renderer;
-        let background_quads = &self.cpu_background_quads;
-        let cursor_quads = &self.cpu_cursor_quads;
-        let queue = self.surface.queue_arc();
+        let compositor = &mut self.compositor;
+        let editor = &self.editor;
+        let fold_state = &self.fold_state;
+        let scroll_y = self.scroll_y;
         self.surface
-            .render_frame(|view, device, q| {
-                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Iridium Frame Encoder"),
-                });
-
-                {
-                    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: Some("Iridium Render Pass"),
-                        color_attachments: &[Some(RenderPassColorAttachment {
-                            view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(clear_color),
-                                store: StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    });
-
-                    // Render gutter background and selection highlights (behind text)
-                    // Uses background_quad_renderer with its own vertex buffer
-                    background_quad_renderer.render(&mut pass, &queue, background_quads);
-
-                    // Render text (main content and gutter line numbers)
-                    text_renderer.render(&mut pass).map_err(|e| {
-                        iridium_editor::editor::IridiumError::GpuInitFailed {
-                            message: e.to_string(),
-                        }
-                    })?;
-
-                    // Render cursor on top - uses cursor_quad_renderer with its own vertex buffer
-                    // This avoids the GPU buffer overwrite issue that caused selection blinking
-                    cursor_quad_renderer.render(&mut pass, &queue, cursor_quads);
-                }
-
-                q.submit(std::iter::once(encoder.finish()));
-                Ok(())
+            .render_frame(|view, device, queue| {
+                compositor.compose(
+                    editor,
+                    fold_state,
+                    scroll_y,
+                    &mut highlights,
+                    FrameTarget {
+                        view,
+                        device,
+                        queue,
+                        width,
+                        height,
+                    },
+                )
             })
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-        // Trim glyph cache periodically
-        self.text_renderer.trim_cache();
 
         // T042: Log performance warning if frame exceeds 16ms budget
         let frame_time = frame_start.elapsed();
@@ -2740,27 +1620,21 @@ impl WebEditor {
     /// Sets whether to use dark theme.
     #[wasm_bindgen(js_name = setDarkTheme)]
     pub fn set_dark_theme(&mut self, dark: bool) {
-        self.theme = if dark {
-            self.highlighter.set_dark_theme();
-            Theme::dark()
-        } else {
-            self.highlighter.set_light_theme();
-            Theme::light()
-        };
+        self.compositor.set_dark_theme(dark);
         self.needs_redraw = true;
     }
 
     /// Enables or disables syntax highlighting.
     #[wasm_bindgen(js_name = setSyntaxEnabled)]
     pub fn set_syntax_enabled(&mut self, enabled: bool) {
-        self.syntax_enabled = enabled;
+        self.compositor.set_syntax_enabled(enabled);
         self.needs_redraw = true;
     }
 
     /// Returns whether syntax highlighting is enabled.
     #[wasm_bindgen(js_name = isSyntaxEnabled)]
     pub fn is_syntax_enabled(&self) -> bool {
-        self.syntax_enabled
+        self.compositor.syntax_enabled()
     }
 
     /// Sets highlight spans from tree-sitter (called from JavaScript).
@@ -2830,10 +1704,9 @@ impl WebEditor {
     /// still allowing specific overrides (e.g., `keyword.control.return`).
     #[wasm_bindgen(js_name = setSyntaxTheme)]
     pub fn set_syntax_theme(&mut self, theme_js: &JsValue) -> Result<(), JsValue> {
-        use iridium_editor::theme::Color;
         use js_sys::{Object, Reflect};
 
-        self.syntax_theme.clear();
+        self.compositor.syntax_theme_mut().clear();
 
         let obj = Object::from(theme_js.clone());
         let keys = Object::keys(&obj);
@@ -2850,7 +1723,7 @@ impl WebEditor {
             let color = Color::from_hex(&hex).ok_or_else(|| {
                 JsValue::from_str(&format!("invalid hex color for '{}': {}", key_str, hex))
             })?;
-            self.syntax_theme.insert(key_str, color);
+            self.compositor.syntax_theme_mut().insert(key_str, color);
         }
 
         self.needs_redraw = true;
@@ -3511,7 +2384,7 @@ impl WebEditor {
         // vertical columns must be dropped as well.
         self.keyboard_handler.reset_vertical_state();
         self.editor.set_selection(anchor, head);
-        self.cursor_renderer.reset_blink();
+        self.compositor.reset_blink();
         self.needs_redraw = true;
     }
 
@@ -3621,7 +2494,7 @@ impl WebEditor {
         if let Ok(KeyResult::Command(command)) = outcome {
             self.track_and_apply(command);
         }
-        self.cursor_renderer.reset_blink();
+        self.compositor.reset_blink();
         self.needs_redraw = true;
     }
 
@@ -3652,24 +2525,19 @@ impl WebEditor {
     /// Gets the line height in pixels.
     #[wasm_bindgen(js_name = getLineHeight)]
     pub fn get_line_height(&self) -> f32 {
-        self.text_renderer.line_height()
+        self.compositor.line_height()
     }
 
     /// Gets the character width in pixels (for monospace).
     #[wasm_bindgen(js_name = getCharWidth)]
     pub fn get_char_width(&self) -> f32 {
-        self.cached_char_width
+        self.compositor.char_width()
     }
 
     /// Calculates the current gutter width.
     fn current_gutter_width(&self) -> f32 {
-        if self.gutter_enabled {
-            let char_width = self.cached_char_width;
-            let line_count = self.editor.state().document.line_count();
-            self.gutter_renderer.calculate_width(line_count, char_width)
-        } else {
-            0.0
-        }
+        self.compositor
+            .gutter_width(self.editor.state().document.line_count())
     }
 
     /// Gets the text padding/offset from left edge (including gutter).
@@ -3687,168 +2555,48 @@ impl WebEditor {
     /// Returns whether the gutter is enabled.
     #[wasm_bindgen(js_name = isGutterEnabled)]
     pub fn is_gutter_enabled(&self) -> bool {
-        self.gutter_enabled
+        self.compositor.gutter_enabled()
     }
 
     /// Enables or disables the gutter (line numbers).
     #[wasm_bindgen(js_name = setGutterEnabled)]
     pub fn set_gutter_enabled(&mut self, enabled: bool) {
-        self.gutter_enabled = enabled;
+        self.compositor.set_gutter_enabled(enabled);
         self.needs_redraw = true;
     }
 
     /// Converts pixel coordinates to line/column position.
     /// Returns [line, column]. Accounts for folded lines, scroll, and line wrapping.
     ///
-    /// Uses the cached visual line map built during `render_frame` to correctly
-    /// resolve clicks on wrapped lines. Each visual line in the buffer maps to
-    /// a (buffer_line_index, run_start_column) pair, allowing accurate column
-    /// calculation even when a single document line spans multiple visual rows.
+    /// The resolution itself lives on the compositor, against the visual line
+    /// map cached by the last composed frame; this export contributes the
+    /// scroll offset this face owns and the JS-shaped return value.
     #[wasm_bindgen(js_name = pixelToPosition)]
     pub fn pixel_to_position(&self, x: f32, y: f32) -> Vec<u32> {
-        let line_height = self.text_renderer.line_height();
-        let char_width = self.cached_char_width;
-        let padding = 10.0_f32;
-
-        // Calculate the text area top offset (must match render_frame positioning)
-        let virtual_scroll_offset = self.cached_map_viewport_start as f32 * line_height;
-        let adjusted_scroll_y = self.scroll_y - virtual_scroll_offset;
-        let text_area_top = padding - adjusted_scroll_y;
-
-        // Calculate which visual line in the buffer was clicked
-        let y_in_buffer = y - text_area_top;
-        let visual_line_in_buffer = (y_in_buffer / line_height).floor().max(0.0) as usize;
-
-        let doc = &self.editor.state().document;
-        let line_count = doc.line_count();
-
-        // Use the cached visual line map to resolve the click position
-        if !self.cached_visual_line_map.is_empty() {
-            // Clamp to last visual line in the map
-            let clamped_visual =
-                visual_line_in_buffer.min(self.cached_visual_line_map.len().saturating_sub(1));
-            let (buffer_line_idx, run_start_col) = self.cached_visual_line_map[clamped_visual];
-
-            // Map buffer line index to document line
-            let doc_line = self
-                .cpu_visible_doc_lines
-                .get(buffer_line_idx)
-                .copied()
-                .unwrap_or(0)
-                .min(line_count.saturating_sub(1));
-
-            // Calculate column within this wrap segment
-            let col_in_run =
-                ((x - self.cached_content_offset_x) / char_width + 0.5).max(0.0) as usize;
-            let column = run_start_col + col_in_run;
-
-            // Clamp to actual line length
-            let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
-            let clamped_column = column.min(line_len);
-
-            vec![doc_line as u32, clamped_column as u32]
-        } else {
-            // Fallback: no cached map (before first render), use simple calculation
-            let visual_line = ((y + self.scroll_y - padding) / line_height).max(0.0) as usize;
-            let doc_line = self
-                .fold_state
-                .visual_to_document_line(visual_line)
-                .min(line_count.saturating_sub(1));
-
-            let offset_x = self.current_gutter_width() + padding;
-            let line_len = doc.line(doc_line).map(|l| l.chars().count()).unwrap_or(0);
-            let column = ((x - offset_x) / char_width + 0.5).max(0.0) as usize;
-            let clamped_column = column.min(line_len);
-
-            vec![doc_line as u32, clamped_column as u32]
-        }
+        let (line, column) =
+            self.compositor
+                .pixel_to_position(&self.editor, &self.fold_state, self.scroll_y, x, y);
+        vec![line as u32, column as u32]
     }
 
     /// Converts a document line/column to pixel coordinates.
     /// Returns [x, y] in physical pixels. Returns [-1.0, -1.0] if the line is
     /// hidden (folded or off-screen).
     ///
-    /// This is the inverse of `pixelToPosition`. It uses the same cached visual
-    /// line map built during `render_frame` to correctly handle word wrapping
-    /// and code folding.
+    /// This is the inverse of `pixelToPosition`, resolved on the compositor
+    /// against the same cached visual line map; the [-1.0, -1.0] sentinel is
+    /// this export's JS-shaped rendering of the compositor's `None`.
     #[wasm_bindgen(js_name = positionToPixel)]
     pub fn position_to_pixel(&self, doc_line: u32, column: u32) -> Vec<f32> {
-        let line_height = self.text_renderer.line_height();
-        let char_width = self.cached_char_width;
-        let padding = 10.0_f32;
-        let doc_line = doc_line as usize;
-        let column = column as usize;
-
-        // Check if line is folded (hidden)
-        if self.fold_state.is_line_hidden(doc_line) {
-            return vec![-1.0, -1.0];
-        }
-
-        // Use the cached visual line map if available (after first render)
-        if !self.cached_visual_line_map.is_empty() {
-            // Find the buffer line index for this document line
-            let buffer_line_idx = self
-                .cpu_visible_doc_lines
-                .iter()
-                .position(|&dl| dl == doc_line);
-
-            if let Some(buf_idx) = buffer_line_idx {
-                // Find the visual line that contains this column
-                // (handles word wrap — a single document line may span multiple visual lines)
-                let mut target_visual = None;
-                let mut col_in_segment = column;
-
-                for (visual_idx, &(bi, run_start)) in self.cached_visual_line_map.iter().enumerate()
-                {
-                    if bi == buf_idx {
-                        // Check if this is the last segment for this buffer line
-                        let next_run_start = self
-                            .cached_visual_line_map
-                            .get(visual_idx + 1)
-                            .filter(|&&(next_bi, _)| next_bi == buf_idx)
-                            .map(|&(_, start)| start);
-
-                        if let Some(next_start) = next_run_start {
-                            if column >= run_start && column < next_start {
-                                target_visual = Some(visual_idx);
-                                col_in_segment = column - run_start;
-                                break;
-                            }
-                        } else {
-                            // Last (or only) segment — column must be here
-                            if column >= run_start {
-                                target_visual = Some(visual_idx);
-                                col_in_segment = column - run_start;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if let Some(visual_idx) = target_visual {
-                    let virtual_scroll_offset = self.cached_map_viewport_start as f32 * line_height;
-                    let x = self.cached_content_offset_x + (col_in_segment as f32 * char_width);
-                    let y = padding + (visual_idx as f32 * line_height) + virtual_scroll_offset
-                        - self.scroll_y;
-                    return vec![x, y];
-                }
-            }
-
-            // Document line not in current viewport
-            return vec![-1.0, -1.0];
-        }
-
-        // Fallback: before first render, use simple calculation (no word wrap)
-        let visual_line = self.fold_state.document_to_visual_line(doc_line);
-        match visual_line {
-            Some(vl) => {
-                let offset_x = self.current_gutter_width() + padding;
-                let x = offset_x + (column as f32 * char_width);
-                let y = padding + (vl as f32 * line_height) - self.scroll_y;
-                vec![x, y]
-            },
-            None => vec![-1.0, -1.0],
-        }
+        self.compositor
+            .position_to_pixel(
+                &self.editor,
+                &self.fold_state,
+                self.scroll_y,
+                doc_line as usize,
+                column as usize,
+            )
+            .map_or_else(|| vec![-1.0, -1.0], |(x, y)| vec![x, y])
     }
 
     // ==========================================================================
@@ -4011,5 +2759,258 @@ impl WebEditor {
     fn refresh_fold_regions(&mut self) -> bool {
         self.fold_syntax
             .refresh(&self.editor.state().document, &mut self.fold_state)
+    }
+}
+
+// ============================================================================
+// The highlight seam: this face's side of the compositor's HighlightSource
+// ============================================================================
+
+/// The web face's per-frame [`HighlightSource`]: resolves the tree-sitter
+/// spans JavaScript delivered against the frame's visible content.
+///
+/// Built fresh each frame from borrows of the [`WebEditor`] fields that stay
+/// on this side of the compositor seam. The two resolution paths here are the
+/// two that read bindings-crate types ([`WebSpanIndex`], [`JsHighlightSpan`]);
+/// the keyword fallback and the plain-text path live with the compositor,
+/// which owns that highlighter.
+struct WebHighlightSource<'a> {
+    /// Span index for efficient viewport-based queries (O(log n + k)).
+    span_index: &'a WebSpanIndex,
+    /// Legacy flat span list, the fallback when the index is empty.
+    ts_highlights: &'a [JsHighlightSpan],
+    /// Whether tree-sitter highlights from JS are in use at all.
+    use_ts_highlights: bool,
+    /// The document, for byte-range queries against its rope.
+    document: &'a Document,
+    /// Fold state, which the viewport byte-range query is aware of.
+    fold_state: &'a FoldState,
+    /// The face's scroll offset when the frame began.
+    scroll_y: f32,
+    /// Surface height in physical pixels.
+    surface_height: f32,
+}
+
+impl HighlightSource for WebHighlightSource<'_> {
+    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+        if self.use_ts_highlights && !self.span_index.is_empty() {
+            // Calculate viewport for efficient span query (T020)
+            // Only query spans in the visible range instead of iterating all spans
+            let first_line = (self.scroll_y / context.line_height).floor() as usize;
+            let visible_lines = (self.surface_height / context.line_height).ceil() as usize + 1;
+
+            let viewport = Viewport {
+                first_line,
+                visible_lines,
+                line_height: context.line_height,
+                height: self.surface_height,
+                width: context.content_width,
+                ..Viewport::default()
+            };
+
+            // Query byte range with overscan buffer (T023)
+            let (start_byte, end_byte) = viewport.query_byte_range(
+                self.document.rope(),
+                self.fold_state,
+                context.viewport_config,
+            );
+
+            // Query only viewport spans: O(log n + k) vs O(n) clone + sort (T021)
+            // This eliminates per-frame clone (T018) and sort (T019)
+            Some(build_rich_spans_viewport(
+                context.content,
+                self.span_index.query(start_byte, end_byte),
+                context.content_start_byte,
+                context.foreground,
+                context.syntax_theme,
+            ))
+        } else if !self.ts_highlights.is_empty() {
+            // Legacy fallback: use JsHighlightSpan when SpanIndex not available
+            // PERF: This path clones ts_highlights to sort them. This is acceptable because:
+            // 1. With WebSpanIndex, this path is rarely hit (only during transition)
+            // 2. The clone happens only when span_index.is_empty() returns true
+            // 3. Full optimization would require pre-sorted storage or sorted indices
+            let spans = self.ts_highlights.to_vec();
+            Some(build_rich_spans_from_ts(
+                context.content,
+                spans,
+                context.foreground,
+                context.syntax_theme,
+            ))
+        } else {
+            // Nothing from tree-sitter yet: the compositor falls back to its
+            // built-in keyword highlighter.
+            None
+        }
+    }
+}
+
+/// Converts highlight spans (from `WebSpanIndex` query) to colored text spans
+/// for rendering.
+///
+/// This is the optimized version that works with [`WebSpan`] from the
+/// `WebSpanIndex`. The spans are collected, sorted, and processed only for
+/// the visible viewport.
+///
+/// # Arguments
+///
+/// * `content` - The visible content string
+/// * `spans` - Iterator of `WebSpan` from `WebSpanIndex::query()`
+/// * `content_start_byte` - The document byte offset where content begins
+/// * `foreground` - Default color for gaps between highlighted spans
+/// * `syntax_theme` - Capture-name → color map for the hierarchical lookup
+fn build_rich_spans_viewport<'a>(
+    content: &'a str,
+    spans: impl Iterator<Item = WebSpan>,
+    content_start_byte: usize,
+    foreground: Color,
+    syntax_theme: &HashMap<String, Color>,
+) -> Vec<(&'a str, Color)> {
+    let mut result = Vec::new();
+    let mut last_end = 0;
+    let content_end_byte = content_start_byte + content.len();
+
+    // Collect and sort spans by start position
+    let mut sorted_spans: Vec<WebSpan> = spans.collect();
+    sorted_spans.sort_by_key(|s| s.start);
+
+    for span in &sorted_spans {
+        // Calculate span positions relative to content
+        let span_start = span.start.saturating_sub(content_start_byte);
+        let span_end = span.end.saturating_sub(content_start_byte);
+
+        // Skip spans that are completely outside content
+        if span.end <= content_start_byte || span.start >= content_end_byte {
+            continue;
+        }
+
+        // Clamp to content bounds
+        let span_start = span_start.min(content.len());
+        let span_end = span_end.min(content.len());
+
+        // Skip empty or invalid spans
+        if span_start >= span_end {
+            continue;
+        }
+
+        // Add gap before this span if needed
+        if span_start > last_end {
+            let gap_text = &content[last_end..span_start];
+            if !gap_text.is_empty() {
+                result.push((gap_text, foreground));
+            }
+        }
+
+        // Skip overlapping spans
+        if span_start < last_end {
+            continue;
+        }
+
+        // Get the color for this highlight type (using string-based lookup)
+        let color = color_for_highlight_type(syntax_theme, foreground, &span.highlight_type);
+
+        // Add the highlighted span
+        let text = &content[span_start..span_end];
+        if !text.is_empty() {
+            result.push((text, color));
+        }
+
+        last_end = span_end;
+    }
+
+    // Add remaining text after last span
+    if last_end < content.len() {
+        let remaining = &content[last_end..];
+        if !remaining.is_empty() {
+            result.push((remaining, foreground));
+        }
+    }
+
+    result
+}
+
+/// Converts tree-sitter highlight spans to colored text spans for rendering.
+/// (Legacy version - kept for fallback when `SpanIndex` is empty)
+///
+/// Maps tree-sitter capture names to theme colors and handles gaps between
+/// highlighted regions with default foreground color.
+fn build_rich_spans_from_ts<'a>(
+    content: &'a str,
+    mut sorted_spans: Vec<JsHighlightSpan>,
+    foreground: Color,
+    syntax_theme: &HashMap<String, Color>,
+) -> Vec<(&'a str, Color)> {
+    let mut result = Vec::new();
+    let mut last_end = 0;
+
+    // Sort spans by start position
+    sorted_spans.sort_by_key(|s| s.start);
+
+    for span in &sorted_spans {
+        // Skip spans that are out of bounds
+        if span.start >= content.len() || span.end > content.len() {
+            continue;
+        }
+
+        // Add gap before this span if needed
+        if span.start > last_end {
+            let gap_text = &content[last_end..span.start];
+            if !gap_text.is_empty() {
+                result.push((gap_text, foreground));
+            }
+        }
+
+        // Skip overlapping spans
+        if span.start < last_end {
+            continue;
+        }
+
+        // Get the color for this highlight type
+        let color = color_for_highlight_type(syntax_theme, foreground, &span.highlight_type);
+
+        // Add the highlighted span
+        let text = &content[span.start..span.end];
+        if !text.is_empty() {
+            result.push((text, color));
+        }
+
+        last_end = span.end;
+    }
+
+    // Add remaining text after last span
+    if last_end < content.len() {
+        let remaining = &content[last_end..];
+        if !remaining.is_empty() {
+            result.push((remaining, foreground));
+        }
+    }
+
+    result
+}
+
+/// Maps a tree-sitter highlight type to a theme color.
+///
+/// Looks up the `syntax_theme` map with hierarchical resolution: for a
+/// capture name like `punctuation.list_marker.markup`, tries the full name
+/// first, then walks up the dot-separated hierarchy
+/// (`punctuation.list_marker`, then `punctuation`) until a match is found.
+/// Falls back to the given foreground.
+///
+/// Colors are provided by the host application via `setSyntaxTheme()`,
+/// making the editor fully theme-agnostic.
+fn color_for_highlight_type(
+    syntax_theme: &HashMap<String, Color>,
+    foreground: Color,
+    highlight_type: &str,
+) -> Color {
+    let mut name = highlight_type;
+    loop {
+        if let Some(color) = syntax_theme.get(name) {
+            return *color;
+        }
+        match name.rsplit_once('.') {
+            Some((parent, _)) => name = parent,
+            None => return foreground,
+        }
     }
 }

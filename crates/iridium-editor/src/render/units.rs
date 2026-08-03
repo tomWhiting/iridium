@@ -39,6 +39,86 @@ pub fn index_to_f32(value: usize) -> f32 {
     u32_to_f32(u32::try_from(value).unwrap_or(u32::MAX))
 }
 
+/// The integer part of a finite-or-infinite `f32` known to be `>= 1.0`,
+/// saturating at [`u64::MAX`].
+///
+/// This is the shared core of the two pixel-to-integer conversions below,
+/// which read the sign, exponent and mantissa directly so the truncation is
+/// stated as arithmetic rather than as a cast. The exponent is non-negative
+/// because the caller has already excluded values below `1.0`; infinity
+/// carries the all-ones exponent and saturates like any other value at or
+/// beyond `2^64`.
+fn truncated_magnitude(value: f32) -> u64 {
+    let bits = value.to_bits();
+    let exponent = i64::from((bits >> 23) & 0xFF) - 127;
+    let Ok(shift) = u32::try_from(exponent) else {
+        // Unreachable for inputs >= 1.0; truncating to zero is the honest
+        // answer for a sub-one magnitude in any case.
+        return 0;
+    };
+    if shift >= 64 {
+        return u64::MAX;
+    }
+    let mantissa = u64::from(bits & 0x007F_FFFF) | (1 << 23);
+    if shift >= 23 {
+        // The mantissa's top bit lands on bit `shift`, which is below 64 here,
+        // so the shift cannot overflow.
+        mantissa << (shift - 23)
+    } else {
+        mantissa >> (23 - shift)
+    }
+}
+
+/// Converts a pixel quantity to an index exactly as `value as usize` would:
+/// truncation toward zero, `NaN` and negative values to zero, and values
+/// beyond the integer range saturated.
+///
+/// This exists for the same reason as [`index_to_f32`], in the opposite
+/// direction: hit-testing and viewport math divide pixel coordinates by cell
+/// metrics and need the resulting row or column as an integer, and `as usize`
+/// performs that conversion silently. The behavior here is bit-for-bit the
+/// cast's — the render path's output must not move by even a pixel — but
+/// spelled out.
+pub fn pixel_to_index(value: f32) -> usize {
+    // `NaN` fails the comparison and truncates to zero, exactly as the cast
+    // does; so do negatives and everything below one.
+    if value < 1.0 || value.is_nan() {
+        return 0;
+    }
+    usize::try_from(truncated_magnitude(value)).unwrap_or(usize::MAX)
+}
+
+/// Converts a pixel coordinate to a clip bound exactly as `value as i32`
+/// would: truncation toward zero, `NaN` to zero, and out-of-range values
+/// saturated.
+///
+/// Text areas clip against integer bounds, so the `f32` layout coordinates
+/// must land in `i32` somewhere; this is that landing, stated as arithmetic.
+pub fn pixel_to_bound(value: f32) -> i32 {
+    if value.is_nan() {
+        return 0;
+    }
+    if value <= -1.0 {
+        // `i32::MIN`'s magnitude exceeds `i32::MAX`, so a failed conversion
+        // here means the magnitude saturates at the negative extreme.
+        return i32::try_from(truncated_magnitude(-value)).map_or(i32::MIN, |magnitude| -magnitude);
+    }
+    if value >= 1.0 {
+        return i32::try_from(truncated_magnitude(value)).unwrap_or(i32::MAX);
+    }
+    0
+}
+
+/// Converts a surface dimension to a clip bound, saturating at [`i32::MAX`].
+///
+/// Surface dimensions arrive as `u32` physical pixels and the text clip
+/// rectangle wants `i32`. No real surface approaches two billion pixels, so
+/// saturation is a formality; what matters is that the conversion cannot wrap
+/// to a negative bound the way `value as i32` silently would.
+pub fn dimension_to_bound(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{index_to_f32, u32_to_f32};
@@ -129,6 +209,100 @@ mod tests {
         assert_correctly_rounded(SIGNIFICAND_LIMIT);
         assert_correctly_rounded(SIGNIFICAND_LIMIT + 1);
         assert_correctly_rounded(u32::MAX);
+    }
+
+    /// `pixel_to_index` matches the `as usize` cast bit-for-bit across a
+    /// dense sweep, the rounding boundaries, and the degenerate inputs.
+    #[test]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    fn pixel_to_index_matches_cast() {
+        // Degenerate inputs first: the cast's documented saturating behavior.
+        assert_eq!(super::pixel_to_index(f32::NAN), 0);
+        assert_eq!(super::pixel_to_index(f32::NEG_INFINITY), 0);
+        assert_eq!(super::pixel_to_index(-123.75), 0);
+        assert_eq!(super::pixel_to_index(-0.0), 0);
+        assert_eq!(super::pixel_to_index(0.999_999), 0);
+        assert_eq!(super::pixel_to_index(f32::INFINITY), usize::MAX);
+        assert_eq!(super::pixel_to_index(f32::MAX), f32::MAX as usize);
+
+        // Dense fractional sweep through the pixel range hit-testing sees.
+        for step in 0..200_000_u32 {
+            let value = f64::from(step).mul_add(0.037, -10.0) as f32;
+            assert_eq!(
+                super::pixel_to_index(value),
+                value as usize,
+                "mismatch for {value}"
+            );
+        }
+
+        // Every power of two up to and past the f32 significand limit.
+        for exponent in 0..64_u32 {
+            let base = 2.0_f64.powi(i32::try_from(exponent).unwrap()) as f32;
+            for delta in [-1.5_f32, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5] {
+                let value = base + delta;
+                assert_eq!(
+                    super::pixel_to_index(value),
+                    value as usize,
+                    "mismatch for {value}"
+                );
+            }
+        }
+    }
+
+    /// `pixel_to_bound` matches the `as i32` cast wherever the cast is
+    /// well-behaved, and saturates instead of wrapping beyond `i32`'s range.
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    fn pixel_to_bound_matches_cast() {
+        assert_eq!(super::pixel_to_bound(f32::NAN), 0);
+        assert_eq!(super::pixel_to_bound(f32::INFINITY), i32::MAX);
+        assert_eq!(super::pixel_to_bound(f32::NEG_INFINITY), i32::MIN);
+        assert_eq!(super::pixel_to_bound(f32::MAX), i32::MAX);
+        assert_eq!(super::pixel_to_bound(-f32::MAX), i32::MIN);
+
+        for step in 0..200_000_u32 {
+            let value = f64::from(step).mul_add(0.037, -3_700.0) as f32;
+            assert_eq!(
+                super::pixel_to_bound(value),
+                value as i32,
+                "mismatch for {value}"
+            );
+        }
+
+        for exponent in 0..31_u32 {
+            let base = 2.0_f64.powi(i32::try_from(exponent).unwrap()) as f32;
+            for delta in [-1.5_f32, -0.5, 0.0, 0.5, 1.5] {
+                let value = base + delta;
+                assert_eq!(
+                    super::pixel_to_bound(value),
+                    value as i32,
+                    "mismatch for {value}"
+                );
+                assert_eq!(
+                    super::pixel_to_bound(-value),
+                    (-value) as i32,
+                    "mismatch for {}",
+                    -value
+                );
+            }
+        }
+    }
+
+    /// `dimension_to_bound` is the identity over the real surface-size range
+    /// and saturates rather than wrapping past `i32::MAX`.
+    #[test]
+    fn dimension_to_bound_saturates() {
+        assert_eq!(super::dimension_to_bound(0), 0);
+        assert_eq!(super::dimension_to_bound(3_840), 3_840);
+        assert_eq!(
+            super::dimension_to_bound(u32::try_from(i32::MAX).unwrap()),
+            i32::MAX
+        );
+        assert_eq!(super::dimension_to_bound(u32::MAX), i32::MAX);
     }
 
     /// `usize` inputs beyond `u32::MAX` saturate rather than wrapping.

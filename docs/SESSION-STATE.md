@@ -39,6 +39,12 @@ Tom's green-lit terminal command palette is BUILT, TESTED, SWAPPED IN:
 - **Still open after this**: undo-tree panel UI (kernel `history_snapshot`
   ready, `Ctrl+Alt+H` still errors), OSC 52 clipboard, mouse (needs Tom's
   kernel decision). Tom's batched questions in his DM remain unanswered.
+- **Tom's verdict 3 Aug ~04:44Z**: "looking really good" — one wish: ⌘-key
+  parity with the GPU face. Answered him (~04:50Z): the emulator owns ⌘;
+  Ghostty/kitty/WezTerm can pass it via the kitty protocol our input layer
+  already negotiates, so ⌘K/⌘P → palette is a small investigation lane IF his
+  emulator supports it. BLOCKED on his answer: which terminal he daily-drives.
+  If Terminal.app/iTerm2-classic → honest answer is Ctrl is the parity.
 
 **Design settled so far** (sources read this session):
 - Kernel side is COMPLETE, use as-is: `commands::palette::{search_text, Query,

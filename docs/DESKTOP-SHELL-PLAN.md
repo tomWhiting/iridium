@@ -135,6 +135,39 @@ the webview comparison that motivated the track is unaffected as an
 whatever the frame costs), but the honest finding is that today the frame
 itself is the bottleneck, and it is ours to fix.
 
+**RETAINED SHAPING LANDED — 4 Aug 2026, commits 4fc0950 (stage 1 + 2a)
+and 5846f62 (R7), design in docs/design/RETAINED-SHAPING-MAP.md. Bench
+from the controlling seat's hand, same machine WITH a live desktop
+session running (noisier than the 3 Aug quiet-box numbers — compare
+shapes, not absolutes across days):**
+
+| Case | 3 Aug (rebuild-every-frame) | 4 Aug (retained) |
+|---|---|---|
+| steady_state | 35.2ms | **3.68ms** [3.58, 3.78] (hit) |
+| first_frame (new; cold ≈ old steady_state) | — | 42.5ms [40.6, 44.7] |
+| after_mid_file_edit | 34.4ms | **7.54ms** [7.27, 7.82] |
+| after_small_scroll (new; sub-line, hit) | — | 6.28ms [5.80, 6.80] |
+| after_scroll_change (full miss; stage 2b) | 30.9ms | 8.0ms [5.4, 12.6] (wide — noisy box) |
+
+The edit frame — the keystroke path, the track's headline — is inside
+the 8ms budget on a 10k-line dense viewport even on a busy machine. Two
+honest caveats, both verified by the implementing agent and recorded in
+its artifacts (scratchpad retained-bench-agent.txt,
+baseline-bench-recheck.txt): (a) the 3 Aug absolutes do not reproduce —
+the unchanged pre-change tree benched steady_state ~19.8ms on 4 Aug, so
+cross-day absolute comparisons carry environment drift; same-day
+quiet-box figures were 19.8ms full rebuild → 1.56ms hit / 1.86ms edit.
+(b) A real pre-existing defect was found and fixed in the same change:
+`FrameCompositor::new` never seeded the glyph viewport uniform, so
+HEADLESS consumers (the bench, the proof tests) were culling all glyph
+draw in `prepare` — the 3 Aug bench numbers never included glyph
+drawing; faces were unaffected (their startup resize seeded it). The
+post-change live keydown→present re-measurement (3 Aug baseline: p50
+41.17ms) is DEFERRED to the next bundle refresh — keystroke injection
+races the user's live session for focus and lost honestly, twice.
+Stage 2b (scroll window rotation) remains open, gated on these numbers
+per R4.
+
 ## What v1 deliberately does not contain
 
 Mouse (scope choice, see above), soft wrap (blocked on the recorded design),

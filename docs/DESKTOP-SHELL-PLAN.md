@@ -162,11 +162,32 @@ quiet-box figures were 19.8ms full rebuild → 1.56ms hit / 1.86ms edit.
 HEADLESS consumers (the bench, the proof tests) were culling all glyph
 draw in `prepare` — the 3 Aug bench numbers never included glyph
 drawing; faces were unaffected (their startup resize seeded it). The
-post-change live keydown→present re-measurement (3 Aug baseline: p50
-41.17ms) is DEFERRED to the next bundle refresh — keystroke injection
-races the user's live session for focus and lost honestly, twice.
-Stage 2b (scroll window rotation) remains open, gated on these numbers
-per R4.
+post-change live keydown→present was DEFERRED to the bundle refresh
+(keystroke injection races a live user session for focus and lost
+honestly, twice), and then measured there:
+
+**Live keydown→present, 4 Aug bundle refresh** (3 Aug baseline: p50
+41.17ms on the 10k-line .rs file), release binary, pid-targeted
+injection, this seat's hand:
+
+| Document | n | min | p50 | p95 | max |
+|---|---|---|---|---|---|
+| 10k-line .rs (tree-sitter) | 42 | 0.43 | **31.83ms** | 32.47 | 35.47 |
+| Same bytes as .txt (no grammar) | 43 | 1.08 | **1.26ms** | 1.47 | 4.21 |
+
+The discrimination is decisive: with no grammar the whole live pipeline
+— receipt, kernel edit, per-line reshape, compose, submit, present — is
+**1.26ms median**; retained shaping delivered everything it promised.
+The remaining ~30ms on the .rs run is the **tree-sitter reparse the
+kernel performs on the edit path** — a cost the compose bench never saw
+(it benches with no language set, by design). The next named target is
+therefore the parser, not the renderer: the syntax sync was designed
+for incremental `note_edit` (O(depth) tree edit, typing never parses);
+whether that path is unwired on the desktop face or the parse is
+non-incremental is the first question of that work. Until it lands,
+ungrammar'd files type at ~1.3ms and grammar'd files pay the parser tax
+(still 23% under the 3 Aug baseline). Stage 2b (scroll window rotation)
+remains open per R4.
 
 ## What v1 deliberately does not contain
 

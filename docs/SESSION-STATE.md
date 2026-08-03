@@ -86,6 +86,18 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
+**✅ BUNDLE SWAPPED 4 Aug ~09:4x local — Tom is ON the new build.** He
+dropped his session himself; bundle.sh rebuilt/signed/verified; live
+measurement landed (plan doc step 3): 10k .rs p50 31.83ms vs same bytes
+as .txt p50 **1.26ms** — retained shaping fully delivered; the ~30ms
+residue is the TREE-SITTER REPARSE PER EDIT (bench never saw it — no
+language set by design). TWO NEW WORK ITEMS (tasks #25/#26): (1) Tom
+found the built-in keyword fallback colors NO-LANGUAGE files (.txt gets
+keywords) — fix: no language → plain text, red test first; (2) parser
+tax — wire/verify incremental note_edit so typing never parses. Tom's
+chrome feel-gate verdict pending; constants atop overlay.rs carry web
+citations for one-line tuning.
+
 **✅ CHROME PASS LANDED — d88c48f, gates 1801/0 this seat, screenshots
 reviewed at this seat (palette/search/history: rounded SDF cards, web
 backdrop 0.45 behind palette+undo only, strip honest, gap bug gone by

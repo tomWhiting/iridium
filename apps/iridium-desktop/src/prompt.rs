@@ -100,7 +100,7 @@ impl Prompt {
                     Answer::SaveAs(PathBuf::from(entry.text()))
                 },
                 KeyCode::Char(character) => {
-                    entry.insert(character);
+                    let _ = entry.insert(character);
                     Answer::Pending
                 },
                 key => {
@@ -129,7 +129,7 @@ impl Prompt {
             return;
         };
         for character in text.chars() {
-            entry.insert(character);
+            let _ = entry.insert(character);
         }
     }
 
@@ -235,17 +235,18 @@ impl Entry {
     /// Applies a motion or a deletion named by a key.
     ///
     /// Keys this does not name leave the field alone; the prompt has already
-    /// consumed them.
+    /// consumed them. The overlays call the named operations directly because
+    /// they need to know whether the text changed; the prompt does not.
     fn edit(&mut self, key: KeyCode) {
-        match key {
+        let _ = match key {
             KeyCode::Backspace => self.backspace(),
             KeyCode::Delete => self.delete(),
             KeyCode::Left => self.move_left(),
             KeyCode::Right => self.move_right(),
-            KeyCode::Home => self.caret = 0,
-            KeyCode::End => self.caret = self.text.len(),
-            _ => {},
-        }
+            KeyCode::Home => self.move_home(),
+            KeyCode::End => self.move_end(),
+            _ => false,
+        };
     }
 
     /// Inserts a character at the caret, which then sits after it.
@@ -253,9 +254,11 @@ impl Entry {
     /// Control characters are refused: nothing in the face can paint one, and
     /// a newline in a file name would be a character the user could see no
     /// trace of while it silently changed which file was written.
-    fn insert(&mut self, character: char) {
+    ///
+    /// Returns whether anything was inserted.
+    pub(crate) fn insert(&mut self, character: char) -> bool {
         if character.is_control() {
-            return;
+            return false;
         }
         // The caret is on a cluster boundary by construction. Recovering
         // rather than trusting it is what keeps a mistake anywhere else in
@@ -265,37 +268,60 @@ impl Entry {
         }
         self.text.insert(self.caret, character);
         self.caret += character.len_utf8();
+        true
     }
 
     /// Removes the whole grapheme cluster before the caret.
-    fn backspace(&mut self) {
+    ///
+    /// Returns whether anything was removed.
+    pub(crate) fn backspace(&mut self) -> bool {
         let Some(range) = self.cluster_before() else {
-            return;
+            return false;
         };
         self.caret = range.start;
-        self.remove(range);
+        self.remove(range)
     }
 
     /// Removes the whole grapheme cluster at the caret, leaving it in place.
-    fn delete(&mut self) {
+    ///
+    /// Returns whether anything was removed.
+    pub(crate) fn delete(&mut self) -> bool {
         let Some(range) = self.cluster_at() else {
-            return;
+            return false;
         };
-        self.remove(range);
+        self.remove(range)
     }
 
-    /// Moves the caret one cluster left.
-    fn move_left(&mut self) {
-        if let Some(range) = self.cluster_before() {
-            self.caret = range.start;
-        }
+    /// Moves the caret one cluster left. Returns whether it moved.
+    pub(crate) fn move_left(&mut self) -> bool {
+        let Some(range) = self.cluster_before() else {
+            return false;
+        };
+        self.caret = range.start;
+        true
     }
 
-    /// Moves the caret one cluster right.
-    fn move_right(&mut self) {
-        if let Some(range) = self.cluster_at() {
-            self.caret = range.end;
-        }
+    /// Moves the caret one cluster right. Returns whether it moved.
+    pub(crate) fn move_right(&mut self) -> bool {
+        let Some(range) = self.cluster_at() else {
+            return false;
+        };
+        self.caret = range.end;
+        true
+    }
+
+    /// Moves the caret to the start. Returns whether it moved.
+    pub(crate) const fn move_home(&mut self) -> bool {
+        let moved = self.caret != 0;
+        self.caret = 0;
+        moved
+    }
+
+    /// Moves the caret past the last cluster. Returns whether it moved.
+    pub(crate) fn move_end(&mut self) -> bool {
+        let moved = self.caret != self.text.len();
+        self.caret = self.text.len();
+        moved
     }
 
     /// The caret's column, counted in `char`s from the field's start.
@@ -329,15 +355,16 @@ impl Entry {
     ///
     /// Every range this module produces comes from a cluster and is valid.
     /// The check is here because `String::drain` panics on one that is not.
-    fn remove(&mut self, range: Range<usize>) {
+    fn remove(&mut self, range: Range<usize>) -> bool {
         if range.start >= range.end
             || range.end > self.text.len()
             || !self.text.is_char_boundary(range.start)
             || !self.text.is_char_boundary(range.end)
         {
-            return;
+            return false;
         }
         self.text.drain(range);
+        true
     }
 }
 

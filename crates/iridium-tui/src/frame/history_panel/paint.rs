@@ -9,15 +9,16 @@
 //!     ╰──────────────────────────────────────────╯
 //! ```
 //!
-//! The box is [`FloatingBox`], shared with the palette. Rows come from
-//! [`linearize`](super::linearize): root at the top, time downward, forks
-//! indenting their children. `*` is where the document is now; bright rows
-//! are the active undo/redo path; dim rows are parked branches; ages sit
+//! The box is [`FloatingBox`], shared with the palette. Rows come from the
+//! kernel's [`linearize`]: root at the top, time downward, forks indenting
+//! their children. `*` is where the document is now; bright rows are the
+//! active undo/redo path; dim rows are parked branches; ages sit
 //! right-aligned.
 
 use iridium_editor::Editor;
+use iridium_editor::history::tree_view::{TreeViewRow, linearize};
 
-use super::{HistoryPanel, TreeRow, linearize};
+use super::HistoryPanel;
 use crate::cell::CellBuffer;
 use crate::frame::line::LineLayout;
 use crate::frame::palette::Palette;
@@ -50,16 +51,17 @@ pub(super) fn paint(
     let snapshot = editor.history_snapshot();
     let tree = linearize(&snapshot);
     let visible = tree.len().clamp(1, MAX_VISIBLE_ROWS).min(rows - TOP - 3);
-    panel.follow_selection(&tree, visible.min(tree.len()));
-    let selected_row = panel.selected_row(&tree);
+    panel.selection.follow(&tree, visible.min(tree.len()));
+    let selected_row = panel.selection.selected_row(&tree);
+    let scroll = panel.selection.scroll();
 
     let base = styles.overlay();
     panel_box.top_border(buffer, TOP, base);
     for index in 0..visible {
         let row = TOP + 1 + index;
         panel_box.blank_row(buffer, row, base);
-        if let Some(entry) = tree.get(panel.scroll + index) {
-            let selected = selected_row == Some(panel.scroll + index);
+        if let Some(entry) = tree.get(scroll + index) {
+            let selected = selected_row == Some(scroll + index);
             tree_row(buffer, row, content, entry, selected, styles);
         }
     }
@@ -71,7 +73,7 @@ fn tree_row(
     buffer: &mut CellBuffer,
     row: usize,
     content: TextArea,
-    entry: &TreeRow<'_>,
+    entry: &TreeViewRow<'_>,
     selected: bool,
     styles: &Palette,
 ) {

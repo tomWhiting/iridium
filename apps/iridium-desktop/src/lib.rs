@@ -63,10 +63,19 @@
 //!   `Info.plist`, the "77" icon (`bundle/icon.html`, regenerable via
 //!   `bundle/make-icon.sh`), ad-hoc codesign — with no bundling dependency.
 //!
+//! # What step 3 delivers
+//!
+//! - **Keydown-to-present latency measurement** ([`latency`]): with
+//!   `IRIDIUM_LATENCY` set, every dispatched keystroke is timed from its
+//!   winit event's receipt to the end of the frame that presents its
+//!   effect, logged per sample and summarized (count, min, p50, p95, max)
+//!   on clean shutdown. Off — the normal case — it costs one branch per
+//!   event. The frame-time half of step 3 is the kernel's `compose_frame`
+//!   criterion bench, which drives `FrameCompositor::compose` headlessly on
+//!   a 10k-line document; the numbers land in `docs/DESKTOP-SHELL-PLAN.md`.
+//!
 //! # What still is not here
 //!
-//! Step 3 of the plan — keydown-to-present latency instrumentation and the
-//! frame-time bench, the numbers that justify the whole track — is next.
 //! Document-wide search-match marking waits on the compositor growing a
 //! highlight pass for it, and IME composition is not wired.
 
@@ -76,6 +85,7 @@ pub mod commands;
 pub mod highlight;
 pub mod history_overlay;
 pub mod keys;
+pub mod latency;
 mod line;
 pub mod mouse;
 pub mod overlay;

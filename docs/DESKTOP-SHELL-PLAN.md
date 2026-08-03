@@ -92,6 +92,49 @@ plus a frame-time criterion bench on a 10k-line file. The numbers go in this
 doc when they exist. If the shell cannot beat the webview meaningfully, that
 is a finding worth having before more is built on it.
 
+**MEASURED — 3 Aug 2026, M-series macOS, Metal, release profile, every
+figure from the controlling seat's own hand.**
+
+Instrumentation: `IRIDIUM_LATENCY=1 iridium-desktop <file>` logs every
+keydown→present sample to stderr and a min/p50/p95/max summary on clean
+exit (`apps/iridium-desktop/src/latency.rs` documents the exact policy —
+clock starts at winit event receipt before translation, stops after queue
+submit + surface present; earliest unpresented keydown wins a shared
+frame). Bench: `cargo bench -p iridium-editor --bench compose_frame` —
+headless by construction (no surface, offscreen Bgra8Unorm 1512×982),
+built-in fallback highlighting, each iteration waits for GPU completion.
+
+Live keydown→present (injected keystrokes, real window, release binary):
+
+| Document | Samples | min | p50 | p95 | max |
+|---|---|---|---|---|---|
+| Small file (near-empty viewport) | 6 | 1.16ms | ~2.7ms | — | 7.75ms |
+| 10k-line file (full dense viewport) | 43 | 40.36ms | 41.17ms | 42.21ms | 44.54ms |
+
+Headless compose bench, 10k-line file (criterion means [low, high]):
+steady_state **35.2ms** [33.6, 36.9]; after_mid_file_edit **34.4ms**
+[33.0, 35.9]; after_scroll_change **30.9ms** [30.0, 31.7].
+
+**The verdict, honestly:** the shell meets the sub-8ms budget only while
+the viewport is sparse. A full screen of dense code costs ~41ms
+keydown→present — ~5× over budget, ~24fps — and the bench places
+~35ms of that inside `FrameCompositor::compose` on the CPU. Diagnosis
+(reproduced, not assumed): the cost is per-*viewport*, not per-document —
+a 100-line file with a full viewport benches the same ~31ms; skipping the
+GPU wait changes nothing; disabling the keyword highlighter changes
+nothing. The compose path rebuilds and reshapes the entire visible
+cosmic-text buffer every frame (`create_buffer` → `set_rich_text` →
+`shape_until_scroll`, `Family::Monospace` resolved against a native
+fontdb holding every system font). The optimization target is therefore
+**retained shaping** — cache the shaped buffer across frames and reshape
+only what changed (edit, scroll, resize, font) — a kernel compositor
+change, now first on the follow-up ledger. The instrumentation and bench
+stay in the tree so the fix is measured against these same numbers. Note
+the webview comparison that motivated the track is unaffected as an
+*architecture* argument (its compositor hop adds latency on top of
+whatever the frame costs), but the honest finding is that today the frame
+itself is the bottleneck, and it is ours to fix.
+
 ## What v1 deliberately does not contain
 
 Mouse (scope choice, see above), soft wrap (blocked on the recorded design),

@@ -84,6 +84,14 @@ required-features = ["syntax"]
 name = "editing"
 harness = false
 
+# The compose-path frame time on a 10k-line document, driven headlessly onto
+# an offscreen texture — no surface, no window. Without `render` there is no
+# compositor to time, so the feature is required rather than optional.
+[[bench]]
+name = "compose_frame"
+harness = false
+required-features = ["render"]
+
 [[bench]]
 name = "rendering"
 harness = false

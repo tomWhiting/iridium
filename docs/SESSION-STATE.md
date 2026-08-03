@@ -39,11 +39,27 @@ family hardcoded to Family::Monospace, kernel viewport must be synced by
 the face for page motion, no blink-deadline accessor for event-driven
 caret blink.
 
-**NEXT SLICES (step 2 continues, own lanes per window):** mouse via
-compositor `pixel_to_position` (v1 per ruling), arboard clipboard, host
-layer port (save/prompts/messages), GPU-painted overlays (prompts, search,
-palette, undo-tree — ALL in v1), .app bundle ("iridium", icon 77). Then
+**Step 2 slice 2 LANDED — 6e7b646, smoke-verified (empty stderr: the
+no-save warning is gone because save is real).** Mouse drives the kernel's
+MouseHandler via a synthesized-grid seam (compositor resolves the honest
+cell, handler gets its center on the idealized grid; round-trip test pins
+it — kernel `handle_resolved(position)` entry would delete the seam, noted
+as friction). arboard = real macOS pasteboard; cut deletes only after the
+pasteboard holds the text. `crates/iridium-file` NEW: TextFile atomic save
+extracted verbatim, both faces consume it, TUI diff = dep swap + re-export
+(122 tests unchanged). ⌘ chords bound in a desktop keymap layer; dirty
+title; stale-save refusal; save-as/quit-confirm/notices via a one-line
+GPU-painted strip — `overlay.rs` documents the second-pass LoadOp::Load
+pattern slice 3 reuses. 1680/0 workspace tests from this seat.
+
+**NEXT SLICES:** (3) the three remaining overlays — search, palette,
+undo-tree panel — reusing overlay.rs's pattern and the kernel data the TUI
+face already proved (search_text, history_snapshot, key hints); (4) .app
+bundle ("iridium", icon 77) + tree-sitter highlight seam wiring; then
 step 3: latency instrumentation + bench, numbers into the plan doc.
+Friction ledger for kernel follow-ups: MouseHandler resolved-position
+entry, units.rs privacy, Family::Monospace hardcode, blink deadline
+accessor, Editor::theme() getter.
 
 ## ✅ UNDO-TREE PANEL LANDED 3 Aug ~15:25 local — commits 9d13c59 + 3118f2a, binary swapped
 

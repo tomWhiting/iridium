@@ -46,17 +46,34 @@
 //!   specification. `Ctrl+F`/`⌘F` searches, `Ctrl+K`/`⌘K`/`Ctrl+P` opens
 //!   the palette, `Ctrl+Alt+H`/`⌘⌥H` toggles the undo tree.
 //!
+//! # What slice 4 delivers
+//!
+//! - **Real tree-sitter highlighting**, through the compositor's
+//!   [`HighlightSource`](iridium_editor::render::HighlightSource) seam: the
+//!   kernel's own parse tree — the one it already keeps current after every
+//!   mutation — is read into an indexed span set once per parse generation
+//!   and resolved into coloured text runs each frame ([`highlight`]
+//!   documents the cache and its revision gate). This is the terminal face's
+//!   highlight machinery (`iridium-tui`'s frame cache) driving a GPU frame:
+//!   the same `Highlighter`, the same `SpanIndex`, the kernel's own
+//!   `highlight_to_color` mapping, so the two native faces cannot drift.
+//!   Nothing parses on the frame path.
+//! - **The `.app` bundle**: `bundle/bundle.sh` builds the release binary and
+//!   assembles `target/release/bundle/iridium.app` — hand-written
+//!   `Info.plist`, the "77" icon (`bundle/icon.html`, regenerable via
+//!   `bundle/make-icon.sh`), ad-hoc codesign — with no bundling dependency.
+//!
 //! # What still is not here
 //!
-//! Tree-sitter highlighting runs the compositor's built-in fallback (the
-//! face does not feed the highlight seam yet), document-wide search-match
-//! marking waits on the compositor growing a highlight pass for it, IME
-//! composition is not wired, and there is no `.app` bundle — the binary runs
-//! from the command line.
+//! Step 3 of the plan — keydown-to-present latency instrumentation and the
+//! frame-time bench, the numbers that justify the whole track — is next.
+//! Document-wide search-match marking waits on the compositor growing a
+//! highlight pass for it, and IME composition is not wired.
 
 pub mod app;
 pub mod command_palette;
 pub mod commands;
+pub mod highlight;
 pub mod history_overlay;
 pub mod keys;
 mod line;

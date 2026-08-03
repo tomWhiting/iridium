@@ -39,8 +39,9 @@
 //! - **The painted overlays, the full set of Tom's D-C ruling**: the prompt
 //!   strip ([`prompt`]), the search and replace panel ([`search`]), the
 //!   command palette ([`command_palette`]) and the undo-tree panel
-//!   ([`history_overlay`]) — all drawn by the kernel's own `QuadRenderer`
-//!   and `TextRenderer` in a second `LoadOp::Load` render pass ([`overlay`]
+//!   ([`history_overlay`]) — all drawn by the kernel's own
+//!   `RoundedQuadRenderer` and `TextRenderer` in a second `LoadOp::Load`
+//!   render pass ([`overlay`]
 //!   documents the pass structure), all keeping the terminal face's
 //!   semantics exactly, with the terminal's test suites as the
 //!   specification. `Ctrl+F`/`⌘F` searches, `Ctrl+K`/`⌘K`/`Ctrl+P` opens

@@ -32,6 +32,8 @@ mod pipeline;
 #[cfg(feature = "render")]
 mod quad;
 #[cfg(feature = "render")]
+mod rounded;
+#[cfg(feature = "render")]
 mod text;
 
 #[cfg(all(feature = "render", feature = "web"))]
@@ -64,6 +66,8 @@ pub use pipeline::{
 };
 #[cfg(feature = "render")]
 pub use quad::{Quad, QuadRenderer};
+#[cfg(feature = "render")]
+pub use rounded::{RoundedQuad, RoundedQuadRenderer};
 #[cfg(feature = "render")]
 pub use text::{TextRenderConfig, TextRenderer};
 

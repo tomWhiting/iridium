@@ -193,6 +193,7 @@ impl Shell {
         )
         .map_err(|error| format!("cannot create the overlay painter: {error}"))?;
         overlay.set_font(font_size, FONT.to_vec());
+        overlay.set_scale(scale_to_f32(window.scale_factor()));
 
         Ok(Self {
             window,
@@ -1036,6 +1037,7 @@ impl DesktopApp {
             shell.compositor.set_font_size(font_size);
             shell.compositor.load_font(FONT.to_vec());
             shell.overlay.set_font(font_size, FONT.to_vec());
+            shell.overlay.set_scale(scale_to_f32(scale_factor));
         }
         self.sync_kernel_viewport();
         if let Some(shell) = &self.shell {

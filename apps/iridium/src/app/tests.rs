@@ -605,3 +605,70 @@ fn focus_events_change_nothing_in_the_document() {
     assert_eq!(app.handle_input(&TerminalInput::FocusGained), Flow::Running);
     assert_eq!(app.editor().content(), "abc");
 }
+
+#[test]
+fn the_palette_is_modal_and_escape_gives_the_document_back() {
+    let mut app = unnamed();
+    assert_eq!(app.handle_input(&ctrl('k')), Flow::Running);
+    assert!(app.is_palette_open());
+
+    // Typing while the palette is open aims at the query, not the document.
+    type_text(&mut app, "x");
+    assert_eq!(app.editor().content(), "");
+
+    assert_eq!(app.handle_input(&press(KeyCode::Escape)), Flow::Running);
+    assert!(!app.is_palette_open());
+    type_text(&mut app, "x");
+    assert_eq!(app.editor().content(), "x");
+}
+
+#[test]
+fn a_kernel_command_runs_from_the_palette() {
+    let mut app = unnamed();
+    type_text(&mut app, "abc");
+    assert_eq!(app.handle_input(&ctrl('k')), Flow::Running);
+    type_text(&mut app, "select all");
+    assert_eq!(app.handle_input(&press(KeyCode::Enter)), Flow::Running);
+    assert!(
+        !app.is_palette_open(),
+        "running a command closes the palette"
+    );
+    let selection = &app.editor().state().cursor.primary;
+    assert!(
+        !selection.is_collapsed(),
+        "Select All ran against the document"
+    );
+    assert!(
+        app.message().is_none(),
+        "a command that ran reports nothing: {:?}",
+        app.message()
+    );
+}
+
+#[test]
+fn a_face_command_runs_from_the_palette() {
+    // `Quit` is this face's own host command; resolving it through the
+    // palette must reach the same dispatch the keypress does.
+    let mut app = unnamed();
+    assert_eq!(app.handle_input(&ctrl('k')), Flow::Running);
+    type_text(&mut app, "quit");
+    assert_eq!(
+        app.handle_input(&press(KeyCode::Enter)),
+        Flow::Exit,
+        "Quit from the palette must leave, exactly as Ctrl+Q does"
+    );
+}
+
+#[test]
+fn the_palette_key_opens_a_palette_rather_than_reporting_a_dead_key() {
+    // `Ctrl+K` is the kernel's default binding for `palette.open`. A face
+    // that answers it with "nothing runs it" has 41 palette-only commands
+    // unreachable, which is the single biggest gap the walkthrough names.
+    let mut app = unnamed();
+    assert_eq!(app.handle_input(&ctrl('k')), Flow::Running);
+    assert!(
+        app.message().is_none(),
+        "the palette key must open the palette, not report an unrun command: {:?}",
+        app.message()
+    );
+}

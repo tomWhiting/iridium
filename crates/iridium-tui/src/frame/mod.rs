@@ -39,6 +39,8 @@
 //! backgrounds move at each step, so a match never repaints the syntax colour
 //! of the code it was found in.
 
+mod command_palette;
+mod field;
 mod geometry;
 mod gutter;
 mod highlight;
@@ -61,6 +63,7 @@ use self::search::{MatchHighlights, MatchedLine};
 use self::units::whole_cells;
 use crate::cell::{CellBuffer, Color, Style};
 
+pub use self::command_palette::{CommandPalette, PaletteOutcome};
 pub use self::geometry::{CellPosition, Chrome, FrameLayout};
 pub use self::line::{LineLayout, PlacedCluster};
 pub use self::palette::Palette;

@@ -62,9 +62,13 @@ mod view;
 #[cfg(test)]
 mod tests;
 
-use iridium_editor::input::SearchAction;
-use iridium_editor::{ClipboardOperation, CommandId, Editor, EditorKeyResult, KeyEvent};
-use iridium_tui::frame::{Frame, SearchOutcome, SearchOverlay};
+use iridium_editor::commands::builtin::PALETTE_OPEN;
+use iridium_editor::commands::palette::CommandMru;
+use iridium_editor::input::{CommandRunError, SearchAction};
+use iridium_editor::{
+    ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyEvent,
+};
+use iridium_tui::frame::{CommandPalette, Frame, PaletteOutcome, SearchOutcome, SearchOverlay};
 use iridium_tui::input::TerminalInput;
 
 pub use self::document::StartupError;
@@ -95,6 +99,16 @@ pub struct App {
     search: SearchOverlay,
     /// Whether the search panel is on screen.
     search_open: bool,
+    /// The command palette panel.
+    palette: CommandPalette,
+    /// Whether the palette is on screen. While it is, it is modal: every key
+    /// goes to it, exactly as with a prompt.
+    palette_open: bool,
+    /// Which commands ran recently, feeding the palette's recency ranking.
+    ///
+    /// Recorded only after a command actually ran — an entry for a command
+    /// that errored would rank a failure as a favourite.
+    mru: CommandMru,
     /// The question on the prompt line, if one is open.
     prompt: Option<Prompt>,
     /// What the last key had to say, shown until the next one.
@@ -161,6 +175,9 @@ impl App {
             file,
             search: SearchOverlay::new(),
             search_open: false,
+            palette: CommandPalette::new(),
+            palette_open: false,
+            mru: CommandMru::default(),
             prompt: None,
             message: None,
             clipboard: String::new(),
@@ -217,6 +234,12 @@ impl App {
         self.search_open
     }
 
+    /// Whether the command palette is on screen.
+    #[must_use]
+    pub const fn is_palette_open(&self) -> bool {
+        self.palette_open
+    }
+
     /// Handles one thing the user did.
     pub fn handle_input(&mut self, input: &TerminalInput) -> Flow {
         match input {
@@ -265,6 +288,10 @@ impl App {
             return self.answer_prompt(event);
         }
 
+        if self.palette_open {
+            return self.drive_palette(event);
+        }
+
         if self.search_open {
             match self.search.handle_key(event, &mut self.editor) {
                 // The panel leaves what it does not bind to the host, so a save
@@ -310,14 +337,26 @@ impl App {
         }
     }
 
-    /// Runs one of the commands this face contributes.
+    /// Runs one of the commands this face contributes, from a keypress.
     ///
     /// The kernel reports a command it does not implement rather than dropping
     /// the keypress, so an id that arrives here and is not one of ours came
     /// from a keymap layer someone else pushed. Saying so is the only honest
     /// answer: the key was consumed, and silence would look like a dead key.
     fn run_host_command(&mut self, command: &CommandId) -> Flow {
-        if command == &commands::FILE_SAVE {
+        self.dispatch_host_command(command).unwrap_or_else(|| {
+            self.message = Some(Message::error(format!(
+                "`{command}` is bound to a key but nothing runs it"
+            )));
+            Flow::Running
+        })
+    }
+
+    /// Dispatches a host command this face implements, or `None` for one it
+    /// does not — the caller knows whether it arrived by key or by palette,
+    /// and the honest message differs.
+    fn dispatch_host_command(&mut self, command: &CommandId) -> Option<Flow> {
+        let flow = if command == &commands::FILE_SAVE {
             self.save(false)
         } else if command == &commands::FILE_SAVE_FORCE {
             self.save(true)
@@ -338,11 +377,57 @@ impl App {
             self.editor.unfold_all();
             self.ensure_caret_visible();
             Flow::Running
-        } else {
-            self.message = Some(Message::error(format!(
-                "`{command}` is bound to a key but nothing runs it"
-            )));
+        } else if command == &PALETTE_OPEN {
+            self.palette_open = true;
+            self.palette.open();
             Flow::Running
+        } else {
+            return None;
+        };
+        Some(flow)
+    }
+
+    /// Hands a key to the open palette and acts on the outcome.
+    fn drive_palette(&mut self, event: &KeyEvent) -> Flow {
+        match self.palette.handle_key(event, &self.editor, &self.mru) {
+            PaletteOutcome::Handled => Flow::Running,
+            PaletteOutcome::Closed => {
+                self.palette_open = false;
+                Flow::Running
+            },
+            PaletteOutcome::Run(command) => {
+                self.palette_open = false;
+                self.run_palette_command(&command)
+            },
+        }
+    }
+
+    /// Runs a command the palette resolved: the kernel's own if it implements
+    /// it, this face's if not, and an honest message when neither does.
+    ///
+    /// The recency list records only commands that actually dispatched, so a
+    /// palette entry nothing runs cannot become a ranked favourite. Read-only
+    /// refusals are not failures here: the kernel consumes them the same way a
+    /// keypress does, silently leaving the document alone.
+    fn run_palette_command(&mut self, command: &CommandId) -> Flow {
+        match self.editor.run_command(command.as_str(), CommandArgs::NONE) {
+            Ok(result) => {
+                self.mru.record(command);
+                let flow = self.consume(result);
+                self.ensure_caret_visible();
+                flow
+            },
+            Err(CommandRunError::Unimplemented { .. }) => {
+                if let Some(flow) = self.dispatch_host_command(command) {
+                    self.mru.record(command);
+                    self.ensure_caret_visible();
+                    return flow;
+                }
+                self.message = Some(Message::error(format!(
+                    "`{command}` is not available in the terminal yet"
+                )));
+                Flow::Running
+            },
         }
     }
 
@@ -397,6 +482,12 @@ impl App {
     fn paste(&mut self, text: &str) {
         if let Some(prompt) = self.prompt.as_mut() {
             prompt.paste(text);
+            return;
+        }
+        if self.palette_open {
+            // The palette is modal: a paste belongs to its query, not to the
+            // document underneath it.
+            self.palette.paste(text);
             return;
         }
         self.editor.paste(text);

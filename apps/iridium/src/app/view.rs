@@ -60,6 +60,19 @@ impl App {
             }
         }
 
+        if self.palette_open {
+            // The palette floats over everything, prompt line included, and is
+            // modal — so its query field owns the caret while it is open.
+            let styles = Palette::from_theme(self.editor.get_theme());
+            cursor = self
+                .palette
+                .paint(surface.back_mut(), &self.editor, &self.mru, &styles)
+                .map_or(CursorState::Hidden, |cell| CursorState::At {
+                    row: cell.row,
+                    column: cell.column,
+                });
+        }
+
         cursor
     }
 

@@ -77,7 +77,6 @@
 //! Anything else is [`SearchOutcome::Ignored`] and stays the host's to handle,
 //! so a binding such as save is not dead while the panel is open.
 
-mod field;
 mod matches;
 mod paint;
 
@@ -87,8 +86,8 @@ mod tests;
 use iridium_editor::search::SearchOptions;
 use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers};
 
-use self::field::Field;
 use super::CellPosition;
+use super::field::Field;
 use super::palette::Palette;
 use crate::cell::CellBuffer;
 

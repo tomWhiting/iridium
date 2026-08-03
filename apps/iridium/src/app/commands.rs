@@ -48,9 +48,10 @@
 //! `Ctrl+Alt+D` is the reason this module binds a command it does not
 //! implement. [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`] is implemented by the
 //! kernel and deliberately left unbound by the default keymap, reachable
-//! "through the palette" — and this face has no palette. Leaving it there would
-//! make a kernel verb unreachable in this face, so it is bound next to
-//! `Ctrl+D`, which is the verb it modifies.
+//! through the palette. This face bound it before it had a palette, and the
+//! binding stays now that it does: skipping an occurrence happens mid-flow,
+//! between two presses of `Ctrl+D`, and a palette round trip there would lose
+//! the very selection being skipped.
 
 use iridium_editor::commands::builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE;
 use iridium_editor::{
@@ -259,9 +260,10 @@ mod tests {
 
     #[test]
     fn every_command_except_the_borrowed_kernel_verb_is_bound() {
-        // An unbound command in a face with no palette is unreachable, which
-        // is precisely the hole this face had to fill for the kernel's skip
-        // verb. It must not open the same hole for its own commands.
+        // Every verb this face contributes is core enough to deserve a key:
+        // save, quit, reload, go-to-line and the folds are pressed dozens of
+        // times an hour, and "reachable through the palette" is the right
+        // answer for the long tail, not for these.
         let bound: BTreeSet<&str> = BINDINGS
             .iter()
             .map(|(_, command)| command.as_str())
@@ -269,7 +271,7 @@ mod tests {
         for meta in COMMANDS {
             assert!(
                 bound.contains(meta.id().as_str()),
-                "{} has no key and this face has no palette",
+                "{} has no key, and this face's own verbs all deserve one",
                 meta.id()
             );
         }
@@ -283,7 +285,7 @@ mod tests {
             .collect();
         assert!(
             bound.contains(MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str()),
-            "the skip-occurrence verb is unreachable in a face with no palette"
+            "the skip-occurrence verb runs mid-flow and must keep its key"
         );
         assert!(
             Editor::implements_command(MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str()),

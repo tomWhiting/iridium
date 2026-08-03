@@ -32,10 +32,10 @@
 use iridium_editor::Editor;
 use iridium_editor::search::SearchOptions;
 
-use super::field::scroll_for;
 use super::{Feedback, Focus, SearchOverlay};
 use crate::cell::{CellBuffer, Style};
 use crate::frame::CellPosition;
+use crate::frame::field::scroll_for;
 use crate::frame::line::LineLayout;
 use crate::frame::palette::Palette;
 use crate::frame::text::{self, TextArea};

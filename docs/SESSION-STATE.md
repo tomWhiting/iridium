@@ -58,6 +58,36 @@ against ruling 6's scope — slot design inside, or it goes back. Gate wiring
 is her board's item under her standing veto, first frame-side work she
 sequences when budget and Tom's word allow.
 
+**Terminal-host exchange, 3 Aug ~03:55Z (Tom-prompted, via Waffles):** the
+frame arc's "second host" question. Owner facts delivered with receipts:
+iridium's terminal face is real and daily-driven (`crates/iridium-tui` 10,701
+lines + `apps/iridium`; installed binary at `~/.local/bin/iridium`, built at
+`60eae56`; termina/terminput stack; draw→present→block loop), it draws its own
+whole-screen surface and has ZERO contact with `frame:fragments@v1` (grep
+receipt). Load-bearing layering fact: `cell/` and `driver/` import no kernel —
+editor-agnostic substrate (cell grid, damage diff, capabilities, lifecycle,
+byte emission, all pure-function tested); only `frame/` (painter) and `input/`
+are editor-specific. And fragments-protocol.ts is renderer-neutral BY DESIGN
+("pure codec, no DOM", RFC 8785 payloads, Rust codec already named as design
+§6 L5) — no contract surgery needed. Honest distance = (1) the L5 Rust codec,
+(2) a region/clip layer over the whole-screen `Surface`, (3) terminal-native
+fragment renderers (state→cells; grunk's HTMLElements cannot cross), plus the
+ONE open design fork: multi-component input routing/focus on a grid — to be
+designed against the instance-token scope model, both seats at the table
+(Waffles recorded it so). First-slice proposal (Rust codec vs golden vectors
++ one fragment kind in a bordered region) went to Tom as Waffles's
+recommendation. No build starts without Tom's window.
+
+**Cally Ray census, 3 Aug ~03:53Z:** stack-lead completion census answered in
+her three buckets with receipts (terminal face runnable receipt, page motion
+`60eae56` + gate battery, ten rulings on the manifold record, Vite-ban
+retirement; in-flight = nothing building, two gated lanes; discussed-only =
+terminal host, Vim keymap, four blocked-on-Tom decisions, two kernel bugs).
+Self-declared CLAIMED-NOT-VERIFIED: no-flicker-under-fast-scroll (never
+verified on a real terminal), and installed-binary provenance (no
+rebuild-and-compare hash; offered as a 10-minute job on request, not run
+unasked — build lanes rationed).
+
 **Waffles's receipt of the D-series** (his 23:39Z message + manifold commit
 `5bc6f43`, `docs/briefs/GRUNK-CONVERSION-rulings.md`): D1–D7 rulings are on
 the record verbatim alongside Athena's sequence and gate condition. Two are

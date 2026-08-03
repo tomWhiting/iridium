@@ -32,7 +32,7 @@ crates/
 - **Rust 1.85+** (edition 2024)
 - **wgpu 28.0** - GPU rendering
 - **glyphon 0.10** - Text rendering
-- **cosmic-text 0.16** - Text shaping
+- **cosmic-text 0.15** (via glyphon's re-export; no direct dependency) - Text shaping
 - **ropey 2.0** - Rope data structure (uses `LineType::LF_CR` for line operations)
 - **tree-sitter 0.26** - Syntax parsing
 - **napi-rs 3.x** - TypeScript/Node bindings

@@ -15,7 +15,6 @@ workspace = true
 # GPU rendering (optional: enabled by the `render` feature)
 wgpu = { workspace = true, optional = true }
 glyphon = { workspace = true, optional = true }
-cosmic-text = { workspace = true, optional = true }
 
 # Text buffer
 ropey.workspace = true
@@ -56,7 +55,7 @@ syntax = ["iridium-syntax"]
 # GPU rendering back end. Without it the editing kernel (document, history, input,
 # search, theme, view and the pure layout half of `render`) compiles with no GPU
 # crate anywhere in its dependency graph.
-render = ["dep:wgpu", "dep:glyphon", "dep:cosmic-text", "dep:pollster", "dep:bytemuck"]
+render = ["dep:wgpu", "dep:glyphon", "dep:pollster", "dep:bytemuck"]
 # Browser surface. Implies `render`, because every item the feature exposes
 # (`render::web`, `WebSurface`) is gated on `all(feature = "render", feature =
 # "web")` — selecting `web` alone would enable four dependencies and no API.

@@ -86,16 +86,25 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
-**▶ STEP 3 IN FLIGHT (last step of the track): latency instrumentation +
-bench.** Keydown→present timestamps behind a debug flag in
-iridium-desktop, criterion frame-time bench on a 10k-line file (headless
-offscreen wgpu — no window from an agent's hand), numbers INTO
-docs/DESKTOP-SHELL-PLAN.md (the claim that justified the track: sub-8ms
-input, 120fps honest). LANE OPEN, Athena-granted: anchor **34,856,960
-KiB**, ceiling +3 GiB, expectation 0.5–1.5 (bench-profile of existing
-graph), band 31 GiB, sole occupant. Live-window latency run happens from
-THIS seat (smoke pattern, debug flag on); agents do not cargo run and do
-not commit.
+**✅ STEP 3 LANDED — THE TRACK IS COMPLETE, with a load-bearing finding.**
+Instrumentation: `IRIDIUM_LATENCY=1` arms keydown→present sampling
+(latency.rs, pure/clock-free, 10 tests; policy documented in module docs).
+Bench: `cargo bench -p iridium-editor --bench compose_frame` — headless
+(no surface, offscreen texture), 3 cases on a 10k-line file. Gates re-run
+from this seat: all five exit 0, **1763/0**, clippy inventory exactly
+baseline. Numbers in docs/DESKTOP-SHELL-PLAN.md step 3, all from this
+seat's hand. **THE FINDING: sub-8ms holds only on sparse viewports.**
+Live: small file 1.16–7.75ms; 10k-line full viewport n=43 p50 41.17ms
+p95 42.21ms (~5× over budget). Bench: compose alone ~31–35ms CPU,
+per-VIEWPORT not per-document (100-line full viewport ≈ same; GPU wait
+and highlighter ruled out). Cause: compose reshapes the whole visible
+cosmic-text buffer every frame against the full native fontdb.
+**Follow-up ledger, now FIRST: retained shaping in FrameCompositor**
+(cache shaped buffer across frames, reshape only on edit/scroll/resize/
+font change; measure the fix against these recorded numbers). Live-run
+method: osascript keystroke injection gated on a frontmost-process check,
+plain letters only — samples parsed from per-sample stderr lines
+(SIGTERM skips the summary; that's expected).
 
 Kernel follow-up ledger (not v1 blockers): MouseHandler resolved-position
 entry, units.rs privacy, Family::Monospace hardcode, blink deadline

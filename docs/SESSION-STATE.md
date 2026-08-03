@@ -86,8 +86,20 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
-**▶ POST-TRACK: RETAINED SHAPING LANDED 4 Aug (commits 4fc0950 + 5846f62,
-gates 1785/0 this seat), CHROME PASS NEXT.** Tom tried v1 (his session
+**✅ CHROME PASS LANDED — d88c48f, gates 1801/0 this seat, screenshots
+reviewed at this seat (palette/search/history: rounded SDF cards, web
+backdrop 0.45 behind palette+undo only, strip honest, gap bug gone by
+construction; minor feel-gate note: selected-row age text is
+low-contrast against the band).** WAITING ON TOM: he quits pid 38458 →
+bundle.sh rebuild → check-then-swap (separate commands, mv never cp) →
+his feel gate on chrome values (named constants atop overlay.rs with web
+citations) → live keydown→present measurement at that window (baseline
+p50 41.17ms; injection is BANNED while Tom is at the keyboard — measure
+in the swap window only). Stage 2b (scroll rotation) still deferred per
+R4. Lane open: chrome-pass, anchor 39,883,120, ceiling +2.0, sole.
+
+**▶ PRIOR: RETAINED SHAPING LANDED 4 Aug (commits 4fc0950 + 5846f62,
+gates 1785/0 this seat), chrome was next.** Tom tried v1 (his session
 pid 38458, bundle binary — NO SWAPS while it lives), verdict: keep
 native, but chrome must match the web demo ("make it look the same");
 glyph borders gap at code line-height (measured: font inks 1.32em cell,

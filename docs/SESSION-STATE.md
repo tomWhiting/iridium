@@ -86,6 +86,27 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
+**▶ POST-TRACK: RETAINED SHAPING LANDED 4 Aug (commits 4fc0950 + 5846f62,
+gates 1785/0 this seat), CHROME PASS NEXT.** Tom tried v1 (his session
+pid 38458, bundle binary — NO SWAPS while it lives), verdict: keep
+native, but chrome must match the web demo ("make it look the same");
+glyph borders gap at code line-height (measured: font inks 1.32em cell,
+renderer 1.4em — structural). Two maps committed with rulings:
+RETAINED-SHAPING-MAP.md (b628aae; R1–R7 ruled, 2b DEFERRED on measured
+numbers) and DESKTOP-CHROME-MAP.md (bbfbe1e; SDF rounded.rs sibling
+pipeline, web demo IS the spec, R5 adjusted to match-web-exactly, glyph
+borders deleted, strip transparent-bg bug in scope). Retained results
+(my hand, busy box): steady 35.2→3.68ms, edit 34.4→7.54ms — edit frame
+inside 8ms budget; details + honest caveats (env drift, headless
+glyph-culling defect found+fixed) in DESKTOP-SHELL-PLAN.md step 3. Live
+keydown→present re-measure DEFERRED to bundle refresh (injection lost
+the focus race to Tom's live session twice; second attempt's pid gate
+refused correctly; injected fox-text into Tom's window ONCE — owned to
+him immediately, he was told ⌘Z). One bundle rebuild carries shaping +
+chrome to Tom together. INCIDENT RULE BANKED: keystroke injection must
+target by unix id AND still loses to an active user — never inject while
+Tom is at the keyboard; measure at bundle-refresh windows instead.
+
 **✅ STEP 3 LANDED — THE TRACK IS COMPLETE, with a load-bearing finding.**
 Instrumentation: `IRIDIUM_LATENCY=1` arms keydown→present sampling
 (latency.rs, pure/clock-free, 10 tests; policy documented in module docs).

@@ -1,5 +1,74 @@
 # Session state — 2026-07-30
 
+## ⚠️ WORK IN FLIGHT AT COMPACTION 3 Aug ~04:15Z — TERMINAL PALETTE BUILD, LANE OPEN
+
+**Tom's direct green light** (his DM, ~04:07Z): build the terminal command
+palette UI. **He really likes ROUNDED corners, never sharp** — in cells that
+means `╭ ╮ ╰ ╯`, recorded in memory `tom-ui-preferences.md`. **BUILD LANE IS
+OPEN with Athena** (cert thread): anchor `du -sk target` = **26,638,472 KiB**,
+ceiling named **+4 GiB**, sole cargo lane, ~97.5 GiB free. Close with same
+instrument/hand and file the delta against the ceiling.
+
+**Design settled so far** (sources read this session):
+- Kernel side is COMPLETE, use as-is: `commands::palette::{search_text, Query,
+  PaletteEntry, CommandMru, MRU_CAPACITY}` (search over
+  `editor.commands()` registry incl. face-registered commands; empty query =
+  all by recency; total order via `compare_ranked`; `PaletteEntry.matches()` =
+  CHAR positions into `matched_text()`, `matched_field()` names which field
+  won). `Editor::run_command(id, CommandArgs)`, `Editor::implements_command`,
+  `Editor::key_hints()` → `KeyHintIndex::primary_hint(id)` →
+  `hint.label(KeyLabelStyle)`. Host cmd consts in
+  `commands/builtin/host.rs` (`palette.open` = "Show All Commands").
+- New TUI module: `crates/iridium-tui/src/frame/` — add a command-palette
+  panel module (NOTE: `frame/palette.rs` is TAKEN = theme cell styles named
+  `Palette` with fields incl. text/gutter/status/selection/caret/search_match/
+  overlay/overlay_error). Follow `frame/search/` shape: `search/field.rs` has
+  a `Field` (byte-offset caret on cluster boundaries, insert/backspace/delete/
+  move; pub(super) — either lift to pub(crate) or mirror it). Panel: floating
+  CENTERED box painted over the back buffer AFTER `frame.render` (like
+  `Prompt::paint` paints over status row in `apps/iridium/src/app/view.rs:49-61`),
+  rounded corners `╭─╮ │ ╰─╯`, input row + result rows (title + right-aligned
+  key hint + match highlighting via `search_match` style; non-title match
+  renders annotation), selection clamps (never wraps), scroll window keeps
+  selection visible.
+- App side (`apps/iridium/src/app/`): fields `palette: <Panel>`,
+  `palette_open: bool`, `mru: CommandMru`. `run_host_command` gains arm for
+  `palette.open` (currently falls to the error message at mod.rs:341-346).
+  `handle_key`: palette is MODAL like Prompt (mod.rs:264-266), takes every
+  key. Keys: type/edit query (Field), Up/Down + Ctrl+P/Ctrl+N move, PageUp/Dn
+  hop, Enter accept, Escape close. On accept: close, re-run `search_text`
+  (deterministic total order) to resolve selected entry, then
+  `implements_command(id)` ? `run_command` + `self.consume(result)` :
+  `run_host_command(&id)` — face commands (save/quit/fold…) are in the
+  registry so the palette lists and runs them too. `mru.record(id)` on
+  success. `ensure_caret_visible` after.
+- Read-only buffers: ast.* commands stay available (not `.mutating()`);
+  palette should surface mutating-command refusals via the kernel's own error
+  → message (kernel refuses in read-only; just surface `CommandRunError`).
+- Tests FIRST where behavioral (app-level: Ctrl+K opens palette — currently
+  errors; Enter runs command; Escape restores; clamping), prove red, then
+  build. Gate battery after: workspace tests, GPU-free, syntax, wasm32 check,
+  clippy (pedantic/nursery, zero new warnings, no #[allow]), fmt. End-to-end
+  pty proof (script harness: COLUMNS=120 LINES=40, sleep 0.9 before bytes,
+  Ctrl+K = \\013? NO — Ctrl+K byte is 0x0b; save=0x13 quit=0x11; PageDown
+  \\033[6~). Then ONE release build + binary swap for Tom (fresh pgrep at swap
+  time — cert decays; backup old binary to scratchpad first).
+- Files read pre-compaction: kernel palette mod/entry/mru APIs, editor
+  core.rs public surface (run_command at :583), app/mod.rs FULL (structure
+  above), app/view.rs FULL, search/field.rs (Field API). NOT yet read:
+  frame/search/mod.rs (SearchOverlay shape), search/paint.rs, cell/buffer.rs
+  (CellBuffer write API), frame/palette.rs field names, builtin/host.rs
+  consts, args.rs (CommandArgs constructor — likely `CommandArgs::default()`
+  or `::none()`). Read those before writing code.
+- Walkthrough doc `docs/TERMINAL-WALKTHROUGH.md` (829997d) documents the
+  palette gap — update its limits section when the palette lands, plus
+  FEEL-GATE-EVIDENCE if an artifact is produced. Update
+  DEFAULT_KEYMAP docs? No keymap change needed — Ctrl+K/Ctrl+P already bound
+  to palette.open.
+
+Everything else this session: rulings all delivered/banked (see sections
+below), census answered, terminal-host facts to Waffles answered.
+
 ## ✅ SEVEN RULINGS DELIVERED 2 Aug ~23:5xZ (3 Aug ~09:55 local) — the grunk primitive lane is unblocked
 
 Athena's seven pre-build rulings (asked via Waffles, message 56de2d2d) were

@@ -67,36 +67,35 @@ Friction added to ledger: compositor has no search-match highlight pass
 primary_hint for kernel-layer chords renders ⌃ not ⌘ (kernel's binding
 choice, correct).
 
-**Step 2 slice 4 LANDED — ecc9da0, gates green from this seat (1753/0).
-⚠️ DELIVERY TAIL IN FLIGHT AT COMPACTION 3 Aug ~21:2x local, LANE OPEN:**
-Slice 4 = native tree-sitter highlighting (HighlightCache port of the TUI's,
-parse-on-change via kernel SyntaxState, generation-gated span re-derive,
-interval-tree per-frame query, same highlight_to_color as TUI) + the .app
-bundle (apps/iridium-desktop/bundle/: bundle.sh → ONE release build →
-target/release/bundle/iridium.app, plutil-linted, ad-hoc signed+verified;
-77 icon icns checked in, regenerable from icon.html via cached chromium;
-CFBundleIdentifier io.ablative.iridium = taste default, flag to Tom).
-**v1 IS FEATURE-COMPLETE with this slice.**
+**Step 2 slice 4 LANDED AND CLOSED — ecc9da0, gates 1753/0, bundled-app
+smoke clean, lane certified.** Slice 4 = native tree-sitter highlighting
+(HighlightCache port of the TUI's, parse-on-change via kernel SyntaxState,
+generation-gated span re-derive, interval-tree per-frame query, same
+highlight_to_color as TUI) + the .app bundle (apps/iridium-desktop/bundle/:
+bundle.sh → ONE release build → target/release/bundle/iridium.app,
+plutil-linted, ad-hoc signed+verified; 77 icon icns checked in,
+regenerable from icon.html via cached chromium; CFBundleIdentifier
+io.ablative.iridium = taste default, flagged to Tom in the v1 report).
+**v1 IS FEATURE-COMPLETE with this slice.** Delivery tail all done 3 Aug
+~21:3x local: bundled-app smoke clean (alive 7s, killed exact pid, exit
+143, stderr EMPTY); lane closed with Athena VERIFIED — anchor 34,256,624 →
+close 34,856,960 KiB, draw 600,336 KiB ≈ 0.57 GiB of the 4.0 ceiling, her
+corroboration 76 KiB under (settle-noise class); calibration banked as
+"release-profile of existing graph: one point at 0.57 GiB, class range
+unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
+270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
+open instructions and the identifier flag.
 
-REMAINING TAIL (in order):
-1. Smoke the BUNDLED app: run
-   `target/release/bundle/iridium.app/Contents/MacOS/iridium-desktop
-   <file>` backgrounded 7s (pattern: alive check → kill exact pid → wait →
-   stderr must be EMPTY), same as prior smokes (scratchpad smoke2.txt).
-2. LANE CLOSE Athena (cert thread dm:45cf420e-621d-467b-b96c-5bffb62c04f3):
-   anchor **34,256,624 KiB**, ceiling +4 GiB, expectation stated 1.5–2.5
-   (first-release-profile-of-existing-graph class — her named class);
-   `du -sk target` same hand both figures; df same hand. Six clean closes
-   today before this one; she was dark 08:56–10:55Z once, resend on
-   boundary doubt.
-3. Report to Tom (dm:c9255b2a-5731-4d17-8124-e3bfa2224186): v1
-   feature-complete; how to open the .app; identifier overridable; what
-   remains is ONLY step 3.
-4. **STEP 3 (last step of the track): latency instrumentation + bench** —
-   keydown→present timestamps behind a debug flag in iridium-desktop,
-   criterion frame-time bench on a 10k-line file, numbers INTO
-   docs/DESKTOP-SHELL-PLAN.md (the claim that justified the track:
-   sub-8ms input, 120fps honest). New lane for it.
+**▶ STEP 3 IN FLIGHT (last step of the track): latency instrumentation +
+bench.** Keydown→present timestamps behind a debug flag in
+iridium-desktop, criterion frame-time bench on a 10k-line file (headless
+offscreen wgpu — no window from an agent's hand), numbers INTO
+docs/DESKTOP-SHELL-PLAN.md (the claim that justified the track: sub-8ms
+input, 120fps honest). LANE OPEN, Athena-granted: anchor **34,856,960
+KiB**, ceiling +3 GiB, expectation 0.5–1.5 (bench-profile of existing
+graph), band 31 GiB, sole occupant. Live-window latency run happens from
+THIS seat (smoke pattern, debug flag on); agents do not cargo run and do
+not commit.
 
 Kernel follow-up ledger (not v1 blockers): MouseHandler resolved-position
 entry, units.rs privacy, Family::Monospace hardcode, blink deadline

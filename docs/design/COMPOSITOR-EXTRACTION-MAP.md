@@ -57,10 +57,26 @@ none pixel-observable:
   `TextureView`); on the prepare-failure path an acquired frame drops
   un-presented. Error-path strings render through `IridiumError`.
 
-**Open: the pixel oracle (checklist 5) has not run.** No screenshot harness
-exists in-tree (`web-test/` is a build shim, `evidence/` holds logs). The
-built demo bundle still carries the pre-extraction wasm; the before/after
-visual comparison is the remaining certification for this step.
+**Pixel oracle: PASS (3 Aug, headless chromium, apple/metal-3 WebGPU).**
+Protocol: pre-extraction bundle served statically on 14571, two screenshots
+(noise floor: byte-identical PNGs, 0 pixels), then one wasm-pack + one
+`vite build` rebuild at HEAD, two more screenshots. Result: **every
+GPU-composited canvas pixel byte-identical** across the extraction (canvas
+device rows 194–1544; the sole diff region, 19,960 device pixels at
+y 114–173, is two HTML toolbar buttons — "Commands" and "History" — from
+app-shell commits newer than the 30 Jul dist, above the canvas entirely).
+Console on the rebuilt side shows "Creating FrameCompositor" — the new path
+demonstrably live. Artifacts in the session scratchpad under
+`pixel-oracle/`.
+
+**Found by the oracle — a real pipeline defect, unfixed:** `vite build`
+emits the wasm-bindgen glue verbatim as a chunk but never emits
+`iridium_bindings_bg.wasm` as an asset, so a freshly built
+`examples/web/dist` 404s on its own wasm and renders nothing. The served
+demo only ever worked because something copied the wasm in by hand; after
+every `vite build` today, `pkg/iridium_bindings_bg.wasm` must be copied to
+`dist/assets/` manually. Worth a build-pipeline fix (vite asset include or
+a copy step in the `build` script) as its own small change.
 
 ---
 

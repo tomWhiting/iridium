@@ -67,8 +67,7 @@ use std::sync::Arc;
 use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
-use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
-use iridium_editor::theme::Color;
+use iridium_editor::render::{FrameCompositor, FrameTarget};
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyCode, KeyEvent,
     KeymapError, Language, MouseResult, RegistryError,
@@ -82,6 +81,7 @@ use winit::window::{Window, WindowId};
 
 use crate::command_palette::{CommandPalette, PaletteOutcome};
 use crate::commands;
+use crate::highlight::HighlightCache;
 use crate::history_overlay::{HistoryOutcome, HistoryPanel};
 use crate::keys;
 use crate::mouse::{self, Grid, Pointer};
@@ -201,20 +201,6 @@ impl Shell {
     }
 }
 
-/// The compositor's highlight seam, answered with nothing.
-///
-/// Returning `None` every frame selects the compositor's built-in keyword
-/// highlighter — the path a face without tree-sitter gets for free. Running
-/// real tree-sitter spans through this seam, as the web face does from its
-/// worker, is a later slice.
-struct BuiltinHighlights;
-
-impl HighlightSource for BuiltinHighlights {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
-        None
-    }
-}
-
 /// One editing session in one window.
 pub struct DesktopApp {
     /// The kernel.
@@ -235,6 +221,10 @@ pub struct DesktopApp {
     clipboard: Option<arboard::Clipboard>,
     /// The file being edited, if the session named one.
     file: Option<TextFile>,
+    /// The kernel's tree-sitter spans, cached per parse generation and
+    /// resolved through the compositor's highlight seam each frame. See
+    /// [`crate::highlight`].
+    syntax: HighlightCache,
     /// The search panel. Kept across closes so re-opening offers the last
     /// query back, which is what [`SearchOverlay`] is built for.
     search: SearchOverlay,
@@ -321,6 +311,7 @@ impl DesktopApp {
             pointer: Pointer::new(),
             clipboard: None,
             file,
+            syntax: HighlightCache::new(),
             search: SearchOverlay::new(),
             search_open: false,
             palette: CommandPalette::new(),
@@ -1065,6 +1056,9 @@ impl DesktopApp {
     /// attempt; a fault that persists keeps naming itself rather than
     /// silently freezing the window.
     fn redraw(&mut self) {
+        // Costs a generation comparison when nothing changed; the spans are
+        // rebuilt only when the kernel actually reparsed.
+        self.syntax.refresh(&self.editor);
         let strip = self.strip_content();
         let panels = self.panel_contents();
         let editor = &self.editor;
@@ -1083,7 +1077,7 @@ impl DesktopApp {
         let height = surface.height();
         let fold_state = editor.fold_state();
         let theme = &editor.state().theme;
-        let mut highlights = BuiltinHighlights;
+        let mut highlights = self.syntax.resolver(&theme.syntax);
         let panel_refs: Vec<&PanelContent> = panels.iter().collect();
 
         let outcome = surface.render_frame(|view, device, queue| {
@@ -1671,6 +1665,60 @@ mod tests {
             "the panel left the save chord to the host"
         );
         assert!(app.search_open, "saving did not close the search");
+    }
+
+    #[test]
+    fn the_language_is_read_from_the_extension_as_every_face_reads_it() {
+        use std::path::Path;
+
+        use iridium_editor::Language;
+
+        use super::language_of;
+
+        assert_eq!(language_of(Path::new("main.rs")), Some(Language::Rust));
+        assert_eq!(language_of(Path::new("a/b/mod.RS")), Some(Language::Rust));
+        assert_eq!(
+            language_of(Path::new("index.ts")),
+            Some(Language::TypeScript)
+        );
+        assert_eq!(language_of(Path::new("notes.md")), Some(Language::Markdown));
+        assert_eq!(
+            language_of(Path::new("unclaimed.xyz")),
+            None,
+            "an extension no grammar claims is plain text"
+        );
+        assert_eq!(
+            language_of(Path::new("Makefile")),
+            None,
+            "a name without an extension is plain text"
+        );
+    }
+
+    #[test]
+    fn opening_a_rust_file_primes_the_highlight_cache() {
+        let directory = TempDir::new("desktop-syntax");
+        let (mut app, _path) = open(&directory, "a.rs", "fn main() {}\n");
+        assert_eq!(
+            app.editor.language(),
+            Some(iridium_editor::Language::Rust),
+            "the session set the language from the name"
+        );
+        app.syntax.refresh(&app.editor);
+        assert_eq!(
+            app.syntax.rebuilds(),
+            1,
+            "the parsed document yields spans on the first refresh"
+        );
+        app.syntax.refresh(&app.editor);
+        assert_eq!(app.syntax.rebuilds(), 1, "an idle frame rebuilds nothing");
+
+        type_into(&mut app, "x");
+        app.syntax.refresh(&app.editor);
+        assert_eq!(
+            app.syntax.rebuilds(),
+            2,
+            "a keystroke's reparse rebuilds once"
+        );
     }
 
     #[test]

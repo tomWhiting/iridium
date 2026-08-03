@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  The iridium app icon: "77", the atomic number, on a dark rounded tile —
+  Tom's D-D ruling (name "iridium", icon "77") and his standing
+  rounded-corners ruling. The face is JetBrains Mono, the editor's own font,
+  loaded from the repo so the icon and the editor cannot drift apart.
+
+  Rendered at 1024×1024 with a transparent page background by
+  render-icon.js, then downscaled into the iconset by make-icon.sh. The tile
+  is 824×824 centred — the margin macOS Big Sur-era icons keep inside the
+  canvas — with a corner radius approximating the system squircle.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>iridium icon</title>
+    <style>
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: url("../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf")
+          format("truetype");
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 1024px;
+        height: 1024px;
+        background: transparent;
+      }
+
+      .tile {
+        position: absolute;
+        left: 100px;
+        top: 100px;
+        width: 824px;
+        height: 824px;
+        border-radius: 185px;
+        background: linear-gradient(160deg, #202227 0%, #121317 55%, #0c0d10 100%);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.07),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+          0 24px 48px rgba(0, 0, 0, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .number {
+        font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+        font-size: 430px;
+        line-height: 1;
+        letter-spacing: -0.045em;
+        /* Two pixels up: monospace digits sit optically low in the tile. */
+        transform: translateY(-14px);
+        background: linear-gradient(175deg, #f4f6f8 0%, #cfd5da 60%, #aab2ba 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tile"><span class="number">77</span></div>
+  </body>
+</html>

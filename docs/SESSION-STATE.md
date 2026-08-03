@@ -1,5 +1,38 @@
 # Session state — 2026-07-30
 
+## ▶ DESKTOP SHELL TRACK — GREEN-LIT, STEP 1 LANDED 3 Aug ~17:4x local
+
+Tom green-lit the native desktop shell (his DM ~06:22–06:27Z) after ruling
+the webview path can't carry the snappiness he loves. All four decisions
+ruled: **winit accepted; mouse IN v1; FULL overlay set in v1 ("no short
+sell"); name "iridium", icon "77"**. Plan: `docs/DESKTOP-SHELL-PLAN.md`
+(a38e3ac + rulings a00c5e7).
+
+**Step 1 (compositor extraction) is LANDED AND CERTIFIED:**
+- Map: `docs/design/COMPOSITOR-EXTRACTION-MAP.md` (7b7e907) — every line of
+  the web render path placed, five rulings, OUTCOME + oracle sections.
+- Code: **230f5ed** — `render/compositor.rs` (face-neutral FrameCompositor,
+  render-feature-gated); wasm.rs 4,015 → 3,016 lines; highlight seam is a
+  `HighlightSource` trait (face keeps tree-sitter); hit-test/scroll caches
+  are compositor methods. Five gates re-run green from this seat (1619/0).
+- **Pixel oracle PASS**: canvas byte-identical before/after (headless
+  chromium WebGPU, zero-pixel noise floor). Found a real pipeline defect:
+  `vite build` never emits the wasm asset — dist 404s without a manual
+  copy of `iridium_bindings_bg.wasm` into `dist/assets/`. Recorded in the
+  map doc; small fix worth its own change.
+- Context that mattered: the manifold desktop question (Waffles' thread)
+  resolved as C-then-A (composition root, then hand-bound WKWebView);
+  iridium rides manifold's window as a pane via its web face, but its OWN
+  desktop home is this native shell — webview latency is why.
+
+**NEXT (step 2): `apps/iridium-desktop`** — winit event loop + window,
+`NativeSurface` twin of WebSurface driving `FrameCompositor::compose`,
+winit→kernel input translation (⌘=meta, mac keymap layer), mouse via the
+compositor's `pixel_to_position`, arboard clipboard, host layer ported from
+apps/iridium, GPU-painted overlays (prompts, search, palette, undo-tree —
+ALL in v1 per ruling), hand-rolled .app bundle ("iridium", icon 77). Open
+a fresh lane with Athena before cargo work (per-work-window discipline).
+
 ## ✅ UNDO-TREE PANEL LANDED 3 Aug ~15:25 local — commits 9d13c59 + 3118f2a, binary swapped
 
 Tom green-lit the undo-tree panel (~05:05Z his DM, called it "under tree").

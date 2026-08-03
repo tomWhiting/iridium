@@ -30,6 +30,38 @@ Revisiting any of them is a later step, not this one.
 Also ruled: the compositor entry point is named **`compose`**, killing the
 `render_frame`-means-two-things ambiguity the map flags in §7.
 
+## OUTCOME — landed 3 Aug 2026, commit 230f5ed
+
+The extraction executed to this map. All five gates green (workspace
+all-features 1619/0, GPU-free kernel, wasm32 check, clippy zero-new, fmt);
+wasm.rs 4,015 → 3,016 lines. Deviations from the rulings, each forced and
+none pixel-observable:
+
+- **Ruling 1 amended in mechanism, not in substance**: the highlight seam is
+  a `HighlightSource` trait rather than a pre-built span-list parameter —
+  the spans borrow the visible-content string the compositor builds
+  mid-compose, so a pre-built argument is unrepresentable without a
+  two-phase API or per-span allocation. The face still owns tree-sitter
+  resolution (`WebHighlightSource` in wasm.rs, bodies verbatim); the
+  decision tree is identical.
+- Surface params grouped in a concrete `FrameTarget` struct (Ruling 2 held;
+  grouping avoids a `too_many_arguments` lint without `#[allow]`).
+- Casts route through new `units.rs` helpers proven bit-identical to `as`
+  by sweep tests (the moved code carried a banned `#[allow]`); sole
+  domain-impossible difference: `dimension_to_bound` saturates where
+  `as i32` would wrap, at surface sizes ≥ 2³¹ px.
+- 11 `cpu_*` buffers moved, not 9 — this map's own field list enumerates 11.
+- `ensure_cursor_visible` stayed on the face (Ruling 3: it mutates
+  `scroll_y`); only `cursor_anchor_y` resolution moved.
+- Frame acquisition now precedes CPU compose (compose receives the
+  `TextureView`); on the prepare-failure path an acquired frame drops
+  un-presented. Error-path strings render through `IridiumError`.
+
+**Open: the pixel oracle (checklist 5) has not run.** No screenshot harness
+exists in-tree (`web-test/` is a build shim, `evidence/` holds logs). The
+built demo bundle still carries the pre-extraction wasm; the before/after
+visual comparison is the remaining certification for this step.
+
 ---
 
 ## 1. The render path, top to bottom

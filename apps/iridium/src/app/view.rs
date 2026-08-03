@@ -73,6 +73,16 @@ impl App {
                 });
         }
 
+        if self.history_open {
+            // The undo-tree panel has no text field, so no cell owns the
+            // caret while it is open: a visible cursor would claim typing
+            // goes somewhere it does not.
+            let styles = Palette::from_theme(self.editor.get_theme());
+            self.history
+                .paint(surface.back_mut(), &self.editor, &styles);
+            cursor = CursorState::Hidden;
+        }
+
         cursor
     }
 

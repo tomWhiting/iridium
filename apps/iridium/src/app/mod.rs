@@ -62,13 +62,16 @@ mod view;
 #[cfg(test)]
 mod tests;
 
-use iridium_editor::commands::builtin::PALETTE_OPEN;
+use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyEvent,
 };
-use iridium_tui::frame::{CommandPalette, Frame, PaletteOutcome, SearchOutcome, SearchOverlay};
+use iridium_tui::frame::{
+    CommandPalette, Frame, HistoryOutcome, HistoryPanel, PaletteOutcome, SearchOutcome,
+    SearchOverlay,
+};
 use iridium_tui::input::TerminalInput;
 
 pub use self::document::StartupError;
@@ -109,6 +112,10 @@ pub struct App {
     /// Recorded only after a command actually ran — an entry for a command
     /// that errored would rank a failure as a favourite.
     mru: CommandMru,
+    /// The undo-tree panel.
+    history: HistoryPanel,
+    /// Whether the undo-tree panel is on screen. Modal while it is.
+    history_open: bool,
     /// The question on the prompt line, if one is open.
     prompt: Option<Prompt>,
     /// What the last key had to say, shown until the next one.
@@ -178,6 +185,8 @@ impl App {
             palette: CommandPalette::new(),
             palette_open: false,
             mru: CommandMru::default(),
+            history: HistoryPanel::new(),
+            history_open: false,
             prompt: None,
             message: None,
             clipboard: String::new(),
@@ -240,6 +249,12 @@ impl App {
         self.palette_open
     }
 
+    /// Whether the undo-tree panel is on screen.
+    #[must_use]
+    pub const fn is_history_open(&self) -> bool {
+        self.history_open
+    }
+
     /// Handles one thing the user did.
     pub fn handle_input(&mut self, input: &TerminalInput) -> Flow {
         match input {
@@ -290,6 +305,10 @@ impl App {
 
         if self.palette_open {
             return self.drive_palette(event);
+        }
+
+        if self.history_open {
+            return self.drive_history(event);
         }
 
         if self.search_open {
@@ -381,10 +400,40 @@ impl App {
             self.palette_open = true;
             self.palette.open();
             Flow::Running
+        } else if command == &HISTORY_TOGGLE_PANEL {
+            // A toggle, exactly as the kernel names it: the panel has no query
+            // to abandon, so the chord that opened it is how it is put away.
+            self.history_open = !self.history_open;
+            if self.history_open {
+                self.history.open();
+            }
+            Flow::Running
         } else {
             return None;
         };
         Some(flow)
+    }
+
+    /// Hands a key to the open undo-tree panel and acts on the outcome.
+    fn drive_history(&mut self, event: &KeyEvent) -> Flow {
+        match self.history.handle_key(event, &self.editor) {
+            HistoryOutcome::Handled => Flow::Running,
+            HistoryOutcome::Closed => {
+                self.history_open = false;
+                Flow::Running
+            },
+            HistoryOutcome::Jump(node) => {
+                // The panel stays open: hopping between states and watching
+                // the document change underneath is what the tree is for.
+                if !self.editor.jump_to_history_node(node) {
+                    self.message = Some(Message::error(
+                        "that history state no longer exists".to_owned(),
+                    ));
+                }
+                self.ensure_caret_visible();
+                Flow::Running
+            },
+        }
     }
 
     /// Hands a key to the open palette and acts on the outcome.
@@ -488,6 +537,12 @@ impl App {
             // The palette is modal: a paste belongs to its query, not to the
             // document underneath it.
             self.palette.paste(text);
+            return;
+        }
+        if self.history_open {
+            // The undo-tree panel has no field for pasted text to land in,
+            // and a paste reaching the document under a modal panel would
+            // grow the very tree being read.
             return;
         }
         self.editor.paste(text);

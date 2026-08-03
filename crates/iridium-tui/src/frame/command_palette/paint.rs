@@ -8,16 +8,10 @@
 //!     ╰──────────────────────────────────────────╯
 //! ```
 //!
-//! # The corners are round on purpose
-//!
-//! The box is drawn with the arc corners `╭ ╮ ╰ ╯` rather than the right-angle
-//! `┌ ┐ └ ┘`. All the light box-drawing characters share one caveat: they are
-//! East Asian *ambiguous* width, so a terminal configured to render ambiguous
-//! characters double-wide will misalign the border. That terminal is already
-//! living with every TUI border it meets misaligning the same way, the panel's
-//! *content* stays aligned because the buffer's own width model is what laid it
-//! out, and the alternative — an ASCII `+--+` box — was rejected as answering a
-//! cosmetic risk with a permanent cost.
+//! The box itself — placement, rounded corners, minimum honest size — is
+//! [`FloatingBox`], shared with the undo-tree panel; see
+//! [`panel`](crate::frame::panel) for why the corners are round and what that
+//! costs on an ambiguous-width terminal.
 //!
 //! # What a row shows
 //!
@@ -37,27 +31,13 @@ use iridium_editor::commands::palette::{self, CommandMru, MatchField, PaletteEnt
 use iridium_editor::{Editor, KeyLabelStyle};
 
 use super::CommandPalette;
-use crate::cell::{Cell, CellBuffer, Style};
+use crate::cell::{Cell, CellBuffer};
 use crate::frame::CellPosition;
 use crate::frame::field::scroll_for;
 use crate::frame::line::LineLayout;
 use crate::frame::palette::Palette;
+use crate::frame::panel::{FloatingBox, MAX_VISIBLE_ROWS, TOP};
 use crate::frame::text::{self, TextArea};
-
-/// The widest the panel gets, borders included.
-const MAX_WIDTH: usize = 64;
-
-/// The narrowest exterior worth drawing. Below this the panel shows nothing
-/// honestly — a command list four cells wide answers no question — so nothing
-/// is drawn at all.
-const MIN_WIDTH: usize = 20;
-
-/// The most result rows the panel shows at once.
-pub(super) const MAX_VISIBLE_RESULTS: usize = 12;
-
-/// The row the panel starts on: one below the top edge, so it reads as
-/// floating rather than as a title bar.
-const TOP: usize = 1;
 
 /// The query prompt, drawn before the field.
 const PROMPT: &str = "> ";
@@ -79,32 +59,26 @@ pub(super) fn paint(
     mru: &CommandMru,
     styles: &Palette,
 ) -> Option<CellPosition> {
-    let columns = buffer.width();
     let rows = buffer.height();
-    let width = columns.min(MAX_WIDTH);
-    // Three border-and-input rows below TOP is the smallest honest panel.
-    if width < MIN_WIDTH || rows < TOP + 3 {
-        return None;
-    }
-    let left = (columns - width) / 2;
+    let panel_box = FloatingBox::fitted(buffer.width(), rows)?;
     let content = TextArea {
-        origin: left + 2,
-        width: width - 4,
+        origin: panel_box.content_origin(),
+        width: panel_box.content_width(),
         scroll: 0,
     };
 
     let results = palette::search_text(editor.commands(), mru, panel.query(), None);
     // An empty list still gets one row, to say so.
     let list_rows = results.len().max(1);
-    let visible = list_rows.min(MAX_VISIBLE_RESULTS).min(rows - TOP - 3);
+    let visible = list_rows.min(MAX_VISIBLE_ROWS).min(rows - TOP - 3);
     panel.follow_selection(results.len(), visible.min(results.len()));
 
     let base = styles.overlay();
-    border(buffer, TOP, left, width, '╭', '╮', base);
-    let caret = input_row(panel, buffer, TOP + 1, left, width, content, styles);
+    panel_box.top_border(buffer, TOP, base);
+    let caret = input_row(panel, buffer, TOP + 1, panel_box, content, styles);
     for index in 0..visible {
         let row = TOP + 2 + index;
-        frame_row(buffer, row, left, width, base);
+        panel_box.blank_row(buffer, row, base);
         match results.get(panel.scroll() + index) {
             Some(entry) => {
                 let selected = panel.scroll() + index == panel.clamped_selection(results.len());
@@ -122,36 +96,8 @@ pub(super) fn paint(
             },
         }
     }
-    border(buffer, TOP + 2 + visible, left, width, '╰', '╯', base);
+    panel_box.bottom_border(buffer, TOP + 2 + visible, base);
     caret
-}
-
-/// Paints one horizontal border row.
-fn border(
-    buffer: &mut CellBuffer,
-    row: usize,
-    left: usize,
-    width: usize,
-    first: char,
-    last: char,
-    style: Style,
-) {
-    let mut line = String::with_capacity(width * 3);
-    line.push(first);
-    for _ in 0..width.saturating_sub(2) {
-        line.push('─');
-    }
-    line.push(last);
-    buffer.set_str(left, row, &line, style);
-}
-
-/// Blanks one panel row and draws its side borders.
-fn frame_row(buffer: &mut CellBuffer, row: usize, left: usize, width: usize, style: Style) {
-    for offset in 0..width {
-        buffer.set_str(left + offset, row, " ", style);
-    }
-    buffer.set_str(left, row, "│", style);
-    buffer.set_str(left + width - 1, row, "│", style);
 }
 
 /// Paints the query row and returns where its caret landed.
@@ -159,12 +105,11 @@ fn input_row(
     panel: &CommandPalette,
     buffer: &mut CellBuffer,
     row: usize,
-    left: usize,
-    width: usize,
+    panel_box: FloatingBox,
     content: TextArea,
     styles: &Palette,
 ) -> Option<CellPosition> {
-    frame_row(buffer, row, left, width, styles.overlay());
+    panel_box.blank_row(buffer, row, styles.overlay());
     buffer.set_str(content.origin, row, PROMPT, styles.overlay_quiet());
 
     let prompt_cells = LineLayout::new(PROMPT, 1).width();

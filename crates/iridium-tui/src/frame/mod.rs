@@ -44,8 +44,10 @@ mod field;
 mod geometry;
 mod gutter;
 mod highlight;
+mod history_panel;
 mod line;
 mod palette;
+mod panel;
 mod search;
 mod status;
 mod text;
@@ -65,6 +67,7 @@ use crate::cell::{CellBuffer, Color, Style};
 
 pub use self::command_palette::{CommandPalette, PaletteOutcome};
 pub use self::geometry::{CellPosition, Chrome, FrameLayout};
+pub use self::history_panel::{HistoryOutcome, HistoryPanel};
 pub use self::line::{LineLayout, PlacedCluster};
 pub use self::palette::Palette;
 pub use self::search::{SearchOutcome, SearchOverlay};

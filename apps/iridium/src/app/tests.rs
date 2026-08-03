@@ -660,6 +660,54 @@ fn a_face_command_runs_from_the_palette() {
 }
 
 #[test]
+fn the_history_panel_toggles_and_is_modal() {
+    let mut app = unnamed();
+    type_text(&mut app, "ab");
+    assert_eq!(app.handle_input(&ctrl_alt('h')), Flow::Running);
+    assert!(app.is_history_open());
+
+    // Typing while the panel is open must not grow the tree being read.
+    type_text(&mut app, "x");
+    assert_eq!(app.editor().content(), "ab");
+
+    assert_eq!(app.handle_input(&ctrl_alt('h')), Flow::Running);
+    assert!(!app.is_history_open(), "the same chord closes it");
+}
+
+#[test]
+fn jumping_from_the_history_panel_walks_real_document_states() {
+    let mut app = unnamed();
+    type_text(&mut app, "ab");
+    assert_eq!(app.handle_input(&ctrl_alt('h')), Flow::Running);
+
+    // Up from the current row is an earlier state; Enter takes the document
+    // there while the panel stays open.
+    assert_eq!(app.handle_input(&press(KeyCode::Up)), Flow::Running);
+    assert_eq!(app.handle_input(&press(KeyCode::Enter)), Flow::Running);
+    assert_eq!(app.editor().content(), "");
+    assert!(app.is_history_open(), "a jump keeps the panel open");
+
+    // And back down: the branch just left is still there.
+    assert_eq!(app.handle_input(&press(KeyCode::Down)), Flow::Running);
+    assert_eq!(app.handle_input(&press(KeyCode::Enter)), Flow::Running);
+    assert_eq!(app.editor().content(), "ab");
+}
+
+#[test]
+fn the_history_key_opens_the_undo_tree_rather_than_reporting_a_dead_key() {
+    // `Ctrl+Alt+H` is the kernel's binding for `history.togglePanel`. A face
+    // that answers it with "nothing runs it" leaves the undo tree — the
+    // feature that makes work unlosable — navigable only blind.
+    let mut app = unnamed();
+    assert_eq!(app.handle_input(&ctrl_alt('h')), Flow::Running);
+    assert!(
+        app.message().is_none(),
+        "the history key must open the panel, not report an unrun command: {:?}",
+        app.message()
+    );
+}
+
+#[test]
 fn the_palette_key_opens_a_palette_rather_than_reporting_a_dead_key() {
     // `Ctrl+K` is the kernel's default binding for `palette.open`. A face
     // that answers it with "nothing runs it" has 41 palette-only commands

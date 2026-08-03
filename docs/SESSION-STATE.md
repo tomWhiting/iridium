@@ -52,7 +52,11 @@ is the existence proof); CommandSurface renders unavailable/evicted per the
 vocabulary convention, in the statusSlot region, hidden when
 pending/hydrated. Also acknowledged: finding 8's inventory correction (no
 cross-tab sync in the durable family) and the meridian.css 8-of-12 hook gap
-(her board's collection lane).
+(her board's collection lane). Athena verified every citation at her own
+hand and banked all three (00:10Z); she holds the StreamedResults brief
+against ruling 6's scope — slot design inside, or it goes back. Gate wiring
+is her board's item under her standing veto, first frame-side work she
+sequences when budget and Tom's word allow.
 
 **Waffles's receipt of the D-series** (his 23:39Z message + manifold commit
 `5bc6f43`, `docs/briefs/GRUNK-CONVERSION-rulings.md`): D1–D7 rulings are on

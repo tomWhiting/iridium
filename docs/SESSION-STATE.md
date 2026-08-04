@@ -86,6 +86,22 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
+**✅ PARSER-TAX STAGE 1 LANDED 171508f (4 Aug ~10:3x local), gates
+1822/0 this seat.** Diagnosis (PARSER-TAX-MAP.md e73aa48, rulings
+appended): incremental parse was already sub-ms; the ~30ms was the
+whole-document span re-derive per keystroke. Fix: spans_in_range
+(set_byte_range; straddlers yielded whole, resolvers clamp; empty and
+inverted ranges guarded — tree-sitter silently treats them as
+unbounded) + viewport±100 windows on BOTH native face caches (TUI paid
+the same tax unmeasured). Bench 58.9ms→1.64ms (~36×). Caveat on ledger:
+desktop window estimate wrap-unaware past ~100 continuation rows.
+OPEN: (1) live re-measure = the lane's TERMINAL PAYMENT at Tom's next
+refresh word — sub-8ms required, low single digits expected, one
+refresh now carries the .txt fix AND this; (2) R2 hoist (shared kernel
+span cache) as own commit AFTER live confirmation; (3) R6
+DocumentHighlighter removal, own commit, end of track; (4) R4
+chunked-text derive on the ledger. Tom's chrome verdict still pending.
+
 **✅ FALLBACK FIX LANDED 829ff59 (4 Aug ~10:1x local), gates 1807/0 this
 seat.** Tom's live find (.txt keyword-colored) fixed at the honest seam:
 HighlightSource::language_active() — None splits into bridge (grammar'd,

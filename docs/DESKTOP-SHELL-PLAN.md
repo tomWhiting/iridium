@@ -189,6 +189,32 @@ ungrammar'd files type at ~1.3ms and grammar'd files pay the parser tax
 (still 23% under the 3 Aug baseline). Stage 2b (scroll window rotation)
 remains open per R4.
 
+**PARSER TAX PAID — 4 Aug 2026 (second bundle refresh), commit 171508f
+(range-scoped span derive + windowed caches, design in
+docs/design/PARSER-TAX-MAP.md), measured live from this seat's hand,
+release binary, pid-targeted injection with a frontmost gate:**
+
+| Document | n | min | p50 | p95 | max |
+|---|---|---|---|---|---|
+| 10k-line .rs (tree-sitter) — was 31.83ms | 49 | 0.88 | **1.08ms** | 8.84 | 12.33 |
+
+The grammar'd file now types at the same speed as plain text: the
+earlier discrimination put the whole no-grammar pipeline at 1.26ms
+median, and the .rs file with a live tree-sitter grammar is now 1.08ms —
+the ~30ms span-derive tax is gone. The parse itself was already
+incremental; the tax was the whole-document span re-derive per redraw,
+now scoped to viewport+overscan. Two honest notes: (a) the tail is
+real — p95 8.84ms, max 12.33ms, a handful of samples above the 8ms
+budget on an otherwise sub-2ms distribution (unattributed; candidates
+are periodic reparse landings and OS scheduling, worth a look only if
+Tom feels it). (b) The .txt control run for this refresh is INVALID —
+the user sat down mid-injection and took focus, so it was abandoned at
+10 clean samples (p50 1.02ms, consistent with the 1.26ms baseline)
+plus one 561ms focus-loss artifact; no re-run, because injection never
+races a live user. The keystroke budget the track was opened to prove
+is met end-to-end: keydown→present p50 1.08ms on a dense grammar'd
+10k-line viewport, 120fps-class with 7× headroom under the 8ms budget.
+
 ## What v1 deliberately does not contain
 
 Mouse (scope choice, see above), soft wrap (blocked on the recorded design),

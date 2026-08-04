@@ -86,6 +86,20 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
+**✅ FALLBACK FIX LANDED 829ff59 (4 Aug ~10:1x local), gates 1807/0 this
+seat.** Tom's live find (.txt keyword-colored) fixed at the honest seam:
+HighlightSource::language_active() — None splits into bridge (grammar'd,
+spans pending → keyword fallback, unchanged) vs no-language (→ plain);
+ShapeKey carries the bit. Red tests proven failing first
+(plain_frames.rs). DELIVERY WAITS on Tom's word for the bundle refresh
+(cosmetic; no rush; pid rule rides his live session — verify fresh at
+the swap moment). Agent-conduct note: the fix subagent used one git
+stash/pop despite no-git-state instruction, self-reported; verified
+clean at this seat; briefs now name stash explicitly. NEXT MAJOR: the
+parser tax (task #26) — incremental note_edit so typing never parses;
+p50 31.83ms → target ~1.3ms class on grammar'd files. Tom's chrome
+verdict still pending.
+
 **✅ BUNDLE SWAPPED 4 Aug ~09:4x local — Tom is ON the new build.** He
 dropped his session himself; bundle.sh rebuilt/signed/verified; live
 measurement landed (plan doc step 3): 10k .rs p50 31.83ms vs same bytes

@@ -82,7 +82,7 @@ pub use input::{
 pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
 pub use render::{CurrentLineRenderer, CursorRenderer, SelectionRenderer};
 #[cfg(feature = "syntax")]
-pub use syntax::{DocumentHighlighter, HighlightSpan, HighlightType, Language};
+pub use syntax::{HighlightSpan, HighlightType, Language};
 #[cfg(not(feature = "syntax"))]
 pub use syntax_stubs::Language;
 pub use theme::Theme;

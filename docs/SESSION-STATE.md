@@ -117,12 +117,45 @@ looks much better"):**
 Chrome verdict question put to him ("much better" is close but the
 feel-gate question was asked explicitly — await his word).
 
-REMAINING TAIL: 1. LANE CLOSE with Athena at quiescence — anchor
-42,880,376 pre-build quiescent (she accepted, no re-base), terms exp
-0.1–0.5 ceiling +1.0 band 38, `du -sk target` + df same hand. 2. Then
-queued: black-background defect (Tom's live report, first), right-click
-map, R2 hoist (shared kernel span cache, own commit), R6
-DocumentHighlighter removal (own commit), R4 chunked-text ledger.
+Swap-#2 lane closed and credited (draw 0.02 of 1.0, anchor
+42,898,024 banked as next anchor).
+
+**✅ BLACK-BACKGROUND FIX LANDED 6e22cbe (4 Aug ~13:5x local), gates
+1826/0 this seat — DELIVERY PENDING Tom's word (his session live, pid
+7112; bundle swap is a later act, beat-of-air law applies).** Root
+cause: dark preset background was transparent (0,0,0,0) — commit
+23aed0b's web glass-morphism choice in the SHARED preset; opaque
+native swapchain presents it black; web only looked right via page
+CSS #1a1a1a behind a premultiplied-transparent canvas. Independent
+second gap: desktop compositor frozen on Theme::dark() at
+construction (no set_theme existed). Fix: preset states opaque
+#1a1a1a (background/gutter/minimap — the web demo's actual pixels);
+FrameCompositor::set_theme with the theme_generation bump
+(set_dark_theme now a thin caller); Shell::open takes the editor's
+theme. RULED CONSEQUENCE (TUI keyed on the transparent preset): the
+statusline reverse-video fallback now also fires when gutter ==
+editor background (general collapse trigger, no preset sniffing);
+dark-preset TUI now paints Rgb(26,26,26) cells — cross-face identity
+accepted; terminal-transparency ledgered as future explicit web-face
+embedding option (NOT built — flag to Tom his TUI look changes on
+next install). All red-test proven first. Lane closed with Athena:
+BREACH FILED at 1.0 (relink-reach mechanism — corollary banked: what
+governs is what the change forces to rebuild, not line count),
+re-termed 1.5, final draw 1.35; new anchor 44,313,668.
+NEW LEDGER DEFECT: retained_shaping GPU pixel-identity tests flake
+under PARALLEL execution on a loaded box (baseline binary fails too —
+pre-existing; serial 24/24 always; failing runs 24–47s vs 3.5–4s
+healthy). Own fix later, not this lane.
+
+**OPEN QUEUE:** 1. Tom's "switching" answer pending (his DM 02:09Z —
+desktop-app direction talk; I asked which switching: file/project/
+window/app-level). 2. Right-click map (task #28, Tom ruled NOT
+deferred): native NSMenu vs drawn menu, price both, he rules. 3.
+Bundle swap for the background fix on Tom's word (carries fix
+6e22cbe; verify his session state fresh at the swap moment). 4. R2
+hoist (shared kernel span cache, own commit), R6 DocumentHighlighter
+removal (own commit), R4 chunked-text ledger. 5. Tom's chrome
+feel-gate verdict still pending ("much better" ≠ formal verdict).
 
 **✅ PARSER-TAX STAGE 1 LANDED 171508f (4 Aug ~10:3x local), gates
 1822/0 this seat.** Diagnosis (PARSER-TAX-MAP.md e73aa48, rulings

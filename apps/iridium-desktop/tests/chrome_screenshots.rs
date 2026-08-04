@@ -47,13 +47,18 @@ const FONT_SIZE: f32 = 14.0 * SCALE;
 /// The same face font the desktop shell embeds.
 static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
 
-/// A highlight source with nothing to offer, selecting the compositor's
-/// built-in keyword fallback — realistic colour without a tree-sitter worker.
+/// A highlight source playing a language'd document whose spans never
+/// arrive — the bridge case, selecting the compositor's built-in keyword
+/// fallback: realistic colour without a tree-sitter worker.
 struct NoHighlights;
 
 impl HighlightSource for NoHighlights {
     fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         None
+    }
+
+    fn language_active(&self) -> bool {
+        true
     }
 
     fn generation(&self) -> u64 {

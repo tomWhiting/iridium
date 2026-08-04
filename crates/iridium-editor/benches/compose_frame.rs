@@ -52,11 +52,12 @@
 //!
 //! # Highlighting is the built-in fallback
 //!
-//! The [`HighlightSource`] resolves `None` every frame, so the compositor's
-//! own keyword highlighter colors the content — the same path a face
-//! without a tree-sitter worker gets. No language is set on the editor:
-//! tree-sitter's parse cost is `benches/syntax.rs`'s subject, and mixing it
-//! in here would blur whose number this is.
+//! The [`HighlightSource`] resolves `None` every frame while reporting a
+//! language set, so the compositor's own keyword highlighter colors the
+//! content — the bridge path a face pays while its spans are absent. No
+//! language is set on the editor kernel itself: tree-sitter's parse cost is
+//! `benches/syntax.rs`'s subject, and mixing it in here would blur whose
+//! number this is.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -101,6 +102,12 @@ struct NoHighlights;
 impl HighlightSource for NoHighlights {
     fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         None
+    }
+
+    fn language_active(&self) -> bool {
+        // A language with spans that never arrive: the keyword-fallback
+        // path is the one being timed.
+        true
     }
 
     fn generation(&self) -> u64 {

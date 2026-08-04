@@ -116,7 +116,7 @@ visual staleness bug.
 | 4 | Font metrics (size × line-height multiplier) | baked into the buffer at creation, T:249-250; `set_font_size` C:1555-1557 | recompute from config per frame (`line_height()` T:175-177); no other setter is exposed on the compositor today — `set_line_height`/`set_font_family`/`apply_typography` exist on `TextRenderer` (T:541-578) but no face can reach them; keying metrics anyway makes that future-proof |
 | 5 | Font data | `load_font` C:1543-1547 mutates the fontdb; `Family::Monospace` resolution can change | **none — add a font generation counter bumped by `load_font`** |
 | 6 | Theme (foreground into text attrs C:801, 538; fallback highlighter palette) | `set_dark_theme` C:1584-1592 | **none — add a theme generation counter** |
-| 7 | `syntax_enabled` | three-way branch C:802-828 | the bool itself; key member |
+| 7 | `syntax_enabled` | three-way branch C:802-828 (four-way since the no-language ruling: a resolve-`None` splits on `HighlightSource::language_active` into the keyword bridge — language set — or plain foreground — no language) | the bool itself; key member. Its companion `language_active` (the face's answer) is a key member too, so a language set or unset at runtime invalidates without any generation moving |
 | 8 | Highlight spans (the resolver's answer) | `highlights.resolve` C:812; desktop spans gated on `{parses, revision}` H:79-115; web spans replaced wholesale at W:1687 (`setTreeSitterHighlights`), legacy at W:1691, cleared at W:1737, and viewport-scoped in the resolver itself W:2799-2816 | **none at the seam — the `HighlightSource` trait must carry a generation** (§3.1). The resolver's own viewport dependence is subsumed by row 2. Desktop subtlety: `HighlightCache::refresh` clears `entry` **without** bumping `rebuilds` when the language is removed (H:108-110), so `rebuilds` alone is not a sufficient generation — presence/language must fold in |
 | 9 | `syntax_theme` capture-name map | C:809; mutated through the **raw `&mut` accessor** C:1626-1628, used by the web face at W:1709-1726 | **none — the raw accessor defeats change tracking** (§6, R3) |
 | 10 | Fold state (hidden lines skipped C:716-718; fold placeholder text appended C:731-744) | `fold_state` parameter | **none — `FoldState` has no generation counter** (F:62-72; every mutator ends in `rebuild_line_mapping`, F:270, 280, 317, 335, 356, 422, none bumps anything observable). Folding does **not** touch document revision — this is the sharpest staleness trap in the whole set: fold a region, revision unchanged, retained buffer shows the unfolded text |
@@ -163,6 +163,7 @@ struct ShapeKey {
     font_generation: u64,        // §2 row 5 — new counter, bumped in load_font
     theme_generation: u64,       // §2 row 6 — new counter, bumped in set_dark_theme
     syntax_enabled: bool,        // §2 row 7
+    language_active: bool,       // §2 row 7 companion — HighlightSource::language_active
     highlight_generation: u64,   // §2 row 8 — face-supplied, see below
     syntax_theme_generation: u64,// §2 row 9 — bumped when the map is mutably borrowed
     fold_generation: u64,        // §2 row 10 — new counter on FoldState

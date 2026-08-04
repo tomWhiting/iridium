@@ -22,8 +22,11 @@
 //!   ([`FrameCompositor::max_scroll_y`] and
 //!   [`FrameCompositor::cursor_anchor_y`] exist so the face can decide well).
 //! - **Syntax spans.** A face with a real highlighter (the web face runs
-//!   tree-sitter in a worker) supplies its spans through [`HighlightSource`];
-//!   a face without one gets the built-in keyword highlighter for free.
+//!   tree-sitter in a worker) supplies its spans through [`HighlightSource`].
+//!   When the face reports a language but has no spans this frame, the
+//!   built-in keyword highlighter bridges until they arrive; when it reports
+//!   no language, there is nothing to bridge to and the content renders in
+//!   the plain theme foreground.
 //!
 //! # The caches are an interface, not a data structure
 //!
@@ -127,15 +130,37 @@ pub struct HighlightContext<'a> {
 /// [`FrameCompositor::compose`] calls this once per frame, only when syntax
 /// highlighting is enabled. Returning `Some` paints the given spans (slices
 /// of [`HighlightContext::content`] paired with colors, in order, gaps
-/// included); returning `None` says "I have nothing this frame" and the
-/// compositor falls back to its built-in keyword highlighter — the same
-/// four-way decision the web face always made, split along ownership: the
-/// tree-sitter paths live with the face that owns the spans, the fallback
-/// paths live with the compositor that owns the highlighter.
+/// included); returning `None` says "I have nothing this frame", and what
+/// the compositor does next is [`Self::language_active`]'s answer: with a
+/// language set the built-in keyword highlighter bridges the span-less
+/// frame, with none the content renders plain — the same decision the web
+/// face always made, split along ownership: the tree-sitter paths live with
+/// the face that owns the spans, the fallback paths live with the
+/// compositor that owns the highlighter.
 pub trait HighlightSource {
     /// Resolves this frame's highlight spans against the visible content, or
-    /// `None` to use the compositor's built-in fallback highlighting.
+    /// `None` when it has nothing this frame — see [`Self::language_active`]
+    /// for what a `None` renders as.
     fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>>;
+
+    /// Whether a language is set for the document this source highlights.
+    ///
+    /// This is what splits the two meanings of a `None` from
+    /// [`Self::resolve`]. With a language set, `None` is a bridge — spans
+    /// are owed but not available this frame — and the compositor colors
+    /// with its built-in keyword fallback until they arrive. With no
+    /// language set there is nothing to bridge to, and the content renders
+    /// in the plain theme foreground: a file without a grammar must never
+    /// wear another language's keyword colors.
+    ///
+    /// The compositor keys its retained shapes on this value directly, so a
+    /// face whose language is set or cleared at runtime need not move
+    /// [`Self::generation`] for this flip alone. A face whose language
+    /// knowledge lives outside the kernel answers for its own notion of
+    /// "set" — the web face's grammar belongs to its host's worker, and it
+    /// answers `true`, leaving "this document has no language" to the
+    /// host's [`FrameCompositor::set_syntax_enabled`] channel.
+    fn language_active(&self) -> bool;
 
     /// The face's highlight generation: a value that MUST change whenever a
     /// subsequent [`Self::resolve`] could return different runs for an
@@ -216,6 +241,11 @@ struct ShapeKey {
     theme_generation: u64,
     /// Whether syntax highlighting is enabled.
     syntax_enabled: bool,
+    /// The face's [`HighlightSource::language_active`] answer. It selects
+    /// between the keyword-fallback and plain arms when the source resolves
+    /// `None`, so a language set or unset at runtime reshapes even when no
+    /// other input moved.
+    language_active: bool,
     /// The face's [`HighlightSource::generation`].
     highlight_generation: u64,
     /// Capture-name map generation ([`FrameCompositor::syntax_theme_mut`]).
@@ -250,6 +280,7 @@ impl ShapeKey {
             font_generation,
             theme_generation,
             syntax_enabled,
+            language_active,
             syntax_theme_generation,
             fold_generation,
             gutter_text_generation,
@@ -262,6 +293,7 @@ impl ShapeKey {
             && font_generation == previous.font_generation
             && theme_generation == previous.theme_generation
             && syntax_enabled == previous.syntax_enabled
+            && language_active == previous.language_active
             && syntax_theme_generation == previous.syntax_theme_generation
             && fold_generation == previous.fold_generation
             && gutter_text_generation == previous.gutter_text_generation
@@ -327,8 +359,9 @@ pub struct FrameCompositor {
     cursor_renderer: CursorRenderer,
     /// Gutter width and digit-column calculations.
     gutter_renderer: GutterRenderer,
-    /// Built-in keyword highlighter, the fallback when the face's
-    /// [`HighlightSource`] has nothing to offer.
+    /// Built-in keyword highlighter, the bridge for a language-active face
+    /// whose [`HighlightSource`] has no spans this frame. It never touches a
+    /// document without a language — that renders plain.
     highlighter: SimpleHighlighter,
     /// The active theme.
     theme: Theme,
@@ -632,6 +665,7 @@ impl FrameCompositor {
             font_generation: self.font_generation,
             theme_generation: self.theme_generation,
             syntax_enabled: self.syntax_enabled,
+            language_active: highlights.language_active(),
             highlight_generation: highlights.generation(),
             syntax_theme_generation: self.syntax_theme_generation,
             fold_generation: fold_state.generation(),
@@ -999,8 +1033,9 @@ impl FrameCompositor {
     }
 
     /// Fills the content buffer's text and colors: the face's resolved spans
-    /// when it has them, the built-in keyword highlighter when it does not,
-    /// plain foreground when syntax highlighting is off.
+    /// when it has them, the built-in keyword bridge when a language is set
+    /// but its spans are not available this frame, plain foreground when no
+    /// language is set or syntax highlighting is off.
     fn fill_content_buffer(
         &mut self,
         buffer: &mut Buffer,
@@ -1024,14 +1059,19 @@ impl FrameCompositor {
             if let Some(rich_spans) = highlights.resolve(&context) {
                 self.text_renderer
                     .set_rich_text(buffer, rich_spans.into_iter());
-            } else {
-                // Fall back to simple keyword-based highlighting
+            } else if highlights.language_active() {
+                // The bridge: a language is set but its spans are not here
+                // this frame — the keyword highlighter colors until they are.
                 // PERF: Pass iterator directly instead of collecting into Vec
                 let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
                 self.text_renderer.set_rich_text(
                     buffer,
                     spans.iter().map(|span| (span.text.as_str(), span.color)),
                 );
+            } else {
+                // No language set: nothing to bridge to, plain foreground.
+                self.text_renderer
+                    .set_text(buffer, &self.cpu_visible_content, foreground);
             }
         } else {
             // Plain text
@@ -1041,7 +1081,7 @@ impl FrameCompositor {
     }
 
     /// The stage-2a counterpart of [`Self::fill_content_buffer`]: the same
-    /// three-way span resolution, routed through the per-line diffing
+    /// four-way span resolution, routed through the per-line diffing
     /// setters so lines whose text and colors did not change keep their
     /// shape caches. Returns how many lines were actually reshaped.
     fn fill_content_buffer_diffed(
@@ -1065,12 +1105,14 @@ impl FrameCompositor {
             };
             if let Some(rich_spans) = highlights.resolve(&context) {
                 TextRenderer::set_rich_text_diffed(buffer, rich_spans.into_iter())
-            } else {
+            } else if highlights.language_active() {
                 let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
                 TextRenderer::set_rich_text_diffed(
                     buffer,
                     spans.iter().map(|span| (span.text.as_str(), span.color)),
                 )
+            } else {
+                TextRenderer::set_text_diffed(buffer, &self.cpu_visible_content, foreground)
             }
         } else {
             TextRenderer::set_text_diffed(buffer, &self.cpu_visible_content, foreground)

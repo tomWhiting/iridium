@@ -46,14 +46,18 @@ static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrain
 /// Font size in pixels, matching the faces' base size.
 const FONT_SIZE: f32 = 14.0;
 
-/// A highlight source with nothing to offer — the compositor's built-in
-/// keyword fallback colors the content, and the generation is honestly
-/// constant because the answer is `None` forever.
+/// A highlight source with a language but no spans, ever — the bridge case:
+/// the compositor's built-in keyword fallback colors the content, and the
+/// generation is honestly constant because the answer is `None` forever.
 struct NoHighlights;
 
 impl HighlightSource for NoHighlights {
     fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         None
+    }
+
+    fn language_active(&self) -> bool {
+        true
     }
 
     fn generation(&self) -> u64 {
@@ -77,8 +81,36 @@ impl HighlightSource for TintHighlights {
         self.tint.map(|color| vec![(context.content, color)])
     }
 
+    fn language_active(&self) -> bool {
+        true
+    }
+
     fn generation(&self) -> u64 {
         self.generation
+    }
+}
+
+/// A source standing in for a face whose language is set or cleared at
+/// runtime: `active` is the [`HighlightSource::language_active`] answer,
+/// spans never arrive, and the generation is honestly constant — the
+/// compositor keys the language answer directly, so the flip alone must
+/// carry the invalidation.
+struct ToggleLanguage {
+    /// Whether a language is currently set.
+    active: bool,
+}
+
+impl HighlightSource for ToggleLanguage {
+    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+        None
+    }
+
+    fn language_active(&self) -> bool {
+        self.active
+    }
+
+    fn generation(&self) -> u64 {
+        0
     }
 }
 
@@ -745,6 +777,110 @@ fn a_syntax_toggle_misses_and_recomposes_identically() {
         fresh.set_syntax_enabled(false);
     });
     assert!(after == cold, "the plain frame must be byte-identical");
+}
+
+/// The no-language ruling at the compositor's own seam: a source that
+/// reports no language and no spans composes the plain frame — byte-identical
+/// to the syntax-disabled fill path, and visibly not the keyword fallback.
+#[test]
+fn a_language_less_source_composes_the_plain_frame() {
+    let gpu = gpu();
+    let tgt = target(&gpu, WIDTH, HEIGHT);
+    let mut compositor = compositor(&gpu);
+    let editor = editor_over(200);
+    let mut void = ToggleLanguage { active: false };
+
+    compose(&mut compositor, &editor, 0.0, &mut void, &gpu, &tgt);
+    let composed = pixels(&gpu, &tgt);
+
+    let plain = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
+        fresh.set_syntax_enabled(false);
+    });
+    assert!(
+        composed == plain,
+        "no language must render the plain frame, never the keyword fallback"
+    );
+
+    let bridged = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    assert!(
+        composed != bridged,
+        "and the comparison discriminates: the bridge frame is coloured"
+    );
+}
+
+/// The bridge half of the ruling, pinned: a language set with spans absent
+/// this frame still gets the built-in keyword fallback's colors.
+#[test]
+fn a_set_language_without_spans_keeps_the_keyword_fallback() {
+    let gpu = gpu();
+    let tgt = target(&gpu, WIDTH, HEIGHT);
+    let mut compositor = compositor(&gpu);
+    let editor = editor_over(200);
+    let mut bridge = ToggleLanguage { active: true };
+
+    compose(&mut compositor, &editor, 0.0, &mut bridge, &gpu, &tgt);
+    let bridged = pixels(&gpu, &tgt);
+
+    let fallback = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    assert!(
+        bridged == fallback,
+        "a language-active source with no spans is exactly the fallback frame"
+    );
+
+    let plain = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
+        fresh.set_syntax_enabled(false);
+    });
+    assert!(
+        bridged != plain,
+        "and the fallback really coloured: the bridge frame is not the plain one"
+    );
+}
+
+/// The staleness-matrix row for the language answer: a language set or
+/// unset at runtime — with every other input, the generation included,
+/// unchanged — must miss, and both directions must recompose exactly what a
+/// cold compositor produces for the same state.
+#[test]
+fn a_language_set_or_unset_misses_and_recomposes_identically() {
+    let gpu = gpu();
+    let tgt = target(&gpu, WIDTH, HEIGHT);
+    let mut warm = compositor(&gpu);
+    let editor = editor_over(200);
+    let mut source = ToggleLanguage { active: true };
+
+    compose(&mut warm, &editor, 0.0, &mut source, &gpu, &tgt);
+    assert_eq!(warm.shape_rebuilds(), 1, "the first frame is cold");
+    let bridged = pixels(&gpu, &tgt);
+
+    source.active = false;
+    compose(&mut warm, &editor, 0.0, &mut source, &gpu, &tgt);
+    assert_eq!(warm.shape_rebuilds(), 2, "unsetting the language is a miss");
+    let unlanguaged = pixels(&gpu, &tgt);
+    assert!(
+        unlanguaged != bridged,
+        "losing the language must lose the keyword colors"
+    );
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ToggleLanguage { active: false },
+        |_| {},
+    );
+    assert!(
+        unlanguaged == cold,
+        "the language-less frame must be byte-identical to a cold compose"
+    );
+
+    source.active = true;
+    compose(&mut warm, &editor, 0.0, &mut source, &gpu, &tgt);
+    assert_eq!(warm.shape_rebuilds(), 3, "setting it back is a miss too");
+    let rebridged = pixels(&gpu, &tgt);
+    assert!(
+        rebridged == bridged,
+        "the returned language must reproduce the fallback frame exactly"
+    );
 }
 
 /// The face's highlight generation is a key member: bumping it (with a

@@ -147,15 +147,51 @@ under PARALLEL execution on a loaded box (baseline binary fails too —
 pre-existing; serial 24/24 always; failing runs 24–47s vs 3.5–4s
 healthy). Own fix later, not this lane.
 
-**OPEN QUEUE:** 1. Tom's "switching" answer pending (his DM 02:09Z —
-desktop-app direction talk; I asked which switching: file/project/
-window/app-level). 2. Right-click map (task #28, Tom ruled NOT
-deferred): native NSMenu vs drawn menu, price both, he rules. 3.
-Bundle swap for the background fix on Tom's word (carries fix
-6e22cbe; verify his session state fresh at the swap moment). 4. R2
-hoist (shared kernel span cache, own commit), R6 DocumentHighlighter
-removal (own commit), R4 chunked-text ledger. 5. Tom's chrome
-feel-gate verdict still pending ("much better" ≠ formal verdict).
+**✅ R6+R2 LANDED (4 Aug ~14:4x local): 5f3dcd9 (DocumentHighlighter
+removed, zero-caller evidence banked) + 4a4d57b (kernel
+WindowedSpanCache in span_index/windowed.rs — owns windowed decision
+logic + OVERSCAN_LINES; both faces thin wrappers, face tests
+unchanged, kernel +12 boundary proofs). Gates 1833/0 this seat. Lane
+closed 0.43 of 1.8 (warm-artifacts pricing note banked: consecutive
+lanes over same crates draw less than first-touch). New anchor
+44,762,020. PARSER-TAX-MAP ruled work now FULLY landed (R4
+chunked-text stays on the follow-up ledger by design). Agent died
+mid-flight on Tom's Fable usage limit and was resumed clean —
+NEW STANDING RULE from Tom (in memory, subagents-use-opus.md): every
+Agent call passes model "opus" from now on.**
+
+**✅ CONTEXT-MENU RULINGS IN (Tom's DM 03:45Z, "all your
+recommendations"): drawn overlay menu; starter verbs
+Cut/Copy/Paste/Select All + palette entry; right-button only
+(ctrl+click keeps add-cursor); click-through gap FIXED in same slice
+(D-4; task #29 rides #28); Cut/Copy stay enabled collapsed; macOS
+caret rule on right-press. Rulings appended to CONTEXT-MENU-MAP.md
+(a6e8265). Fold command ids ledgered separately (registry has none —
+would make folds palette-searchable too).**
+
+**⚠️ SWAP WINDOW #3 PENDING TOM'S QUIT — he asked for the app
+restarted with the latest build (his DM 03:46Z). Sequence armed: a
+background watch fires when his session pid 7112 exits; then (1)
+lane-open with Athena + BEAT OF AIR (her timing law — leave room for
+a hold to land), (2) verify session down AS NAMED (`pgrep -x
+iridium-desktop` AND `lsof +D target/release/bundle`), (3) bundle.sh
+rebuild (carries 6e22cbe background fix + 5f3dcd9 + 4a4d57b), (4)
+`open target/release/bundle/iridium.app --args
+~/Desktop/iridium-playground.rs`, ping Tom, (5) lane close. NO
+measurement this swap unless idle — Tom is waiting on the restart.**
+
+**OPEN QUEUE after swap:** 1. Context-menu implementation (task #28,
+all rulings in hand; file plan at map end: context_menu.rs new +
+overlay.rs + app.rs; kernel untouched; subagent on OPUS). 2. Tom's
+"switching" answer pending (which kind: file/project/window/
+app-level). 3. Tom's chrome feel-gate verdict ("much better" ≠
+formal). 4. Ledger: fold command ids, R4 chunked-text derive,
+wrap-unaware window estimate, GPU pixel-test parallel flake (24/24
+clean twice since — load-correlated), terminal-transparency as
+explicit web-face option, kernel follow-ups (MouseHandler
+resolved-position entry, units.rs privacy, Family::Monospace,
+blink deadline, Editor::theme getter, search-highlight pass,
+vite-build wasm-copy defect).
 
 **✅ PARSER-TAX STAGE 1 LANDED 171508f (4 Aug ~10:3x local), gates
 1822/0 this seat.** Diagnosis (PARSER-TAX-MAP.md e73aa48, rulings

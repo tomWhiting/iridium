@@ -29,7 +29,7 @@ use std::io::{self, Write as _};
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use iridium_editor::editor::SyntaxState;
-use iridium_editor::span_index::SpanIndex;
+use iridium_editor::span_index::{OVERSCAN_LINES, SpanIndex};
 use iridium_editor::syntax::Highlighter;
 use iridium_editor::{Document, Language};
 use iridium_syntax::Tree;
@@ -40,11 +40,6 @@ const TARGET_LINES: usize = 10_000;
 /// The viewport the range claims are made about: the ~90 lines a frame
 /// paints on a common surface.
 const VIEWPORT_LINES: usize = 90;
-
-/// The faces' overscan margin, each direction — mirrors the ruled
-/// `OVERSCAN_LINES` so the widened window benched here is the window the
-/// caches actually derive.
-const OVERSCAN_LINES: usize = 100;
 
 /// Emits one structurally complete unit of Rust source.
 ///

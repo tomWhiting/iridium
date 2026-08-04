@@ -237,7 +237,7 @@ struct ShapeKey {
     line_height_factor: u32,
     /// Loaded-font-data generation ([`FrameCompositor::load_font`]).
     font_generation: u64,
-    /// Theme generation ([`FrameCompositor::set_dark_theme`]).
+    /// Theme generation ([`FrameCompositor::set_theme`]).
     theme_generation: u64,
     /// Whether syntax highlighting is enabled.
     syntax_enabled: bool,
@@ -389,8 +389,9 @@ pub struct FrameCompositor {
     /// Bumped by [`Self::load_font`]: new font data can change how
     /// `Family::Monospace` resolves, which changes every shaped glyph.
     font_generation: u64,
-    /// Bumped by [`Self::set_dark_theme`]: the theme feeds text colors and
-    /// the fallback highlighter's palette.
+    /// Bumped by [`Self::set_theme`] (and through it
+    /// [`Self::set_dark_theme`]): the theme feeds text colors and the
+    /// fallback highlighter's palette.
     theme_generation: u64,
     /// Bumped by every mutable borrow of [`Self::syntax_theme_mut`]: the
     /// raw accessor defeats change tracking, so the borrow itself is the
@@ -2006,15 +2007,24 @@ impl FrameCompositor {
     /// Switches between the built-in dark and light themes, keeping the
     /// fallback highlighter's palette in step.
     pub fn set_dark_theme(&mut self, dark: bool) {
-        self.theme = if dark {
+        self.set_theme(if dark { Theme::dark() } else { Theme::light() });
+    }
+
+    /// Replaces the active theme wholesale, keeping the fallback
+    /// highlighter's palette in step — the path for a face whose editor
+    /// holds a theme that is not one of the built-in presets.
+    pub fn set_theme(&mut self, theme: Theme) {
+        // The keyword bridge's palette is its own type, keyed to darkness
+        // rather than to the theme's syntax colors.
+        if theme.is_dark {
             self.highlighter.set_dark_theme();
-            Theme::dark()
         } else {
             self.highlighter.set_light_theme();
-            Theme::light()
-        };
+        }
+        self.theme = theme;
         // Text colors and the fallback highlighter's palette both feed the
-        // shaped buffers.
+        // shaped buffers; a set_theme that skipped this bump would serve
+        // stale-colored retained frames.
         self.theme_generation = self.theme_generation.wrapping_add(1);
     }
 

@@ -129,7 +129,10 @@ impl EditorColors {
     #[must_use]
     pub fn dark() -> Self {
         Self {
-            background: Color::new(0.0, 0.0, 0.0, 0.0),
+            // Opaque #1a1a1a: the pixels the web demo shows behind the
+            // editor, the gutter and the minimap. A transparent surface here
+            // presents as black on any face whose surface is opaque.
+            background: Color::from_hex("1a1a1a").unwrap_or_default(),
             foreground: Color::from_hex("d4d4d4").unwrap_or_default(),
             selection: Color::new(0.26, 0.42, 0.56, 0.5),
             selection_inactive: Color::new(0.26, 0.42, 0.56, 0.3),
@@ -137,8 +140,8 @@ impl EditorColors {
             line_number: Color::from_hex("858585").unwrap_or_default(),
             line_number_active: Color::from_hex("c6c6c6").unwrap_or_default(),
             current_line: Color::new(0.15, 0.15, 0.15, 0.3),
-            gutter: Color::new(0.0, 0.0, 0.0, 0.0),
-            minimap_background: Color::new(0.0, 0.0, 0.0, 0.0),
+            gutter: Color::from_hex("1a1a1a").unwrap_or_default(),
+            minimap_background: Color::from_hex("1a1a1a").unwrap_or_default(),
             search_match: Color::new(0.52, 0.37, 0.13, 0.6),
             search_match_current: Color::new(0.82, 0.67, 0.33, 0.8),
             diff_added_bg: Color::new(0.14, 0.40, 0.22, 0.25),
@@ -302,6 +305,20 @@ mod tests {
     fn color_from_hex_with_alpha() {
         let color = Color::from_hex("FF550080").unwrap();
         assert!((color.a - 0.502).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_dark_preset_surfaces_are_opaque() {
+        // The preset must state the pixels the web demo actually shows: the
+        // demo page paints #1a1a1a behind the canvas, so the editor surface,
+        // the gutter and the minimap all read as opaque #1a1a1a. An opaque
+        // native surface presents a transparent preset as black.
+        let colors = EditorColors::dark();
+        let expected = Color::from_hex("1a1a1a").unwrap();
+        assert!((expected.a - 1.0).abs() < f32::EPSILON);
+        assert_eq!(colors.background, expected);
+        assert_eq!(colors.gutter, expected);
+        assert_eq!(colors.minimap_background, expected);
     }
 
     #[test]

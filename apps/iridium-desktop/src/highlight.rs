@@ -61,6 +61,16 @@ pub struct HighlightCache {
     /// where it answered runs. So this moves on every span rebuild *and*
     /// on every path that empties the entry while it held spans.
     generation: u64,
+    /// Whether the kernel had a language set at the last [`Self::refresh`].
+    ///
+    /// Reported to the compositor through the resolver's
+    /// [`HighlightSource::language_active`]: it is what separates the bridge
+    /// (a language is set, spans not available — the compositor's keyword
+    /// fallback colours) from the void (no language — the content renders in
+    /// the plain foreground). Deliberately about the *language*, not the
+    /// entry: a language whose highlight query fails to compile still counts
+    /// as set, and degrades to the keyword bridge rather than to plain.
+    language_active: bool,
 }
 
 /// One generation's worth of spans.
@@ -100,21 +110,27 @@ impl HighlightCache {
             entry: None,
             rebuilds: 0,
             generation: 0,
+            language_active: false,
         }
     }
 
     /// Brings the cache up to date with the kernel's tree, reusing everything
     /// it can.
     ///
-    /// With no language set the cache empties — the compositor's built-in
-    /// fallback takes over. A language whose bundled highlight query does not
-    /// compile does the same: unhighlighted text is a degraded editor, a
-    /// missing frame is no editor at all. Otherwise the spans are rebuilt
-    /// only when the parse count or document revision moved, and the compiled
-    /// highlighter survives every rebuild for the same language.
+    /// With no language set the cache empties and reports the language
+    /// inactive — the compositor renders the plain foreground, because a
+    /// file without a grammar must not wear another language's keyword
+    /// colours. A language whose bundled highlight query does not compile
+    /// empties the cache but keeps the language active: it degrades to the
+    /// compositor's keyword bridge, since unhighlighted text is a degraded
+    /// editor and a missing frame is no editor at all. Otherwise the spans
+    /// are rebuilt only when the parse count or document revision moved, and
+    /// the compiled highlighter survives every rebuild for the same
+    /// language.
     pub fn refresh(&mut self, editor: &Editor) {
         let had_entry = self.entry.is_some();
         let state = editor.state();
+        self.language_active = state.syntax.language().is_some();
         let Some(language) = state.syntax.language() else {
             self.entry = None;
             if had_entry {
@@ -180,6 +196,14 @@ impl HighlightCache {
         self.generation
     }
 
+    /// Whether the kernel had a language set at the last [`Self::refresh`]
+    /// — the answer the resolver carries as
+    /// [`HighlightSource::language_active`].
+    #[must_use]
+    pub const fn language_active(&self) -> bool {
+        self.language_active
+    }
+
     /// One frame's resolver over the cached spans, coloured from `colors`.
     ///
     /// Borrows the cache immutably, so it can be handed to
@@ -198,6 +222,7 @@ impl HighlightCache {
             index: self.entry.as_ref().map(|entry| &entry.index),
             colors,
             generation: self.generation,
+            language_active: self.language_active,
         }
     }
 }
@@ -213,12 +238,19 @@ pub struct FrameHighlights<'a> {
     colors: &'a SyntaxColors,
     /// The owning [`HighlightCache`]'s generation at construction.
     generation: u64,
+    /// The owning [`HighlightCache`]'s language answer at construction —
+    /// see [`HighlightCache::language_active`].
+    language_active: bool,
 }
 
 impl HighlightSource for FrameHighlights<'_> {
     fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         let index = self.index?;
         Some(rich_spans(index, context, self.colors))
+    }
+
+    fn language_active(&self) -> bool {
+        self.language_active
     }
 
     fn generation(&self) -> u64 {
@@ -453,7 +485,11 @@ mod tests {
         );
         assert!(
             cache.resolver(&theme.syntax).resolve(&context).is_none(),
-            "and the answer really did change: the fallback takes over"
+            "and the answer really did change: the resolver has no spans"
+        );
+        assert!(
+            !cache.language_active(),
+            "the cleared language is reported inactive — the frame renders plain"
         );
 
         let cleared = cache.generation();
@@ -466,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_language_the_resolver_defers_to_the_fallback() {
+    fn without_a_language_the_resolver_reports_no_spans_and_no_language() {
         let mut editor = Editor::with_defaults();
         editor.set_content("plain text, no grammar\n");
         let mut cache = HighlightCache::new();
@@ -481,11 +517,34 @@ mod tests {
             &viewport,
             theme.editor.foreground,
         );
+        let mut resolver = cache.resolver(&theme.syntax);
         assert!(
-            cache.resolver(&theme.syntax).resolve(&context).is_none(),
-            "no language means no answer, which selects the compositor's fallback"
+            resolver.resolve(&context).is_none(),
+            "no language means no spans"
+        );
+        assert!(
+            !resolver.language_active(),
+            "and no language to bridge to — the compositor renders plain, \
+             never the keyword fallback"
         );
         assert_eq!(cache.rebuilds(), 0);
+    }
+
+    /// The bridge half of the ruling: a language that is set but whose spans
+    /// are unavailable keeps the language active, so the compositor's
+    /// keyword fallback still colours.
+    #[test]
+    fn a_set_language_keeps_the_language_active_for_the_bridge() {
+        let editor = rust_editor("fn main() {}\n");
+        let mut cache = HighlightCache::new();
+        cache.refresh(&editor);
+        assert!(cache.language_active(), "a set language is reported active");
+
+        let theme = Theme::default();
+        assert!(
+            cache.resolver(&theme.syntax).language_active(),
+            "and the per-frame resolver carries that answer"
+        );
     }
 
     #[test]

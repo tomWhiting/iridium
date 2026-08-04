@@ -1640,6 +1640,12 @@ impl WebEditor {
     }
 
     /// Enables or disables syntax highlighting.
+    ///
+    /// This is also this face's no-language channel: the grammar lives in
+    /// the host's worker, so a host opening a document with no language
+    /// disables syntax here and the frame renders uniform foreground text.
+    /// While enabled, frames without worker spans are bridged by the
+    /// compositor's built-in keyword highlighter.
     #[wasm_bindgen(js_name = setSyntaxEnabled)]
     pub fn set_syntax_enabled(&mut self, enabled: bool) {
         self.compositor.set_syntax_enabled(enabled);
@@ -2863,10 +2869,19 @@ impl HighlightSource for WebHighlightSource<'_> {
                 context.syntax_theme,
             ))
         } else {
-            // Nothing from tree-sitter yet: the compositor falls back to its
-            // built-in keyword highlighter.
+            // Nothing from tree-sitter yet: the compositor bridges with its
+            // built-in keyword highlighter (see `language_active`).
             None
         }
+    }
+
+    fn language_active(&self) -> bool {
+        // This face's grammar lives in the host's worker; the kernel never
+        // learns it, so a span-less frame here is always the bridge — the
+        // keyword fallback colours until the worker's spans arrive. The
+        // host's channel for "this document has no language" is
+        // `setSyntaxEnabled(false)`, which renders the plain foreground.
+        true
     }
 
     fn generation(&self) -> u64 {

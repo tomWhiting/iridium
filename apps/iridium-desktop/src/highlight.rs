@@ -11,21 +11,20 @@
 //!
 //! Deriving every span of a 10k-line file on every parse generation was the
 //! parser tax (docs/design/PARSER-TAX-MAP.md): ~30ms of each keystroke spent
-//! walking the whole tree for a viewport that paints ~90 lines. The cache
-//! therefore derives spans for the requested viewport widened by
-//! [`OVERSCAN_LINES`] each way, and rebuilds when the parse generation moves
-//! *or* the requested viewport escapes the covered window. Scrolling within
-//! the overscan rebuilds nothing and moves nothing; scrolling past it is a
-//! new answer, so it rebuilds and moves the generation like any rebuild.
-//! Spans straddling the window's edges arrive whole from the kernel
-//! ([`Highlighter::spans_in_range`]'s boundary contract) and the resolver
-//! clamps them to visible content exactly as it always has.
+//! walking the whole tree for a viewport that paints ~90 lines. The windowed
+//! derive that fixed it — viewport widened by [`OVERSCAN_LINES`] each way,
+//! rebuild only when the parse generation moves *or* the requested viewport
+//! escapes the covered window — is the kernel's [`WindowedSpanCache`],
+//! shared with the terminal face (the parser-tax map's R2 ruling);
+//! [`HighlightCache`] is this face's thin handle on it. Spans straddling
+//! the window's edges arrive whole from the kernel
+//! ([`Highlighter::spans_in_range`](iridium_editor::syntax::Highlighter::spans_in_range)'s
+//! boundary contract) and the resolver clamps them to visible content
+//! exactly as it always has.
 //!
-//! This is the terminal face's design (`iridium-tui/src/frame/highlight.rs`)
-//! carried to this face's seam: the same [`Highlighter`], the same
-//! [`SpanIndex`], the same generation check — only the last step differs,
-//! because a GPU frame wants coloured text runs where a cell frame wants
-//! per-cluster styles.
+//! Only the resolution step is this face's own — a GPU frame wants coloured
+//! text runs where the terminal's cell frame wants per-cluster styles — so
+//! [`FrameHighlights`] is what this module keeps beside the handle.
 //!
 //! # Colours are the kernel's
 //!
@@ -52,89 +51,30 @@
 use std::ops::Range;
 
 use iridium_editor::Editor;
-use iridium_editor::document::Document;
 use iridium_editor::render::{HighlightContext, HighlightSource};
-use iridium_editor::span_index::SpanIndex;
-use iridium_editor::syntax::{HighlightSpan, Highlighter, Language, highlight_to_color};
+use iridium_editor::span_index::{SpanIndex, WindowedSpanCache};
+use iridium_editor::syntax::{HighlightSpan, highlight_to_color};
 use iridium_editor::theme::{Color, SyntaxColors};
 
-/// How far past the requested viewport, in document lines each direction, a
-/// span rebuild derives — the parser-tax map's R1 margin.
-///
-/// A taste knob, not a correctness knob: spans at the widened window's edges
-/// arrive whole and the resolver clamps them, so the margin only decides how
-/// far a scroll can travel before the cache must re-derive. It also absorbs
-/// the face's wrap-unaware viewport estimate (see `App::viewport_window`).
-/// The web face ships 50 lines; ±100 was ruled for the native faces.
-pub const OVERSCAN_LINES: usize = 100;
+// The kernel's overscan margin, re-exported so this face's viewport docs
+// (`App::viewport_window`) can name it where its slack is absorbed. One
+// definition, kernel-owned — the parser-tax map's R1 ruling.
+pub use iridium_editor::span_index::OVERSCAN_LINES;
 
-/// The cached parse-derived state frames are resolved from.
+/// The cached parse-derived state frames are resolved from: this face's
+/// handle on the kernel's [`WindowedSpanCache`].
 ///
 /// One per session, owned by the app beside the editor.
 /// [`Self::refresh_windowed`] runs before every frame and costs a generation
 /// and window comparison when nothing changed; the span rebuild — over the
 /// covered window only, never the whole document — happens only when the
-/// kernel actually reparsed or the viewport escaped the cover.
+/// kernel actually reparsed or the viewport escaped the cover. The gates,
+/// the window arithmetic and the derive all live in the kernel; what this
+/// type adds is [`Self::resolver`], the compositor-facing seam.
 #[derive(Debug, Default)]
 pub struct HighlightCache {
-    /// The spans and the provenance they were produced under, when a language
-    /// with a working highlighter is set.
-    entry: Option<Spans>,
-    /// How many times the spans have been rebuilt — the observable that
-    /// proves the generation gate: a frame without an edit must not move it.
-    rebuilds: u64,
-    /// The resolver generation handed to the compositor's retained-shaping
-    /// key: moves whenever a subsequent resolution could answer differently.
-    ///
-    /// `rebuilds` alone is not enough — removing the language clears the
-    /// spans *without* a rebuild, and the next resolution answers `None`
-    /// where it answered runs. So this moves on every span rebuild *and*
-    /// on every path that empties the entry while it held spans.
-    generation: u64,
-    /// Whether the kernel had a language set at the last [`Self::refresh`].
-    ///
-    /// Reported to the compositor through the resolver's
-    /// [`HighlightSource::language_active`]: it is what separates the bridge
-    /// (a language is set, spans not available — the compositor's keyword
-    /// fallback colours) from the void (no language — the content renders in
-    /// the plain foreground). Deliberately about the *language*, not the
-    /// entry: a language whose highlight query fails to compile still counts
-    /// as set, and degrades to the keyword bridge rather than to plain.
-    language_active: bool,
-}
-
-/// One generation's worth of spans, covering one window of the document.
-#[derive(Debug)]
-struct Spans {
-    /// The language the spans were produced for.
-    language: Language,
-    /// The rules, borrowed from the process-wide query cache.
-    highlighter: Highlighter,
-    /// The covered window's spans, indexed for viewport queries.
-    index: SpanIndex,
-    /// The tree and document state the spans were produced from.
-    generation: Generation,
-    /// The document lines (half-open) the index covers: the viewport the
-    /// spans were derived for, widened by [`OVERSCAN_LINES`] each way. A
-    /// requested viewport escaping this window forces a rebuild even when
-    /// the generation is unmoved.
-    covered_lines: Range<usize>,
-}
-
-/// How current a set of highlight spans is.
-///
-/// The parse count moves whenever the kernel reparses, so it is what actually
-/// invalidates the cache in every path measured so far. The revision is
-/// carried as defence in depth — a mutation reaching the document without
-/// reaching the tree must not leave last parse's colours on screen — exactly
-/// as the terminal face's cache carries it, with the same caveat recorded
-/// there: no test discriminates on the revision half alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Generation {
-    /// Full plus incremental parses the kernel has run.
-    parses: u64,
-    /// The document revision.
-    revision: u64,
+    /// The hoisted cache: spans, covered window, generation gates.
+    spans: WindowedSpanCache,
 }
 
 impl HighlightCache {
@@ -142,10 +82,7 @@ impl HighlightCache {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            entry: None,
-            rebuilds: 0,
-            generation: 0,
-            language_active: false,
+            spans: WindowedSpanCache::new(),
         }
     }
 
@@ -158,82 +95,23 @@ impl HighlightCache {
     /// windowed form exists to avoid, so the per-frame path must pass its
     /// real viewport instead.
     pub fn refresh(&mut self, editor: &Editor) {
-        let line_count = editor.state().document.line_count();
-        self.refresh_windowed(editor, 0..line_count);
+        self.spans.refresh(editor);
     }
 
     /// Brings the cache up to date with the kernel's tree, reusing everything
     /// it can, deriving spans for `viewport_lines` (document lines, half-open)
     /// widened by [`OVERSCAN_LINES`] each way.
     ///
-    /// With no language set the cache empties and reports the language
-    /// inactive — the compositor renders the plain foreground, because a
-    /// file without a grammar must not wear another language's keyword
-    /// colours. A language whose bundled highlight query does not compile
-    /// empties the cache but keeps the language active: it degrades to the
-    /// compositor's keyword bridge, since unhighlighted text is a degraded
-    /// editor and a missing frame is no editor at all. Otherwise the spans
-    /// are rebuilt only when the parse count or document revision moved *or*
-    /// the requested viewport escaped the covered window — a scroll within
-    /// the overscan is a comparison, not a rebuild — and the compiled
-    /// highlighter survives every rebuild for the same language.
+    /// The rebuild gates and their meaning for this face: with no language
+    /// set the cache empties and reports the language inactive — the
+    /// compositor renders the plain foreground. A language whose bundled
+    /// highlight query does not compile empties the cache but keeps the
+    /// language active — it degrades to the compositor's keyword bridge.
+    /// Otherwise the spans are rebuilt only when the parse count or document
+    /// revision moved *or* the requested viewport escaped the covered
+    /// window; see [`WindowedSpanCache::refresh_windowed`].
     pub fn refresh_windowed(&mut self, editor: &Editor, viewport_lines: Range<usize>) {
-        let had_entry = self.entry.is_some();
-        let state = editor.state();
-        self.language_active = state.syntax.language().is_some();
-        let Some(language) = state.syntax.language() else {
-            self.entry = None;
-            if had_entry {
-                // The spans are gone without a rebuild — the next resolution
-                // answers `None` where it answered runs, and the exposed
-                // generation must say so (the `rebuilds`-is-not-enough path).
-                self.generation = self.generation.wrapping_add(1);
-            }
-            return;
-        };
-        let generation = Generation {
-            parses: state.syntax.full_parses() + state.syntax.incremental_parses(),
-            revision: state.document.revision(),
-        };
-        let line_count = state.document.line_count();
-        let requested = clamp_window(viewport_lines, line_count);
-
-        let reusable = match self.entry.take() {
-            Some(existing) if existing.language == language => {
-                if existing.generation == generation && covers(&existing.covered_lines, &requested)
-                {
-                    self.entry = Some(existing);
-                    return;
-                }
-                Some(existing.highlighter)
-            },
-            _ => None,
-        };
-        let Some(highlighter) = reusable.or_else(|| Highlighter::try_new(language)) else {
-            // The entry was taken above and stays empty: a language whose
-            // highlight query does not compile degrades to the fallback. If
-            // spans were on screen, that is a change of answer too.
-            if had_entry {
-                self.generation = self.generation.wrapping_add(1);
-            }
-            return;
-        };
-
-        let covered_lines = widen(&requested, line_count);
-        let index = state.syntax.tree().map_or_else(SpanIndex::empty, |tree| {
-            let text = state.document.text();
-            let window = byte_window(&state.document, &covered_lines, text.len());
-            SpanIndex::new(highlighter.spans_in_range(tree, &text, window))
-        });
-        self.rebuilds = self.rebuilds.saturating_add(1);
-        self.generation = self.generation.wrapping_add(1);
-        self.entry = Some(Spans {
-            language,
-            highlighter,
-            index,
-            generation,
-            covered_lines,
-        });
+        self.spans.refresh_windowed(editor, viewport_lines);
     }
 
     /// How many times the spans have been rebuilt since the cache was
@@ -243,14 +121,14 @@ impl HighlightCache {
     /// without an intervening edit must leave this unchanged.
     #[must_use]
     pub const fn rebuilds(&self) -> u64 {
-        self.rebuilds
+        self.spans.rebuilds()
     }
 
     /// The generation the per-frame resolver reports to the compositor —
-    /// see the field documentation for what moves it.
+    /// see [`WindowedSpanCache::generation`] for what moves it.
     #[must_use]
     pub const fn generation(&self) -> u64 {
-        self.generation
+        self.spans.generation()
     }
 
     /// Whether the kernel had a language set at the last [`Self::refresh`]
@@ -258,7 +136,7 @@ impl HighlightCache {
     /// [`HighlightSource::language_active`].
     #[must_use]
     pub const fn language_active(&self) -> bool {
-        self.language_active
+        self.spans.language_active()
     }
 
     /// One frame's resolver over the cached spans, coloured from `colors`.
@@ -276,10 +154,10 @@ impl HighlightCache {
     #[must_use]
     pub fn resolver<'a>(&'a self, colors: &'a SyntaxColors) -> FrameHighlights<'a> {
         FrameHighlights {
-            index: self.entry.as_ref().map(|entry| &entry.index),
+            index: self.spans.index(),
             colors,
-            generation: self.generation,
-            language_active: self.language_active,
+            generation: self.spans.generation(),
+            language_active: self.spans.language_active(),
         }
     }
 }
@@ -355,41 +233,6 @@ fn rich_spans<'a>(
         runs.push((&visible[last_end..], context.foreground));
     }
     runs
-}
-
-/// Clamps a requested viewport window to lines the document actually has.
-///
-/// A face's viewport estimate may run a row or two past the end of a short
-/// document; unclamped, such a request could never be covered by a window
-/// clamped to the document, and every frame would rebuild.
-fn clamp_window(window: Range<usize>, line_count: usize) -> Range<usize> {
-    window.start.min(line_count)..window.end.min(line_count)
-}
-
-/// Whether the covered window answers for every line the request names.
-const fn covers(covered: &Range<usize>, requested: &Range<usize>) -> bool {
-    covered.start <= requested.start && requested.end <= covered.end
-}
-
-/// The requested window widened by [`OVERSCAN_LINES`] each way, clamped to
-/// the document.
-fn widen(requested: &Range<usize>, line_count: usize) -> Range<usize> {
-    let start = requested.start.saturating_sub(OVERSCAN_LINES);
-    let end = requested.end.saturating_add(OVERSCAN_LINES).min(line_count);
-    start..end
-}
-
-/// The byte range of a covered line window, for the kernel's range derive.
-///
-/// `text_len` is the length of the document's materialised text, so the end
-/// of the last line needs no extra rope lookup. Line indices at or past the
-/// line count land on the document's end.
-fn byte_window(document: &Document, lines: &Range<usize>, text_len: usize) -> Range<usize> {
-    let start = document
-        .line_to_byte_offset(lines.start)
-        .unwrap_or(text_len);
-    let end = document.line_to_byte_offset(lines.end).unwrap_or(text_len);
-    start..end
 }
 
 /// Clamps `index` into `content` and moves it down to the nearest character

@@ -11,6 +11,12 @@
 //! index is built (O(n log n)), but per-frame queries are O(log n + k) where
 //! k is the number of overlapping spans.
 //!
+//! The [`WindowedSpanCache`] is the shared cache both native faces build that
+//! index through: it derives spans for a viewport-plus-overscan window of the
+//! document and rebuilds only when the parse generation moves or the viewport
+//! escapes the covered window — the parser-tax fix
+//! (docs/design/PARSER-TAX-MAP.md), hoisted here by its R2 ruling.
+//!
 //! # Example
 //!
 //! ```ignore
@@ -29,8 +35,10 @@
 //! ```
 
 mod interval_tree;
+mod windowed;
 
 pub use interval_tree::SpanIndex;
+pub use windowed::{OVERSCAN_LINES, WindowedSpanCache};
 
 // Re-export the span types for convenience
 #[cfg(feature = "syntax")]

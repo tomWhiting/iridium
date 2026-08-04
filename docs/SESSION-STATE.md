@@ -169,16 +169,22 @@ caret rule on right-press. Rulings appended to CONTEXT-MENU-MAP.md
 (a6e8265). Fold command ids ledgered separately (registry has none —
 would make folds palette-searchable too).**
 
-**⚠️ SWAP WINDOW #3 PENDING TOM'S QUIT — he asked for the app
-restarted with the latest build (his DM 03:46Z). Sequence armed: a
-background watch fires when his session pid 7112 exits; then (1)
-lane-open with Athena + BEAT OF AIR (her timing law — leave room for
-a hold to land), (2) verify session down AS NAMED (`pgrep -x
-iridium-desktop` AND `lsof +D target/release/bundle`), (3) bundle.sh
-rebuild (carries 6e22cbe background fix + 5f3dcd9 + 4a4d57b), (4)
-`open target/release/bundle/iridium.app --args
-~/Desktop/iridium-playground.rs`, ping Tom, (5) lane close. NO
-measurement this swap unless idle — Tom is waiting on the restart.**
+**✅ SWAP WINDOW #3 COMPLETE (4 Aug ~15:5x local) — Tom is ON the
+background-fix build, new session pid 57370 (no-swap rule rides it).**
+Bundle carries 6e22cbe + 5f3dcd9 + 4a4d57b; assembly exit 0, codesign
+verified; premise verified as named at act moment (pgrep + lsof both
+exit 1 — his own quit, after one false "I've quit" where pid 7112
+was still alive and I refused). Lane closed NEGATIVE draw −0.10
+(rm -rf of old .app > warm no-op build; second miss-low under
+warm-artifacts law). Harness restarted mid-window (Tom relaunched
+CLI; Meridian dropped/reconnected; quit-watch died — re-verified
+fresh from zero). **WEB DEMO LIVE: python http.server pid 88677,
+port 12223, serving examples/web/dist (3 Aug build — has all v1
+features, NOT today's kernel; visually identical since page CSS was
+already #1a1a1a). Offered Tom a run-once dist rebuild if he wants
+today's kernel in the browser. Kill only that exact pid when done.**
+Tom addressed me as "Robo Doug" in-session — he's in the CLI now,
+not only Meridian.
 
 **OPEN QUEUE after swap:** 1. Context-menu implementation (task #28,
 all rulings in hand; file plan at map end: context_menu.rs new +

@@ -113,6 +113,16 @@ name = "syntax"
 harness = false
 required-features = ["syntax"]
 
+# The parser tax, measured: the whole-document span derive that made a
+# keystroke O(document) (docs/design/PARSER-TAX-MAP.md), beside the
+# range-scoped derive the faces' caches now run, and the index build on each
+# span set. Requires `syntax` for the same reason as the syntax bench: without
+# a parser, both derives would measure nothing and report it as speed.
+[[bench]]
+name = "span_derive"
+harness = false
+required-features = ["syntax"]
+
 # The per-keystroke cost with a language set. Required rather than optional for
 # the same reason: without `syntax` there is no parser, `sync` returns early, and
 # the benchmark would report a healthy number for the exact configuration the bug

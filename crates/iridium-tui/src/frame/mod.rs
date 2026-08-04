@@ -157,22 +157,28 @@ impl Frame {
         buffer: &mut CellBuffer,
     ) -> FrameLayout {
         let mut geometry = Self::layout(editor, buffer.width(), buffer.height(), chrome);
-        self.refresh(editor);
-
-        let palette = Palette::from_theme(editor.get_theme());
-        buffer.fill(palette.text());
 
         let state = editor.state();
-        let cursor_lines: HashSet<usize> = state
-            .cursor
-            .all_selections()
-            .map(|selection| selection.head.line)
-            .collect();
-
         let total_lines = state.document.line_count();
         let visible: Vec<usize> = geometry
             .viewport
             .visible_document_lines(&state.fold_state, total_lines)
+            .collect();
+        // The highlight cache derives spans for this frame's window only —
+        // the whole-document derive was the parser tax
+        // (docs/design/PARSER-TAX-MAP.md). An empty screen requests an empty
+        // window; nothing will be painted from it.
+        let window = visible.first().copied().unwrap_or(0)
+            ..visible.last().map_or(0, |&last| last.saturating_add(1));
+        self.refresh(editor, window);
+
+        let palette = Palette::from_theme(editor.get_theme());
+        buffer.fill(palette.text());
+
+        let cursor_lines: HashSet<usize> = state
+            .cursor
+            .all_selections()
+            .map(|selection| selection.head.line)
             .collect();
         let highlights = match (visible.first(), visible.last()) {
             (Some(&first), Some(&last)) => MatchHighlights::collect(editor, first, last),
@@ -332,9 +338,11 @@ impl Frame {
         )
     }
 
-    /// Brings the cached highlighter and span index up to date.
-    fn refresh(&mut self, editor: &Editor) {
-        self.highlighting = Highlighting::refreshed(self.highlighting.take(), editor);
+    /// Brings the cached highlighter and span index up to date for the
+    /// frame's window of document lines.
+    fn refresh(&mut self, editor: &Editor, viewport_lines: core::ops::Range<usize>) {
+        self.highlighting =
+            Highlighting::refreshed(self.highlighting.take(), editor, viewport_lines);
     }
 }
 

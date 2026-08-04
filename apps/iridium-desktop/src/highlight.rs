@@ -6,6 +6,21 @@
 //! which every mutating command runs); [`HighlightCache`] reads that tree,
 //! turns it into an indexed span set once per generation, and
 //! [`FrameHighlights`] resolves those spans onto one frame's visible content.
+//!
+//! # The spans cover a window, not the document
+//!
+//! Deriving every span of a 10k-line file on every parse generation was the
+//! parser tax (docs/design/PARSER-TAX-MAP.md): ~30ms of each keystroke spent
+//! walking the whole tree for a viewport that paints ~90 lines. The cache
+//! therefore derives spans for the requested viewport widened by
+//! [`OVERSCAN_LINES`] each way, and rebuilds when the parse generation moves
+//! *or* the requested viewport escapes the covered window. Scrolling within
+//! the overscan rebuilds nothing and moves nothing; scrolling past it is a
+//! new answer, so it rebuilds and moves the generation like any rebuild.
+//! Spans straddling the window's edges arrive whole from the kernel
+//! ([`Highlighter::spans_in_range`]'s boundary contract) and the resolver
+//! clamps them to visible content exactly as it always has.
+//!
 //! This is the terminal face's design (`iridium-tui/src/frame/highlight.rs`)
 //! carried to this face's seam: the same [`Highlighter`], the same
 //! [`SpanIndex`], the same generation check — only the last step differs,
@@ -34,17 +49,32 @@
 //! text's length; they are clamped and snapped to character boundaries, never
 //! trusted — the same honesty clause the web face's resolver carries.
 
+use std::ops::Range;
+
 use iridium_editor::Editor;
+use iridium_editor::document::Document;
 use iridium_editor::render::{HighlightContext, HighlightSource};
 use iridium_editor::span_index::SpanIndex;
 use iridium_editor::syntax::{HighlightSpan, Highlighter, Language, highlight_to_color};
 use iridium_editor::theme::{Color, SyntaxColors};
 
+/// How far past the requested viewport, in document lines each direction, a
+/// span rebuild derives — the parser-tax map's R1 margin.
+///
+/// A taste knob, not a correctness knob: spans at the widened window's edges
+/// arrive whole and the resolver clamps them, so the margin only decides how
+/// far a scroll can travel before the cache must re-derive. It also absorbs
+/// the face's wrap-unaware viewport estimate (see `App::viewport_window`).
+/// The web face ships 50 lines; ±100 was ruled for the native faces.
+pub const OVERSCAN_LINES: usize = 100;
+
 /// The cached parse-derived state frames are resolved from.
 ///
-/// One per session, owned by the app beside the editor. [`Self::refresh`]
-/// runs before every frame and costs a generation comparison when nothing
-/// changed; the span rebuild happens only when the kernel actually reparsed.
+/// One per session, owned by the app beside the editor.
+/// [`Self::refresh_windowed`] runs before every frame and costs a generation
+/// and window comparison when nothing changed; the span rebuild — over the
+/// covered window only, never the whole document — happens only when the
+/// kernel actually reparsed or the viewport escaped the cover.
 #[derive(Debug, Default)]
 pub struct HighlightCache {
     /// The spans and the provenance they were produced under, when a language
@@ -73,17 +103,22 @@ pub struct HighlightCache {
     language_active: bool,
 }
 
-/// One generation's worth of spans.
+/// One generation's worth of spans, covering one window of the document.
 #[derive(Debug)]
 struct Spans {
     /// The language the spans were produced for.
     language: Language,
     /// The rules, borrowed from the process-wide query cache.
     highlighter: Highlighter,
-    /// The document's spans, indexed for viewport queries.
+    /// The covered window's spans, indexed for viewport queries.
     index: SpanIndex,
     /// The tree and document state the spans were produced from.
     generation: Generation,
+    /// The document lines (half-open) the index covers: the viewport the
+    /// spans were derived for, widened by [`OVERSCAN_LINES`] each way. A
+    /// requested viewport escaping this window forces a rebuild even when
+    /// the generation is unmoved.
+    covered_lines: Range<usize>,
 }
 
 /// How current a set of highlight spans is.
@@ -114,8 +149,22 @@ impl HighlightCache {
         }
     }
 
+    /// Brings the cache up to date with the kernel's tree over the whole
+    /// document — [`Self::refresh_windowed`] with a window covering every
+    /// line.
+    ///
+    /// The convenience form for callers without a viewport (headless states,
+    /// tests): its derive is O(document), which is exactly the cost the
+    /// windowed form exists to avoid, so the per-frame path must pass its
+    /// real viewport instead.
+    pub fn refresh(&mut self, editor: &Editor) {
+        let line_count = editor.state().document.line_count();
+        self.refresh_windowed(editor, 0..line_count);
+    }
+
     /// Brings the cache up to date with the kernel's tree, reusing everything
-    /// it can.
+    /// it can, deriving spans for `viewport_lines` (document lines, half-open)
+    /// widened by [`OVERSCAN_LINES`] each way.
     ///
     /// With no language set the cache empties and reports the language
     /// inactive — the compositor renders the plain foreground, because a
@@ -124,10 +173,11 @@ impl HighlightCache {
     /// empties the cache but keeps the language active: it degrades to the
     /// compositor's keyword bridge, since unhighlighted text is a degraded
     /// editor and a missing frame is no editor at all. Otherwise the spans
-    /// are rebuilt only when the parse count or document revision moved, and
-    /// the compiled highlighter survives every rebuild for the same
-    /// language.
-    pub fn refresh(&mut self, editor: &Editor) {
+    /// are rebuilt only when the parse count or document revision moved *or*
+    /// the requested viewport escaped the covered window — a scroll within
+    /// the overscan is a comparison, not a rebuild — and the compiled
+    /// highlighter survives every rebuild for the same language.
+    pub fn refresh_windowed(&mut self, editor: &Editor, viewport_lines: Range<usize>) {
         let had_entry = self.entry.is_some();
         let state = editor.state();
         self.language_active = state.syntax.language().is_some();
@@ -145,10 +195,13 @@ impl HighlightCache {
             parses: state.syntax.full_parses() + state.syntax.incremental_parses(),
             revision: state.document.revision(),
         };
+        let line_count = state.document.line_count();
+        let requested = clamp_window(viewport_lines, line_count);
 
         let reusable = match self.entry.take() {
             Some(existing) if existing.language == language => {
-                if existing.generation == generation {
+                if existing.generation == generation && covers(&existing.covered_lines, &requested)
+                {
                     self.entry = Some(existing);
                     return;
                 }
@@ -166,8 +219,11 @@ impl HighlightCache {
             return;
         };
 
+        let covered_lines = widen(&requested, line_count);
         let index = state.syntax.tree().map_or_else(SpanIndex::empty, |tree| {
-            SpanIndex::new(highlighter.spans_in(tree, &state.document.text()))
+            let text = state.document.text();
+            let window = byte_window(&state.document, &covered_lines, text.len());
+            SpanIndex::new(highlighter.spans_in_range(tree, &text, window))
         });
         self.rebuilds = self.rebuilds.saturating_add(1);
         self.generation = self.generation.wrapping_add(1);
@@ -176,6 +232,7 @@ impl HighlightCache {
             highlighter,
             index,
             generation,
+            covered_lines,
         });
     }
 
@@ -300,6 +357,41 @@ fn rich_spans<'a>(
     runs
 }
 
+/// Clamps a requested viewport window to lines the document actually has.
+///
+/// A face's viewport estimate may run a row or two past the end of a short
+/// document; unclamped, such a request could never be covered by a window
+/// clamped to the document, and every frame would rebuild.
+fn clamp_window(window: Range<usize>, line_count: usize) -> Range<usize> {
+    window.start.min(line_count)..window.end.min(line_count)
+}
+
+/// Whether the covered window answers for every line the request names.
+const fn covers(covered: &Range<usize>, requested: &Range<usize>) -> bool {
+    covered.start <= requested.start && requested.end <= covered.end
+}
+
+/// The requested window widened by [`OVERSCAN_LINES`] each way, clamped to
+/// the document.
+fn widen(requested: &Range<usize>, line_count: usize) -> Range<usize> {
+    let start = requested.start.saturating_sub(OVERSCAN_LINES);
+    let end = requested.end.saturating_add(OVERSCAN_LINES).min(line_count);
+    start..end
+}
+
+/// The byte range of a covered line window, for the kernel's range derive.
+///
+/// `text_len` is the length of the document's materialised text, so the end
+/// of the last line needs no extra rope lookup. Line indices at or past the
+/// line count land on the document's end.
+fn byte_window(document: &Document, lines: &Range<usize>, text_len: usize) -> Range<usize> {
+    let start = document
+        .line_to_byte_offset(lines.start)
+        .unwrap_or(text_len);
+    let end = document.line_to_byte_offset(lines.end).unwrap_or(text_len);
+    start..end
+}
+
 /// Clamps `index` into `content` and moves it down to the nearest character
 /// boundary.
 ///
@@ -317,6 +409,7 @@ fn snap_down(content: &str, index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fmt::Write as _;
 
     use iridium_editor::render::{HighlightContext, HighlightSource, ViewportConfig};
     use iridium_editor::theme::{Color, Theme};
@@ -598,6 +691,273 @@ mod tests {
             super::snap_down(text, 99),
             text.len(),
             "past the end clamps"
+        );
+    }
+
+    // =====================================================================
+    // The windowed derive (docs/design/PARSER-TAX-MAP.md stage 1)
+    // =====================================================================
+
+    /// A Rust document of `total` lines carrying one multi-line string from
+    /// line `string_start` through `string_end` inclusive — the span shape
+    /// every boundary question below is asked about.
+    fn source_with_straddling_string(
+        total: usize,
+        string_start: usize,
+        string_end: usize,
+    ) -> String {
+        let mut out = String::new();
+        for line in 0..total {
+            if line == string_start {
+                out.push_str("const LONG: &str = \"string start\n");
+            } else if line > string_start && line < string_end {
+                out.push_str("string interior\n");
+            } else if line == string_end {
+                out.push_str("string end\";\n");
+            } else {
+                writeln!(out, "fn f{line}() {{ let value = {line}; }}")
+                    .expect("writing to a String cannot fail");
+            }
+        }
+        out
+    }
+
+    /// Resolves one whole document line against `cache` and returns its runs.
+    fn runs_for_line<'a>(
+        cache: &HighlightCache,
+        source: &'a str,
+        line_start_byte: usize,
+        line_end_byte: usize,
+        theme: &Theme,
+        syntax_theme: &'a HashMap<String, Color>,
+        viewport: &'a ViewportConfig,
+    ) -> Vec<(&'a str, Color)> {
+        let context = HighlightContext {
+            content: &source[line_start_byte..line_end_byte],
+            content_start_byte: line_start_byte,
+            content_width: 800.0,
+            line_height: 20.0,
+            viewport_config: viewport,
+            syntax_theme,
+            foreground: theme.editor.foreground,
+        };
+        cache
+            .resolver(&theme.syntax)
+            .resolve(&context)
+            .expect("a parsed Rust document resolves spans")
+    }
+
+    /// The byte range of one document line, without its newline.
+    fn line_bytes(editor: &Editor, line: usize) -> (usize, usize) {
+        let document = &editor.state().document;
+        let start = document
+            .line_to_byte_offset(line)
+            .expect("the fixture line exists");
+        let text = document.line(line).expect("the fixture line exists");
+        (start, start + text.len())
+    }
+
+    /// Proof obligation: a span straddling the covered window's edge renders
+    /// at the window edge exactly as the whole-document derive renders it.
+    /// The string here starts inside the viewport and runs more than
+    /// [`super::OVERSCAN_LINES`] past it, so its node crosses the covered
+    /// window's end; tree-sitter yields it whole and the resolver clamps it.
+    #[test]
+    fn a_span_straddling_the_covered_window_edge_resolves_like_the_whole_document() {
+        let string_start = 85;
+        let string_end = 195;
+        let source = source_with_straddling_string(400, string_start, string_end);
+        let editor = rust_editor(&source);
+
+        let mut whole = HighlightCache::new();
+        whole.refresh(&editor);
+        let mut windowed = HighlightCache::new();
+        // Viewport 40..90: covered 0..190, so the string (85..=195) enters
+        // inside the viewport and leaves past the covered end.
+        windowed.refresh_windowed(&editor, 40..90);
+
+        let theme = Theme::default();
+        let syntax_theme = HashMap::new();
+        let viewport = ViewportConfig::default();
+        for line in [86, 88] {
+            let (start, end) = line_bytes(&editor, line);
+            let from_whole = runs_for_line(
+                &whole,
+                &source,
+                start,
+                end,
+                &theme,
+                &syntax_theme,
+                &viewport,
+            );
+            let from_window = runs_for_line(
+                &windowed,
+                &source,
+                start,
+                end,
+                &theme,
+                &syntax_theme,
+                &viewport,
+            );
+            assert_eq!(
+                from_window, from_whole,
+                "line {line}: the windowed derive must answer exactly as the \
+                 whole-document derive at the window edge"
+            );
+            assert!(
+                from_window
+                    .iter()
+                    .any(|(_, colour)| *colour == theme.syntax.string),
+                "line {line}: the straddling string really does paint as a string"
+            );
+        }
+    }
+
+    /// The "window only" observable: content past the covered window has no
+    /// spans in the windowed index — which is what proves the derive was
+    /// scoped — while the whole-document derive colours it.
+    #[test]
+    fn content_outside_the_covered_window_carries_no_spans() {
+        let source = source_with_straddling_string(400, 85, 195);
+        let editor = rust_editor(&source);
+
+        let mut whole = HighlightCache::new();
+        whole.refresh(&editor);
+        let mut windowed = HighlightCache::new();
+        windowed.refresh_windowed(&editor, 40..90);
+
+        let theme = Theme::default();
+        let syntax_theme = HashMap::new();
+        let viewport = ViewportConfig::default();
+        let (start, end) = line_bytes(&editor, 300);
+        let from_whole = runs_for_line(
+            &whole,
+            &source,
+            start,
+            end,
+            &theme,
+            &syntax_theme,
+            &viewport,
+        );
+        let from_window = runs_for_line(
+            &windowed,
+            &source,
+            start,
+            end,
+            &theme,
+            &syntax_theme,
+            &viewport,
+        );
+        assert!(
+            from_whole
+                .iter()
+                .any(|(_, colour)| *colour != theme.editor.foreground),
+            "the whole-document derive colours line 300"
+        );
+        assert!(
+            from_window
+                .iter()
+                .all(|(_, colour)| *colour == theme.editor.foreground),
+            "the windowed derive never derived spans 110 lines past its cover"
+        );
+    }
+
+    /// Proof obligation: scrolling within the overscan is a comparison — no
+    /// rebuild, no generation move.
+    #[test]
+    fn scrolling_within_the_overscan_rebuilds_nothing() {
+        let source = source_with_straddling_string(600, 85, 195);
+        let editor = rust_editor(&source);
+        let mut cache = HighlightCache::new();
+        cache.refresh_windowed(&editor, 200..250);
+        assert_eq!(cache.rebuilds(), 1);
+        let generation = cache.generation();
+
+        // Covered window: 100..350. Both requests stay inside it.
+        cache.refresh_windowed(&editor, 230..280);
+        cache.refresh_windowed(&editor, 120..170);
+        assert_eq!(
+            cache.rebuilds(),
+            1,
+            "a scroll within the overscan is a window comparison, not a rebuild"
+        );
+        assert_eq!(
+            cache.generation(),
+            generation,
+            "and the resolution answer has not changed, so the generation holds"
+        );
+    }
+
+    /// Proof obligation: scrolling past the cover re-derives, and the new
+    /// cover is a new answer — the generation moves like any rebuild.
+    #[test]
+    fn scrolling_past_the_cover_rebuilds_and_moves_the_generation() {
+        let source = source_with_straddling_string(600, 85, 195);
+        let editor = rust_editor(&source);
+        let mut cache = HighlightCache::new();
+        cache.refresh_windowed(&editor, 200..250);
+        assert_eq!(cache.rebuilds(), 1);
+        let generation = cache.generation();
+
+        // Covered window: 100..350. One line past the cover escapes it.
+        cache.refresh_windowed(&editor, 301..351);
+        assert_eq!(
+            cache.rebuilds(),
+            2,
+            "a viewport escaping the covered window forces the re-derive"
+        );
+        assert_ne!(
+            cache.generation(),
+            generation,
+            "content outside the old cover now answers differently"
+        );
+
+        // And the new cover holds for the viewport that produced it.
+        cache.refresh_windowed(&editor, 301..351);
+        assert_eq!(
+            cache.rebuilds(),
+            2,
+            "the new cover answers the new viewport"
+        );
+    }
+
+    /// Proof obligation: a generation move inside the window rebuilds — the
+    /// parse-gate half of the trigger is untouched by the windowing.
+    #[test]
+    fn an_edit_inside_the_window_rebuilds_the_window() {
+        let source = source_with_straddling_string(400, 85, 195);
+        let mut editor = rust_editor(&source);
+        let mut cache = HighlightCache::new();
+        cache.refresh_windowed(&editor, 40..90);
+        assert_eq!(cache.rebuilds(), 1);
+        let generation = cache.generation();
+
+        editor.paste("// note\n");
+        cache.refresh_windowed(&editor, 40..90);
+        assert_eq!(
+            cache.rebuilds(),
+            2,
+            "the edit's reparse rebuilds the window once"
+        );
+        assert_ne!(cache.generation(), generation);
+        cache.refresh_windowed(&editor, 40..90);
+        assert_eq!(cache.rebuilds(), 2, "and only once");
+    }
+
+    /// A short document's viewport estimate may run past its last line; the
+    /// clamp keeps such a request answerable, so it must not rebuild forever.
+    #[test]
+    fn a_viewport_past_the_document_end_is_clamped_not_rebuilt_every_frame() {
+        let editor = rust_editor("fn main() {}\n");
+        let mut cache = HighlightCache::new();
+        cache.refresh_windowed(&editor, 0..500);
+        assert_eq!(cache.rebuilds(), 1);
+        cache.refresh_windowed(&editor, 0..500);
+        cache.refresh_windowed(&editor, 0..500);
+        assert_eq!(
+            cache.rebuilds(),
+            1,
+            "an over-long viewport clamps to the document and stays covered"
         );
     }
 }

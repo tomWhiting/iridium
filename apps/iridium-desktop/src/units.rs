@@ -33,6 +33,19 @@ pub fn index_to_f32(value: usize) -> f32 {
     u32_to_f32(u32::try_from(value).unwrap_or(u32::MAX))
 }
 
+/// Converts a non-negative pixel quantity to a whole count of rows or
+/// columns: truncation toward zero, with `NaN` and negatives landing on
+/// zero and values past the integer range saturating.
+///
+/// The inverse direction of [`index_to_f32`], for the same reason: viewport
+/// math divides a scroll offset by a line height and needs the resulting row
+/// as an integer, and `value as usize` would perform that narrowing silently.
+/// The value is floored — already integral thereafter — and read exactly
+/// through the module's bit-level rounding.
+pub fn pixel_to_index(value: f32) -> usize {
+    usize::try_from(nearest_u32(f64::from(value.floor()))).unwrap_or(usize::MAX)
+}
+
 /// Converts a physical cursor coordinate from winit's `f64` to `f32`.
 ///
 /// The conversion goes through 1/256-pixel fixed point: exact for every
@@ -162,6 +175,23 @@ mod tests {
         assert_eq!(pixel_to_bound(-3.0), 0);
         assert_eq!(dimension_to_bound(1_080), 1_080);
         assert_eq!(dimension_to_bound(u32::MAX), i32::MAX);
+    }
+
+    /// Row conversions truncate toward zero and stay defined off the rails.
+    #[test]
+    fn pixel_indices_truncate_and_clamp() {
+        use super::pixel_to_index;
+        assert_eq!(pixel_to_index(0.0), 0);
+        assert_eq!(pixel_to_index(0.9), 0);
+        assert_eq!(pixel_to_index(1.0), 1);
+        assert_eq!(pixel_to_index(41.99), 41);
+        assert_eq!(pixel_to_index(16_383.5), 16_383);
+        assert_eq!(pixel_to_index(-3.0), 0);
+        assert_eq!(pixel_to_index(f32::NAN), 0);
+        assert_eq!(
+            pixel_to_index(f32::INFINITY),
+            usize::try_from(u32::MAX).unwrap()
+        );
     }
 
     /// Cell counts floor, and a degenerate character width yields none.

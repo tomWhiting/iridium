@@ -219,6 +219,129 @@ fn test_span_ordering() {
     assert_eq!(spans[2].start, 10);
 }
 
+/// A fixture with a multi-line string literal, plus the extents of that
+/// string's span — the shape every boundary question below is asked about.
+fn multiline_string_fixture() -> (&'static str, Vec<HighlightSpan>, HighlightSpan) {
+    let source = "fn main() {\n    let s = \"line one\n     line two\n     line three\";\n    let n = 42;\n}\n";
+    let whole = spans_for(Language::Rust, source);
+    let inside_string = source
+        .find("line two")
+        .expect("the fixture contains its own text");
+    let straddler = whole
+        .iter()
+        .find(|span| {
+            span.highlight == HighlightType::String
+                && span.start < inside_string
+                && span.end > inside_string
+        })
+        .cloned()
+        .expect("the multi-line string parses as one string span");
+    assert!(
+        source[straddler.start..straddler.end].contains('\n'),
+        "the fixture's string span must actually cross lines"
+    );
+    (source, whole, straddler)
+}
+
+/// Parses the fixture once and hands back everything a range query needs.
+fn ranged_setup() -> (SyntaxTree, Highlighter) {
+    let tree = SyntaxTree::new(Language::Rust).expect("rust parses");
+    let highlighter = Highlighter::new(Language::Rust).expect("rust has highlights");
+    (tree, highlighter)
+}
+
+#[test]
+fn spans_in_range_over_the_whole_document_matches_spans_in() {
+    let (source, whole, _) = multiline_string_fixture();
+    let (mut tree, highlighter) = ranged_setup();
+    let parsed = tree.parse(source).expect("the fixture parses");
+    assert_eq!(
+        highlighter.spans_in_range(parsed, source, 0..source.len()),
+        whole,
+        "an unrestricted range is the whole-document walk, span for span"
+    );
+}
+
+#[test]
+fn spans_in_range_yields_straddling_spans_with_full_extents() {
+    let (source, whole, straddler) = multiline_string_fixture();
+    let (mut tree, highlighter) = ranged_setup();
+    let parsed = tree.parse(source).expect("the fixture parses");
+
+    // A window cut through the middle of the string: both of its edges fall
+    // strictly inside the straddling span.
+    let window = (straddler.start + 3)..(straddler.end - 3);
+    let ranged = highlighter.spans_in_range(parsed, source, window.clone());
+
+    assert!(
+        ranged.contains(&straddler),
+        "a span straddling both window edges is yielded whole, unclamped"
+    );
+    for span in &ranged {
+        assert!(
+            whole.contains(span),
+            "the ranged walk invents nothing: every span it yields is one \
+             the whole-document walk produces"
+        );
+    }
+    // Completeness at the seam: every whole-document span lying entirely
+    // inside the window is present in the ranged answer.
+    for span in whole
+        .iter()
+        .filter(|span| span.start >= window.start && span.end <= window.end)
+    {
+        assert!(
+            ranged.contains(span),
+            "a span wholly inside the window must not be dropped: {span:?}"
+        );
+    }
+}
+
+#[test]
+fn spans_in_range_intersecting_matches_only_touch_the_window() {
+    // The contract's second consequence, held to: matches are returned when
+    // they *intersect* the window, so every yielded span belongs to a match
+    // touching it — and spans of matches nowhere near the window stay out.
+    let (source, _, straddler) = multiline_string_fixture();
+    let (mut tree, highlighter) = ranged_setup();
+    let parsed = tree.parse(source).expect("the fixture parses");
+
+    // A window over the string's interior only: the answer must not contain
+    // the `42` literal, whose match lies entirely past the window.
+    let number_at = source
+        .find("42")
+        .expect("the fixture contains its own text");
+    let window = (straddler.start + 3)..(straddler.end - 3);
+    let ranged = highlighter.spans_in_range(parsed, source, window);
+    assert!(
+        !ranged
+            .iter()
+            .any(|span| span.highlight == HighlightType::Number && span.start == number_at),
+        "a match wholly outside the window is not yielded"
+    );
+}
+
+#[test]
+fn spans_in_range_with_an_empty_range_yields_nothing() {
+    let (source, _, _) = multiline_string_fixture();
+    let (mut tree, highlighter) = ranged_setup();
+    let parsed = tree.parse(source).expect("the fixture parses");
+    assert!(
+        highlighter.spans_in_range(parsed, source, 5..5).is_empty(),
+        "an empty range yields no spans"
+    );
+    // Spelled as struct syntax: an inverted range *literal* is itself a lint,
+    // and rightly so — this test exists to pin what happens when one arrives
+    // anyway.
+    let inverted = std::ops::Range { start: 10, end: 2 };
+    assert!(
+        highlighter
+            .spans_in_range(parsed, source, inverted)
+            .is_empty(),
+        "an inverted range is empty, never the whole document"
+    );
+}
+
 #[test]
 fn test_tsx() {
     let language = Language::Tsx;

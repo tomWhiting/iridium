@@ -91,7 +91,7 @@ use crate::overlay::{OverlayPainter, PanelContent, StripContent};
 use crate::prompt::{Answer, Deed, Message, Prompt};
 use crate::search::{SearchOutcome, SearchOverlay};
 use crate::surface::NativeSurface;
-use crate::units::{index_to_f32, pixel_from_f64, scale_to_f32, u32_to_f32};
+use crate::units::{index_to_f32, pixel_from_f64, pixel_to_index, scale_to_f32, u32_to_f32};
 
 /// The window title before a session has a file to name.
 const TITLE: &str = "iridium";
@@ -982,6 +982,34 @@ impl DesktopApp {
         self.scroll_y = self.scroll_y.clamp(0.0, max);
     }
 
+    /// The document lines (half-open) the next frame will show — the window
+    /// the highlight cache scopes its span derive to.
+    ///
+    /// Fold-aware through the kernel's visual-line mapping, and derived from
+    /// the same inputs that drive the compose: the face-owned `scroll_y`, the
+    /// surface height and the compositor's line height. Wrap-unaware by
+    /// construction — the wrap map belongs to the frame being composed — so
+    /// with wrapped lines above the viewport the estimate names later lines
+    /// than are truly first on screen; the cache's overscan margin
+    /// (`highlight::OVERSCAN_LINES` each way) is what absorbs that slack,
+    /// alongside the row of partial-line slack added here. `None` without a
+    /// shell: a headless session has no viewport to scope to.
+    fn viewport_window(&self) -> Option<std::ops::Range<usize>> {
+        let shell = self.shell.as_ref()?;
+        let line_height = shell.compositor.line_height();
+        if line_height <= 0.0 {
+            return None;
+        }
+        let first_visual = pixel_to_index(self.scroll_y / line_height);
+        let rows =
+            pixel_to_index(u32_to_f32(shell.surface.height()) / line_height).saturating_add(2);
+        let first_line = self.editor.visual_to_document_line(first_visual);
+        let last_line = self
+            .editor
+            .visual_to_document_line(first_visual.saturating_add(rows));
+        Some(first_line..last_line.saturating_add(1))
+    }
+
     /// Pushes the surface's geometry into the kernel's viewport.
     ///
     /// Painting never reads that viewport — the compositor is driven by
@@ -1083,8 +1111,13 @@ impl DesktopApp {
     /// silently freezing the window.
     fn redraw(&mut self) {
         // Costs a generation comparison when nothing changed; the spans are
-        // rebuilt only when the kernel actually reparsed.
-        self.syntax.refresh(&self.editor);
+        // rebuilt — over the frame's viewport plus overscan, never the whole
+        // document — only when the kernel actually reparsed or the viewport
+        // escaped the covered window.
+        match self.viewport_window() {
+            Some(window) => self.syntax.refresh_windowed(&self.editor, window),
+            None => self.syntax.refresh(&self.editor),
+        }
         let strip = self.strip_content();
         let panels = self.panel_contents();
         let editor = &self.editor;

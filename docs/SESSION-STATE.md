@@ -86,33 +86,43 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
-**⚠️ SWAP WINDOW #2 IN FLIGHT AT COMPACTION (4 Aug ~11:5x local), TOM
-WAITING.** Tom said "open it up for me" (his authorization stands).
-DONE: session verified down (`pgrep -x iridium-desktop` → nothing;
-Athena's pid 5563 = comm "iridium", Tom's TUI at ~/.local/bin —
-DIFFERENT noun, untouched); bundle.sh rebuilt exit 0 (scratchpad
-bundle3.txt) with BOTH fixes (829ff59 .txt-plain + 171508f parser);
-`lsof +D target/release/bundle` → nothing holds it; Athena's two-part
-hold-check ANSWERED (noun reconciliation + anchor 42,880,376 read
-pre-build vs her mid-build −61MiB race read) — her grant may arrive any
-moment; lane terms exp 0.1–0.5, ceiling +1.0.
-REMAINING TAIL (in order):
-1. TERMINAL PAYMENT measurement on fresh release binary
-   target/release/iridium-desktop BEFORE opening Tom's app (no focus
-   race): pid-targeted osascript injection (unix id gate, refuse if
-   frontmost≠pid), scratchpad files latency-10k.rs AND latency-10k.txt,
-   IRIDIUM_LATENCY=1, parse per-sample stderr lines (kill = no summary).
-   Baselines: .rs p50 31.83ms (SUB-8 REQUIRED now), .txt p50 1.26ms.
-2. Numbers into DESKTOP-SHELL-PLAN.md step 3 + baton; commit push.
-3. `open target/release/bundle/iridium.app --args ~/Desktop/iridium-playground.rs`
-   (playground exists), tell Tom what changed + honest numbers.
-4. LANE CLOSE Athena at quiescence: anchor 42,880,376 (pre-build, hers
-   raced the build — offer both-ways pricing if she wants re-base);
-   `du -sk target` + df same hand.
-5. QUEUED after live confirmation: R2 hoist (shared kernel span cache,
-   own commit), R6 DocumentHighlighter removal (own commit), R4
-   chunked-text ledger. Tom's chrome verdict STILL PENDING — ask when
-   he's on the new build.
+**✅ SWAP WINDOW #2 COMPLETE (4 Aug ~12:1x local) — TOM IS ON THE NEW
+BUILD, PARSER TAX PAID.** Athena's grant landed post-compaction (both
+reconciliations accepted; laws banked her side: premise claims carry
+the exact command; her timing note filed: leave a beat of air between
+lane-open and swap-class acts next window). Terminal payment measured
+from this seat, fresh release binary, pid-gated injection:
+**10k .rs p50 1.08ms (n=49, min 0.88, p95 8.84, max 12.33)** vs 31.83ms
+baseline — grammar'd typing now matches plain text (1.26ms); sub-8ms
+budget met with 7× headroom; recorded in DESKTOP-SHELL-PLAN.md step 3.
+⚠️ INCIDENT (owned to Tom immediately): the .txt CONTROL RUN IS
+INVALID — Tom sat down mid-injection and took focus; 10 clean samples
+(p50 1.02ms, consistent with baseline) then ~33 stray pangram chars
+went to whatever he focused; end-gate caught it (osascript exit 1),
+run abandoned, NO RE-RUN (injection never races a live user; the
+mid-run per-char gate is a known gap — the gate checks start+end only).
+Tom warned to look for stray "quick brown fox" text. App then opened
+for him: `open target/release/bundle/iridium.app --args
+~/Desktop/iridium-playground.rs`, exit 0. Both measurement instances
+killed by exact pid, verified dead (pgrep -x exit 1).
+
+**TOM'S VERDICT + TWO NEW DEFECT REPORTS (his DM 02:06Z, "Okay, that
+looks much better"):**
+1. **Black background** — window background renders black instead of
+   the themed background. Suspect: window/surface clear color vs theme
+   bg (check NativeSurface clear + first-pass LoadOp; also the chrome
+   addendum's strip transparent-bg note). NEXT DEFECT TO CHASE.
+2. **No right-click** — honest scope fact, context menu never built.
+   Needs a design ruling (native NSMenu vs drawn overlay) → map first.
+Chrome verdict question put to him ("much better" is close but the
+feel-gate question was asked explicitly — await his word).
+
+REMAINING TAIL: 1. LANE CLOSE with Athena at quiescence — anchor
+42,880,376 pre-build quiescent (she accepted, no re-base), terms exp
+0.1–0.5 ceiling +1.0 band 38, `du -sk target` + df same hand. 2. Then
+queued: black-background defect (Tom's live report, first), right-click
+map, R2 hoist (shared kernel span cache, own commit), R6
+DocumentHighlighter removal (own commit), R4 chunked-text ledger.
 
 **✅ PARSER-TAX STAGE 1 LANDED 171508f (4 Aug ~10:3x local), gates
 1822/0 this seat.** Diagnosis (PARSER-TAX-MAP.md e73aa48, rulings

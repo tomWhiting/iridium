@@ -69,6 +69,7 @@ use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::render::{FrameCompositor, FrameTarget};
+use iridium_editor::theme::Theme;
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyCode, KeyEvent,
     KeymapError, Language, MouseResult, RegistryError,
@@ -160,7 +161,11 @@ impl Shell {
     /// compositor's only path that measures character width, and it measures
     /// at the size in force when it runs. The overlay's painter follows the
     /// same rule.
-    fn open(event_loop: &ActiveEventLoop) -> Result<Self, String> {
+    ///
+    /// `theme` is the editor's own: the compositor must never sit frozen on
+    /// a preset the editor does not hold, or its clear color and chrome
+    /// colors drift from everything the resolver paints.
+    fn open(event_loop: &ActiveEventLoop, theme: Theme) -> Result<Self, String> {
         let attributes = Window::default_attributes().with_title(TITLE);
         let window = event_loop
             .create_window(attributes)
@@ -180,6 +185,7 @@ impl Shell {
         )
         .map_err(|error| format!("cannot create the compositor: {error}"))?;
 
+        compositor.set_theme(theme);
         let font_size = BASE_FONT_SIZE * scale_to_f32(window.scale_factor());
         compositor.set_font_size(font_size);
         compositor.load_font(FONT.to_vec());
@@ -1265,7 +1271,7 @@ impl ApplicationHandler for DesktopApp {
         if self.shell.is_some() {
             return;
         }
-        match Shell::open(event_loop) {
+        match Shell::open(event_loop, self.editor.state().theme.clone()) {
             Ok(shell) => {
                 shell.window.request_redraw();
                 self.shell = Some(shell);

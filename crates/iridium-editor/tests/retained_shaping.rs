@@ -25,7 +25,7 @@ use std::io::Write as _;
 use std::sync::mpsc;
 
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
-use iridium_editor::theme::Color;
+use iridium_editor::theme::{Color, Theme};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Language, Modifiers, Position};
 
 /// Offscreen frame width in physical pixels. Chosen so `width * 4` is a
@@ -439,6 +439,29 @@ fn steady_frames_hit_and_reproduce_the_cold_frame_exactly() {
     );
 }
 
+/// The composed frame stands on the theme's own background: the dark
+/// preset must present opaque `#1a1a1a` — the pixels the web demo shows
+/// behind its canvas — on a surface with no compositing behind it.
+#[test]
+fn the_dark_frame_background_is_opaque_1a1a1a() {
+    let gpu = gpu();
+    let tgt = target(&gpu, WIDTH, HEIGHT);
+    let mut compositor = compositor(&gpu);
+    let editor = editor_over(200);
+    let mut highlights = NoHighlights;
+
+    compose(&mut compositor, &editor, 0.0, &mut highlights, &gpu, &tgt);
+    let frame = pixels(&gpu, &tgt);
+    // The bottom-right corner pixel: right of the gutter column and every
+    // glyph, under no quad — the clear color alone.
+    let corner = (((HEIGHT - 1) * WIDTH + (WIDTH - 1)) * 4) as usize;
+    assert_eq!(
+        &frame[corner..corner + 4],
+        &[26, 26, 26, 255],
+        "the dark background must present as opaque #1a1a1a (Bgra8Unorm bytes)"
+    );
+}
+
 /// The empty document is the degenerate content path (one empty buffer
 /// line): it must compose, hit, and reproduce itself exactly.
 #[test]
@@ -754,6 +777,45 @@ fn a_theme_flip_misses_and_recomposes_identically() {
         after == cold,
         "the light-theme frame must be byte-identical"
     );
+}
+
+/// The staleness row for `set_theme`, the arbitrary-theme mutator beside
+/// `set_dark_theme`: replacing the theme must miss — a `set_theme` that
+/// skipped the generation bump would serve stale-colored retained frames —
+/// and the frame must both present the new background and be byte-identical
+/// to a cold compositor holding the same theme.
+#[test]
+fn a_set_theme_misses_and_recomposes_identically() {
+    let gpu = gpu();
+    let tgt = target(&gpu, WIDTH, HEIGHT);
+    let mut warm = compositor(&gpu);
+    let editor = editor_over(200);
+    let mut highlights = NoHighlights;
+    let mut theme = Theme::dark();
+    // #336699: every channel an exact multiple of 1/255, so the readback
+    // bytes are exact.
+    theme.editor.background = Color::new(0.2, 0.4, 0.6, 1.0);
+
+    compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
+    let before = pixels(&gpu, &tgt);
+    warm.set_theme(theme.clone());
+    compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
+    assert_eq!(warm.shape_rebuilds(), 2, "a theme replacement is a miss");
+    let after = pixels(&gpu, &tgt);
+    assert!(after != before, "the new background must be visible");
+
+    // The clear color follows the set theme, not a frozen preset.
+    let corner = (((HEIGHT - 1) * WIDTH + (WIDTH - 1)) * 4) as usize;
+    assert_eq!(
+        &after[corner..corner + 4],
+        &[153, 102, 51, 255],
+        "the frame must stand on the set theme's background (Bgra8Unorm bytes)"
+    );
+
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
+        fresh.set_theme(theme.clone());
+    });
+    assert!(after == cold, "the set-theme frame must be byte-identical");
 }
 
 /// Toggling syntax highlighting switches the whole fill path.

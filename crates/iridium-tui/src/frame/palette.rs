@@ -5,10 +5,10 @@
 //! background are the user's choice rather than ours. Two rules follow, and
 //! they are applied here so that no other module has to know them.
 //!
-//! **A fully transparent colour is the terminal's own.** The dark preset's
-//! editor background is `(0, 0, 0, 0)` — the GPU face composites it over the
-//! window. There is no window here, so it becomes [`Color::Default`], which is
-//! exactly "whatever the user configured", and which survives every colour
+//! **A fully transparent colour is the terminal's own.** A theme may leave a
+//! surface fully transparent for a GPU face to composite over whatever sits
+//! behind it. There is no window here, so it becomes [`Color::Default`], which
+//! is exactly "whatever the user configured", and which survives every colour
 //! degradation tier untouched.
 //!
 //! **A translucent colour is composited over the editor background when there
@@ -219,12 +219,14 @@ fn over(color: ThemeColor, background: ThemeColor) -> Color {
 
 /// The statusline's style.
 ///
-/// A theme whose gutter is transparent gives the statusline nothing to stand
-/// out against, so it falls back to reverse video — the one way to be visible
-/// on a terminal whose colours we do not know.
+/// A theme whose gutter is transparent, or indistinct from the editor
+/// background, gives the statusline nothing to stand out against, so it
+/// falls back to reverse video — the one way to be visibly a band whether
+/// the surface colour is the terminal's own or a gutter that collapsed into
+/// the background.
 fn status_style(theme: &Theme) -> Style {
     let background = solid(theme.editor.gutter);
-    if background == Color::Default {
+    if background == Color::Default || theme.editor.gutter == theme.editor.background {
         return Style::new(Color::Default, Color::Default, Attributes::REVERSE);
     }
     Style::new(solid(theme.editor.foreground), background, Attributes::NONE)
@@ -233,8 +235,8 @@ fn status_style(theme: &Theme) -> Style {
 /// The base style of an overlay panel.
 ///
 /// The background is the current-line colour rather than the gutter's. Both
-/// presets give it a value that reads as a band — the dark preset's gutter is
-/// transparent and its current line is not — and it is the one theme colour
+/// presets give it a value that reads as a band a step above the editor
+/// surface, and it is the one theme colour
 /// whose whole purpose is "a stripe across the text that is still text". A
 /// theme that leaves it transparent gets a panel in the terminal's own
 /// background, which is legible but no longer visibly a panel; the labels,
@@ -284,14 +286,17 @@ mod tests {
     }
 
     #[test]
-    fn the_dark_preset_leaves_the_background_to_the_terminal() {
+    fn the_dark_preset_paints_its_own_background() {
+        // The dark preset states an opaque #1a1a1a surface — the pixels the
+        // web demo shows — so the terminal paints it rather than deferring
+        // to its own background.
         let palette = Palette::from_theme(&Theme::dark());
-        assert_eq!(palette.text().background, Color::Default);
+        assert_eq!(palette.text().background, Color::Rgb(26, 26, 26));
         assert_ne!(palette.text().foreground, Color::Default);
     }
 
     #[test]
-    fn the_dark_presets_selection_is_visible_against_an_unknown_background() {
+    fn the_dark_presets_selection_is_visible() {
         let palette = Palette::from_theme(&Theme::dark());
         let selected = palette.selected(palette.text());
         assert_ne!(selected.background, Color::Default);
@@ -300,15 +305,33 @@ mod tests {
 
     #[test]
     fn a_theme_with_no_gutter_colour_gets_a_reverse_video_statusline() {
-        let palette = Palette::from_theme(&Theme::dark());
+        let mut theme = Theme::dark();
+        theme.editor.gutter = ThemeColor::new(0.0, 0.0, 0.0, 0.0);
+        let palette = Palette::from_theme(&theme);
         assert!(palette.status().attributes.contains(Attributes::REVERSE));
     }
 
     #[test]
-    fn a_theme_with_a_gutter_colour_gets_a_coloured_statusline() {
-        let palette = Palette::from_theme(&Theme::light());
-        assert!(!palette.status().attributes.contains(Attributes::REVERSE));
-        assert_ne!(palette.status().background, Color::Default);
+    fn a_gutter_indistinct_from_the_background_gets_a_reverse_video_statusline() {
+        // The dark preset's gutter equals its editor background: a statusline
+        // painted gutter-on-gutter is no band at all, so it must fall back to
+        // reverse video exactly as a transparent gutter does.
+        let theme = Theme::dark();
+        assert_eq!(theme.editor.gutter, theme.editor.background);
+        let palette = Palette::from_theme(&theme);
+        assert!(palette.status().attributes.contains(Attributes::REVERSE));
+    }
+
+    #[test]
+    fn a_gutter_distinct_from_the_background_gets_a_coloured_statusline() {
+        let mut distinct = Theme::dark();
+        distinct.editor.gutter = ThemeColor::new(0.15, 0.15, 0.18, 1.0);
+        for theme in [distinct, Theme::light()] {
+            assert_ne!(theme.editor.gutter, theme.editor.background);
+            let palette = Palette::from_theme(&theme);
+            assert!(!palette.status().attributes.contains(Attributes::REVERSE));
+            assert_ne!(palette.status().background, Color::Default);
+        }
     }
 
     #[test]

@@ -451,3 +451,30 @@ headless; only the translation layer tests.)
 `apps/iridium-desktop/src/overlay.rs` (menu geometry + rows-only
 paint), `apps/iridium-desktop/src/app.rs` (right-press arm, modal
 ordering, dismissal, dispatch). Kernel: untouched.
+
+---
+
+## RULINGS — 4 Aug 2026, all six ruled by Tom (his DM ~03:45Z:
+## "let's go with all your recommendations in")
+
+- **D-1: RULED (B), the drawn overlay.** The flip condition (system
+  Services/Look Up/dictation as a requirement) was put to him
+  explicitly and not taken.
+- **D-2: RULED — the §3 buildable floor** (Cut, Copy, Paste, Select
+  All, plus a Command Palette… entry). Contents remain his tuning
+  surface at the feel gate. "Toggle Fold" stays out of this slice;
+  fold command ids in the registry are noted as worth adding
+  independently (palette-searchable folds), on the follow-up ledger.
+- **D-3: RULED — right button only opens the menu in v1.** Ctrl+click
+  keeps its shipped add-cursor meaning; ⌘-click unchanged.
+- **D-4: RULED — the click-through gap is fixed in this slice.** A
+  click outside an open modal panel (palette / undo tree) dismisses
+  the panel and does not reach the document, macOS-style. This is the
+  ruled behavior change to shipped panels.
+- **D-5: RULED — Cut/Copy stay enabled with a collapsed selection**
+  (they honestly operate on the caret line; greying would misstate
+  them).
+- **D-6: RULED — the macOS caret rule.** Right-press inside the
+  selection leaves it; outside, the caret moves to the clicked cell
+  through the existing resolved-cell press path, so the menu's verbs
+  act where the user pointed.

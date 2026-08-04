@@ -86,6 +86,34 @@ unresolved" (the 1.5–2.5 expectation overshot 3×, trend series
 270/84/562/2,530/3,000/924/586 MiB); Tom reported v1-complete with the
 open instructions and the identifier flag.
 
+**⚠️ SWAP WINDOW #2 IN FLIGHT AT COMPACTION (4 Aug ~11:5x local), TOM
+WAITING.** Tom said "open it up for me" (his authorization stands).
+DONE: session verified down (`pgrep -x iridium-desktop` → nothing;
+Athena's pid 5563 = comm "iridium", Tom's TUI at ~/.local/bin —
+DIFFERENT noun, untouched); bundle.sh rebuilt exit 0 (scratchpad
+bundle3.txt) with BOTH fixes (829ff59 .txt-plain + 171508f parser);
+`lsof +D target/release/bundle` → nothing holds it; Athena's two-part
+hold-check ANSWERED (noun reconciliation + anchor 42,880,376 read
+pre-build vs her mid-build −61MiB race read) — her grant may arrive any
+moment; lane terms exp 0.1–0.5, ceiling +1.0.
+REMAINING TAIL (in order):
+1. TERMINAL PAYMENT measurement on fresh release binary
+   target/release/iridium-desktop BEFORE opening Tom's app (no focus
+   race): pid-targeted osascript injection (unix id gate, refuse if
+   frontmost≠pid), scratchpad files latency-10k.rs AND latency-10k.txt,
+   IRIDIUM_LATENCY=1, parse per-sample stderr lines (kill = no summary).
+   Baselines: .rs p50 31.83ms (SUB-8 REQUIRED now), .txt p50 1.26ms.
+2. Numbers into DESKTOP-SHELL-PLAN.md step 3 + baton; commit push.
+3. `open target/release/bundle/iridium.app --args ~/Desktop/iridium-playground.rs`
+   (playground exists), tell Tom what changed + honest numbers.
+4. LANE CLOSE Athena at quiescence: anchor 42,880,376 (pre-build, hers
+   raced the build — offer both-ways pricing if she wants re-base);
+   `du -sk target` + df same hand.
+5. QUEUED after live confirmation: R2 hoist (shared kernel span cache,
+   own commit), R6 DocumentHighlighter removal (own commit), R4
+   chunked-text ledger. Tom's chrome verdict STILL PENDING — ask when
+   he's on the new build.
+
 **✅ PARSER-TAX STAGE 1 LANDED 171508f (4 Aug ~10:3x local), gates
 1822/0 this seat.** Diagnosis (PARSER-TAX-MAP.md e73aa48, rulings
 appended): incremental parse was already sub-ms; the ~30ms was the

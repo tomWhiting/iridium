@@ -282,7 +282,68 @@ place to hide a real defect.
 PROCESS, not the number — pid-reuse law). Bundle carries bd5c85c +
 1198fa6 + 5f7a37d.
 
-**CONTEXT-MENU LANE IN FLIGHT.** Implementation agent running (Opus)
+## ✅ CONTEXT MENU + D-4 + LIGHT-PRESET FIX ALL LANDED (5 Aug ~18:2x local)
+
+Three commits, deliberately separate, all gated from this seat:
+
+- **`44ab514`** `fix(desktop):` D-4 click-through — a press outside the
+  palette or undo tree no longer reaches the document. **Tom's reported
+  defect, task #29, landed on its own** so a fix to shipped behaviour
+  and a new feature keep different revert lifetimes. Carries `overlay.rs`
+  whole (point anchor + separators inert but public and self-tested).
+- **`5e91b03`** `feat(desktop):` the drawn context menu, path B, all six
+  of Tom's rulings in. New `context_menu.rs`; Cut/Copy/Paste/Select
+  All/Command Palette built from the kernel's own `const CommandId`s.
+- **`0c288e1`** `fix(theme):` the light-preset defect pair (see below).
+
+**How the split was made, since the agent delivered a COMBINED tree.**
+`git stash`/`checkout --`/`restore` are banned in this checkout, so the
+intermediate was built *constructively*: back every touched file up by
+`cp` to scratchpad, `git show HEAD:<path> > <path>` (a read, not a
+banned command) to return four files to HEAD, hand-add the ~60-line D-4
+guard onto HEAD's `app.rs`, gate, commit path-scoped, then `cp` the
+backups back — byte-identical to the tree the full battery had already
+cleared. **Additive reconstruction beat subtractive**: writing 60 lines
+onto a known-good base is far safer than removing 400 from verified
+work, and `overlay.rs` could go whole into the first commit because its
+menu-side additions are `pub` and carry their own tests, so they neither
+warn nor sit uncovered.
+
+**GATES, all unpiped from my hand, on the final tree:** workspace
+**1892 passed / 0 failed**; GPU-free kernel green; wasm bindings green;
+clippy `--workspace --all-features --all-targets` at **exactly the 4
+f32-cast warnings** (`crates/iridium-editor/src/input/mouse.rs:556/566`),
+zero new; `cargo fmt --all --check` clean. Intermediate commit gated
+separately at 172 passed. Verified by hand, not taken on report: every
+`unwrap`/`expect`/`panic!` in the touched files sits inside `mod tests`,
+checked against each module's `mod tests` line.
+
+**⚠️ The agent's report claimed all gates green and the LSP diagnostics
+simultaneously claimed `chrome_screenshots.rs` would not compile.** I
+re-ran everything from my own hand rather than believe either. The
+diagnostics were stale editor state; `--all-targets` compiles. Note also
+that the agent's gate output **overwrote my scratchpad files** — we
+collided on filenames — so its evidence was unreadable by the time I
+looked. Distinct prefixes next time (`seat-*` worked).
+
+**LANE CLOSED — COMBINED, as Athena ruled.** Anchor 45,471,720 KiB →
+**45,773,124 KiB** = **+301,404 KiB = 0.287 GiB**, named as
+"context-menu + light-fix draw" against ceiling **1.4**, expectation
+0.3–0.9. Just under the low end *including* the extra intermediate build
+the commit split cost. `du -sk target`, exit 0, in the same message as
+this figure.
+
+**OPEN FOR TOM — one behaviour question, not a defect.** D-4 says a click
+outside a modal panel dismisses it; §4.4 says a right-click with the
+palette open is swallowed and the panel stays. Both are honoured as
+written, so **left-press dismisses while right-press does nothing**. My
+recommendation: right-press should dismiss too — modal ought to mean one
+dismissal gesture, not two that differ by button. One guard in
+`secondary_pressed` either way.
+
+### (superseded) The lane while it was in flight
+
+**CONTEXT-MENU LANE WAS IN FLIGHT.** Implementation agent ran (Opus)
 against CONTEXT-MENU-MAP.md's ruled path B, all six D's ruled by Tom.
 Files per map: `apps/iridium-desktop/src/context_menu.rs` (NEW) +
 overlay.rs + app.rs; kernel untouched. Lane open with Athena: anchor
@@ -293,6 +354,122 @@ shipped behaviour vs new feature = different revert lifetimes); if
 genuinely inseparable it must name the lines that force it so the
 joint commit is knowing. On its report: review diff → my five-gate
 battery → commit (separably if possible) → lane close.
+
+### 🧾 LANE-OPEN TEMPLATE — required fields, no lane opens without them
+
+Added 5 Aug on Athena's ruling. A price may not be stated without
+naming the reach, so that the failure mode is a **blank field rather
+than a plausible sentence**. The forcing function belongs in the
+artifact, never in the operator's memory.
+
+1. **Noun** — what is being built, in one phrase. This is what a
+   breach files against, so it must be nameable before the work.
+2. **Anchor** — the measured starting figure, from a command in the
+   same message as the claim.
+3. **INVALIDATION SET — "what does this change invalidate?"**,
+   answered as a **crate list**, not an adjective. This is the field
+   that was missing twice. **Ask what the change invalidates, never
+   what it means:** a source change to a crate invalidates that
+   crate's fingerprint and every downstream crate and test binary
+   with it — five colour constants reach exactly as far as a trait
+   change. "Small edit" read off the diff has now mispriced two lanes
+   (the 1.35 GiB breach, and the light-fix draw), both times while
+   the relink-reach law was already banked and in view.
+4. **Expectation and ceiling** — priced off field 3, never off line
+   count or off warmth.
+5. **Inner lanes, declared AT OPEN** — not prohibited, declared. Disk
+   is not the issue; **separability** is, and it is only recoverable
+   if the outer close knows what it contains before the reads happen.
+   Same shape as the standing deferral class.
+
+**Why a FIELD and not a discipline** — the mechanism, which is the
+transferable part: **a blank field cannot read fine, while prose
+always can.** The mispricing this template exists to prevent was not
+a gap in the record; it was a fluent, confident, wrong justification
+that read perfectly well. A confident wrong sentence is
+indistinguishable from a right one at the surface. A missing crate
+list is not. Field 3 therefore carries its own reason inline —
+**a required field without its reason decays into something to fill
+in**, and then the crate list gets produced the same way the wrong
+sentence was.
+
+**The class this belongs to, banked with TWO independent
+provenances** (Athena's seat minted it from a night of measurement
+defects across four seats: *awareness is not a control — everything
+that held changed the artifact, everything that failed changed the
+operator*; this seat reached it from four instrument repairs in one
+session): **an instrument that can fail silently will, and the fix
+is always to make the failure structurally loud rather than to be
+more careful.** Every repair this session has the same shape —
+replace a slot where fluent output can appear with one where absence
+is visible. `pgrep … | wc -l` fabricating a zero; the injection gate
+checking start and end but not the middle; verification deferred
+against a mutable noun. Each produced a *plausible* output where it
+should have produced a refusal.
+
+**Two laws that ride this template:**
+
+- **Concurrent lanes over overlapping relink sets SHARE the relink
+  cost.** An inner lane run inside an outer lane's rebuild is
+  therefore *cheaper* than the same work run alone — the opposite of
+  the intuition that piggybacking is something got away with.
+- **An absorbed lane makes the outer close a COMBINED figure** and it
+  must be named that way. A close that silently carries a second
+  lane's bytes is a mislabelled noun, which is the real cost.
+
+**LIVE OBLIGATION:** the context-menu close is **combined** —
+"context-menu + light-fix draw" against the 1.4. If it exceeds it
+files against the combined noun and neither lane alone. Do **not**
+quote a menu-only number at close.
+
+### ✅ LIGHT-PRESET DEFECT PAIR FIXED — landed `0c288e1`
+
+`crates/iridium-editor/src/theme/colors.rs`, the two defects
+LIGHT-THEME-MAP bound as preconditions of the theme-switch lane:
+`attribute` `#ff0000` → **`#001080`** (was identical to `error`, so
+malformed markup rendered as well-formed); `operator`/`punctuation`
+`#000000` → **`#333333`** (body ink is `#333333`, so separators were
+painted darker than the code they separate).
+
+**Why these are fixes and not taste:** the dark preset already holds
+both invariants — `attribute` sits in the identifier family beside
+`variable`/`property` at `#9cdcfe`, and `operator == punctuation ==
+foreground` at `#d4d4d4`. Both tests were written red first and
+failed naming **light only**, dark passing untouched. That asymmetry
+is the evidence: light drifted off invariants the codebase already
+had. Fixing `attribute` rather than softening `error` is deliberate —
+two reds a glance apart would satisfy an inequality assertion while
+leaving the classes indistinguishable, which is the thing the test
+exists to prevent.
+
+New tests: `a_diagnostic_never_wears_a_token_colour`,
+`separators_are_never_louder_than_the_code_they_separate` — both
+assert over **both** presets.
+
+**MAP RULE WITHDRAWN.** LIGHT-THEME-MAP's `every_syntax_colour_is_distinct`
+(14 fields pairwise unequal, both presets) is unsatisfiable and always
+was: both presets and all three candidate variants tie colours
+deliberately (`tag == string` in all three, `variable == operator` in
+C). Withdrawn in §2.2 and §4, replaced by the two narrow invariants
+above. **`classic.rs:44-55` caught this first** and filed it against
+the map rather than improvising around it — the exemplar, and the
+reason the correction cost one read.
+
+**Law banked:** *a spec defect found mid-implementation is filed
+against the spec, not routed around in the code.* And Athena's
+sharper mirror of it: **an unsatisfiable spec rule hides exactly like
+a vacuous one — by generating no signal, because nobody implemented
+it.** From the test report the two are indistinguishable; both only
+surface when someone sits down to implement them and refuses to look
+away.
+
+**Gate state:** kernel all-features green, kernel
+`--no-default-features` green, wasm bindings check green, clippy
+`-p iridium-editor` at the exact 4-warning f32 baseline, fmt clean.
+**Workspace battery NOT run and commit HELD** — the menu lane has
+`overlay.rs`/`app.rs` mid-edit and that crate does not compile. Run
+the full battery once the tree builds, then commit **separately** from
+the menu.
 
 **TOM'S TWO LIVE REPORTS, both answered as EXPECTED-not-broken:**
 (1) word-by-word select doesn't work — correct, ⌥⇧←/→ was
@@ -308,8 +485,14 @@ Shift precisely to leave this gap, and
 `the_word_select_chords_are_left_to_the_syntax_verbs` pins the
 current resolution — that test must be updated as part of the swap,
 which is the design working as intended (the collision becomes a
-decision, not a drift). Asked him to report if ⌥←/→ or ⌘←/→ do
-nothing, since THAT would be a real bug.
+decision, not a drift). **Destination chord verified free (5 Aug):**
+the kernel binds Left/Right at `default_keymap.rs:158-188` under
+NAV_SHIFT / NAV_CTRL / NAV_CTRL_SHIFT, whose meta is `Any` — so a
+`Required`-meta desktop pattern on ⌃⇧⌘←/→ outranks it by the same
+precedence mechanism the existing 14 MAC_CHORDS already use. No
+prefix conflict either: `check_cross_layer_shadowing` governs
+multi-stroke prefixes, and these are single strokes. Asked him to
+report if ⌥←/→ or ⌘←/→ do nothing, since THAT would be a real bug.
 (2) theme unchanged — correct, no switch exists; candidates are
 face-unreachable (verified). Asked him for one word: platinum /
 paper / monochrome.

@@ -84,7 +84,13 @@ fn with_napi_str<T>(value: impl AsRef<str>, f: impl FnOnce(&str) -> T) -> T {
 // WASM module (browser bindings)
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 mod wasm;
-#[cfg(all(feature = "web", target_arch = "wasm32"))]
+// Compiled for the host as well when testing. The span index is ordinary
+// Rust over `rust_lapper` with no binding surface of its own, so the
+// `wasm32` gate on it was never about what it could compile — it rode along
+// with `wasm.rs`, its only consumer. The effect was that nothing in this
+// module could be tested by any gate: `cargo test` never built it, and the
+// wasm gate is a `check`, which compiles without running a single test.
+#[cfg(all(feature = "web", any(target_arch = "wasm32", test)))]
 mod web_span_index;
 
 #[cfg(all(feature = "web", target_arch = "wasm32"))]

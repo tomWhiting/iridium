@@ -56,6 +56,13 @@ jobs:
         # them into exactly what the comment three steps below warns
         # against: a configuration whose tests never run. Move the runner
         # into the test's reach, never the test out of the runner's.
+        #
+        # SCOPE, stated here so nobody has to infer it: lavapipe is a
+        # DIFFERENT RENDERER. A green run certifies the software path, not
+        # the GPU path, so any assertion about rendered output rather than
+        # about constants is verified against CPU rasterisation only.
+        # Enormously better than harnesses that never execute, and still
+        # not a claim about a real adapter.
         run: |
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers vulkan-tools

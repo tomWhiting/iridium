@@ -61,11 +61,27 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy (report-only until the per-phase ratchet lands)
-        # PLAN.md §2: this becomes `-D warnings` per crate as each phase
-        # brings its modules to standard. Tracking count: 228 on 2026-07-12.
-        run: cargo clippy --workspace --all-features --all-targets
-        continue-on-error: true
+      - name: Clippy
+        # Denying, not reporting. `continue-on-error` used to sit here and
+        # made this job incapable of failing whatever it printed; the count
+        # its comment tracked ("228 on 2026-07-12") had reached zero without
+        # anyone noticing, which is what a report nobody acts on looks like
+        # from the inside. Adding a stricter flag to a job that cannot fail
+        # buys a stricter report and no enforcement, so the flag and the
+        # removal belong in the same change.
+        #
+        # `-D warnings` goes after `--`, NOT in RUSTFLAGS. The `--` form
+        # reaches primary units only; RUSTFLAGS reaches dependency
+        # compilation too, and this graph carries `block v0.1.6`, which is
+        # flagged for future-incompat and would fail the job for code we do
+        # not own. Verified locally: this exact invocation exits 0 while
+        # still emitting the `block` future-incompat note.
+        #
+        # This covers `--all-features` only. The GPU-free and wasm
+        # configurations compile DIFFERENT code and have never been run
+        # through clippy at all — 17 and 110 warnings respectively as of
+        # 2026-08-05. Extending the gate to them is a burn-down, not a flag.
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
   fmt:
     name: Format

@@ -62,12 +62,15 @@
 //! width — a docked bar with no free corners to round, given an honest
 //! opaque background (the dark preset's transparent gutter colour used to
 //! make its backing quad a no-op) and a one-physical-pixel hairline along
-//! its top edge. A panel is horizontally centred, at most
-//! [`PANEL_MAX_COLUMNS`] characters wide, anchored either 12% down from the
-//! window's top edge (palette, undo tree — the web demo's `paddingTop:
-//! 12vh`) or to the bottom edge above the strip (search) — and it declines
-//! to exist at all on a window too small for an honest panel, exactly as the
-//! terminal face's `FloatingBox` declines.
+//! its top edge. A panel is at most [`PANEL_MAX_COLUMNS`] characters wide and
+//! declines to exist at all on a window too small for an honest one, exactly
+//! as the terminal face's `FloatingBox` declines. Where it lands is its
+//! [`PanelAnchor`]: horizontally centred 12% down from the window's top edge
+//! (palette, undo tree — the web demo's `paddingTop: 12vh`), horizontally
+//! centred above the bottom edge and above the strip (search), or hung from
+//! an arbitrary point (the context menu, from the click that opened it),
+//! which is the one anchor that clamps itself inside the window edges and
+//! flips above its point rather than clip.
 
 use glyphon::{Buffer, TextBounds};
 use iridium_editor::IridiumError;
@@ -78,7 +81,9 @@ use wgpu::{
     RenderPassDescriptor, StoreOp, TextureFormat,
 };
 
-use crate::units::{dimension_to_bound, index_to_f32, pixel_to_bound, pixels_to_cells, u32_to_f32};
+use crate::units::{
+    dimension_to_bound, index_to_f32, pixel_to_bound, pixel_to_index, pixels_to_cells, u32_to_f32,
+};
 
 // =============================================================================
 // The design values, extracted from the web demo
@@ -213,6 +218,9 @@ pub struct PanelRow {
     pub spans: Vec<Span>,
     /// Whether the row is the selection, which tints its background.
     pub selected: bool,
+    /// Whether the row is a group separator, drawn as a hairline rule across
+    /// the panel instead of text.
+    pub separator: bool,
 }
 
 impl PanelRow {
@@ -222,6 +230,7 @@ impl PanelRow {
         Self {
             spans,
             selected: false,
+            separator: false,
         }
     }
 
@@ -231,6 +240,17 @@ impl PanelRow {
         Self {
             spans,
             selected: true,
+            separator: false,
+        }
+    }
+
+    /// A separator row: a hairline rule between two groups of rows.
+    #[must_use]
+    pub const fn separator() -> Self {
+        Self {
+            spans: Vec::new(),
+            selected: false,
+            separator: true,
         }
     }
 
@@ -250,8 +270,8 @@ pub struct PanelCaret {
     pub column: usize,
 }
 
-/// Which window edge a panel hangs from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which window edge a panel hangs from, or which point it hangs at.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PanelAnchor {
     /// Twelve percent down from the top, horizontally centred — the palette
     /// and the undo tree, at the web demo's anchor.
@@ -260,6 +280,16 @@ pub enum PanelAnchor {
     /// horizontally centred — the search panel, which belongs near the
     /// statusline row it occupies in the terminal face.
     Bottom,
+    /// At an arbitrary point in the window, in physical pixels — the context
+    /// menu, which hangs from the click that opened it. The point is the
+    /// panel's top-left corner where the window allows it; see
+    /// [`anchored_origin`] for the clamping and the flip.
+    Point {
+        /// The anchor's distance from the window's left edge.
+        x: f32,
+        /// The anchor's distance from the window's top edge.
+        y: f32,
+    },
 }
 
 /// A panel composed and ready to paint: rows of coloured runs on the
@@ -372,6 +402,50 @@ impl PanelGeometry {
         }
     }
 
+    /// The hairline rule drawn for a separator row at interior `index`:
+    /// centred in the row's height, inset like the selected-row band so it
+    /// never crosses the panel's own arcs.
+    #[must_use]
+    pub fn separator_rect(&self, index: usize) -> PanelRect {
+        let inset = ROW_INSET * self.scale;
+        let row = self.selected_row_rect(index);
+        PanelRect {
+            x: self.exterior.x + inset,
+            y: ((self.line_height - HAIRLINE) / 2.0) + row.y,
+            width: 2.0_f32.mul_add(-inset, self.exterior.width),
+            height: HAIRLINE,
+            radius: 0.0,
+        }
+    }
+
+    /// Whether a physical pixel lies on the panel.
+    ///
+    /// The exterior rectangle's corners are treated as square: half an arc of
+    /// slack at four corners cannot change which side of a menu edge a click
+    /// is on, and a click that lands in a rounded corner belongs to the panel
+    /// it is visually part of.
+    #[must_use]
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.exterior.x
+            && x < self.exterior.x + self.exterior.width
+            && y >= self.exterior.y
+            && y < self.exterior.y + self.exterior.height
+    }
+
+    /// The interior row a physical pixel lands on, or `None` for a pixel off
+    /// the panel or inside its padding.
+    ///
+    /// `rows` is how many interior rows the panel was composed with; a pixel
+    /// past the last of them is padding, not the last row.
+    #[must_use]
+    pub fn row_at(&self, x: f32, y: f32, rows: usize) -> Option<usize> {
+        if !self.contains(x, y) || self.line_height <= 0.0 || y < self.content_y {
+            return None;
+        }
+        let row = pixel_to_index((y - self.content_y) / self.line_height);
+        (row < rows).then_some(row)
+    }
+
     /// The caret bar for a field caret at interior `(row, column)`.
     #[must_use]
     pub fn caret_rect(&self, caret: PanelCaret) -> PanelRect {
@@ -414,12 +488,21 @@ pub fn panel_geometry(
         return None;
     }
 
-    let x = ((window_width - width) / 2.0).max(0.0);
-    let y = match anchor {
-        PanelAnchor::Top => (TOP_ANCHOR_FRACTION * window_height)
-            .min(window_height - height)
-            .max(0.0),
-        PanelAnchor::Bottom => (window_height - reserve_bottom.max(0.0) - height).max(0.0),
+    let centred = ((window_width - width) / 2.0).max(0.0);
+    let (x, y) = match anchor {
+        PanelAnchor::Top => (
+            centred,
+            (TOP_ANCHOR_FRACTION * window_height)
+                .min(window_height - height)
+                .max(0.0),
+        ),
+        PanelAnchor::Bottom => (
+            centred,
+            (window_height - reserve_bottom.max(0.0) - height).max(0.0),
+        ),
+        PanelAnchor::Point { x, y } => {
+            anchored_origin((x, y), (width, height), (window_width, window_height))
+        },
     };
     let radius = (PANEL_RADIUS * metrics.scale)
         .min(width / 2.0)
@@ -439,6 +522,40 @@ pub fn panel_geometry(
         char_width: metrics.char_width,
         scale: metrics.scale,
     })
+}
+
+/// Where a point-anchored panel's top-left corner lands: at the point where
+/// the window allows it, clamped inside the window where it does not.
+///
+/// All values are physical pixels, and the caller has already established
+/// that `size` fits inside `window`. Horizontally the panel slides left until
+/// its right edge is inside the window; vertically it **flips above** the
+/// point when hanging below it would clip the bottom edge, which is what a
+/// menu opened near the bottom of a screen does everywhere, and only slides
+/// when there is no room either way. A non-finite anchor — which no pointer
+/// can report, [`crate::units::pixel_from_f64`] having clamped it — lands at
+/// the window's origin rather than off it.
+fn anchored_origin(point: (f32, f32), size: (f32, f32), window: (f32, f32)) -> (f32, f32) {
+    let (width, height) = size;
+    let (window_width, window_height) = window;
+    let anchor_x = finite_or_zero(point.0);
+    let anchor_y = finite_or_zero(point.1);
+
+    let x = anchor_x.min(window_width - width).max(0.0);
+    let y = if anchor_y + height <= window_height {
+        anchor_y
+    } else if anchor_y >= height {
+        // No room below: the panel's bottom edge takes the anchor instead.
+        anchor_y - height
+    } else {
+        window_height - height
+    };
+    (x, y.max(0.0))
+}
+
+/// `value` when a display could report it, and zero when it could not.
+const fn finite_or_zero(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
 }
 
 /// What a `window_width × window_height` window can honestly show of a
@@ -484,6 +601,9 @@ pub struct OverlayPainter {
     /// The window scale factor, converting the chrome's logical measurements
     /// to physical pixels. Only the face knows it; see [`Self::set_scale`].
     scale: f32,
+    /// Where each panel of the last painted frame landed, in the order the
+    /// caller handed them in. See [`Self::painted_panels`].
+    painted: Vec<Option<PanelGeometry>>,
 }
 
 impl std::fmt::Debug for OverlayPainter {
@@ -496,14 +616,12 @@ impl std::fmt::Debug for OverlayPainter {
 struct ShapedPanel {
     /// The shaped content rows.
     buffer: Buffer,
-    /// The content area's left edge in physical pixels.
-    x: f32,
-    /// The content area's top edge in physical pixels.
-    y: f32,
-    /// The content area's width in physical pixels, the clip bound.
-    width: f32,
-    /// The content area's height in physical pixels, the clip bound.
-    height: f32,
+    /// Where the panel landed.
+    geometry: PanelGeometry,
+    /// The characters each row was budgeted, giving the horizontal clip bound.
+    columns: usize,
+    /// The rows shaped, giving the vertical clip bound.
+    rows: usize,
     /// The panel's base text colour, used as the area default.
     color: Color,
 }
@@ -528,6 +646,7 @@ impl OverlayPainter {
             text,
             chrome,
             scale: 1.0,
+            painted: Vec::new(),
         };
         painter.resize(queue, width, height);
         Ok(painter)
@@ -582,6 +701,18 @@ impl OverlayPainter {
         fit_for(u32_to_f32(width), u32_to_f32(height), metrics)
     }
 
+    /// Where each panel of the last painted frame landed, in the order it was
+    /// handed to [`Self::paint`]; `None` for a panel the window could not
+    /// hold, so the indices never shift under the caller.
+    ///
+    /// This is what a pointer is hit-tested against: the placement that is on
+    /// screen, rather than a placement recomputed from state that may have
+    /// moved since the frame the user is clicking on.
+    #[must_use]
+    pub fn painted_panels(&self) -> &[Option<PanelGeometry>] {
+        &self.painted
+    }
+
     /// The text grid the chrome is placed against, as currently measured.
     fn metrics(&mut self) -> GridMetrics {
         GridMetrics {
@@ -628,12 +759,20 @@ impl OverlayPainter {
         } else {
             0.0
         };
+        // Placement is recorded per input panel — `None` for one the window
+        // could not hold — so the indices stay aligned with what the caller
+        // handed in and a face can hit-test exactly what it is looking at.
+        let mut placed: Vec<Option<PanelGeometry>> = Vec::with_capacity(panels.len());
         let shaped: Vec<ShapedPanel> = panels
             .iter()
             .filter_map(|panel| {
-                self.shape_panel(panel, theme, width_f, height_f, reserve_bottom, &mut chrome)
+                let shaped =
+                    self.shape_panel(panel, theme, width_f, height_f, reserve_bottom, &mut chrome);
+                placed.push(shaped.as_ref().map(|panel| panel.geometry));
+                shaped
             })
             .collect();
+        self.painted = placed;
 
         if chrome.is_empty() && strip_buffer.is_none() && shaped.is_empty() {
             return Ok(());
@@ -659,18 +798,22 @@ impl OverlayPainter {
             ));
         }
         for panel in &shaped {
+            let x = panel.geometry.content_x;
+            let y = panel.geometry.content_y;
+            let width = index_to_f32(panel.columns) * panel.geometry.char_width;
+            let height = index_to_f32(panel.rows) * panel.geometry.line_height;
             areas.push(TextRenderer::create_text_area(
                 &panel.buffer,
-                panel.x,
-                panel.y,
+                x,
+                y,
                 1.0,
                 TextBounds {
                     // Clipped at the content area, so an overlong row ends at
                     // the padding rather than crossing the panel's edge.
-                    left: pixel_to_bound(panel.x),
-                    top: pixel_to_bound(panel.y),
-                    right: pixel_to_bound(panel.x + panel.width),
-                    bottom: pixel_to_bound(panel.y + panel.height),
+                    left: pixel_to_bound(x),
+                    top: pixel_to_bound(y),
+                    right: pixel_to_bound(x + width),
+                    bottom: pixel_to_bound(y + height),
                 },
                 panel.color,
             ));
@@ -811,7 +954,7 @@ impl OverlayPainter {
         // The modal top-anchored panels dim the page behind them, exactly as
         // the web demo's full-screen backdrop does; each panel carries its
         // own dim, so stacked modals compound the way stacked portals do.
-        if panel.anchor == PanelAnchor::Top {
+        if matches!(panel.anchor, PanelAnchor::Top) {
             chrome.push(RoundedQuad::new(
                 0.0,
                 0.0,
@@ -861,6 +1004,17 @@ impl OverlayPainter {
                     band.radius,
                 ));
             }
+            if row.separator {
+                let rule = geometry.separator_rect(index);
+                chrome.push(RoundedQuad::new(
+                    rule.x,
+                    rule.y,
+                    rule.width,
+                    rule.height,
+                    hairline_color(theme),
+                    rule.radius,
+                ));
+            }
         }
         if let Some(caret) = panel.caret {
             if caret.row < panel.rows.len() && caret.column <= panel.content_columns {
@@ -886,10 +1040,9 @@ impl OverlayPainter {
         self.text.shape_buffer(&mut buffer);
         Some(ShapedPanel {
             buffer,
-            x: geometry.content_x,
-            y: geometry.content_y,
-            width: index_to_f32(panel.content_columns) * geometry.char_width,
-            height: index_to_f32(panel.rows.len()) * geometry.line_height,
+            geometry,
+            columns: panel.content_columns,
+            rows: panel.rows.len(),
             color: base,
         })
     }
@@ -1120,6 +1273,136 @@ mod tests {
                     assert!(geometry.exterior.radius > 0.0, "a panel corner went sharp");
                 }
             }
+        }
+    }
+
+    /// A menu-sized panel hung from a point on the standard test window.
+    fn hung(x: f32, y: f32) -> super::PanelGeometry {
+        panel_geometry(
+            WINDOW.0,
+            WINDOW.1,
+            METRICS,
+            PanelAnchor::Point { x, y },
+            7,
+            20,
+            0.0,
+        )
+        .expect("the standard window holds a menu-sized panel")
+    }
+
+    #[test]
+    fn a_point_anchored_panel_hangs_from_the_click() {
+        let geometry = hung(400.0, 500.0);
+        assert!((geometry.exterior.x - 400.0).abs() < 0.001);
+        assert!((geometry.exterior.y - 500.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_point_anchored_panel_is_clamped_inside_every_edge() {
+        for (x, y) in [
+            (WINDOW.0 - 4.0, WINDOW.1 - 4.0),
+            (WINDOW.0 + 500.0, 0.0),
+            (0.0, WINDOW.1 - 1.0),
+            (-40.0, -40.0),
+        ] {
+            let geometry = hung(x, y);
+            assert!(geometry.exterior.x >= -0.001, "clipped the left edge");
+            assert!(geometry.exterior.y >= -0.001, "clipped the top edge");
+            assert!(
+                geometry.exterior.x + geometry.exterior.width <= WINDOW.0 + 0.001,
+                "clipped the right edge"
+            );
+            assert!(
+                geometry.exterior.y + geometry.exterior.height <= WINDOW.1 + 0.001,
+                "clipped the bottom edge"
+            );
+            assert!(geometry.exterior.radius > 0.0, "a menu corner went sharp");
+        }
+    }
+
+    #[test]
+    fn a_point_anchored_panel_flips_above_a_click_near_the_bottom() {
+        // The macOS behaviour: a menu with no room below opens upward from the
+        // click rather than sliding until it covers it.
+        let click = WINDOW.1 - 20.0;
+        let geometry = hung(400.0, click);
+        assert!(
+            (geometry.exterior.y + geometry.exterior.height - click).abs() < 0.001,
+            "the panel's bottom edge sits on the click"
+        );
+    }
+
+    #[test]
+    fn a_point_anchor_with_room_neither_way_slides_instead_of_flipping() {
+        let height = 400.0;
+        let geometry = panel_geometry(
+            WINDOW.0,
+            height,
+            METRICS,
+            PanelAnchor::Point { x: 0.0, y: 300.0 },
+            7,
+            20,
+            0.0,
+        )
+        .expect("a short window still holds a seven-row menu");
+        assert!(geometry.exterior.y >= -0.001);
+        assert!(geometry.exterior.y + geometry.exterior.height <= height + 0.001);
+    }
+
+    #[test]
+    fn a_point_anchored_panel_declines_a_window_it_cannot_fit() {
+        assert!(
+            panel_geometry(
+                200.0,
+                200.0,
+                METRICS,
+                PanelAnchor::Point { x: 10.0, y: 10.0 },
+                7,
+                20,
+                0.0,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn the_hit_test_names_the_row_under_a_pixel_and_nothing_off_the_panel() {
+        let geometry = hung(400.0, 500.0);
+        let x = geometry.content_x + 1.0;
+        for row in 0..7_usize {
+            let y = (super::index_to_f32(row) + 0.5).mul_add(LINE_HEIGHT, geometry.content_y);
+            assert_eq!(geometry.row_at(x, y, 7), Some(row));
+        }
+        assert!(
+            geometry.row_at(x, geometry.exterior.y + 1.0, 7).is_none(),
+            "the top padding is not row zero"
+        );
+        assert!(
+            geometry
+                .row_at(x, geometry.exterior.y + geometry.exterior.height - 1.0, 7)
+                .is_none(),
+            "the bottom padding is not the last row"
+        );
+        assert!(
+            geometry
+                .row_at(geometry.exterior.x - 1.0, 500.0, 7)
+                .is_none(),
+            "a pixel left of the panel is on no row"
+        );
+        assert!(!geometry.contains(geometry.exterior.x - 1.0, 500.0));
+        assert!(geometry.contains(geometry.exterior.x + 1.0, geometry.exterior.y + 1.0));
+    }
+
+    #[test]
+    fn separator_rules_stay_inside_the_panel() {
+        let geometry = hung(400.0, 500.0);
+        for index in 0..7_usize {
+            let rule = geometry.separator_rect(index);
+            let band = geometry.selected_row_rect(index);
+            assert!(rule.x >= geometry.exterior.x);
+            assert!(rule.x + rule.width <= geometry.exterior.x + geometry.exterior.width + 0.001);
+            assert!(rule.y >= band.y, "the rule sits inside its own row");
+            assert!(rule.y + rule.height <= band.y + band.height + 0.001);
         }
     }
 

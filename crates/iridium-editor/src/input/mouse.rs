@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::Command;
 use crate::render::Viewport;
+use crate::render::units::pixel_to_index;
 
 /// Mouse button identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -551,19 +552,31 @@ impl MouseHandler {
         document: &Document,
         viewport: &Viewport,
     ) -> Position {
-        // Calculate line from y position
+        // Calculate line from y position.
+        //
+        // `pixel_to_index` is the explicit form of the `as usize` this used to
+        // spell by hand: it truncates toward zero and clamps everything below
+        // `1.0` — negatives, `NaN`, a click above the first line — to zero,
+        // which is what the cast did and what the clamps below assume. It
+        // therefore subsumes the `floor()` that used to precede the cast; see
+        // `pixel_to_index_matches_cast`, which asserts that equivalence over
+        // exactly these inputs.
         let line_f = (y + viewport.scroll_offset_y) / viewport.line_height;
-        let line = (line_f.floor() as usize).saturating_add(viewport.first_line);
+        let line = pixel_to_index(line_f).saturating_add(viewport.first_line);
 
         // Clamp to document bounds
         let line = line.min(document.line_count().saturating_sub(1));
 
         // Calculate column from x position, accounting for gutter width.
         // Uses 0.6 ratio approximation for monospace fonts (width:height).
+        //
+        // The same conversion also subsumes the `max(0.0)` that used to guard
+        // the cast: a negative quotient — reachable through a negative
+        // horizontal scroll offset — resolves to column zero either way.
         let text_x = (x - self.gutter_config.gutter_width).max(0.0);
         let char_width = viewport.line_height * 0.6;
         let column_f = (text_x + viewport.scroll_offset_x) / char_width;
-        let column = column_f.floor().max(0.0) as usize;
+        let column = pixel_to_index(column_f);
 
         // Clamp column to line length
         let line_len = document.line_len(line).unwrap_or(0);
@@ -1021,5 +1034,233 @@ mod tests {
 
         // Should NOT be ToggleFold since indicators are disabled
         assert!(!matches!(result, MouseResult::ToggleFold { .. }));
+    }
+
+    /// The document the hit-testing oracle below resolves against.
+    ///
+    /// Line lengths are deliberately unequal — 5, 13, 0, 5 — so that a column
+    /// clamp on one line is visibly wrong on another, and so that the empty
+    /// line exercises the zero-length clamp.
+    fn hit_test_document() -> Document {
+        Document::new("alpha\nbravo charlie\n\ndelta")
+    }
+
+    /// A viewport whose cell metrics are exact in `f32`.
+    ///
+    /// `line_height` is 20.0 and the column width the handler derives from it
+    /// is `20.0 * 0.6`, which rounds to exactly 12.0 in `f32` — so "one cell"
+    /// is a whole number of pixels and an assertion about an exact cell
+    /// boundary is an assertion about the conversion, not about float noise.
+    fn hit_test_viewport() -> Viewport {
+        Viewport::new(800.0, 600.0, 20.0)
+    }
+
+    /// The gutter the oracle assumes: 48 px wide, so text starts at x = 48.
+    fn hit_test_handler() -> MouseHandler {
+        MouseHandler::with_gutter_config(GutterClickConfig {
+            gutter_width: 48.0,
+            fold_indicator_width: 16.0,
+            fold_indicators_enabled: true,
+        })
+    }
+
+    /// Pins `pixel_to_position` at the edges of its mapping, not in its
+    /// interior.
+    ///
+    /// An off-by-one in hit-testing compiles, lints clean and renders
+    /// identically; it surfaces only as a caret landing one cell from where
+    /// the user aimed. The cases below are therefore chosen to be the ones a
+    /// change in the pixel-to-index conversion would move first: an exact cell
+    /// boundary and the pixel below it, a negative coordinate (which the cast
+    /// saturates to zero rather than wrapping), a coordinate inside the
+    /// gutter, coordinates past the last column and past the last line, a
+    /// negative horizontal scroll offset — where `floor` and truncation
+    /// disagree on the intermediate value and must still agree on the result —
+    /// and the non-finite inputs the conversion documents.
+    #[test]
+    fn pixel_to_position_boundaries_are_pinned() {
+        let document = hit_test_document();
+        let handler = hit_test_handler();
+
+        // The cell metrics the rest of the cases are stated in must be exact,
+        // or "exactly on a boundary" would not mean anything below. This is
+        // the handler's own column-width expression, compared bit-for-bit
+        // against 12.0 rather than within a tolerance: a tolerance would pass
+        // on a width that is merely close, and every boundary case below is
+        // stated in whole cells of exactly twelve pixels.
+        let viewport = hit_test_viewport();
+        let column_width = viewport.line_height * 0.6;
+        assert_eq!(
+            column_width.to_bits(),
+            12.0_f32.to_bits(),
+            "column width is not exactly 12.0; the boundary cases below are stated in whole cells"
+        );
+
+        // Interior control: line 1, column 3, comfortably inside both cells.
+        let resolved = handler.pixel_to_position(90.0, 30.0, &document, &viewport);
+        assert_eq!(resolved, Position::new(1, 3), "interior click");
+
+        // Exactly on the line-1 boundary, and the pixel below it.
+        let resolved = handler.pixel_to_position(48.0, 20.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(1, 0),
+            "y exactly on the line boundary"
+        );
+        let resolved = handler.pixel_to_position(48.0, 19.999, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 0),
+            "y just above the line boundary"
+        );
+
+        // Exactly on the column-3 boundary, and the pixel left of it.
+        let resolved = handler.pixel_to_position(84.0, 0.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 3),
+            "x exactly on the column boundary"
+        );
+        let resolved = handler.pixel_to_position(83.999, 0.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 2),
+            "x just left of the column boundary"
+        );
+
+        // Above the top of the document: the conversion saturates at zero, so
+        // the click lands on the first line rather than wrapping to the last.
+        let resolved = handler.pixel_to_position(48.0, -1.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 0),
+            "one pixel above the first line"
+        );
+        let resolved = handler.pixel_to_position(48.0, -45.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 0),
+            "two cells above the first line"
+        );
+
+        // Inside the gutter, at its right edge, and left of the widget
+        // entirely: all clamp to column 0 without ever going negative.
+        for x in [-30.0_f32, 0.0, 10.0, 47.999, 48.0] {
+            let resolved = handler.pixel_to_position(x, 0.0, &document, &viewport);
+            assert_eq!(
+                resolved,
+                Position::new(0, 0),
+                "x = {x} resolves left of the text"
+            );
+        }
+
+        // Past the last column of line 0 ("alpha", 5 columns).
+        let resolved = handler.pixel_to_position(528.0, 0.0, &document, &viewport);
+        assert_eq!(resolved, Position::new(0, 5), "x past the end of the line");
+
+        // Past the last line of the document (4 lines).
+        let resolved = handler.pixel_to_position(48.0, 200.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(3, 0),
+            "y past the end of the document"
+        );
+
+        // The empty line clamps every column to zero.
+        let resolved = handler.pixel_to_position(528.0, 40.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(2, 0),
+            "empty line clamps the column"
+        );
+
+        // Non-finite inputs. `f32::max` returns the non-NaN operand, so a NaN
+        // x becomes 0.0 before the conversion; a NaN y reaches it directly and
+        // must resolve to the first line, not to a wrapped index.
+        let resolved = handler.pixel_to_position(f32::NAN, f32::NAN, &document, &viewport);
+        assert_eq!(resolved, Position::new(0, 0), "NaN coordinates");
+        let resolved =
+            handler.pixel_to_position(f32::NEG_INFINITY, f32::NEG_INFINITY, &document, &viewport);
+        assert_eq!(resolved, Position::new(0, 0), "negative infinity");
+        let resolved =
+            handler.pixel_to_position(f32::INFINITY, f32::INFINITY, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(3, 5),
+            "positive infinity saturates to the last cell"
+        );
+    }
+
+    /// Pins `pixel_to_position` where the viewport is scrolled.
+    ///
+    /// Scrolling is what produces the negative intermediate values: a click
+    /// above a scrolled viewport gives a negative line quotient, and a
+    /// negative horizontal offset gives a negative column quotient. Those are
+    /// exactly the inputs on which `floor` and truncation disagree about the
+    /// intermediate `f32` while having to agree about the resolved cell.
+    #[test]
+    fn pixel_to_position_boundaries_are_pinned_when_scrolled() {
+        let document = hit_test_document();
+        let handler = hit_test_handler();
+
+        // Scrolled down to line 2: a click above the viewport still resolves
+        // to the first *visible* line, not to line 0 and not past the end.
+        let mut viewport = hit_test_viewport();
+        viewport.first_line = 2;
+        let resolved = handler.pixel_to_position(48.0, -45.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(2, 0),
+            "above a viewport scrolled to line 2"
+        );
+        let resolved = handler.pixel_to_position(48.0, 0.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(2, 0),
+            "top of a viewport scrolled to line 2"
+        );
+        let resolved = handler.pixel_to_position(48.0, 20.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(3, 0),
+            "second row of a viewport scrolled to line 2"
+        );
+
+        // A negative vertical offset within the first line: the quotient is
+        // -0.25, which floors to -1 and truncates to -0. Both must resolve to
+        // line 0.
+        let mut viewport = hit_test_viewport();
+        viewport.scroll_offset_y = -10.0;
+        let resolved = handler.pixel_to_position(48.0, 5.0, &document, &viewport);
+        assert_eq!(resolved, Position::new(0, 0), "negative vertical quotient");
+
+        // A negative horizontal offset: the quotient is -2.5, which floors to
+        // -3 and truncates to -2. Both must resolve to column 0.
+        let mut viewport = hit_test_viewport();
+        viewport.scroll_offset_x = -30.0;
+        let resolved = handler.pixel_to_position(48.0, 0.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 0),
+            "negative horizontal quotient"
+        );
+
+        // A positive horizontal offset that lands exactly on a boundary, and
+        // half a cell short of one.
+        let mut viewport = hit_test_viewport();
+        viewport.scroll_offset_x = 24.0;
+        let resolved = handler.pixel_to_position(48.0, 0.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 2),
+            "scrolled exactly two cells right"
+        );
+        viewport.scroll_offset_x = 18.0;
+        let resolved = handler.pixel_to_position(48.0, 0.0, &document, &viewport);
+        assert_eq!(
+            resolved,
+            Position::new(0, 1),
+            "scrolled one and a half cells right"
+        );
     }
 }

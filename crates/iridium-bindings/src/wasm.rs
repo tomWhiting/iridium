@@ -162,8 +162,6 @@ pub struct WebEditor {
     /// the tree-sitter span store — and drives `compose` once per frame.
     compositor: FrameCompositor,
     needs_redraw: bool,
-    /// Device pixel ratio for HiDPI scaling
-    pixel_ratio: f32,
     /// Code folding state
     fold_state: FoldState,
     /// The parse state the fold regions are read from.
@@ -319,7 +317,6 @@ pub async fn create_web_editor(
         surface,
         compositor,
         needs_redraw: true,
-        pixel_ratio,
         fold_state,
         fold_syntax: WebFoldSyntax::new(Language::C),
         scroll_y: 0.0,

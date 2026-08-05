@@ -503,8 +503,64 @@ whose tests never run is a configuration nobody can rely on.*
 RUNNER'S.** Same principle as widening the wasm span index to
 `any(target_arch = "wasm32", test)` an hour earlier.
 
-⚠️ **Note the CLIPPY job passes cold on CI** — the gate armed at
-`885c7e9` is green on the runner. Only `Test` fails.
+### The three checks Athena demanded — results
+
+**1. THERE WAS NO SUCCESS.** I reported `{"":1,"failure":29}` and the
+`1` read as a green run. It was **`conclusion=""`, `status=in_progress`**
+— my own docs run, in flight when I sampled. Set is **29 completed, 29
+failed, ZERO successes.** ⇒ ★ **my own report carried the defect:
+a `group_by` over a nullable field made an empty-string bucket read as
+a CATEGORY.** Count right, class fictional — cardinality-for-identity
+one more time, in my own output.
+
+**2. Identity holds ON A SAMPLE, and that's what gets claimed.** Failed-step
+logs pulled from **10 of 29** (`2dc9dd6`, `ba16fe6`, `22afc4c`,
+`7365249`, `885c7e9`, `aa3f768`, `a13d6a2`, `4d8ffd4`, `ce62cb0`,
+`9642a81`) — **all ten identical**: same job, same
+`no headless GPU adapter is available`, same
+`-p iridium-desktop --test plain_frames`, same exit 1. **Identity over
+ten, cardinality over the other nineteen.** Not rounded up.
+
+**3. "Passes cold" was WRONG AS STATED — and the true answer is
+better.** The clippy job uses `Swatinem/rust-cache@v2` and the log
+says **`Cache hit ... full match: true`**. But it was **not a replay**:
+cargo printed `Checking` for six workspace crates + `Compiling` for
+`iridium-bindings`, **all seven freshly analysed, 38.06s**. That is
+`cache-all-crates: false` doing what it documents — deps restored,
+**workspace artifacts cleaned before save, so our crates compile cold
+every run.**
+⇒ **Dependencies warm, workspace COLD** — and `-D warnings` after `--`
+reaches **only primary units**, so the flag's verdict on our code came
+from a genuinely cold analysis. **Mechanism 5 did not fire, and did
+not fire BECAUSE THE CACHE'S SCOPE AND THE FLAG'S SCOPE ARE
+DISJOINT.**
+
+⚠️ **CI runs `CARGO_INCREMENTAL: 0`** — no incremental store on the
+runner at all, so **term 2 is structurally absent there** and disk
+intuition from this laptop does not transfer to CI.
+
+### 🔒 CONTAMINATION BOUNDARY for row 17 (Athena's scoping)
+
+**CONTAMINATED:** every *"gates green"* statement attached to tonight's
+lane closes — those were claims about **a machine that always has an
+adapter**. True, narrower than they sounded.
+**NOT CONTAMINATED:** any disk figure. Draws, partitions, identity
+counts and the aggregate measure **a tree**, and do not depend on what
+CI thought. **Band stands at 0.779/1.5.**
+⇒ ★ **A contamination without a stated boundary swallows good work
+along with bad.**
+
+**Lavapipe's boundary is now IN the workflow comment, before the
+verdict landed:** a CPU rasteriser is a **different renderer**, so a
+green CI certifies **the software path, not the GPU path**. Anything
+asserting rendered output rather than constants is verified against
+CPU rasterisation only. Same discipline as stating the clippy gate's
+`--all-features`-only scope.
+
+⇒ ★★ **HOW THIS SURFACED, and it is the transferable part: every other
+finding tonight answered a question one of us posed. This one came
+from looking where NO QUESTION POINTED, on a signal outside the lane.
+That is the only mechanism that finds a proxy nobody has named yet.**
 
 ## ⛔ BREACH FILED — span-index lane `ba16fe6`, 0.624 of 0.6
 

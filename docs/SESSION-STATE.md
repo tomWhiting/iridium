@@ -7,8 +7,18 @@
 commit; flagged, untouched).
 
 **IN FLIGHT:** one persistent Monitor, `byjsqprlt` — the standing CI
-watch. Nothing else: no agent, no other task. A `/loop` dynamic
-wakeup is armed.
+watch, and nothing else. No agent, no other task. **The `/loop` is
+STOPPED** (5 Aug ~21:0x) — it ran two productive ticks and then hit a
+state where everything left needs either Tom's ruling or a disk
+re-declaration, which is a stop condition, not a wait.
+
+The CI watch was deliberately **kept** when the loop stopped, against
+the loop's own instruction to tear down its monitors. It does not
+serve the loop; it serves row 17. Forty-six red runs survived ~35
+hours because nothing was watching, and stopping the watch rebuilds
+that hole on purpose. It is silent while green, emits only on a
+non-success conclusion, and its events re-invoke this seat without
+any loop. It ends with the session regardless.
 
 **CI IS GREEN and now WATCHED.** `bc2cd11` and `b5af64f` both closed
 `success`, so the 46-run streak is properly broken rather than one

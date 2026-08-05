@@ -42,12 +42,20 @@ pub fn index_to_f32(value: usize) -> f32 {
 /// The integer part of a finite-or-infinite `f32` known to be `>= 1.0`,
 /// saturating at [`u64::MAX`].
 ///
+/// Compiled only with the `render` feature, like the three conversions it
+/// serves: `compositor.rs` is this module's sole consumer of the
+/// pixel-to-integer direction, and it is `render`-gated. Without the gate the
+/// GPU-free build carries four functions it cannot reach and says so, four
+/// warnings at a time, in a configuration whose gate nobody reads the
+/// warnings of.
+///
 /// This is the shared core of the two pixel-to-integer conversions below,
 /// which read the sign, exponent and mantissa directly so the truncation is
 /// stated as arithmetic rather than as a cast. The exponent is non-negative
 /// because the caller has already excluded values below `1.0`; infinity
 /// carries the all-ones exponent and saturates like any other value at or
 /// beyond `2^64`.
+#[cfg(feature = "render")]
 fn truncated_magnitude(value: f32) -> u64 {
     let bits = value.to_bits();
     let exponent = i64::from((bits >> 23) & 0xFF) - 127;
@@ -79,6 +87,7 @@ fn truncated_magnitude(value: f32) -> u64 {
 /// performs that conversion silently. The behavior here is bit-for-bit the
 /// cast's — the render path's output must not move by even a pixel — but
 /// spelled out.
+#[cfg(feature = "render")]
 pub fn pixel_to_index(value: f32) -> usize {
     // `NaN` fails the comparison and truncates to zero, exactly as the cast
     // does; so do negatives and everything below one.
@@ -94,6 +103,7 @@ pub fn pixel_to_index(value: f32) -> usize {
 ///
 /// Text areas clip against integer bounds, so the `f32` layout coordinates
 /// must land in `i32` somewhere; this is that landing, stated as arithmetic.
+#[cfg(feature = "render")]
 pub fn pixel_to_bound(value: f32) -> i32 {
     if value.is_nan() {
         return 0;
@@ -115,6 +125,7 @@ pub fn pixel_to_bound(value: f32) -> i32 {
 /// rectangle wants `i32`. No real surface approaches two billion pixels, so
 /// saturation is a formality; what matters is that the conversion cannot wrap
 /// to a negative bound the way `value as i32` silently would.
+#[cfg(feature = "render")]
 pub fn dimension_to_bound(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
 }
@@ -213,6 +224,7 @@ mod tests {
 
     /// `pixel_to_index` matches the `as usize` cast bit-for-bit across a
     /// dense sweep, the rounding boundaries, and the degenerate inputs.
+    #[cfg(feature = "render")]
     #[test]
     #[allow(
         clippy::cast_possible_truncation,
@@ -255,6 +267,7 @@ mod tests {
 
     /// `pixel_to_bound` matches the `as i32` cast wherever the cast is
     /// well-behaved, and saturates instead of wrapping beyond `i32`'s range.
+    #[cfg(feature = "render")]
     #[test]
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn pixel_to_bound_matches_cast() {
@@ -294,6 +307,7 @@ mod tests {
 
     /// `dimension_to_bound` is the identity over the real surface-size range
     /// and saturates rather than wrapping past `i32::MAX`.
+    #[cfg(feature = "render")]
     #[test]
     fn dimension_to_bound_saturates() {
         assert_eq!(super::dimension_to_bound(0), 0);

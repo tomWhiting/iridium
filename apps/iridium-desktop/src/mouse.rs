@@ -85,6 +85,18 @@ pub struct Pointer {
     position: (f32, f32),
     /// Whether the primary button is currently held.
     left_down: bool,
+    /// The cell the live press resolved to, until the pointer leaves it.
+    ///
+    /// winit's macOS `mouseUp:` handler reports the cursor position *before*
+    /// the button release, so every click inside the view delivers a
+    /// `CursorMoved` between press and release — a move to the cell the press
+    /// just resolved. That is not a drag, and treating it as one rebuilds the
+    /// selection over the click, which destroys a ⌘-click's added cursor and
+    /// collapses a ⇧-click's extension. Held from the press until a move
+    /// leaves the cell, then cleared, so a real drag that wanders away and
+    /// comes back selects the empty range at the press rather than being
+    /// mistaken for the release's own move.
+    press_cell: Option<(usize, usize)>,
 }
 
 impl Pointer {
@@ -129,12 +141,17 @@ impl Pointer {
         cursor: &CursorState,
     ) -> MouseResult {
         self.left_down = true;
+        self.press_cell = Some((line, column));
         let event = self.cell_event(MouseEventKind::Press, line, column, modifiers, grid);
         self.handler
             .handle_mouse(&event, document, cursor, &hit_viewport(grid))
     }
 
     /// Handles a cursor move while the primary button is held.
+    ///
+    /// A move that has not left the cell the press resolved to is not a drag:
+    /// see [`Pointer::press_cell`] for the macOS event order that makes the
+    /// distinction load-bearing.
     pub fn drag(
         &mut self,
         line: usize,
@@ -147,6 +164,10 @@ impl Pointer {
         if !self.left_down {
             return MouseResult::Ignored;
         }
+        if self.press_cell == Some((line, column)) {
+            return MouseResult::Ignored;
+        }
+        self.press_cell = None;
         let event = self.cell_event(MouseEventKind::Drag, line, column, modifiers, grid);
         self.handler
             .handle_mouse(&event, document, cursor, &hit_viewport(grid))
@@ -160,6 +181,7 @@ impl Pointer {
         cursor: &CursorState,
     ) -> MouseResult {
         self.left_down = false;
+        self.press_cell = None;
         let (x, y) = self.position;
         let event = MouseEvent::release(MouseButton::Left, x, y);
         self.handler
@@ -267,6 +289,39 @@ mod tests {
             MouseResult::Command(Command::SetSelection { new_state, .. }) => new_state.primary.head,
             other => panic!("expected a selection command, got {other:?}"),
         }
+    }
+
+    /// Folds a mouse result into the cursor state, as `DesktopApp::apply_mouse`
+    /// folds it into the editor.
+    fn apply(result: MouseResult, cursor: &mut CursorState) {
+        if let MouseResult::Command(Command::SetSelection { new_state, .. }) = result {
+            *cursor = new_state;
+        }
+    }
+
+    /// Replays one whole click on `cell` as winit's macOS backend delivers it,
+    /// and returns what the interposed move produced.
+    ///
+    /// The order is the load-bearing part: `mouseUp:` calls `mouse_motion`
+    /// *before* `mouse_click(Released)`, so a real click is
+    /// press → **move** → release, never press → release. The interposed move
+    /// reports the position the press already reported, so it resolves to the
+    /// cell the press resolved to.
+    fn click(
+        pointer: &mut Pointer,
+        cell: (usize, usize),
+        modifiers: Modifiers,
+        doc: &Document,
+        cursor: &mut CursorState,
+    ) -> MouseResult {
+        let (line, column) = cell;
+        let pressed = pointer.press(line, column, modifiers, GRID, doc, cursor);
+        apply(pressed, cursor);
+        let moved = pointer.drag(line, column, modifiers, GRID, doc, cursor);
+        apply(moved.clone(), cursor);
+        let released = pointer.release(GRID, doc, cursor);
+        apply(released, cursor);
+        moved
     }
 
     #[test]
@@ -391,6 +446,76 @@ mod tests {
             },
             other => panic!("expected an added cursor, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_cmd_click_survives_the_move_macos_interposes_before_the_release() {
+        // The defect this pins: winit's macOS `mouseUp:` sends a `CursorMoved`
+        // before the button release, so the ⌘-click that added a cursor was
+        // immediately followed by a drag to the very cell it pressed — and a
+        // drag rebuilds the selection, collapsing every cursor back to one.
+        let doc = document();
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        let mut pointer = Pointer::new();
+        let meta = Modifiers {
+            meta: true,
+            ..Modifiers::none()
+        };
+
+        let moved = click(&mut pointer, (1, 2), meta, &doc, &mut cursor);
+
+        assert!(
+            matches!(moved, MouseResult::Ignored),
+            "a move that never left the pressed cell is not a drag, got {moved:?}"
+        );
+        assert_eq!(
+            cursor.cursor_count(),
+            2,
+            "the cursor ⌘-click added must outlive the release"
+        );
+    }
+
+    #[test]
+    fn a_shift_click_survives_the_move_macos_interposes_before_the_release() {
+        // Same interposed move, different casualty: the shift-click sets the
+        // drag anchor to the clicked cell, so the move that follows it
+        // collapsed the freshly extended selection onto that cell.
+        let doc = document();
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        let mut pointer = Pointer::new();
+
+        let _ = click(&mut pointer, (0, 2), Modifiers::none(), &doc, &mut cursor);
+        let _ = click(&mut pointer, (1, 5), Modifiers::shift(), &doc, &mut cursor);
+
+        assert_eq!(cursor.primary.anchor, Position::new(0, 2));
+        assert_eq!(
+            cursor.primary.head,
+            Position::new(1, 5),
+            "⇧-click must still extend to the clicked cell"
+        );
+    }
+
+    #[test]
+    fn a_drag_that_returns_to_the_pressed_cell_still_selects() {
+        // The origin cell is only privileged until the pointer leaves it: a
+        // real drag that wanders away and comes back must select the empty
+        // range at the press, not be mistaken for the release's own move.
+        let doc = document();
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        let mut pointer = Pointer::new();
+
+        let pressed = pointer.press(0, 2, Modifiers::none(), GRID, &doc, &cursor);
+        apply(pressed, &mut cursor);
+        let away = pointer.drag(2, 4, Modifiers::none(), GRID, &doc, &cursor);
+        assert_eq!(head_of(away.clone()), Position::new(2, 4));
+        apply(away, &mut cursor);
+
+        let back = pointer.drag(0, 2, Modifiers::none(), GRID, &doc, &cursor);
+        assert_eq!(
+            head_of(back),
+            Position::new(0, 2),
+            "the drag left the pressed cell, so returning to it selects again"
+        );
     }
 
     #[test]

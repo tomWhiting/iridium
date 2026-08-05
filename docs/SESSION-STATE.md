@@ -470,7 +470,38 @@ just fail, IT TRAVELS — and each relay adds credibility while
 subtracting checkability.** The relay is exactly where the
 checkability is spent, which makes it worse than a plain error.
 
-## 🚨 CI HAS BEEN RED SINCE 4 AUG — 29 OF THE LAST 30 RUNS FAILED
+## ✅ CI IS GREEN — first success in 46 runs / ~35 hours
+
+**`4d7dcf8` (the lavapipe fix) passed, and `1318777` and `2811a8b`
+after it. All four jobs: `Check` ✅ `Format` ✅ `Clippy` ✅ `Test` ✅.**
+The armed clippy gate is green on a runner *and* verified to be doing
+real analysis (deps warm, workspace cold — see below).
+
+**Athena's forward catch, checked before claiming the win:** if either
+GPU harness asserted **timing**, lavapipe would turn it into a gate
+that runs, is read, and **measures the wrong thing** — a CPU
+rasteriser is not a slow GPU, it is a *different machine*, so the fix
+itself would have manufactured a new defect. **Checked: neither
+harness asserts timing.** The only clock use is
+`retained_shaping.rs:418`, a 600 ms `sleep` to cross the caret-blink
+half-period before asserting `shape_rebuilds()` is unchanged — a
+**correctness** assertion about invalidation that happens to need
+wall-clock to move blink phase. **No thresholds, nothing to
+invalidate.**
+
+⚠️ **Still true and unfixed by any of this: the retained-shaping perf
+claim has never been reproduced on a second machine, and lavapipe does
+NOT reproduce it.** Timing against a CPU rasteriser is not evidence
+about the GPU path in either direction. If a timing assertion is ever
+added: **correctness runs everywhere, timing stays `#[ignore]`d and
+hand-run on real hardware, with the split stated in the file.**
+
+📌 **Timestamp noun, labelled so a later reader doesn't diff a
+non-discrepancy:** the `Z` figures in this section are **run-created**
+times from `gh`; the local `+1000` figures are **commit** times. They
+sit ~4 s apart by construction.
+
+## 🚨 (RESOLVED) CI WAS RED FOR 46 RUNS — 3–5 AUG
 
 **Zero successes back to `4a4d57b`, 4 Aug 04:21Z.** Every commit I
 landed tonight went onto a red CI, and **I ran a five-gate battery

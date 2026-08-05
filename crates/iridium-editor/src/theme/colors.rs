@@ -270,12 +270,17 @@ impl SyntaxColors {
             function: Color::from_hex("795e26").unwrap_or_default(),
             variable: Color::from_hex("001080").unwrap_or_default(),
             type_name: Color::from_hex("267f99").unwrap_or_default(),
-            operator: Color::from_hex("000000").unwrap_or_default(),
-            punctuation: Color::from_hex("000000").unwrap_or_default(),
+            // Body ink, matching `EditorColors::light().foreground`. Pure
+            // black here would paint separators darker than the code.
+            operator: Color::from_hex("333333").unwrap_or_default(),
+            punctuation: Color::from_hex("333333").unwrap_or_default(),
             property: Color::from_hex("001080").unwrap_or_default(),
             constant: Color::from_hex("0070c1").unwrap_or_default(),
             tag: Color::from_hex("800000").unwrap_or_default(),
-            attribute: Color::from_hex("ff0000").unwrap_or_default(),
+            // The identifier family, beside `variable` and `property` — the
+            // same grouping the dark preset makes at #9cdcfe. Sharing the
+            // error red instead left broken markup looking well-formed.
+            attribute: Color::from_hex("001080").unwrap_or_default(),
             error: Color::from_hex("ff0000").unwrap_or_default(),
         }
     }
@@ -336,6 +341,45 @@ mod tests {
             EditorColors::dark().diagnostic_error
         );
         assert_eq!(colors.diff_added_bg, EditorColors::dark().diff_added_bg);
+    }
+
+    #[test]
+    fn a_diagnostic_never_wears_a_token_colour() {
+        // `error` marks broken syntax; `attribute` marks a perfectly good
+        // token. Painting them the same colour means a malformed node in
+        // markup is indistinguishable from a correct one, which is a defect
+        // in a preset and not a style choice. The dark preset already keeps
+        // them apart; both presets must.
+        for (name, colors) in [
+            ("dark", SyntaxColors::dark()),
+            ("light", SyntaxColors::light()),
+        ] {
+            assert_ne!(
+                colors.attribute, colors.error,
+                "the {name} preset paints attributes in the error colour"
+            );
+        }
+    }
+
+    #[test]
+    fn separators_are_never_louder_than_the_code_they_separate() {
+        // Operators and punctuation carry no meaning of their own: they take
+        // plain body ink, which is what the dark preset does. A light preset
+        // that leaves them at pure black while body text moved to #333333
+        // paints every comma darker than the code around it.
+        for (name, editor, syntax) in [
+            ("dark", EditorColors::dark(), SyntaxColors::dark()),
+            ("light", EditorColors::light(), SyntaxColors::light()),
+        ] {
+            assert_eq!(
+                syntax.operator, editor.foreground,
+                "the {name} preset's operators are not body ink"
+            );
+            assert_eq!(
+                syntax.punctuation, editor.foreground,
+                "the {name} preset's punctuation is not body ink"
+            );
+        }
     }
 
     #[test]

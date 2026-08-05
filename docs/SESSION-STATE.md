@@ -226,15 +226,65 @@ If `context.line_height` is ever `0.0`, `scroll_y / 0.0` is `inf`;
 `... as usize + 1` then **overflows — panic in debug, wrap to 0 in
 release.**
 
-**I have NOT established that this is reachable.** Scope of what I
-actually checked, so the next reader does not inherit a false
-negative: `grep` for `line_height` in `crates/iridium-bindings/src/wasm.rs`,
-and a guard-shaped grep under `crates/iridium-editor/src/render/compose/`.
-It traces to `self.compositor.line_height()` and I did not follow it
-to its source. **Absence of a guard in two greps is not absence of a
-guard** — that is precisely the proxy this session keeps catching.
-Resolve by following `Compositor::line_height` to where the value is
-set and asking whether a zero can reach it.
+**RESOLVED — followed to the source. Not reachable today, and the
+reason is the finding.**
+
+Full chain, every hop unvalidated on the Rust side:
+`createWebEditor(canvas, pixelRatio)` → `wasm.rs:294`
+`scaled_font_size = 14.0 * pixel_ratio` → `set_font_size` →
+`text.rs:695` `self.config.font_size = size` (bare assignment) →
+`text.rs:177` `line_height() = font_size * line_height` → the
+**divisor** at `wasm.rs:2827-2828`. `Typography::line_height_px` and
+the theme builder `line_height(f32)` are equally unguarded.
+
+At `line_height == 0.0` with `surface_height > 0`: `inf.ceil() as
+usize` saturates to `usize::MAX` and 2828's `+ 1` **overflows —
+panic in debug, wrap to 0 in release.** At `NaN` it degrades quietly
+to `first_line = 0, visible_lines = 1` instead.
+
+**It cannot happen, because TypeScript writes `window.devicePixelRatio
+|| 1`** — at `packages/@iridium/core/src/controller/index.ts:524`
+(authoritative) and `crates/iridium-bindings/ts/controller/index.ts:230`
+(the crate's copy). `||` catches `0`, `NaN` and `undefined` alike.
+
+### ★★ ROW 22 — the Rust boundary's safety is a PROXY for one JS idiom
+
+"The wasm boundary handles its inputs" actually means "the current
+TypeScript caller happens to sanitise them, in another language, at a
+call site with no comment saying it is load-bearing."
+
+**NAMED DIVERGENCE CASES, which is what makes this a rule and not a
+worry:**
+
+1. **`||` → `??`.** `window.devicePixelRatio ?? 1` is what most lint
+   configs and most modernising refactors reach for. `??` catches
+   only `null`/`undefined` — **not `0`, not `NaN`.** A one-character
+   modernisation silently deletes the only guard protecting a Rust
+   divisor two crates away. Nothing in either language would flag it.
+2. **Any non-TypeScript caller.** The napi/Node face, a test harness,
+   a future terminal or native embedder calling the same setters.
+   None of them inherit a guard written in `controller/index.ts`.
+
+**And the guard is already applied INCONSISTENTLY in the very file
+that holds it.** Same variable, same file: guarded at `:524`, `:662`,
+`:1163`; **read raw at `:689-690`** —
+`(e.clientX - rect.left) * window.devicePixelRatio` in the mouse
+coordinate path. At a zero ratio every click resolves to `(0, 0)` and
+the caret jumps to document start, silently. That is not a
+hypothetical about a future refactor; it is the same invariant
+already being enforced in three places and dropped in a fourth,
+which is the strongest possible evidence that a caller-side guard in
+another language does not hold.
+
+**RECOMMENDATION (not done, needs Tom or a lane): put the guard at
+the Rust boundary**, where it protects every caller regardless of
+language — reject or clamp a non-finite / non-positive font size and
+line-height multiplier at `set_font_size`/`set_line_height` rather
+than trusting `|| 1`. **Deliberately not done tonight:** it is a
+source edit to `iridium-editor` (full workspace relink, ~0.34 GiB by
+the measured comparable) and the remaining aggregate is 0.381, so it
+cannot open under the standing 0.6 ceiling without a re-declaration.
+Recorded as the open item, not deferred silently.
 
 ---
 

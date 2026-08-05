@@ -442,8 +442,11 @@ Every table in §2.3 satisfies, by construction:
 - `cursor` ≥ 15:1 against `background` (P:346-352);
 - `foreground` ≥ 12:1 against `background` — era ink, not grey text;
 - every one of the 14 syntax colours ≥ 4.5:1 against its variant's
-  `background`, and no two of the 14 equal (the `attribute == error`
-  defect of Th:278-279 is not repeated);
+  `background`, and `attribute != error` (the Th:278-279 defect is not
+  repeated). *(Corrected, 5 Aug: this clause originally read "no two of
+  the 14 equal". That is the wrong shape of rule — deliberate ties are
+  how a palette groups token classes, and all three variants use them.
+  See §4's test 4 for the full withdrawal.)*
 - `diagnostic_*`, `diff_*` and `change_*` keep functional hue in **all
   three variants**, including the monochrome one. This codebase's stated
   domain is financial, legal and healthcare documents; a diff whose
@@ -782,9 +785,35 @@ guard (Th:310-322):
 3. `the_light_presets_panel_surface_stands_apart` — `current_line`
    composited over `background` differs by ≥ 16/255 per channel. Pins the
    §1.6 finding (8/255 today) so it cannot regress.
-4. `every_syntax_colour_is_distinct` — the 14 fields pairwise unequal, in
-   **both** presets. Directly pins the `attribute == error` defect
-   (Th:278-279).
+4. ~~`every_syntax_colour_is_distinct` — the 14 fields pairwise unequal,
+   in **both** presets.~~ **Withdrawn, 5 Aug.** Nothing in this codebase
+   satisfies it and nothing should. `classic.rs:44-55` reached this first
+   and reported it as a map defect rather than improvising around it: all
+   three §2.3 variants deliberately tie colours (`tag == string` in all
+   three, `attribute == function` in A and B, `variable == operator` in
+   C), and both shipped presets tie `operator == punctuation ==
+   foreground` and group `variable`/`property`/`attribute` as one
+   identifier family — dark at `#9cdcfe`, light now at `#001080`. Ties
+   are how a palette says two things belong together. Pairwise
+   distinctness was the wrong shape of rule everywhere it was asserted,
+   including §2.2 above.
+
+   What the presets can be held to, and now are — both landed with the
+   dark preset passing unchanged, which is the evidence the invariants
+   were already real and only light had drifted off them:
+
+   - `a_diagnostic_never_wears_a_token_colour` — `attribute != error` in
+     both presets. Pins the Th:278-279 defect, now fixed: light's
+     `attribute` moved to `#001080`, rejoining the identifier family that
+     dark's `attribute` has always sat in. Fixing `attribute` rather than
+     softening `error` is deliberate — two reds a glance apart would pass
+     an inequality assertion while leaving the classes indistinguishable,
+     which is the thing the test exists to prevent.
+   - `separators_are_never_louder_than_the_code_they_separate` —
+     `operator == punctuation == foreground` in both presets. Pins the
+     Th:273-274 defect, now fixed: light's separators moved from `#000000`
+     to `#333333`. The invariant did not need inventing; dark held it and
+     light lost it when `foreground` moved off black.
 5. `every_syntax_colour_is_legible_on_its_surface` — WCAG contrast ratio
    ≥ 4.5:1 against `background`, both presets. Pure arithmetic; ~20 lines
    of relative-luminance helper.

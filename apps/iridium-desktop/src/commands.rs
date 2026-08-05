@@ -60,6 +60,8 @@
 //! | Key | Command |
 //! |---|---|
 //! | `⌥←` / `⌥→` | `cursor.wordLeft` / `cursor.wordRight` |
+//! | `⌥⇧←` / `⌥⇧→` | `cursor.wordLeftSelect` / `cursor.wordRightSelect` |
+//! | `⌃⇧⌘←` / `⌃⇧⌘→` | `ast.shrinkSelection` / `ast.expandSelection` |
 //! | `⌘←` / `⌘→` | `cursor.lineStart` / `cursor.lineEnd` |
 //! | `⌘⇧←` / `⌘⇧→` | `cursor.lineStartSelect` / `cursor.lineEndSelect` |
 //! | `⌘↑` / `⌘↓` | `cursor.documentStart` / `cursor.documentEnd` |
@@ -70,12 +72,21 @@
 //! `edit.deleteToLineStart` and `edit.deleteToLineEnd` are the two verbs the
 //! kernel implements and no keymap bound: they have no `Ctrl` spelling to
 //! inherit, and `⌘⌫`/`⌘⌦` is where a mac hand looks for them.
+//!
+//! The last two rows are the one place this face takes a chord *away* from
+//! the default keymap rather than filling a gap in it. `⌥⇧←`/`⌥⇧→` reached
+//! `ast.shrinkSelection`/`ast.expandSelection` through the kernel's loose
+//! patterns, and word-by-word selection had nowhere a mac hand would look for
+//! it. The verbs displaced are rehoused on `⌃⇧⌘`, VS Code's mac spelling,
+//! rather than left unbound — a rebinding that silently deletes a feature is
+//! a worse bug than the one it fixes.
 
 use iridium_editor::commands::builtin::{
-    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, CURSOR_DOCUMENT_END,
-    CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START, CURSOR_DOCUMENT_START_SELECT,
-    CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START, CURSOR_LINE_START_SELECT,
-    CURSOR_WORD_LEFT, CURSOR_WORD_RIGHT, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
+    AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE,
+    CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START,
+    CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START,
+    CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT,
+    CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
     EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
     HISTORY_UNDO, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL,
 };
@@ -157,6 +168,19 @@ const META_ALT: ModifierPattern = pattern(Any, Forbidden, Required, Required, Fo
 /// anyway: a mac keyboard has no `AltGr`.
 const ALT_NAV: ModifierPattern = pattern(Forbidden, Forbidden, Required, Forbidden, Forbidden);
 
+/// An `⌥⇧` chord on a navigation key: the selecting half of [`ALT_NAV`].
+const ALT_SHIFT_NAV: ModifierPattern = pattern(Required, Forbidden, Required, Forbidden, Forbidden);
+
+/// A `⌃⇧⌘` chord on a navigation key — where the syntax expand/shrink verbs
+/// live on this face, matching VS Code's mac spelling.
+///
+/// Nothing else on the box wants this combination, and the kernel's own
+/// `Left`/`Right` patterns spell `meta` as [`Any`], so a [`Required`] `meta`
+/// here outranks them by the stack's ordinary precedence — the same mechanism
+/// every other row in [`MAC_CHORDS`] relies on.
+const CTRL_SHIFT_META_NAV: ModifierPattern =
+    pattern(Required, Required, Forbidden, Required, Forbidden);
+
 /// A bare `⌘` chord on a navigation key, `Shift` absent.
 const META_NAV: ModifierPattern = pattern(Forbidden, Forbidden, Forbidden, Required, Forbidden);
 
@@ -235,11 +259,30 @@ const MAC_CHORDS: &[(StrokePattern, CommandId)] = &[
         StrokePattern::new(KeyCode::Right, ALT_NAV),
         CURSOR_WORD_RIGHT,
     ),
-    // ⌥⇧← / ⌥⇧→ are deliberately absent. The default keymap gives that pair to
-    // `ast.shrinkSelection` and `ast.expandSelection`, which is why every ⌥
-    // pattern above forbids `Shift` rather than ignoring it: word-select would
-    // have to take the chord away from the syntax verbs, and that collision is
-    // the owner's to rule on, not this table's to settle by arriving first.
+    // ⌥⇧← / ⌥⇧→ were the one contested pair, and the owner has ruled: they go
+    // to word-select, the chord every other mac editor puts it on. The syntax
+    // verbs that held them are not dropped — they move to ⌃⇧⌘ below. This is
+    // why `ALT_NAV` forbids `Shift` rather than ignoring it: the two ⌥ rows
+    // above must not swallow the selecting variant.
+    (
+        StrokePattern::new(KeyCode::Left, ALT_SHIFT_NAV),
+        CURSOR_WORD_LEFT_SELECT,
+    ),
+    (
+        StrokePattern::new(KeyCode::Right, ALT_SHIFT_NAV),
+        CURSOR_WORD_RIGHT_SELECT,
+    ),
+    // The displaced syntax verbs, rehoused rather than unbound. Left shrinks
+    // and Right expands, keeping the direction sense the default keymap gave
+    // them on ⌥⇧.
+    (
+        StrokePattern::new(KeyCode::Left, CTRL_SHIFT_META_NAV),
+        AST_SHRINK_SELECTION,
+    ),
+    (
+        StrokePattern::new(KeyCode::Right, CTRL_SHIFT_META_NAV),
+        AST_EXPAND_SELECTION,
+    ),
     (
         StrokePattern::new(KeyCode::Left, META_NAV),
         CURSOR_LINE_START,
@@ -318,7 +361,10 @@ pub fn command_metas() -> Vec<CommandMeta> {
 mod tests {
     use std::collections::BTreeSet;
 
-    use iridium_editor::commands::builtin::{AST_EXPAND_SELECTION, AST_SHRINK_SELECTION};
+    use iridium_editor::commands::builtin::{
+        AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CURSOR_WORD_LEFT_SELECT,
+        CURSOR_WORD_RIGHT_SELECT,
+    };
     use iridium_editor::commands::{default_keymap_stack, default_non_modal_keymap};
     use iridium_editor::{Editor, KeyPress, KeymapResolver, KeymapStack, Modifiers};
 
@@ -342,6 +388,18 @@ mod tests {
             ctrl: false,
             alt,
             meta,
+            alt_graph: false,
+        }
+    }
+
+    /// The `⌃⇧⌘` chord's modifiers — the one combination [`held`] cannot
+    /// spell, named rather than given a fourth `bool` parameter.
+    const fn ctrl_shift_meta() -> Modifiers {
+        Modifiers {
+            shift: true,
+            ctrl: true,
+            alt: false,
+            meta: true,
             alt_graph: false,
         }
     }
@@ -432,22 +490,46 @@ mod tests {
     }
 
     #[test]
-    fn the_word_select_chords_are_left_to_the_syntax_verbs() {
-        // ⌥⇧← / ⌥⇧→ are the one contested pair: the default keymap gives them
-        // to the syntax expand/shrink verbs, and this face does not take them
-        // back. If a row is ever added for them, this test is the one that
-        // says the collision was a decision.
+    fn the_word_select_chords_belong_to_word_select() {
+        // The contested pair, ruled. ⌥⇧← / ⌥⇧→ were left to the default
+        // keymap's syntax verbs while the collision was unresolved; Tom asked
+        // for word-by-word selection on the chord every other mac editor puts
+        // it on, so this face takes it back. The predecessor of this test
+        // pinned the opposite resolution under the name
+        // `the_word_select_chords_are_left_to_the_syntax_verbs`, and the
+        // rename is the record that a deliberate decision replaced a
+        // deliberate decision rather than drifting into one.
         let stack = session_stack();
         resolves_to(
             &stack,
             KeyCode::Left,
             held(true, true, false),
-            &AST_SHRINK_SELECTION,
+            &CURSOR_WORD_LEFT_SELECT,
         );
         resolves_to(
             &stack,
             KeyCode::Right,
             held(true, true, false),
+            &CURSOR_WORD_RIGHT_SELECT,
+        );
+    }
+
+    #[test]
+    fn the_syntax_verbs_keep_a_home_of_their_own() {
+        // Expand/shrink did not lose the chord, it moved: ⌃⇧⌘← / ⌃⇧⌘→, where
+        // VS Code puts them on mac. A verb displaced by a rebinding and left
+        // unbound would be the rebinding quietly deleting a feature.
+        let stack = session_stack();
+        resolves_to(
+            &stack,
+            KeyCode::Left,
+            ctrl_shift_meta(),
+            &AST_SHRINK_SELECTION,
+        );
+        resolves_to(
+            &stack,
+            KeyCode::Right,
+            ctrl_shift_meta(),
             &AST_EXPAND_SELECTION,
         );
     }

@@ -1,6 +1,123 @@
 # Session state — 2026-07-30
 
-## ✅ LIVE (5 Aug ~20:2x local, post-compaction #3) — READ THIS FIRST
+## ✅ LIVE (6 Aug ~09:4x local) — READ THIS FIRST
+
+**HEAD `831f276`, pushed. Tree clean** apart from untracked
+`.claude/skills/`. CI watch `byjsqprlt` still armed; `/loop` stopped.
+
+**TOM IS AWAKE AND DIRECTING** (via Meridian, ~23:19–23:26 on the 5th).
+Two things came from him:
+
+1. **"How do we make this installable as a desktop application?"** →
+   answered and half-built. He has **no Apple Developer account** and
+   cannot afford one now. **This does not block him:** ad-hoc signing
+   is CORRECT for "machines that build it" — Gatekeeper refuses on the
+   `com.apple.quarantine` attribute, which only a *downloader* sets.
+   The $99 buys distribution to people who did NOT build it. Told him
+   the free "Apple ID / Personal Team" route is a trap: dev-only certs,
+   7-day expiry, cannot notarize — worse than ad-hoc for his case.
+2. **He reopened the tabs/sidebar question** — see
+   `docs/DESKTOP-SHAPE.md`, decisions **S-1..S-4**, awaiting his ruling.
+   He said he has "lots of thoughts on sidebars"; I asked for them
+   rather than guessing.
+
+**DISK RE-DECLARED 1.5 → 2.0** on his direction (the authorisation that
+was previously missing). **Aggregate 1.218 of 2.0, 0.782 remaining.**
+One breach still filed at 0.624 (`ba16fe6`).
+
+**⛔ NO BUILD/INSTALL WHILE TOM'S EDITOR RUNS.** `bundle.sh` opens with
+`rm -rf` on `target/release/bundle/iridium.app` — the bundle pid 71394
+is executing. `install.sh` now REFUSES on this automatically and was
+verified doing so against that live pid. **Tom must quit before the
+release build and install can be run at all**, and that draw is
+un-priced (no release build has happened; `target/release` moved by
+exactly 0 this lane).
+
+**OWED AT THE NEXT BUILD SWAP** (still): one line naming **both
+halves** — *word-select is now ⌥⇧←/→; expand/shrink moved to ⌃⇧⌘←/→*.
+Proceeded on **silence, not a ruling**.
+
+**STILL WAITING ON TOM:** #31 theme variant; right-vs-left-press
+dismissal; accented characters; the older "switching" question; and now
+S-1..S-4.
+
+---
+
+## 🧾 INSTALLABILITY LANE — CLOSED `831f276`, 0.099 of 0.25
+
+**Noun:** desktop installability — install script + dropped-file open.
+**Baseline** (previous commit's close) 48,026,200 KiB. **Lane-open**
+47,971,852 ⇒ drift **−54,348 KiB**, eviction, recorded separately.
+**Close-A** 09:40:39 → 48,129,780. **Close-B** 09:41:49 → 48,129,780,
+**identical, zero drift.** **Draw 103,580 KiB = 0.099 GiB** against a
+**0.25 ceiling declared at open** (not the standing 0.6 — priced off a
+leaf crate, not off the default).
+
+⚠️ **A and B are 70 SECONDS apart, not minutes — the second time
+running.** The band from a 70-second gap is not the band the protocol
+asks for and must not be quoted as one.
+
+**INVALIDATION SET HELD, and the disk proves it.** Declared:
+`apps/iridium-desktop` only, verified a leaf (nothing depends on it).
+Partition: `deps` +83,688, `incremental` +74,228, `flycheck0` +16,
+**`release` +0, `wasm32` +0.** Last lane the field described the lane I
+*planned*; this lane it described the lane that *ran*, and the two zeros
+are the check.
+
+### What shipped
+
+- **`install.sh`** — bundle, then swap into `/Applications` (`DEST`
+  overrides). Refuses while any `iridium-desktop` runs, via `pgrep -x`
+  (never `-f`, which would match the script's own command line).
+  **The guard is the only part testable today and it was tested for
+  real** — it refused against live pid 71394, naming the path, before
+  `bundle.sh` could touch anything. The happy path is UNTESTED and
+  stays that way until Tom quits.
+- **Drag-and-drop open** — `WindowEvent::DroppedFile` was simply not
+  handled. A drop replaces the buffer (one file per window), which
+  makes it as destructive as a quit, so it asks through the **same**
+  `Prompt`/`Deed` path. `Deed` lost `Copy` to carry the path on the
+  deed itself, so a pending question cannot disagree with the action it
+  performs.
+
+### ★★ A TEST WAS WRONG AND THE CODE WAS RIGHT
+
+`a_drop_that_cannot_be_opened` assumed a missing path is an error.
+`TextFile::open` **deliberately** maps `NotFound` to a new empty file
+(`iridium-file/src/lib.rs:201-203`) — that is what makes
+`iridium newfile.txt` work. The drop path was NOT special-cased, on
+purpose: two answers to *"what does opening a missing file mean"* is
+the per-caller divergence this estate keeps paying for (rows 19–22,
+task #38). One rule, one place. The test now pins the shared rule.
+
+Worth keeping: **the failing test's premise was mine, not the code's.**
+The reflex to "fix" the code to match a test I had just written is
+exactly how a correct shared rule gets forked by a caller.
+
+### Discrimination, and the correction owed on it
+
+`a_drop_onto_a_clean_buffer` was **proven to fail** against the unfixed
+code: deleting `self.scroll_y = 0.0` fails it with its own message.
+`set_content` resets the *kernel's* scroll; the shell keeps its own.
+
+**Correction owed to Tom, already sent:** I told him drag-and-drop was
+unaffected by the tabs decision. Half wrong — *receiving* the event is
+unaffected, but what a drop MEANS is not. One file per window forces a
+discard prompt; with tabs the drop is additive and the prompt never
+exists.
+
+### Known limit, filed not hidden — task #39
+
+An unrecognised extension inherits the **previous** file's language: a
+`.log` opened after a `.rs` highlights as Rust. `Language` has 13 real
+variants and no none/plain, and `set_content` preserves the current id
+because it is also the reload path. Cosmetic, no data risk. The fix is
+a kernel `clear_language`, which relinks the workspace — **wider than
+this lane declared, so it was filed rather than smuggled in.**
+
+---
+
+## ✅ (SUPERSEDED) LIVE at 5 Aug ~20:2x local, post-compaction #3
 
 **HEAD `e89e04d`, pushed. Working tree clean** apart from untracked
 `.claude/skills/` (Norn's skill package — Tom's tooling, not mine to

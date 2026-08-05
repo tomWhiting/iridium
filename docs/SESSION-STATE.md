@@ -505,10 +505,99 @@ was something that is not an EDIT.** The field enumerates edits.
 ⇒ **THE CLASS FIELD IS SCOPED TO THE WRONG NOUN — it must ask what
 the BUILD is, not what the CHANGE is.**
 
-**Aggregate 0.545 of 1.5, 0.955 remaining.** The lane breached while
-the aggregate stayed comfortable — Athena's structural point arriving
-with evidence: **the aggregate never had a boundary to leak at, and it
-is the control that would actually have stopped me.**
+⛔ **ARITHMETIC SLIP, MINE, CORRECTED: the aggregate is 0.779 of 1.5,
+NOT 0.545. Remaining 0.721.** (816,892 / 1,048,576 = 0.7790.) Athena
+caught it; I recomputed rather than accept it. Worst kind of error —
+arithmetic on the control I had just called load-bearing. **At 0.721
+the next 0.6-ceiling lane lands at 1.379, so the aggregate is ONE
+ORDINARY LANE from forcing a re-declaration** — the designed event
+arriving on schedule, which I would have walked into believing I had
+0.955.
+
+### ⛔ THE TWO-TERM MODEL IS INCOMPLETE — there is a THIRD store
+
+deps +448,040 + incremental +193,604 = **641,644** against a target
+delta of **654,632**. **RESIDUAL +12,988 KiB (1.98%)** — six times the
+breach margin, in neither term. Last time the sum matched **only
+because one term was zero**: the accounting identity, exactly as
+Athena flagged.
+
+**LOCATED, and it is not wasm** (`target/wasm32-*` went *down* 1,456).
+Inside `target/debug`: total 39,159,056 vs deps + incremental
+38,767,732 ⇒ **391,324 KiB in `build/` (152,984), `examples/`
+(144,208) and the linked binaries/rlibs at the profile root** — where
+**new test binaries land**, so the residual is causally tied to the
+same +2 identities, not noise.
+
+⇒ ★★ **THE FIX IS NOT A THIRD READING. Enumerating stores is what
+created the residual.** Any fixed list can be incomplete and the
+incompleteness reads as rounding. **Record `du -sk target/*` AND
+`du -sk target/debug/*` IN FULL, open and close. A complete partition
+cannot have a residual — it sums by construction.** Same instrument as
+the blank-field law: **don't sample where you can partition.**
+
+### ⛔ `incremental` IS NOT MONOTONIC — and it sets the noise floor
+
+Previous commit's close **47,031,992**; this lane's open reading
+**47,014,800**. **−17,192 with nobody building**, of which incremental
+went 12,611,636 → 12,608,780 = **exactly −2,856, the clippy lane's
+entire growth handed straight back.** rustc pruned that session.
+⇒ **term 2 is a CACHE WITH AN EVICTION POLICY**; any law of the form
+"term 2 grows on every compile" is wrong.
+
+**It fired again mid-conversation:** close read 12,802,384; six
+minutes later, idle, **12,797,948 — another −4,436 KiB.**
+
+⇒ ★★ **EVERY `du`-BASED LANE FIGURE HAS A NOISE FLOOR SET BY EVICTION,
+NOT BY MEASUREMENT.** The breach margin was 0.024 GiB = **25,166
+KiB**; idle eviction moved **4,436** of that in six minutes. **A
+0.624-against-0.6 reading is NOT distinguishable from 0.6 by this
+instrument.**
+⚠️ **This does NOT retract the breach and must never be used to.** I
+priced a lane and exceeded it; recording that is the response.
+Discovering a reason it doesn't count is re-terming in better clothes.
+What it establishes is that **a per-lane ceiling with a 0.024 margin
+is below the instrument's resolution.**
+
+**BASELINE RULE, AMENDED (Athena):** carry the previous close **AND**
+take a lane-open reading. **Their difference is INTER-LANE DRIFT,
+which belongs to no lane and is RECORDED, never absorbed** by whichever
+baseline you happen to pick. Here −17,192 (−2,856 identified, −14,336
+now explained by the profile-root store). **This one ran against me:**
+under the rule the draw is **0.608**, not 0.624 — I over-charged
+myself by picking the lower baseline. Filing stands either way.
+
+**Aggregate 0.779 of 1.5, 0.721 remaining.** Drift, residual and
+eviction ALL cancel into it, and none can hide at a boundary it does
+not have. ⇒ **third time tonight by a different road: the aggregate is
+the control that works; per-lane figures are early-warning at best.**
+
+### Field 3, REFORMULATED (Athena, better than my diagnosis)
+
+⇒ ★★ **The CHANGE determines what is STALE; the INVOCATION determines
+what IDENTITIES EXIST.** Field 3 has been enumerating the first and
+pricing the second. **It should declare the SET OF BUILD INVOCATIONS
+the lane will run** — command, package selection (`-p` vs
+`--workspace`), features, target triple, profile, driver args —
+because **that tuple IS the identity key.** The `-p` candidate then
+stops being an exception and becomes the field's subject. The check is
+a real test, not a flattering one: **the two hypotheses predict
+different `.d` counts.**
+
+### Row 16 (Athena) — coverage fails in TWO directions
+
+Five mechanisms for *a gate whose output doesn't reach the verdict*;
+the wasm32-gated module is the **mirror — code no gate ever
+compiles**. **A green battery is silent about both.**
+⇒ ★ **A gate isn't only measuring, it's SUPPRESSING** — so un-gated
+code doesn't have *unknown* defect density, it has **predictably
+higher** density. Two doc-markdown errors surfaced the instant that
+module was clippy'd, on its first exposure in its existence.
+⇒ **Re-prices the burn-down: 17 + 110 warnings in never-compiled
+configurations is NOT tidying, it is a defect-density estimate for
+code nobody has ever looked at.** And `any(target_arch = "wasm32",
+test)` is the right cure because it **moves the code into reach rather
+than moving the gate.**
 
 ### Row 15 direction (Athena) — block slack is NOT symmetric noise
 

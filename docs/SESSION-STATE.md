@@ -513,6 +513,30 @@ a `group_by` over a nullable field made an empty-string bucket read as
 a CATEGORY.** Count right, class fictional — cardinality-for-identity
 one more time, in my own output.
 
+**2b. FULL AUDIT — spent before a green CI removed anyone's reason to
+look.** Not 29: **46 failed runs are retrievable, and I pulled the
+failed-step log from EVERY ONE. All 46 share the missing-adapter
+cause; ZERO differ.**
+
+**Clean regression boundary, which I'd otherwise have missed:**
+**last green `bbfbe1e` 3 Aug 22:10:41Z → first red `5846f62` 3 Aug
+22:53:29Z, unbroken since (46 runs, ~35 h).** Thirteen successes sit
+in the same 60-run window before it. ⇒ **a regression with a
+timestamp, NOT a gate that never worked** — materially different from
+what I first reported.
+
+⚠️ **AND IT CORRECTS MY OWN IDENTITY CLAIM ONE GRAIN FINER.** The
+audit matched the **message**, which **both** GPU harnesses emit. The
+**binary** is verified `plain_frames` for ten runs; the earliest reds
+**predate the commit adding `plain_frames.rs`**, so those were
+`retained_shaping`. ⇒ **cause identical across 46; BINARY NOT.**
+"All 46 identical" would have been cardinality-for-identity one level
+below where I had just been careful about it.
+
+⇒ ★ **Evidence-expiry and attention-expiry are different failures, and
+only the first announces itself** (Athena). The logs would have
+survived; nobody would ever have had a reason to open them again.
+
 **2. Identity holds ON A SAMPLE, and that's what gets claimed.** Failed-step
 logs pulled from **10 of 29** (`2dc9dd6`, `ba16fe6`, `22afc4c`,
 `7365249`, `885c7e9`, `aa3f768`, `a13d6a2`, `4d8ffd4`, `ce62cb0`,
@@ -538,6 +562,32 @@ DISJOINT.**
 ⚠️ **CI runs `CARGO_INCREMENTAL: 0`** — no incremental store on the
 runner at all, so **term 2 is structurally absent there** and disk
 intuition from this laptop does not transfer to CI.
+⇒ **TOPOLOGY INHERITANCE, both directions (Athena): no CI figure is
+comparable to a laptop figure and NO LAPTOP CEILING TRANSFERS TO CI.**
+A store present in one is absent by configuration in the other — the
+warm-comparable-against-cold-base defect in different clothes. Neither
+seat reaches for a CI number as a sanity check on a lane figure.
+⇒ ⭐ **THE OPPORTUNITY IN IT: a runner is a TERM-2-FREE ENVIRONMENT BY
+CONSTRUCTION.** If we ever want **term 1 ISOLATED rather than
+inferred**, it already exists there — no eviction, no drift, no
+partition arithmetic. **That is the cleanest available test of the
+two-term model.** Reach for it at the next path-novelty question.
+
+⇒ ★ **The gate's validity condition is now ATTACHED to it** (`3593858`):
+the comment beside the flag states that the verdict **depends on
+workspace artifacts not being cached**, names `cache-all-crates:
+false` as what holds it, and names the failure — **flip it to `true`
+and the gate silently degrades to replaying cached diagnostics: still
+green, still fast, no longer checking anything.** ⇒ ★★ **A CORRECTNESS
+PROPERTY HELD BY ACCIDENT OF CONFIGURATION IS ONE PR FROM DYING
+QUIETLY** — same family as the seven `#[allow]`s whose justification
+exists but is not attached to what it justifies.
+
+⇒ ★ **A group-by over a nullable field MANUFACTURES A CATEGORY OUT OF
+ABSENCE**, and **an anomaly in a derived table may be an artifact of
+the derivation — resolve it at the SOURCE before theorising.**
+⇒ ★ **A lead that dissolves under inspection is not a wasted
+challenge; it is a cheap one that terminated correctly.**
 
 ### 🔒 CONTAMINATION BOUNDARY for row 17 (Athena's scoping)
 

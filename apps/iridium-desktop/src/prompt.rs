@@ -32,10 +32,19 @@ use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 /// What answering "yes" to a confirmation asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Not `Copy`: [`Deed::Open`] carries the path it will open. Holding it on
+/// the deed rather than on the application is deliberate — a pending
+/// confirmation and the action it performs cannot then disagree about
+/// which file was asked about, which they could if the path lived in a
+/// separate field that a second drop could overwrite while the prompt was
+/// still open.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deed {
     /// Leave the editor, discarding unsaved changes.
     Quit,
+    /// Replace the buffer with this file, discarding unsaved changes.
+    Open(PathBuf),
 }
 
 /// What the application must do about a key handed to an open prompt.
@@ -109,7 +118,7 @@ impl Prompt {
                 },
             },
             Self::Confirm { deed, .. } => match event.key {
-                KeyCode::Char('y' | 'Y') => Answer::Do(*deed),
+                KeyCode::Char('y' | 'Y') => Answer::Do(deed.clone()),
                 KeyCode::Char('n' | 'N') | KeyCode::Escape => Answer::Cancelled,
                 _ => Answer::Pending,
             },

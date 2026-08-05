@@ -519,11 +519,44 @@ failed-step log from EVERY ONE. All 46 share the missing-adapter
 cause; ZERO differ.**
 
 **Clean regression boundary, which I'd otherwise have missed:**
-**last green `bbfbe1e` 3 Aug 22:10:41Z → first red `5846f62` 3 Aug
-22:53:29Z, unbroken since (46 runs, ~35 h).** Thirteen successes sit
-in the same 60-run window before it. ⇒ **a regression with a
-timestamp, NOT a gate that never worked** — materially different from
-what I first reported.
+**last green `bbfbe1e` → first red `5846f62`, unbroken since (46 runs,
+~35 h).** Thirteen successes sit in the same 60-run window before it.
+⇒ **a regression with a timestamp, NOT a gate that never worked.**
+
+### ★★ ROW 18 — "first red commit" PROXIES "the commit that caused it"
+
+Athena's challenge: a boundary in **time** is not a boundary in
+**cause**, because `ubuntu-latest` is a moving image. Settled by
+measurement — **external drift RULED OUT, repo-side confirmed:**
+
+```
+bbfbe1e  08:10:37  docs(design): desktop chrome map     <- LAST GREEN
+4fc0950  08:52:06  perf(render): retained shaping       <- ADDS the GPU harness
+5846f62  08:53:25  chore(deps): drop cosmic-text        <- FIRST RED (head SHA)
+```
+`git merge-base --is-ancestor 4fc0950 bbfbe1e` → **NO.** The harness
+did not exist at the last green, so nothing external removed an
+adapter — **the runner never had one; the sweep only started asking at
+08:52:06.**
+
+⚠️ **THE PROXY DIVERGED ANYWAY, inside my own data.** `4fc0950` got
+**no separate run** — both commits were pushed together, so the first
+workflow run carried both and was named after `5846f62`. ⇒ **the CAUSE
+is `4fc0950`; the FIRST RED is `5846f62`, an innocent dependency
+chore — and my earlier account named the innocent one.**
+⇒ ★★ **The divergence is not only external change: it is ANY event
+that decouples WHAT A RUN CONTAINS from WHAT A RUN IS NAMED AFTER. A
+batched push does it for free, and is far commoner than an image bump.**
+
+**CORRECTED BOUNDARY FOR THE RECORD: CI went red at `4fc0950`
+(retained shaping), 4 Aug 08:52 local, red for 46 runs / ~35 h.**
+
+⇒ ★★ **The real shape, and it is not about GPUs: the commit was
+CORRECT, its local gates were GREEN, and what it broke was a signal in
+a medium nobody was reading.** Same mechanism as the four-warning
+fixture, one layer out — **a correct change can still break a gate,
+and if nobody reads the gate the breakage is indistinguishable from
+success for thirty-five hours.**
 
 ⚠️ **AND IT CORRECTS MY OWN IDENTITY CLAIM ONE GRAIN FINER.** The
 audit matched the **message**, which **both** GPU harnesses emit. The

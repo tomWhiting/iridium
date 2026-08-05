@@ -44,10 +44,11 @@
 //! scrolls down the document", so the conversion negates; the tests pin both
 //! variants so the sign cannot silently flip.
 
+use iridium_editor::history::Command;
 use iridium_editor::render::Viewport;
 use iridium_editor::{
     CursorState, Document, Modifiers, MouseButton, MouseEvent, MouseEventKind, MouseHandler,
-    MouseResult,
+    MouseResult, Position,
 };
 use winit::dpi::PhysicalPosition;
 use winit::event::MouseScrollDelta;
@@ -217,6 +218,45 @@ impl Pointer {
             alt: modifiers.alt,
         }
     }
+}
+
+/// The command that puts one collapsed caret on `position`, or
+/// `MouseResult::Handled` when the cursor state already says exactly that.
+///
+/// This is what the kernel's own single-click path produces — the
+/// `SetSelection` of `MouseHandler::handle_single_click`, applied through the
+/// same [`DesktopApp::apply_mouse`](crate::app) seam — built here rather than
+/// driven through the handler because the **secondary** button must disturb
+/// none of the handler's state: a right press is not a click the next left
+/// press should be counted against (it would read as a double-click and select
+/// a word), and it must not leave a drag anchor behind either.
+///
+/// The position is clamped against the document, so a cell resolved past the
+/// end of a line places the caret at the end of that line rather than nowhere.
+#[must_use]
+pub fn caret_at(position: Position, document: &Document, cursor: &CursorState) -> MouseResult {
+    let new_state = CursorState::at(document.clamp_position(position));
+    if new_state == *cursor {
+        MouseResult::Handled
+    } else {
+        MouseResult::Command(Command::SetSelection {
+            old_state: cursor.clone(),
+            new_state,
+        })
+    }
+}
+
+/// Whether any live selection covers `position` — the question D-6 turns on:
+/// a right press inside a selection leaves the selection alone, and outside
+/// one moves the caret to where the user pointed.
+///
+/// A collapsed selection covers nothing. It has no range to protect, and its
+/// caret is exactly what a press outside it is about to move.
+#[must_use]
+pub fn selection_covers(cursor: &CursorState, position: Position) -> bool {
+    cursor
+        .all_selections()
+        .any(|selection| !selection.is_collapsed() && selection.range().contains(position))
 }
 
 /// The viewport the handler's own pixel mapping runs against: origin at the
@@ -516,6 +556,73 @@ mod tests {
             Position::new(0, 2),
             "the drag left the pressed cell, so returning to it selects again"
         );
+    }
+
+    #[test]
+    fn the_secondary_press_places_a_collapsed_caret_without_touching_the_handler() {
+        let doc = document();
+        let cursor = CursorState::at(Position::new(0, 0));
+        let result = caret_at(Position::new(1, 3), &doc, &cursor);
+        match result {
+            MouseResult::Command(Command::SetSelection { new_state, .. }) => {
+                assert!(new_state.primary.is_collapsed());
+                assert_eq!(new_state.primary.head, Position::new(1, 3));
+                assert_eq!(new_state.cursor_count(), 1, "every extra cursor is dropped");
+            },
+            other => panic!("expected a selection command, got {other:?}"),
+        }
+
+        // The caret is already there: nothing to undo, nothing to repaint.
+        let settled = CursorState::at(Position::new(1, 3));
+        assert!(matches!(
+            caret_at(Position::new(1, 3), &doc, &settled),
+            MouseResult::Handled
+        ));
+    }
+
+    #[test]
+    fn a_caret_placed_past_a_lines_end_lands_on_that_line() {
+        let doc = document();
+        let cursor = CursorState::at(Position::new(0, 0));
+        let result = caret_at(Position::new(3, 900), &doc, &cursor);
+        assert_eq!(
+            head_of(result),
+            Position::new(3, "fourth".len()),
+            "the position is clamped against the document"
+        );
+    }
+
+    #[test]
+    fn a_selection_covers_its_own_range_and_nothing_else() {
+        use iridium_editor::Selection;
+
+        let mut cursor = CursorState::new(Selection::new(Position::new(0, 2), Position::new(1, 4)));
+        assert!(selection_covers(&cursor, Position::new(0, 2)), "the start");
+        assert!(selection_covers(&cursor, Position::new(1, 0)), "the middle");
+        assert!(
+            !selection_covers(&cursor, Position::new(1, 4)),
+            "the end is exclusive — the cell past the last selected one"
+        );
+        assert!(!selection_covers(&cursor, Position::new(0, 1)), "before it");
+        assert!(!selection_covers(&cursor, Position::new(2, 0)), "after it");
+
+        // A backwards selection covers the same cells.
+        cursor = CursorState::new(Selection::new(Position::new(1, 4), Position::new(0, 2)));
+        assert!(selection_covers(&cursor, Position::new(1, 0)));
+
+        // A collapsed selection covers nothing, so the caret is free to move.
+        let caret = CursorState::at(Position::new(0, 3));
+        assert!(!selection_covers(&caret, Position::new(0, 3)));
+    }
+
+    #[test]
+    fn a_secondary_selection_covers_the_press_too() {
+        use iridium_editor::Selection;
+
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        cursor.add_cursor(Selection::new(Position::new(2, 1), Position::new(2, 5)));
+        assert!(selection_covers(&cursor, Position::new(2, 3)));
+        assert!(!selection_covers(&cursor, Position::new(2, 8)));
     }
 
     #[test]

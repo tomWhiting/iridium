@@ -75,6 +75,19 @@
 //!   criterion bench, which drives `FrameCompositor::compose` headlessly on
 //!   a 10k-line document; the numbers land in `docs/DESKTOP-SHELL-PLAN.md`.
 //!
+//! # What the context-menu slice delivers
+//!
+//! - **The right-click menu** ([`context_menu`]), drawn rather than native
+//!   per `docs/design/CONTEXT-MENU-MAP.md`'s D-1: another panel on the
+//!   [`overlay`] chrome, hung from the click and clamped inside the window,
+//!   running Cut, Copy, Paste, Select All and the palette through the same
+//!   kernel-first dispatch a chord takes. The pointer steers it — hover
+//!   highlights, a click runs — and it is modal to the keyboard while it is
+//!   up.
+//! - **The click-through fix**: a click outside an open palette or undo tree
+//!   now dismisses that panel instead of falling through to the document
+//!   underneath it.
+//!
 //! # What still is not here
 //!
 //! Document-wide search-match marking waits on the compositor growing a
@@ -83,6 +96,7 @@
 pub mod app;
 pub mod command_palette;
 pub mod commands;
+pub mod context_menu;
 pub mod highlight;
 pub mod history_overlay;
 pub mod keys;

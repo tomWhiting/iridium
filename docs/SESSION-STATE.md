@@ -43,7 +43,113 @@ S-1..S-4.
 
 ---
 
-## 🚨 THE BOX IS AT 97% — AND EVERY FIGURE I HAVE QUOTED IS A DRAW, NOT A PEAK
+## 🧹 TOM CLEANED EVERYTHING — `target/` IS GONE, DECLARATION CLOSED AND RE-OPENED AT 0
+
+**6 Aug ~09:5x. Tom ran his own auto-cleaning script across his repos**
+(his words, via Meridian). `target/` no longer exists — `du -sk target/*`
+returns no matches. **Standing declaration CLOSED**; final pre-clean
+reading of record is the partition below. **RE-OPENED with anchor 0,
+measured rather than assumed** (an empty target is a legitimate reading
+and pins base 0 as observed).
+
+`df -k /System/Volumes/Data` at 09:58:13 —
+`971350180 total / 794654676 used / 150371316 available / 85%`.
+**143.4 GiB free.** The 97% squeeze is over. **The next build of anything
+is fully cold**, so the warm draw series no longer applies and the first
+full profile will be a multi-GiB first-touch draw.
+
+⚠️ **TOM'S EDITOR IS RUNNING FROM A DELETED BUNDLE.** pid 71394 is alive
+and executing
+`target/release/bundle/iridium.app/Contents/MacOS/iridium-desktop`,
+which no longer exists on disk. macOS keeps the inode alive so editing
+and saving are unaffected — the save path is `iridium-file` writing to
+the document's own path, nothing in the bundle. **But the moment he
+quits, that app is gone until rebuilt.** Told him.
+
+### 📌 PRE-CLEAN RECORD — the only surviving copy, which is why it is here
+
+Athena and Cally both asked for readings-on-durable-ground BEFORE any
+clean, paid for by a specimen of theirs that died in a scratchpad with
+its measurements. **For iridium the clean has already happened, so this
+is the record, and it is in git rather than in scratch.**
+
+Final pre-clean partition (close-A/B/C, all three identical):
+`target` **48,129,780 KiB** = `debug` 39,334,328 (`deps` 26,069,264 +
+`incremental` 12,873,756 + `build` 152,984 + `examples` 144,200) +
+`release` 7,340,736 + `wasm32` 1,421,252 + `doc` 28,920 +
+`criterion` 4,256 + `flycheck0` 272.
+
+**Superseded-identity residue in `deps`: 6,601,072 KiB (6.30 GiB)** —
+591 crate groups carrying more than one identity, 3,326 superseded
+files. Method: `st_blocks` (512-byte allocated blocks — **blocks, not
+apparent bytes, because a reclaim returns blocks**), grouped by
+`(stem, ext)` from cargo's `<stem>-<hash>.<ext>`, all but the
+newest-mtime member counted, **deduped by `(st_dev, st_ino)`**.
+
+⚠️ **"Not newest in its group" is a PROXY for "dead".** Named
+divergence: a crate legitimately built under two feature sets has two
+**simultaneously live** identities and this rule calls the older stale.
+So 6.30 GiB is *bytes held by non-newest identities*, neither a clean
+upper nor lower bound on reclaimable. Recorded as measured, not as a
+reclaim estimate.
+
+### ★★ ROW 24 — I ALMOST REPORTED A 1.7× WRONG FIGURE FOR A 45.9 GiB DECISION
+
+First pass summed `st_blocks` per **filename** and got 44,707,416 KiB
+for `deps`, against `du -sk`'s 26,069,264. **Cargo hardlinks heavily —
+175,053 names in that one directory were links to inodes already
+counted.** `du` bills an inode once; my loop billed every name.
+
+**Caught only because the total disagreed with an independent
+instrument.** The residue figure itself survived unchanged, but that was
+luck, not method — the stale set happened to be distinct inodes. **A
+figure that agrees with itself is not corroborated; a figure that agrees
+with a DIFFERENT instrument is.** This was headed for a decision about
+deleting 45.9 GiB.
+
+### ★★ ROW 25 (Athena + Cally) — "IDLE" WAS ASSUMED IN BOTH WINDOWS
+
+I claimed three identical readings proved `du -sk` stable on a quiet
+tree, "so drift elsewhere is attributable to activity". **Too strong,
+and Athena caught it against my own earlier finding** that `incremental`
+handed back 4,436 KiB in six *idle* minutes. Both cannot support their
+generalisations at once. Either that window was not idle, or **eviction
+is EPISODIC rather than continuous** — in which case 2.5 stable minutes
+say nothing about a window containing a prune.
+
+**The discriminator survives but only one-directionally:** observing a
+shrink on an idle tree proves it is not instrument noise; **failing to
+observe one proves nothing.** Same asymmetry as sampling and peaks —
+you can demonstrate an event, never its absence.
+
+**And tonight supplied a live instance of the first branch.** Between
+09:50:29 and 09:51:09 `target` fell 833,472 KiB in forty seconds while I
+believed the tree idle. It was **not** idle: Tom's cleaning script was
+running. I was about to anchor a declaration on a moving tree. **The
+lesson is not "check for builds" — it is that "idle" is a claim about a
+whole machine that a single seat cannot make.**
+
+### 🔭 THE 112 GiB NOBODY COULD ATTRIBUTE — IT HAS AN OWNER
+
+Cally measured free space moving ~112 GiB in ~15 minutes, retracted her
+own "decelerating / non-renewable / no second purge" reading as a
+mechanism story told from three closely-spaced samples, and stated the
+honest shape: *the number is comfortable and it is ungoverned.*
+
+**This seat holds the attribution she was missing: Tom ran his auto-
+cleaning script across his repos, and said so directly.** The candidate
+mechanism on the table was macOS purging its reserves under capacity
+pressure; the actual owner of at least the iridium share is a human
+running a script. Relayed to both.
+
+Worth keeping as the general point: **an unattributed quantity is not
+necessarily unowned — it may just be owned by someone nobody asked.**
+Three seats measured a volume for twenty minutes and the answer was one
+question to the person whose machine it is.
+
+---
+
+## 🚨 (HISTORICAL) THE BOX WAS AT 97% — AND EVERY FIGURE WAS A DRAW, NOT A PEAK
 
 **Measured 6 Aug ~09:5x, `df -k /System/Volumes/Data`:**
 `/dev/disk3s5  971350180 blocks, 916379632 used, 28646360 available, 97%`.

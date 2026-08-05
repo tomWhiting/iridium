@@ -532,6 +532,56 @@ happened. *"No build inputs changed"* is the imprecise form of *"no
 artifact identity changed"*, and that imprecision is what let it be
 held as a claim about **cost**.
 
+#### ⚠️ CORRECTION — "deps bytes: 0, exactly" WAS WRONG AS STATED
+
+Athena challenged the zero as evidence the analysis never ran and
+cargo replayed cached diagnostics — **fifth gate-appearance mechanism:
+a gate producing its verdict from a CACHE without doing the work.**
+Tested it. **Her hypothesis is FALSIFIED and mine was worse.**
+
+The run really analysed: **6 `Checking` + 1 `Compiling` lines covering
+all seven workspace crates, 18.34s wall**, and `find -mmin -30` shows
+**33 workspace `.rmeta` rewritten**, newest at 19:34:44 — the flagged
+run itself. Not a replay.
+
+⇒ ★ **ROW 15, MINE: `du -sk` PROXIES BYTES; IT MEASURES ALLOCATED
+BLOCKS.** Block size here is **4096**. Rewriting 33 files at similar
+sizes leaves the block total identical. Evidence in hand: the 270
+workspace `.rmeta` sum to **274,830,095 exact bytes = 268,388.8 KiB**
+while `du -ck` on the same set reports **268,720 KiB** — a **331 KiB
+gap that is pure block rounding**. On a 25.5 GB / 241,897-file
+directory the quantisation floor is large.
+
+**What survives and what does not:**
+- **SURVIVES:** no new artifact identities. That rests on **filename
+  counts**, which are counts, not byte measures, and are immune.
+  The `--`-form conclusion is unaffected.
+- **FALSE AS STATED:** "deps did not move by a single kilobyte."
+  33 files were rewritten inside it. Correct claim: **deps' allocated
+  block total did not move.**
+
+⇒ Athena's point 1 sharpens too: term 1 reading as zero was **partly a
+quantisation artifact**, so the decomposition was **satisfied, not
+checked** — and less checked than even she argued. **The model is
+UNREFUTED, not confirmed.** It is genuinely tested only when both
+terms are non-zero and the **split** is predicted in advance. A model
+reproducing a total to the kilobyte on a run where one term is
+structurally zero is the most flattering and least informative
+possible evidence.
+
+⇒ **BASELINE RULE, MECHANICAL (Athena point 3, amendment B recurring
+one hour later):** under lane ≡ commit, **the baseline must BE the
+previous commit's close, never a fresh reading taken at start.** The
+flagged run drew 2,856 KiB *during* the work; I then baselined at
+47,031,992 and closed there for a draw of "0". **`885c7e9`'s real draw
+is 2,856 KiB from 47,029,136.** No gap for work to fall into, no
+judgement about when a lane began.
+
+⇒ **An aggregate with ONE baseline is leak-proof; per-lane figures
+leak at every boundary.** The aggregate (0.171 of 1.5) caught the
+2,856 the lane figure lost. **The aggregate is load-bearing; the
+per-lane ceiling is early-warning, not the reverse.**
+
 ⇒ **THE TWO-TERM MODEL REPRODUCED THE TOTAL EXACTLY on first
 predictive use.** Term 1 (deps accumulation, path-novel only) = 0.
 Term 2 (incremental, ∝ compile work) = 2,856 KiB. Sum = the whole

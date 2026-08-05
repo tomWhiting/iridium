@@ -282,6 +282,63 @@ place to hide a real defect.
 PROCESS, not the number — pid-reuse law). Bundle carries bd5c85c +
 1198fa6 + 5f7a37d.
 
+## ✅ SCREENSHOT PNG FIX LANDED `ce62cb0` — and the lane BREACHED (5 Aug ~19:0x)
+
+**546,488,878 bytes a run → 8,580 KiB measured from this seat**, ~62×.
+Took the `png` dev-dependency; hand-rolled fixed-Huffman's *ceiling*
+measured 30% worse per frame (483,645 vs 373,619), so option (b) lost on
+its own terms — more code, owned forever, fixing a hand-rolling bug with
+more hand-rolling. Net: compression and checksum code **deleted**.
+
+**⚠️ LANE BREACHED: 0.746 GiB against a 0.6 ceiling** (45,808,208 →
+46,590,784 KiB). Filed as a breach, **not re-termed** — a ceiling
+re-termed with the answer visible is retroactive absolution.
+
+**Cause, and it is a process failure not a pricing one.** The ceiling was
+priced at open on "the dep branch is taken" meaning *new crates
+compile*. Athena then corrected field 3 mid-lane: that claim is true of
+dependency **edges** and silent about **feature unification**. The agent
+measured it and the intersection is **not empty** — `miniz_oxide` gains
+`default`, `simd-adler32` gains `const-generics,default,std`, and
+`flate2 → tiff → image → arboard → iridium-desktop` all rebuild behind
+them. I received the exact information that invalidated the ceiling and
+did not re-price; I read the correction as improving the *report* and
+never noticed it moved the *number*.
+
+**LAW — the missing half of the lane-open template, banked from this
+breach:** *a ceiling priced before a correction is stale the moment the
+correction arrives.* **Field 3 is the basis of field 4**, so any change
+to the invalidation set mid-lane obliges either a re-price or an
+explicit "unchanged, because —". The template as written lets field 3 be
+corrected while field 4 sits there still looking authoritative, which is
+exactly how a stale number keeps its credibility.
+
+Second, smaller contributor, correctly incurred: I re-ran the `--ignored`
+GPU harness myself rather than relay the agent's 62× (same-message rule),
+which compiled the test binary again. Right call, real bytes, belonged
+in the price.
+
+**What the oracle requirement bought — it earned itself twice:**
+
+1. It caught a live bug in the agent's own work: `Encoder::set_compression`
+   **silently overwrites the filter**, so its `NoFilter` was discarded and
+   the first run came out 17% larger with filter bytes in the stream.
+   Nothing but decoding the output would have found it. `MAX_RUN_BYTES`
+   now sits above the unfiltered total and below the adaptive one, so a
+   lost filter fails a test instead of quietly costing 2 MB a run.
+2. **It found a defect this seat shipped.** The shot-count assertion was
+   a literal `3` and stayed `3` when the two menu shots landed in
+   `5e91b03`, so the harness **failed its own count on every run** since.
+   Invisible to the five-gate battery because the test is `#[ignore]`d.
+   **AN IGNORED TEST IS NOT A GATE** — do not read a green battery as
+   covering that file.
+
+**Prior corrected by measurement:** I expected Sub/Up filtering to help.
+It *loses* here — `NoFilter` beat every alternative on every real frame
+(373,773 vs 469,369 adaptive, 520,071 Sub), because long horizontal runs
+of identical background are what deflate matches best and a filter
+breaks them up.
+
 ## ☠️ EVERY SCRATCHPAD ARTIFACT THIS FILE CITES IS ALREADY GONE (verified 5 Aug ~18:5x)
 
 Checked by hand, not assumed. **`breaks.sh`, `breaks5.sh`, `breaks6.sh`,

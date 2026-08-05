@@ -62,3 +62,17 @@ thiserror.workspace = true
 # The file crate's test fixtures: the self-removing temporary directory the
 # save tests write into.
 iridium-file = { workspace = true, features = ["test-support"] }
+
+# PNG encoding and decoding for the chrome screenshot harness, which used to
+# hand-roll an encoder to avoid exactly this dependency and paid 23.7 MB a
+# frame for it — a measured 1.00008 compression ratio, 546 MB a run.
+#
+# Two things this buys that the hand-rolled encoder could not. Its deflate is
+# a real dynamic-Huffman one: 63x on the harness's own frames against the 49x
+# ceiling of the fixed-Huffman stream we would otherwise have had to write and
+# own. And its *decoder* is the harness's oracle — the frames are now read
+# back by code that did not write them, which is the check whose absence let
+# the uncompressed stream survive unnoticed.
+#
+# Dev-only: never in the desktop binary, never in any face's runtime graph.
+png = "0.18.1"

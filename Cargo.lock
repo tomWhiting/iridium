@@ -1138,6 +1138,7 @@ dependencies = [
  "glyphon",
  "iridium-editor",
  "iridium-file",
+ "png",
  "pollster",
  "thiserror 2.0.17",
  "unicode-segmentation",

@@ -43,8 +43,50 @@
 //! No window ever opens: the adapter is requested with no compatible
 //! surface — the same construction as the kernel's `compose_frame` bench —
 //! and every frame is composed onto an offscreen texture, then copied to a
-//! mappable buffer and encoded as an uncompressed PNG with no image
-//! dependency (zlib "stored" blocks are still a valid PNG stream).
+//! mappable buffer and encoded through the `png` crate.
+//!
+//! # What the frames cost, and why the encoder is borrowed
+//!
+//! This harness used to hand-roll its encoder to avoid an image dependency,
+//! emitting a zlib stream of deflate "stored" blocks. That is a valid PNG and
+//! it is also no compression at all: the measured ratio was 1.00008, every
+//! frame 23,760,386 bytes, every run 546 MB for 23 shots.
+//!
+//! The run is now 8,734,042 bytes for the same 23 frames — 62.6x, each frame
+//! between 331,984 and 436,267 bytes.
+//!
+//! Both halves of the replacement are chosen from measurement on this
+//! harness's own frames rather than from the usual rules of thumb:
+//!
+//! - **Filter [`png::Filter::NoFilter`]**, not the crate's adaptive default
+//!   and not the `Sub`/`Up` that flat UI images are supposed to prefer. On
+//!   these frames every filter *loses*, because the long horizontal runs of
+//!   identical background bytes are the thing deflate matches best and any
+//!   filter breaks them up. Whole-run totals: none 8,734,042 bytes, adaptive
+//!   10,550,488 — filtering costs 21% here. Per frame, on the raw scanlines
+//!   of `light-paper-editor`: none 373,773; adaptive 469,369; Paeth 496,390;
+//!   Up 502,252; Sub 520,071.
+//! - **Deflate level 9**, worth about 4% over the default level 6 on an
+//!   artifact written once and read by eye.
+//!
+//! Note that the two are set independently rather than through
+//! `Encoder::set_compression`, which overwrites the filter — see [`png_bytes`].
+//!
+//! # The encoder has an oracle
+//!
+//! The uncompressed stream survived because nothing ever read a frame back.
+//! Every shot is now decoded again by [`verify_png`] — the `png` crate's
+//! decoder, which did not write it — and checked for its dimensions, its
+//! colour type and depth, and every byte of its pixels against what the GPU
+//! handed over. [`png_round_trip_is_compressed_and_decodable`] makes the same
+//! check without a GPU and asserts the compression ratio outright, so the
+//! claim in this doc comment is falsifiable by `cargo test` rather than
+//! merely stated.
+//!
+//! What that GPU-free test does *not* police is the filter choice: a small
+//! synthetic frame is regular enough vertically that `Adaptive` beats
+//! `NoFilter` on it, the opposite of the real frames. The filter is held by
+//! [`MAX_RUN_BYTES`] instead, which is measured on the real set.
 
 use std::path::{Path, PathBuf};
 
@@ -386,94 +428,103 @@ fn read_pixels(gpu: &Gpu) -> Result<Vec<u8>, String> {
     Ok(pixels)
 }
 
-/// CRC-32 (IEEE), as PNG chunks require.
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc: u32 = 0xFFFF_FFFF;
-    for &byte in bytes {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-        }
-    }
-    !crc
-}
-
-/// Adler-32, as the zlib stream's trailer requires.
-fn adler32(bytes: &[u8]) -> u32 {
-    let mut low: u32 = 1;
-    let mut high: u32 = 0;
-    // 5552 is the largest run before the sums can overflow u32.
-    for chunk in bytes.chunks(5552) {
-        for &byte in chunk {
-            low += u32::from(byte);
-            high += low;
-        }
-        low %= 65_521;
-        high %= 65_521;
-    }
-    (high << 16) | low
-}
-
-/// Appends one PNG chunk: length, type, data, CRC over type-plus-data.
-fn push_chunk(out: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) -> Result<(), String> {
-    let length = u32::try_from(data.len()).map_err(|_| "chunk too large".to_string())?;
-    out.extend_from_slice(&length.to_be_bytes());
-    let crc_start = out.len();
-    out.extend_from_slice(&kind);
-    out.extend_from_slice(data);
-    let crc = crc32(&out[crc_start..]);
-    out.extend_from_slice(&crc.to_be_bytes());
-    Ok(())
-}
-
-/// Encodes tightly packed RGBA rows as an uncompressed PNG — a zlib stream
-/// of "stored" deflate blocks, valid everywhere, no encoder dependency.
-fn png_bytes(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+/// The byte count of one RGBA frame of the given dimensions, refusing any
+/// pair that cannot be addressed on this host.
+fn frame_byte_count(width: u32, height: u32) -> Result<usize, String> {
     let width_usize = usize::try_from(width).map_err(|_| "width exceeds memory".to_string())?;
     let height_usize = usize::try_from(height).map_err(|_| "height exceeds memory".to_string())?;
-    let row_bytes = width_usize * 4;
-    if rgba.len() != row_bytes * height_usize {
+    width_usize
+        .checked_mul(4)
+        .and_then(|row| row.checked_mul(height_usize))
+        .ok_or_else(|| "the frame exceeds addressable memory".to_string())
+}
+
+/// Encodes tightly packed RGBA rows as a compressed PNG.
+///
+/// The filter and compression settings are measured, not assumed — see the
+/// module doc for the numbers they were chosen on.
+fn png_bytes(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    if rgba.len() != frame_byte_count(width, height)? {
         return Err("pixel buffer does not match the declared dimensions".to_string());
     }
 
-    // The filtered stream: every scanline prefixed with filter type 0.
-    let mut raw = Vec::with_capacity((row_bytes + 1) * height_usize);
-    for row in rgba.chunks_exact(row_bytes) {
-        raw.push(0);
-        raw.extend_from_slice(row);
-    }
-
-    // The zlib wrapper: header, stored blocks, Adler-32.
-    let mut idat = Vec::with_capacity(raw.len() + raw.len() / 65_535 * 5 + 16);
-    idat.extend_from_slice(&[0x78, 0x01]);
-    let mut blocks = raw.chunks(65_535).peekable();
-    while let Some(block) = blocks.next() {
-        let last = u8::from(blocks.peek().is_none());
-        let length = u16::try_from(block.len()).map_err(|_| "oversized block".to_string())?;
-        idat.push(last);
-        idat.extend_from_slice(&length.to_le_bytes());
-        idat.extend_from_slice(&(!length).to_le_bytes());
-        idat.extend_from_slice(block);
-    }
-    idat.extend_from_slice(&adler32(&raw).to_be_bytes());
-
-    let mut ihdr = Vec::with_capacity(13);
-    ihdr.extend_from_slice(&width.to_be_bytes());
-    ihdr.extend_from_slice(&height.to_be_bytes());
-    // Bit depth 8, colour type 6 (RGBA), deflate, filter 0, no interlace.
-    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
-
-    let mut out = Vec::with_capacity(idat.len() + 128);
-    out.extend_from_slice(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
-    push_chunk(&mut out, *b"IHDR", &ihdr)?;
-    push_chunk(&mut out, *b"IDAT", &idat)?;
-    push_chunk(&mut out, *b"IEND", &[])?;
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    // Deliberately not `set_compression`: that convenience setter also
+    // *overwrites the filter*, mapping every level except `NoCompression` back
+    // onto `Filter::Adaptive`. Calling it after `set_filter` silently discards
+    // the filter choice — which is exactly what happened here, and cost 25% of
+    // the frame until a decoder read the filter bytes back. Setting the two
+    // options independently is immune to the ordering.
+    encoder.set_deflate_compression(png::DeflateCompression::Level(9));
+    encoder.set_filter(png::Filter::NoFilter);
+    let mut writer = encoder
+        .write_header()
+        .map_err(|error| format!("the PNG header could not be written: {error}"))?;
+    writer
+        .write_image_data(rgba)
+        .map_err(|error| format!("the PNG pixels could not be written: {error}"))?;
+    writer
+        .finish()
+        .map_err(|error| format!("the PNG stream could not be closed: {error}"))?;
     Ok(out)
 }
 
-/// Renders one shot, writes it as a PNG, and hands back its pixels so a
-/// caller can assert on them.
+/// Reads a written frame back with the `png` crate's decoder and proves it is
+/// the frame the GPU produced: the declared dimensions, RGBA at eight bits,
+/// and every pixel byte identical.
+///
+/// This is the harness's oracle, and it exists because its absence is what
+/// let an uncompressed encoder ship unnoticed. The decoder is deliberately
+/// not ours — an encoder checked only by its own author's arithmetic proves
+/// that the arithmetic is self-consistent, not that the file is a PNG.
+fn verify_png(path: &Path, width: u32, height: u32, expected: &[u8]) -> Result<(), String> {
+    let file = std::fs::File::open(path)
+        .map_err(|error| format!("cannot reopen {}: {error}", path.display()))?;
+    let mut reader = png::Decoder::new(std::io::BufReader::new(file))
+        .read_info()
+        .map_err(|error| format!("{} is not a readable PNG: {error}", path.display()))?;
+    let capacity = reader
+        .output_buffer_size()
+        .ok_or_else(|| format!("{}: the decoded frame exceeds memory", path.display()))?;
+    let mut decoded = vec![0_u8; capacity];
+    let info = reader
+        .next_frame(&mut decoded)
+        .map_err(|error| format!("{} did not decode: {error}", path.display()))?;
+
+    if info.width != width || info.height != height {
+        return Err(format!(
+            "{}: decodes {}x{}, but the frame is {width}x{height}",
+            path.display(),
+            info.width,
+            info.height
+        ));
+    }
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return Err(format!(
+            "{}: decodes as {:?} at {:?}, not eight-bit RGBA",
+            path.display(),
+            info.color_type,
+            info.bit_depth
+        ));
+    }
+    let pixels = decoded
+        .get(..info.buffer_size())
+        .ok_or_else(|| format!("{}: the decoder under-filled its buffer", path.display()))?;
+    if pixels != expected {
+        return Err(format!(
+            "{}: the decoded pixels differ from the ones composed",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Renders one shot, writes it as a PNG, reads it back to prove it decodes
+/// to what was composed, and hands back its pixels so a caller can assert on
+/// them.
 fn capture(
     gpu: &Gpu,
     compositor: &mut FrameCompositor,
@@ -488,6 +539,7 @@ fn capture(
     let encoded = png_bytes(WIDTH, HEIGHT, &pixels)?;
     std::fs::write(path, &encoded)
         .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    verify_png(path, WIDTH, HEIGHT, &pixels)?;
     Ok(pixels)
 }
 
@@ -900,6 +952,149 @@ fn run() -> Result<Vec<PathBuf>, String> {
     Ok(written)
 }
 
+/// How many frames the dark control contributes: the palette, the search
+/// panel, the context menu in both its editable and read-only states, and the
+/// history tree.
+///
+/// Named rather than written into the assertion as a literal because it was a
+/// literal, it said three, and it stayed saying three when the two menu shots
+/// landed — so the harness failed its own count on every run.
+const DARK_CONTROL_SHOTS: usize = 5;
+
+/// How many frames each candidate light variant contributes, per the
+/// light-theme map §4.1.
+const VARIANT_SHOTS: usize = 6;
+
+/// A generous ceiling on one encoded frame.
+///
+/// The frames measure 331,984 to 436,267 bytes; the uncompressed encoder this
+/// harness used to carry produced 23,760,386 bytes for every one of them.
+/// Anything between the two is a compression regression, and this is where it
+/// stops.
+const MAX_FRAME_BYTES: u64 = 1024 * 1024;
+
+/// A budget on the whole run, which is the number the harness is actually
+/// judged on — 23 frames onto someone's disk.
+///
+/// Tighter than [`MAX_FRAME_BYTES`] on purpose, because it is the only
+/// assertion that can see the filter choice. Measured totals: 8,734,042 bytes
+/// with [`png::Filter::NoFilter`], 10,550,488 with `Adaptive`, 546,488,878
+/// with the stored-block encoder this replaced. The ceiling sits above the
+/// first and below the second, so silently losing the filter setting — which
+/// `Encoder::set_compression` will do for you — fails here.
+const MAX_RUN_BYTES: u64 = 9_500_000;
+
+/// A frame shaped like the ones the harness really writes — a flat page, a
+/// band across it, and a scatter of glyph-like marks — without a GPU.
+fn synthetic_frame(width: u32, height: u32) -> Vec<u8> {
+    // A capacity hint only; the loop below is what fixes the real length.
+    let mut pixels = Vec::with_capacity(frame_byte_count(width, height).unwrap_or_default());
+    for y in 0..height {
+        for x in 0..width {
+            let band = y % 64 < 3;
+            let mark = !band && x % 11 < 4 && y % 19 < 12;
+            let pixel = match (band, mark) {
+                (true, _) => [0x2A, 0x2E, 0x36, 0xFF],
+                (_, true) => [0xD4, 0xC8, 0x9A, 0xFF],
+                _ => [0x1E, 0x21, 0x27, 0xFF],
+            };
+            pixels.extend_from_slice(&pixel);
+        }
+    }
+    pixels
+}
+
+/// The encoder's oracle, without a GPU: encode a frame, decode it with the
+/// `png` crate's decoder, and hold the result to both claims the module doc
+/// makes — that the bytes are a real RGBA PNG of the stated size carrying the
+/// stated pixels, and that they are actually compressed.
+///
+/// The second assertion is the one that matters. The defect this replaced was
+/// a valid PNG in every respect except that its compression ratio was
+/// 1.00008, and no test in the tree could tell.
+///
+/// The threshold is deliberately loose. This frame is far more compressible
+/// than a real one — and it is the wrong shape to judge the *filter* on, so
+/// it does not try; see the module doc.
+#[test]
+fn png_round_trip_is_compressed_and_decodable() {
+    let width = 512_u32;
+    let height = 384_u32;
+    let pixels = synthetic_frame(width, height);
+    let encoded = match png_bytes(width, height, &pixels) {
+        Ok(bytes) => bytes,
+        Err(message) => panic!("{message}"),
+    };
+
+    // Stated as integers rather than a ratio so no cast is needed: at least
+    // tenfold. The measured frames manage sixtyfold; the stored-block encoder
+    // this replaced managed 1.00008 and would fail here.
+    assert!(
+        encoded.len() * 10 < pixels.len(),
+        "the encoder turned {} bytes into {} — under tenfold, which is not \
+         the compression this harness depends on",
+        pixels.len(),
+        encoded.len()
+    );
+
+    let mut reader = match png::Decoder::new(std::io::Cursor::new(&encoded)).read_info() {
+        Ok(reader) => reader,
+        Err(error) => panic!("the encoded bytes are not a readable PNG: {error}"),
+    };
+    let capacity = reader
+        .output_buffer_size()
+        .expect("the decoder reports an unrepresentable frame size");
+    let mut decoded = vec![0_u8; capacity];
+    let info = match reader.next_frame(&mut decoded) {
+        Ok(info) => info,
+        Err(error) => panic!("the encoded bytes did not decode: {error}"),
+    };
+
+    assert_eq!(info.width, width, "the decoded width");
+    assert_eq!(info.height, height, "the decoded height");
+    assert_eq!(
+        info.color_type,
+        png::ColorType::Rgba,
+        "the decoded colour type"
+    );
+    assert_eq!(
+        info.bit_depth,
+        png::BitDepth::Eight,
+        "the decoded bit depth"
+    );
+    assert_eq!(
+        &decoded[..info.buffer_size()],
+        &pixels[..],
+        "the decoded pixels"
+    );
+
+    // Two named pixels, so the whole-buffer comparison above cannot pass by
+    // both sides being wrong the same way: the band that crosses the origin,
+    // and the page colour on the first row below it.
+    let row_bytes =
+        usize::try_from(width).expect("the test frame width does not fit this host") * 4;
+    assert_eq!(
+        &decoded[..4],
+        &[0x2A, 0x2E, 0x36, 0xFF],
+        "the band at the origin"
+    );
+    let page = 3 * row_bytes + 5 * 4;
+    assert_eq!(
+        &decoded[page..page + 4],
+        &[0x1E, 0x21, 0x27, 0xFF],
+        "the page below the band"
+    );
+}
+
+/// Rejects a pixel buffer that does not match the dimensions it is encoded
+/// under, rather than writing a frame that decodes to something else.
+#[test]
+fn png_bytes_refuses_a_mismatched_buffer() {
+    let short = vec![0_u8; 4 * 4 * 4];
+    assert!(png_bytes(8, 8, &short).is_err(), "an undersized buffer");
+    assert!(png_bytes(0, 0, &short).is_err(), "an oversized buffer");
+}
+
 /// The review artifact: the dark control plus the three candidate light
 /// variants, produced headlessly.
 #[test]
@@ -909,13 +1104,27 @@ fn chrome_screenshots_render_headlessly() {
         Ok(paths) => {
             assert_eq!(
                 paths.len(),
-                3 + 6 * ClassicVariant::ALL.len(),
+                DARK_CONTROL_SHOTS + VARIANT_SHOTS * ClassicVariant::ALL.len(),
                 "the shot set is the dark control plus six frames per variant"
             );
+            let mut run_bytes = 0_u64;
             for path in paths {
                 let size = std::fs::metadata(&path).map_or(0, |meta| meta.len());
                 assert!(size > 0, "{} is empty", path.display());
+                assert!(
+                    size <= MAX_FRAME_BYTES,
+                    "{} is {size} bytes, past the {MAX_FRAME_BYTES}-byte ceiling \
+                     — the frames are no longer being compressed",
+                    path.display()
+                );
+                run_bytes += size;
             }
+            assert!(
+                run_bytes <= MAX_RUN_BYTES,
+                "the run wrote {run_bytes} bytes, past the {MAX_RUN_BYTES}-byte \
+                 budget — either the frames grew, or the encoder lost its \
+                 filter or compression settings"
+            );
         },
         Err(message) => panic!("{message}"),
     }

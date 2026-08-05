@@ -105,9 +105,31 @@ jobs:
         # still emitting the `block` future-incompat note.
         #
         # This covers `--all-features` only. The GPU-free and wasm
-        # configurations compile DIFFERENT code and have never been run
-        # through clippy at all — 17 and 110 warnings respectively as of
-        # 2026-08-05. Extending the gate to them is a burn-down, not a flag.
+        # configurations compile DIFFERENT code and are not gated here.
+        # Extending the gate to them is a burn-down, not a flag.
+        #
+        # Counts, each with the invocation that produced it, because an
+        # earlier revision of this comment said "17 and 110" with no
+        # command attached and the 110 was unreproducible within hours —
+        # it matches no metric on this tree. A bare number in a durable
+        # artifact outlives the command that made it by definition, which
+        # is the one place "state the figure with its command" matters
+        # most and the one place it had not been applied.
+        #
+        #    17  cargo clippy -p iridium-editor --no-default-features
+        #          --all-targets
+        #   102  cargo clippy -p iridium-bindings --no-default-features
+        #          --features web --target wasm32-unknown-unknown
+        #          (adding --all-targets changes nothing: no extra target
+        #           in that crate compiles for wasm32)
+        #
+        # Metric: unique (lint, file, line) over --message-format=json,
+        # measured 2026-08-05. NOT cargo's own summary line, which says
+        # "78 warnings" for the same wasm run because it counts only the
+        # iridium-bindings unit; the other 25 belong to iridium-editor
+        # compiled under the web feature set. Two honest numbers for one
+        # invocation, so the metric has to be stated or the count means
+        # nothing.
         #
         # ⚠️ THIS GATE'S VERDICT DEPENDS ON WORKSPACE ARTIFACTS NOT BEING
         # CACHED. `rust-cache` runs with `cache-all-crates: false`, so it

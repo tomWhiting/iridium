@@ -186,7 +186,60 @@ today's kernel in the browser. Kill only that exact pid when done.**
 Tom addressed me as "Robo Doug" in-session — he's in the CLI now,
 not only Meridian.
 
-**OPEN QUEUE after swap:** 1. Context-menu implementation (task #28,
+**✅ INPUT DEFECTS FIXED 5 Aug ~07:0x local: bd5c85c + 1198fa6, gates
+1840/0 this seat, lane closed 0.07 of 1.5.** Tom's live reports
+(⌘-click no cursors; ⌥/⌘ navigation dead). TWO INDEPENDENT causes,
+neither a modifier-state bug: (A) macOS `mouseUp:` queues a synthetic
+CursorMoved BEFORE the release, so every click read as a
+zero-distance drag; `handle_drag` rebuilt state via CursorState::new
+and destroyed secondaries. Fix: face holds press_cell and ignores
+moves that never left it (cleared on first move away, so a real drag
+that returns still selects); kernel handle_drag carries secondaries
+across. (B) NONE of the 10 mac chords were bound anywhere — default
+keymap's loose Any patterns swallowed them; the face had a mac
+spelling for the mouse but never the keyboard. Fix: 14 rows in the
+desktop layer (MAC_CHORDS table, Required patterns outrank loose
+defaults), reusing edit.deleteToLineStart/End which were registered
+but keyless; `with_option_as_alt(Both)` cfg-gated macOS (CI checks on
+ubuntu, so the cfg is load-bearing).
+**PRE-REGISTERED PREDICTION CONFIRMED:** ⇧-click predicted broken by
+the same mechanism BEFORE the fix; red test failed exactly as
+predicted (anchor collapsed onto click). Both branches were declared
+in advance to Athena — the green branch (which would have narrowed
+the diagnosis) went unused. Law banked both seats: ORACLE GAP ≠
+COVERAGE GAP — function-level tests cannot see an event the platform
+emits and the code never asks for; the fix for the class is replaying
+recorded platform sequences. TUI has the same exposure to terminal
+escape sequences.
+**WARM LAW NOW MEASURED 3× at this crate set: 1.35 first-touch →
+0.43 → 0.07.**
+**TWO ITEMS OUT OF THAT LANE, both with Tom:** (1) ⌥ no longer
+composes accented chars (é, ü) — real capability loss; offered him
+OnlyLeft alternative (chords on left ⌥, composition on right). (2)
+⌘-DRAG widens primary and leaves the added cursor collapsed; VS Code
+drags the newly-added one — needs press-ownership tracking, on the
+ledger. STILL PENDING his ruling: ⌥⇧←/→ word-select vs expand/shrink
+(recommended moving expand/shrink to ⌃⇧⌘←/→).
+
+**✅ LIGHT-THEME MAP WRITTEN 6fb7f11 (zero-build doc lane):
+docs/design/LIGHT-THEME-MAP.md, D-1..D-8.** Three variants for Tom to
+pick from RENDERED shots: A "Platinum" (Mac OS 8.5 grey chrome), B
+"Paper" (warm off-white, all-day), C "Monochrome" (System 6). Agent
+recommends A + kernel host command `view.toggleTheme` (⌘⌥T verified
+free; host command = zero count churn) + follow system appearance
+with manual pin. TWO REAL DEFECTS FOUND: (i) `Theme::light()` has
+attribute == error == #ff0000 and operator/punctuation #000000 darker
+than foreground #333333; (ii) render/simple_highlight.rs has its OWN
+SyntaxColors type selected by `is_dark` ALONE (verified at
+compositor.rs:2016-2028) — the theme's syntax colors never reach the
+keyword bridge, so a themed light mode is honest on grammar'd files
+and wrong on the bridge path. WINIT TRAP recorded: `Window::set_theme`
+permanently silences ThemeChanged for that window — following the
+system and matching the titlebar are mutually exclusive.
+
+**OPEN QUEUE after swap:** 0. Bundle swap on Tom's word (input fixes
+NOT yet in his hands — he's on the previous bundle, pid 57370).
+1. Context-menu implementation (task #28,
 all rulings in hand; file plan at map end: context_menu.rs new +
 overlay.rs + app.rs; kernel untouched; subagent on OPUS). 2. Tom's
 "switching" answer pending (which kind: file/project/window/

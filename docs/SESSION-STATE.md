@@ -237,6 +237,45 @@ and wrong on the bridge path. WINIT TRAP recorded: `Window::set_theme`
 permanently silences ThemeChanged for that window — following the
 system and matching the titlebar are mutually exclusive.
 
+**✅ LIGHT-THEME CANDIDATES RENDERED 5f7a37d (5 Aug ~17:3x local),
+gates 1853/0 this seat.** crates/iridium-editor/src/theme/classic.rs
+= three candidate variants (Platinum #EFEFEF / Paper #FBF8F1 /
+Monochrome #FFFFFF) with 13 pinning assertions incl. contrast floors
+and attribute!=error; chrome_screenshots.rs EXTENDED (not forked) —
+Palette enum names which syntax path each frame exercises.
+`Theme::light()` UNTOUCHED, nothing runtime reaches the candidates.
+**21 PNGs at ~/Desktop/iridium-theme-shots/ (476 MB + a 2 MB
+preview/ subdir I made with sips for fast flipping) — DURABLE GROUND
+per Athena's law: tmp is not where evidence of record lives (two
+proofs in 12h: Hermes's worktree, her ledger, both died on
+restarts).** Tom told: judge surfaces from -search shots (no
+backdrop), ignore -palette murk (BACKDROP_ALPHA 0.45 crushes light
+pages — #EFEFEF measured (131,131,131); one number, chrome ruling
+owed), -bridge shots identical BY DESIGN across variants (evidence of
+the is_dark-keyed bridge bug, D-8). Honest caveat given: variants are
+closer at a glance than their names suggest — paper tone + ink
+warmth, which is what "classic Mac" constrains. DELETE the 476 MB set
+once he picks.
+**⚠️ THAT LANE'S CLOSE IS NON-QUIESCENT AND REPORTED AS SUCH:** two
+foreign cargo pids (54364 `cargo test -p aion-server`, 58178 `cargo
+check --quiet`) were live during my du. Read 45,464,988 vs anchor
+44,732,060 = +0.70 of 1.2 ceiling, but NOT offered as measured — my
+draw is upper-bounded by 0.70 with the remainder another seat's.
+Reasoning banked: a convenient unfalsifiable number that would have
+passed is worse than a wide honest one, because it enters the record
+as measured.
+**LAWS BANKED THIS STRETCH (both seats):** (i) oracle gap ≠ coverage
+gap; (ii) a deferred verification against a MUTABLE noun dies of the
+delay — state the survival class AT deferral (du readings die, git
+objects survive); swap-#3 and this close are provisional-PERMANENT by
+that law, knowingly accepted; (iii) expectation tracks the warm
+series but CEILING stays conditioned on the reset discriminator (cold
+crate or lockfile motion → first-touch 1.35+); (iv) any instrument
+that decides attribution must be fixed BEFORE the event it attributes
+— predictions, blame, and pricing fail identically when the standard
+is set with the answer visible; a known flake is the most comfortable
+place to hide a real defect.
+
 **OPEN QUEUE after swap:** 0. Bundle swap on Tom's word (input fixes
 NOT yet in his hands — he's on the previous bundle, pid 57370).
 1. Context-menu implementation (task #28,

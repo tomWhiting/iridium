@@ -470,6 +470,42 @@ just fail, IT TRAVELS — and each relay adds credibility while
 subtracting checkability.** The relay is exactly where the
 checkability is spent, which makes it worse than a plain error.
 
+## 🚨 CI HAS BEEN RED SINCE 4 AUG — 29 OF THE LAST 30 RUNS FAILED
+
+**Zero successes back to `4a4d57b`, 4 Aug 04:21Z.** Every commit I
+landed tonight went onto a red CI, and **I ran a five-gate battery
+from my own hand before each one without ever looking at the actual
+verdict.**
+
+⇒ ★★ **MY LOCAL BATTERY STOOD PROXY FOR CI.** Divergence case: **a
+machine with no graphics adapter** — which this laptop never is. The
+proxy law fired against me at the largest scale available, all
+session, while I was cataloguing it in others.
+
+**Cause:** `cargo test --workspace --all-features` on `ubuntu-latest`
+sweeps in the offscreen GPU harnesses (`plain_frames`,
+`retained_shaping`). No adapter ⇒ `request_adapter` fails ⇒ `die()`
+exits 1. **That is BY DESIGN** — its doc says a missing GPU must fail
+loudly rather than pass over work that did not happen. **The design is
+right and stays.** What was wrong was asking a runner to satisfy it
+with nothing installed.
+
+**Fix `4d7dcf8`:** install **Mesa lavapipe** (a real Vulkan ICD that
+renders on CPU) on the test runner, so `Backends::PRIMARY` enumerates
+it and the harnesses **run for real**. Verdict pending — not
+reproducible locally, which is why it hid for a day and a half.
+
+⇒ **Deliberately NOT the other fix.** Excluding the tests from CI, or
+teaching them to skip when no adapter is found, makes them exactly
+what this workflow's own comment warns against — *a configuration
+whose tests never run is a configuration nobody can rely on.*
+⇒ ★ **MOVE THE RUNNER INTO THE TEST'S REACH, NEVER THE TEST OUT OF THE
+RUNNER'S.** Same principle as widening the wasm span index to
+`any(target_arch = "wasm32", test)` an hour earlier.
+
+⚠️ **Note the CLIPPY job passes cold on CI** — the gate armed at
+`885c7e9` is green on the runner. Only `Test` fails.
+
 ## ⛔ BREACH FILED — span-index lane `ba16fe6`, 0.624 of 0.6
 
 **Filed, not re-termed.** From the previous commit's close of
@@ -535,6 +571,44 @@ incompleteness reads as rounding. **Record `du -sk target/*` AND
 `du -sk target/debug/*` IN FULL, open and close. A complete partition
 cannot have a residual — it sums by construction.** Same instrument as
 the blank-field law: **don't sample where you can partition.**
+
+⚠️ **ATHENA'S CONDITION ON IT, and my own numbers prove she's right:**
+deps 25,969,784 + incremental **12,802,384** = **38,772,168**, not the
+38,767,732 I subtracted — I used the **later** incremental reading.
+**Gap 4,436 KiB = exactly the eviction I had just measured.** The
+phenomenon found in finding 3 contaminated the arithmetic in finding
+2. ⇒ ★★ **A PARTITION MUST BE A SINGLE ATOMIC SNAPSHOT** — one
+`du -sk target/*` invocation, never components gathered across a
+conversation. Once a store is known to drift, **every figure assembled
+from readings at different instants inherits that drift.** So the
+391,324 is really 386,888 at close-time or 391,324 at read-time, and
+**those are different nouns.**
+
+⚠️ **The third store is LOCATED, NOT ATTRIBUTED.** "New test binaries
+land there" is a mechanism story with **no open-time reading** for
+`build/`, `examples/` or the profile root. Strongest candidate, not a
+finding — by exactly the standard I applied to the 238 MB. **This
+lane's 12,988 stays located-but-unattributed;** the open-time
+partition fixes it from the next lane on.
+
+⚠️ **DIRECTION MATTERS: eviction REMOVES bytes, so drift during a lane
+lowers the close reading and biases the measured draw DOWNWARD. It
+CANNOT inflate a breach.** 0.624 is not "possibly 0.6" in the
+direction that would rescue it; if anything the work-attributable draw
+was larger.
+⇒ ★★ **THE RESOLUTION ARGUMENT MUST ALWAYS CARRY A NUMBER, or it
+becomes a universal solvent for inconvenient breaches.** With one:
+noise floor is order **4–25k KiB** per lane; the **encoder breach was
+153,092 KiB — six times it, untouched**; the model's falsifiable
+prediction (sub-0.3 vs ≥1.0) is separated by **~700k KiB**, also
+untouched. **Only this lane's margin sits inside the floor.**
+
+**CHEAP CURE (Athena) — measure the floor instead of assuming it:
+TAKE THE CLOSE READING TWICE, a few minutes apart, and report BOTH.**
+The spread is an empirical per-lane noise band at near-zero cost — a
+control *inside* the measurement rather than a caveat beside it. A
+draw inside its own band is then filed as a breach **with the band
+stated**.
 
 ### ⛔ `incremental` IS NOT MONOTONIC — and it sets the noise floor
 

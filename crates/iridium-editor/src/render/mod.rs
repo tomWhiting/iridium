@@ -22,7 +22,11 @@ mod gutter;
 mod highlight;
 mod minimap;
 mod simple_highlight;
-mod units;
+/// Crate-visible, deliberately: the conversions serve every subsystem that
+/// moves between integer indices and `f32` pixels, and `input::mouse` is a
+/// consumer outside this module. Widened no further — these are an internal
+/// discipline, not part of the crate's published surface.
+pub(crate) mod units;
 mod viewport;
 
 #[cfg(feature = "render")]

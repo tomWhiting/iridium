@@ -42,20 +42,12 @@ pub fn index_to_f32(value: usize) -> f32 {
 /// The integer part of a finite-or-infinite `f32` known to be `>= 1.0`,
 /// saturating at [`u64::MAX`].
 ///
-/// Compiled only with the `render` feature, like the three conversions it
-/// serves: `compositor.rs` is this module's sole consumer of the
-/// pixel-to-integer direction, and it is `render`-gated. Without the gate the
-/// GPU-free build carries four functions it cannot reach and says so, four
-/// warnings at a time, in a configuration whose gate nobody reads the
-/// warnings of.
-///
 /// This is the shared core of the two pixel-to-integer conversions below,
 /// which read the sign, exponent and mantissa directly so the truncation is
 /// stated as arithmetic rather than as a cast. The exponent is non-negative
 /// because the caller has already excluded values below `1.0`; infinity
 /// carries the all-ones exponent and saturates like any other value at or
 /// beyond `2^64`.
-#[cfg(feature = "render")]
 fn truncated_magnitude(value: f32) -> u64 {
     let bits = value.to_bits();
     let exponent = i64::from((bits >> 23) & 0xFF) - 127;
@@ -87,7 +79,13 @@ fn truncated_magnitude(value: f32) -> u64 {
 /// performs that conversion silently. The behavior here is bit-for-bit the
 /// cast's — the render path's output must not move by even a pixel — but
 /// spelled out.
-#[cfg(feature = "render")]
+///
+/// Because the conversion truncates toward zero and floors everything below
+/// `1.0` to zero, it subsumes a `floor()` and a `max(0.0)` applied to its
+/// input: for every `f32`, `pixel_to_index(v)`, `pixel_to_index(v.floor())`
+/// and `v.floor().max(0.0) as usize` agree. `pixel_to_index_matches_cast`
+/// asserts that over the boundaries hit-testing actually meets, which is what
+/// lets a caller drop those two steps without moving a caret.
 pub fn pixel_to_index(value: f32) -> usize {
     // `NaN` fails the comparison and truncates to zero, exactly as the cast
     // does; so do negatives and everything below one.
@@ -103,6 +101,15 @@ pub fn pixel_to_index(value: f32) -> usize {
 ///
 /// Text areas clip against integer bounds, so the `f32` layout coordinates
 /// must land in `i32` somewhere; this is that landing, stated as arithmetic.
+///
+/// Gated on `render`, unlike [`pixel_to_index`] directly above it, and the
+/// distinction is load-bearing. A clip bound is a property of a render target:
+/// `compositor.rs` is its only caller and there is no GPU-free coordinate that
+/// wants one. [`pixel_to_index`] looked equally render-only for the same
+/// reason — it had no caller outside the compositor — but that was because
+/// `input::mouse` was hand-rolling the cast instead of calling it, so the
+/// absence of callers was a missing call site rather than a narrower domain.
+/// Before gating anything else here, check which of those two it is.
 #[cfg(feature = "render")]
 pub fn pixel_to_bound(value: f32) -> i32 {
     if value.is_nan() {
@@ -125,6 +132,9 @@ pub fn pixel_to_bound(value: f32) -> i32 {
 /// rectangle wants `i32`. No real surface approaches two billion pixels, so
 /// saturation is a formality; what matters is that the conversion cannot wrap
 /// to a negative bound the way `value as i32` silently would.
+///
+/// Gated on `render` for the reason given on [`pixel_to_bound`]: a surface
+/// dimension only exists where there is a surface.
 #[cfg(feature = "render")]
 pub fn dimension_to_bound(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
@@ -224,7 +234,6 @@ mod tests {
 
     /// `pixel_to_index` matches the `as usize` cast bit-for-bit across a
     /// dense sweep, the rounding boundaries, and the degenerate inputs.
-    #[cfg(feature = "render")]
     #[test]
     #[allow(
         clippy::cast_possible_truncation,
@@ -263,10 +272,53 @@ mod tests {
                 );
             }
         }
+
+        // The two composite expressions hit-testing used to spell by hand,
+        // before `input/mouse.rs` routed through this function: a `floor` then
+        // a cast, and a `floor` then a `max(0.0)` then a cast. Truncation
+        // toward zero with everything below `1.0` clamped to zero subsumes
+        // both, but that is a claim about negative and non-finite inputs in
+        // particular — where `floor` and truncation disagree about the
+        // intermediate value — so it is asserted rather than reasoned about.
+        for value in [
+            f32::NAN,
+            f32::NEG_INFINITY,
+            f32::INFINITY,
+            f32::MIN,
+            f32::MAX,
+            -2.5,
+            -1.0,
+            -0.75,
+            -0.25,
+            -0.0,
+            0.0,
+            0.25,
+            0.999_999,
+            1.0,
+            1.5,
+            2.999_999,
+            3.0,
+            16_777_215.0,
+            16_777_216.0,
+        ] {
+            assert_eq!(
+                super::pixel_to_index(value),
+                value.floor() as usize,
+                "floor-then-cast mismatch for {value}"
+            );
+            assert_eq!(
+                super::pixel_to_index(value),
+                value.floor().max(0.0) as usize,
+                "floor-max-then-cast mismatch for {value}"
+            );
+        }
     }
 
     /// `pixel_to_bound` matches the `as i32` cast wherever the cast is
     /// well-behaved, and saturates instead of wrapping beyond `i32`'s range.
+    ///
+    /// Takes the same gate as the function it exercises, so the GPU-free test
+    /// build loses no coverage it could have had.
     #[cfg(feature = "render")]
     #[test]
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
@@ -307,6 +359,8 @@ mod tests {
 
     /// `dimension_to_bound` is the identity over the real surface-size range
     /// and saturates rather than wrapping past `i32::MAX`.
+    ///
+    /// Gated with its function, like `pixel_to_bound_matches_cast`.
     #[cfg(feature = "render")]
     #[test]
     fn dimension_to_bound_saturates() {

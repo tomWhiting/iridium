@@ -6,8 +6,21 @@
 //! # Platform Support
 //!
 //! This module is primarily designed for `wasm32` targets where it provides
-//! canvas integration and `requestAnimationFrame` support. Some types are
-//! available on all platforms for configuration purposes.
+//! canvas integration. Some types are available on all platforms for
+//! configuration purposes.
+//!
+//! It deliberately does **not** own the animation loop or a clock. The web
+//! face drives `requestAnimationFrame` from TypeScript, so Rust-side
+//! `request_animation_frame`/`performance_now` helpers sat here from
+//! 32335c8 (2026-01-12) until 2026-08-05 with no caller in the workspace
+//! and no way for TypeScript to reach them — they were plain `pub fn`,
+//! never `#[wasm_bindgen]` exports.
+//! They were removed rather than fixed: each one panicked via `expect` on
+//! `web_sys::window()`, which returns `None` inside a Web Worker — and this
+//! file is `wasm32`-gated, so no native gate ever compiled it and the
+//! project-wide ban on `expect` outside `#[cfg(test)]` had never once been
+//! applied to it. If a Rust-driven loop is ever wanted, it needs a fallible
+//! signature, not a resurrected panic.
 
 use wgpu::{CompositeAlphaMode, PresentMode, TextureFormat};
 
@@ -298,39 +311,10 @@ mod wasm {
             Ok(())
         }
     }
-
-    /// Starts an animation loop using requestAnimationFrame.
-    ///
-    /// # Arguments
-    ///
-    /// * `callback` - Function called each frame with the timestamp
-    ///
-    /// # Note
-    ///
-    /// The callback receives the DOMHighResTimeStamp from requestAnimationFrame.
-    pub fn request_animation_frame(callback: impl FnOnce(f64) + 'static) {
-        use wasm_bindgen::prelude::*;
-
-        let window = web_sys::window().expect("no global window");
-        let closure = Closure::once_into_js(callback);
-        window
-            .request_animation_frame(closure.as_ref().unchecked_ref())
-            .expect("requestAnimationFrame failed");
-    }
-
-    /// Gets the current performance timestamp in milliseconds.
-    #[must_use]
-    pub fn performance_now() -> f64 {
-        web_sys::window()
-            .expect("no global window")
-            .performance()
-            .expect("no performance object")
-            .now()
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{WebSurface, performance_now, request_animation_frame};
+pub use wasm::WebSurface;
 
 #[cfg(test)]
 mod tests {

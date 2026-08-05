@@ -79,4 +79,4 @@ pub use text::{TextRenderConfig, TextRenderer};
 pub use web::WebRenderConfig;
 
 #[cfg(all(feature = "render", feature = "web", target_arch = "wasm32"))]
-pub use web::{WebSurface, performance_now, request_animation_frame};
+pub use web::WebSurface;

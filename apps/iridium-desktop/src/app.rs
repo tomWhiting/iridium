@@ -167,6 +167,17 @@ impl Shell {
     /// colors drift from everything the resolver paints.
     fn open(event_loop: &ActiveEventLoop, theme: Theme) -> Result<Self, String> {
         let attributes = Window::default_attributes().with_title(TITLE);
+        // Without this, macOS composes ⌥+letter into a character — ⌥F arrives
+        // as `ƒ` with the `alt` bit already spent — and every ⌥ chord the
+        // keymap binds is unreachable. `Both` covers the left and right keys,
+        // because a chord must not depend on which ⌥ the hand reached. The
+        // accented characters ⌥ would otherwise compose are the stated price,
+        // and they remain reachable through the system character viewer.
+        #[cfg(target_os = "macos")]
+        let attributes = {
+            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS as _};
+            attributes.with_option_as_alt(OptionAsAlt::Both)
+        };
         let window = event_loop
             .create_window(attributes)
             .map_err(|error| format!("cannot open a window: {error}"))?;

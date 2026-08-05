@@ -282,6 +282,42 @@ place to hide a real defect.
 PROCESS, not the number — pid-reuse law). Bundle carries bd5c85c +
 1198fa6 + 5f7a37d.
 
+## ✅ ⌥⇧ WORD-SELECT SWAP LANDED `13b59f7` (5 Aug ~18:4x local)
+
+`⌥⇧←/→` → `cursor.wordLeftSelect`/`wordRightSelect`;
+`ast.shrinkSelection`/`expandSelection` **rehoused** to `⌃⇧⌘←/→`, not
+dropped (`the_syntax_verbs_keep_a_home_of_their_own` exists so nobody
+can drop that half later without a named test failing). Old test
+rewritten and renamed → `the_word_select_chords_belong_to_word_select`;
+the rename is the record that a decision replaced a decision.
+Module-doc chord table updated in the same commit so it cannot drift.
+
+**Lane closed:** anchor 45,773,124 → **45,808,208 KiB = +35,084 KiB =
+0.0335 GiB** against ceiling 0.4. **The pre-registered falsification did
+not trigger** — I had stated "if it draws first-touch scale, field 3 was
+wrong and that's the finding"; it drew leaf-crate scale, so the crate
+list was right. That is the template's first real result: enumerating
+the invalidation set predicted the draw where "small edit" had failed
+twice.
+
+**Calibration, from Athena and now confirmed by this lane:** expectation
+bands have missed **6 of 7** across this crate set. Only the CEILING is
+load-bearing; the expectation is an unmeasured guess wearing false
+decimal precision. **State expectations as a CLASS from here** — "leaf
+relink, sub-0.1" — not as a decimal range, until the band earns it. A
+run of miss-lows must never be used to argue the ceiling down.
+
+**⚠️ OBLIGATION AT NEXT SWAP — NOT the baton, the swap message to Tom.**
+This change proceeded on *silence*, not a ruling: Tom was told twice it
+would proceed unless vetoed, and across that window he was away, asleep
+and mid-reboot. **Silence is not consent** — a channel with no delivery
+confirmation reports "seen and accepted" and "never arrived"
+identically. So the swap message must name **both halves in one line**:
+*word-select is now ⌥⇧←/→; your expand/shrink moved to ⌃⇧⌘←/→*. That
+converts a surprise into a change note, and it is one commit to revert
+if he objects. He physically cannot meet the new behaviour before the
+note, because no swap happens under his live session.
+
 ## ✅ CONTEXT MENU + D-4 + LIGHT-PRESET FIX ALL LANDED (5 Aug ~18:2x local)
 
 Three commits, deliberately separate, all gated from this seat:

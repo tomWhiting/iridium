@@ -409,7 +409,14 @@ impl MouseHandler {
             SelectionMode::Line => Self::create_line_selection(anchor, position, document),
         };
 
-        let new_cursor = CursorState::new(selection);
+        // A drag owns the primary selection and nothing else. Rebuilding the
+        // whole state here would drop every cursor Ctrl+click added, so the
+        // added cursors are carried across unchanged; the equality guard below
+        // therefore compares the full state, and a drag that moves nothing —
+        // including the synthetic move a button release interposes — still
+        // reports `Handled` rather than a no-op command.
+        let mut new_cursor = cursor.clone();
+        new_cursor.primary = selection;
 
         if new_cursor == *cursor {
             MouseResult::Handled
@@ -910,6 +917,40 @@ mod tests {
 
         // Should have 3 cursors now
         assert_eq!(cursor.cursor_count(), 3);
+    }
+
+    #[test]
+    fn drag_keeps_the_cursors_ctrl_click_added() {
+        // A genuine Ctrl-drag — add a cursor, then move somewhere else — is
+        // the gesture that grows a selection under one of several carets. It
+        // must widen the primary selection without taking the other carets
+        // with it.
+        let doc = create_test_document();
+        let viewport = create_test_viewport();
+        let mut cursor = CursorState::at(Position::new(0, 0));
+        let mut handler = MouseHandler::new();
+
+        let press = MouseEvent::press(MouseButton::Left, 100.0, 10.0).with_ctrl();
+        if let MouseResult::Command(Command::SetSelection { new_state, .. }) =
+            handler.handle_mouse(&press, &doc, &cursor, &viewport)
+        {
+            cursor = new_state;
+        }
+        assert_eq!(cursor.cursor_count(), 2, "Ctrl+click added a cursor");
+
+        let drag = MouseEvent::drag(MouseButton::Left, 160.0, 30.0);
+        let result = handler.handle_mouse(&drag, &doc, &cursor, &viewport);
+
+        if let MouseResult::Command(Command::SetSelection { new_state, .. }) = result {
+            assert_eq!(
+                new_state.secondary, cursor.secondary,
+                "a drag must leave the added cursors exactly where they were"
+            );
+            assert_eq!(new_state.primary.anchor, Position::new(0, 4));
+            assert_eq!(new_state.primary.head, Position::new(1, 9));
+        } else {
+            panic!("Expected SetSelection command, got {result:?}");
+        }
     }
 
     #[test]

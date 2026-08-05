@@ -568,6 +568,10 @@ impl DesktopApp {
             Answer::Pending | Answer::Cancelled => Flow::Running,
             Answer::SaveAs(path) => self.save_as(&path),
             Answer::Do(Deed::Quit) => Flow::Exit,
+            Answer::Do(Deed::Open(path)) => {
+                self.open_file(&path);
+                Flow::Running
+            },
         }
     }
 
@@ -690,6 +694,70 @@ impl DesktopApp {
             Err(error) => self.message = Some(Message::error(error.to_string())),
         }
         Flow::Running
+    }
+
+    /// Opens a file dropped onto the window, asking first when the buffer
+    /// holds unsaved changes.
+    ///
+    /// One file per window is the shell's current model, so a drop replaces
+    /// what is open rather than adding to it. That makes a drop exactly as
+    /// destructive as a quit, and it asks the same question through the same
+    /// prompt — a second confirmation shape for the same stake would be a
+    /// second thing to keep right.
+    ///
+    /// If the tabs decision in `docs/DESKTOP-SHAPE.md` (S-1) lands, a drop
+    /// becomes additive and this prompt disappears rather than changing.
+    fn dropped(&mut self, path: PathBuf) {
+        if self.is_dirty() {
+            let name = path.file_name().map_or_else(
+                || path.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            self.prompt = Some(Prompt::confirm(
+                format!("Unsaved changes. Open {name} without saving? (y/n)"),
+                Deed::Open(path),
+            ));
+            if let Some(shell) = &self.shell {
+                shell.window.request_redraw();
+            }
+            return;
+        }
+        self.open_file(&path);
+    }
+
+    /// Replaces the buffer with a file from disk.
+    ///
+    /// [`Editor::set_content`] already discards the undo history, the cursor
+    /// and the kernel's own scroll — the old tree describes a document that
+    /// no longer exists. The shell's pixel scroll is **not** kernel state, so
+    /// it is reset here; leaving it would open the new file already scrolled
+    /// to an offset that meant something in the previous one.
+    ///
+    /// KNOWN LIMIT, deliberately not fixed in this change: when the new path
+    /// has no recognised extension, `language_of` yields `None` and the
+    /// previous file's language stays in force, because `set_language` takes
+    /// a [`Language`] and the kernel exposes no way to clear one. Opening a
+    /// `.log` after a `.rs` therefore highlights it as Rust. Cosmetic, no
+    /// data risk. The fix is a kernel `clear_language`, which would relink
+    /// the whole workspace — a wider invalidation set than this lane
+    /// declared, so it is filed rather than smuggled in.
+    fn open_file(&mut self, path: &Path) {
+        match TextFile::open(path) {
+            Ok((file, text)) => {
+                self.editor.set_content(&text);
+                if let Some(language) = language_of(file.path()) {
+                    self.editor.set_language(language);
+                }
+                self.message = Some(Message::notice(format!("opened {}", file.display_name())));
+                self.file = Some(file);
+                self.scroll_y = 0.0;
+                self.refresh_title();
+            },
+            Err(error) => self.message = Some(Message::error(error.to_string())),
+        }
+        if let Some(shell) = &self.shell {
+            shell.window.request_redraw();
+        }
     }
 
     /// Leaves, asking first when there are unsaved changes.
@@ -1536,6 +1604,7 @@ impl ApplicationHandler for DesktopApp {
                     event_loop.exit();
                 }
             },
+            WindowEvent::DroppedFile(path) => self.dropped(path),
             WindowEvent::Resized(size) => self.resized(size.width, size.height),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => self.rescaled(scale_factor),
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
@@ -2250,5 +2319,147 @@ mod tests {
             Flow::Running
         );
         assert!(!app.is_dirty(), "an undone edit leaves a clean buffer");
+    }
+
+    /// Writes a second fixture and returns its path.
+    fn fixture(directory: &TempDir, name: &str, text: &str) -> PathBuf {
+        let path = directory.path().join(name);
+        std::fs::write(&path, text).expect("the fixture file was written");
+        path
+    }
+
+    /// A drop onto a clean buffer opens the file with nothing to ask, and the
+    /// shell's own pixel scroll returns to the top with it.
+    ///
+    /// The scroll assertion is the one that would otherwise rot silently:
+    /// `set_content` resets the *kernel's* scroll, and the shell keeps its
+    /// own, so a new file could open already scrolled to an offset that meant
+    /// something in the previous one.
+    #[test]
+    fn a_drop_onto_a_clean_buffer_opens_the_file() {
+        let directory = TempDir::new("desktop-drop-clean");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        let second = fixture(&directory, "b.txt", "second");
+        app.scroll_y = 40.0;
+
+        app.dropped(second);
+
+        assert!(app.prompt.is_none(), "a clean buffer has nothing to ask");
+        assert_eq!(app.editor.content(), "second");
+        assert_eq!(
+            app.file.as_ref().map(super::TextFile::display_name),
+            Some("b.txt".to_owned())
+        );
+        assert!(
+            app.scroll_y.abs() < f32::EPSILON,
+            "the new file opens at the top, not at the old file's offset"
+        );
+    }
+
+    /// A drop over unsaved work asks first and changes nothing until it is
+    /// answered — the same stake as quitting, through the same prompt.
+    #[test]
+    fn a_drop_over_unsaved_changes_asks_first_and_no_answer_changes_nothing() {
+        let directory = TempDir::new("desktop-drop-dirty");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        let second = fixture(&directory, "b.txt", "second");
+        type_into(&mut app, "x");
+        let before = app.editor.content();
+
+        app.dropped(second);
+
+        assert!(
+            app.prompt.is_some(),
+            "a dirty buffer asks before discarding"
+        );
+        assert_eq!(
+            app.editor.content(),
+            before,
+            "the question alone must not open anything"
+        );
+
+        assert_eq!(app.press(&press(KeyCode::Char('n'))), Flow::Running);
+        assert!(app.prompt.is_none());
+        assert_eq!(app.editor.content(), before, "answering no keeps the work");
+        assert!(app.is_dirty(), "and keeps it unsaved");
+    }
+
+    /// Answering yes performs the open that was asked about.
+    #[test]
+    fn answering_yes_to_a_drop_prompt_opens_that_file() {
+        let directory = TempDir::new("desktop-drop-yes");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        let second = fixture(&directory, "b.txt", "second");
+        type_into(&mut app, "x");
+
+        app.dropped(second);
+        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+
+        assert!(app.prompt.is_none());
+        assert_eq!(app.editor.content(), "second");
+        assert!(!app.is_dirty(), "a freshly opened file is not dirty");
+    }
+
+    /// Undo after a drop cannot reach back into the document that was
+    /// replaced.
+    ///
+    /// This is the assertion that earns the feature: the buffer carried an
+    /// unsaved edit, so if opening left the history in place, one `Ctrl+Z`
+    /// would restore text belonging to a *different file* over the top of
+    /// this one and mark it dirty. `Editor::set_content` replaces the tree
+    /// for exactly this reason, and this pins it from the shell, where the
+    /// mistake would actually be made.
+    #[test]
+    fn undo_after_a_drop_cannot_restore_the_replaced_document() {
+        let directory = TempDir::new("desktop-drop-undo");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        let second = fixture(&directory, "b.txt", "second");
+        type_into(&mut app, "x");
+        let discarded = app.editor.content();
+
+        app.dropped(second);
+        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('z'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        assert_eq!(
+            app.editor.content(),
+            "second",
+            "undo reached across into the replaced document"
+        );
+        assert_ne!(app.editor.content(), discarded);
+        assert!(!app.is_dirty(), "and left the new file clean");
+    }
+
+    /// A drop of a path that does not exist opens an empty buffer named for
+    /// it — the same thing the command line does, deliberately.
+    ///
+    /// `TextFile::open` maps `NotFound` to a new empty file at that path
+    /// (`iridium-file`), which is what makes `iridium newfile.txt` work. The
+    /// drop path does **not** special-case it, and that is the point: two
+    /// different answers to "what does opening a missing file mean" is the
+    /// per-caller divergence this estate keeps paying for elsewhere. One
+    /// rule, one place.
+    ///
+    /// Reachable only as a race — Finder cannot drop a file that is not
+    /// there — so the cost of the shared rule here is a window that empties
+    /// if the file is deleted between the drop and the read. A genuine
+    /// unreadable file (permissions, not-text) still takes the error path
+    /// and leaves the buffer alone.
+    #[test]
+    fn a_drop_of_a_missing_path_follows_the_shared_open_rule() {
+        let directory = TempDir::new("desktop-drop-missing");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+
+        app.dropped(directory.path().join("does-not-exist.txt"));
+
+        assert_eq!(app.editor.content(), "");
+        assert_eq!(
+            app.file.as_ref().map(super::TextFile::display_name),
+            Some("does-not-exist.txt".to_owned()),
+            "the buffer is named for the file it will create"
+        );
     }
 }

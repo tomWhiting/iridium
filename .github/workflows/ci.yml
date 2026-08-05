@@ -40,6 +40,26 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install a software Vulkan driver
+        # `cargo test --workspace` sweeps in the offscreen GPU harnesses
+        # (`plain_frames`, `retained_shaping`), and a GitHub runner has no
+        # graphics adapter, so `request_adapter` failed and those harnesses
+        # exited 1 — by design, because a missing GPU must fail loudly
+        # rather than pass over work that did not happen. That design is
+        # right and stays; what was wrong is asking a runner to satisfy it
+        # with nothing installed. Mesa's lavapipe is a real Vulkan ICD that
+        # renders on the CPU, so the harnesses run for real instead of
+        # being skipped.
+        #
+        # Deliberately NOT the alternative fix. Excluding these tests from
+        # CI, or teaching them to skip when no adapter is found, would turn
+        # them into exactly what the comment three steps below warns
+        # against: a configuration whose tests never run. Move the runner
+        # into the test's reach, never the test out of the runner's.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+          vulkaninfo --summary | head -40
       - name: Run tests
         run: cargo test --workspace --all-features
       - name: Run kernel tests without default features

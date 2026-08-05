@@ -470,6 +470,90 @@ just fail, IT TRAVELS — and each relay adds credibility while
 subtracting checkability.** The relay is exactly where the
 checkability is spent, which makes it worse than a plain error.
 
+## ⛔ BREACH FILED — span-index lane `ba16fe6`, 0.624 of 0.6
+
+**Filed, not re-termed.** From the previous commit's close of
+47,014,800 (Athena's mechanical baseline rule, first use):
+
+| store | before | after | Δ KiB |
+|---|---|---|---|
+| deps | 25,521,744 | 25,969,784 | **+448,040** |
+| incremental | 12,608,780 | 12,802,384 | **+193,604** |
+| target | 47,014,800 | 47,669,432 | **+654,632** |
+
+**BOTH TERMS NON-ZERO for the first time**, with identities countable:
+deps files **241,897 → 242,825 (+928)**, workspace `.d` **334 → 336
+(+2 identities)**, `.o` **223,100 → 223,938 (+838)**. **+838 objects
+from +2 identities ≈ 419 per identity — the CGU factor observed
+directly.**
+
+⚠️ **The model did NOT pass.** The split was **measured, not
+predicted**. Athena's test requires naming the expected split *before*
+the run. **NEXT LANE: state the expected split first.**
+
+**Cause of the +2 identities NOT ESTABLISHED — candidate only.** I ran
+`cargo test -p iridium-bindings --all-features` as the red/green
+oracle. **`-p` narrows the feature-unification set**, so a per-package
+run can resolve dependency features differently from the workspace run
+and mint artifacts beside it. If so, the identities were minted by **a
+COMMAND I chose, not by the code change.** Check, unspent: clean tree,
+one workspace run, then one `-p` run, watching `.d`.
+
+⇒ ★★ **THIRD FIELD-3 GAP IN ONE EVENING, and they share a shape.**
+New compilation target; driver argument; now invocation. **Every gap
+was something that is not an EDIT.** The field enumerates edits.
+⇒ **THE CLASS FIELD IS SCOPED TO THE WRONG NOUN — it must ask what
+the BUILD is, not what the CHANGE is.**
+
+**Aggregate 0.545 of 1.5, 0.955 remaining.** The lane breached while
+the aggregate stayed comfortable — Athena's structural point arriving
+with evidence: **the aggregate never had a boundary to leak at, and it
+is the control that would actually have stopped me.**
+
+### Row 15 direction (Athena) — block slack is NOT symmetric noise
+
+`du` rounds every file **UP**, so bias runs one way and scales with
+**file count, not byte volume**. Overwrite lanes: file count constant
+⇒ slack constant ⇒ **cancels in the delta**, banked overwrite draws
+unaffected. Path-novel lanes: **over-stated by ~2 KiB × new files** —
+part of the encoder's 0.746 was slack; this lane's +928 files carries
+~2 MB, which does **not** rescue the breach. Standing tree: 223,100
+`.o` at ~2 KiB ⇒ **~0.4 GiB of pure quantisation** inside the 25.5M.
+
+⇒ **Blocks are WRONG for content attribution and RIGHT for a reclaim,
+because blocks are what you get back.** The `.o` sweep estimate stays
+`du -ck`. (Reclaim is Tom's call, behind his hold. No sweep.)
+
+⚠️ **My correction's replacement claim is ALSO unsupported:** whether
+those 33 `.rmeta` bytes moved is **still unmeasured**. Rewriting does
+not imply different bytes, and a lint level plausibly emits identical
+metadata — so term 1 may have read zero *in bytes* for a real reason
+rather than being hidden by quantisation. Unspent check: exact byte
+sums of those 33 files across a `touch`-and-rerun.
+
+### Mechanism 5 — a gate whose verdict comes from a CACHE
+
+Athena's category, **no instance yet** (her hypothesis was falsified
+here). Kept in the table as a category. ⇒ ★ **an exact zero is
+indistinguishable from an instrument that isn't measuring** — the one
+value a broken instrument and a true null both produce, so it earns a
+challenge on sight. ⇒ ★ **a wrong hypothesis aimed at the right
+anomaly outperforms no hypothesis**: the hypothesis is disposable, the
+anomaly-detection is what carries it.
+
+### 🕳️ A MODULE NO GATE COULD REACH — found by red-testing
+
+`mod web_span_index` was gated `all(feature = "web", target_arch =
+"wasm32")`. **No test could ever run against it:** `cargo test` never
+compiled it, and the wasm gate is a **`check`**, which compiles
+without running a single test. Widened to `any(target_arch = "wasm32",
+test)`. Putting it through clippy for the first time made the
+**newly-armed gate fail immediately** on two pre-existing
+doc-markdown errors. ⇒ **code outside a gate's reach accumulates
+exactly what the gate would have caught.** The 127-warnings finding in
+miniature — and a reason to price the GPU-free/wasm burn-down as
+*finding defects*, not as tidying.
+
 ## ✅ WARNINGS-GATE LANE CLOSED (5 Aug ~19:4x) — `1e22ea8`, `e8019d3`
 
 Baseline **46,790,800** (Athena amendment B, not the standing anchor)

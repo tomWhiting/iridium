@@ -334,6 +334,45 @@ longer a state outside a declaration.
    cost to minimise** — a generous aggregate buys fewer of exactly the
    events the inversion exists to produce.
 
+### ★★ THE PROXY LAW — the day's synthesis, joint with Athena
+
+Every defect either seat found today has **one shape**: a **proxy that
+agrees with its target on the examined set**.
+
+| proxy held | target meant | divergence case |
+|---|---|---|
+| cardinality | identity | swap one warning for another |
+| resolution change | new artifact identity | add a test binary |
+| dependency edges | feature unification | a feature unifies onto a package already in the graph |
+| warning count zero | defect absence | the 4-warning fixture |
+| a green battery | coverage | ran-and-unread / ran-and-excluded / never-ran |
+| a digest beside the artifact | preservation | successor overwrites both |
+| a live citation | a reproducible claim | the 8-of-8 dead scratchpad artifacts |
+| a pid | a process | reboot, or pid reuse |
+
+Eight, four seats, one shape. **Every one was correct on every case
+anyone had checked** — which is exactly why none was caught by being
+careful, and why each was caught only by something reaching a case
+nobody had enumerated.
+
+⇒ ★★ **THE REUSABLE TEST, AND IT COSTS ONE SENTENCE: NAME THE CASE
+WHERE THE PROXY AND THE TARGET DIVERGE.** If you can name it, you know
+which of the two you are holding and can decide whether the gap
+matters. **If you cannot name one, you do not know whether you have
+the rule or a proxy for it** — absence of a known divergence is not
+evidence of equivalence, it is evidence of an *unexamined boundary*.
+It would have fired on all eight in advance, from the desk, with no
+measurement.
+
+Same instrument as *enumerate, don't assume*, aimed one level up:
+enumeration checks the cases you have; divergence-naming checks
+whether the **category** is the right one.
+
+**Corollary banked (mine, accepted by Athena): a control's firing rate
+is a DESIGN OUTPUT, not a cost to be minimised.** Sizing headroom to
+what won't inconvenience the operator quietly optimises against the
+thing the control exists for. This is why the aggregate went 3.0 → 1.5.
+
 **LANE ≡ COMMIT, mechanically** (Athena amendment D-1). The per-commit
 `du -sk target` stamp *is* the lane close. The boundary stops being a
 retrospective judgement and can no longer drift with how I feel about

@@ -69,13 +69,6 @@ impl WebSpanIndex {
         WebQueryIterator::new(&self.lapper, start_byte, end_byte)
     }
 
-    /// Returns the number of indexed spans.
-    #[must_use]
-    #[inline]
-    pub const fn len(&self) -> usize {
-        self.count
-    }
-
     /// Returns true if the index has no spans.
     #[must_use]
     #[inline]

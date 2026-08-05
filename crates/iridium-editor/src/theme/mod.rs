@@ -5,11 +5,18 @@
 //! - VS Code theme compatibility
 //! - Light and dark theme presets
 //! - Full color and typography customization
+//!
+//! [`classic`] holds the three candidate classic-Mac light presets of
+//! `docs/design/LIGHT-THEME-MAP.md` §2.3. They are rendered for the owner to
+//! choose from and are deliberately unreachable from any runtime path until
+//! that choice is made; [`Theme::light`] is untouched.
 
+pub mod classic;
 mod colors;
 mod fonts;
 mod vscode;
 
+pub use classic::ClassicVariant;
 pub use colors::{Color, EditorColors, SyntaxColors};
 pub use fonts::Typography;
 pub use vscode::{VsCodeTheme, VsCodeTokenColor};

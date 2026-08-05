@@ -282,12 +282,52 @@ place to hide a real defect.
 PROCESS, not the number — pid-reuse law). Bundle carries bd5c85c +
 1198fa6 + 5f7a37d.
 
+## 🧾 STANDING DECLARATION — OPEN (5 Aug, post-compaction #2)
+
+The cure at the bottom of this block is **adopted, not admired**. Sent
+to Athena; in force from now until closed or exceeded. There is no
+longer a state outside a declaration.
+
+1. **Noun** — the session's standing disk declaration, covering all
+   work in this checkout including the remainder of the warnings-gate
+   lane already in flight.
+2. **Anchor — 46,852,540 KiB.** `du -sk .../target` → `46852540`,
+   `exit=0`, redirected to file with the exit echoed separately.
+3. **Invalidation set — the CLASS, not a lane's crate list.** Covers
+   *source-only edits inside the existing workspace graph*: the edited
+   crate's fingerprint plus every downstream crate and test binary
+   (`iridium-editor →` its consumers `→ iridium-bindings`,
+   `iridium-desktop`, `iridium-tui`, and all their test binaries).
+   **EXCLUDES anything that mutates `Cargo.lock` or feature
+   resolution** — new dependency, new feature, a feature that unifies
+   onto a package already in the graph, a profile or target change.
+   The class key is **feature resolution, not dependency edges**;
+   that clause is inline because the PNG breach happened by pricing
+   field 4 before that correction arrived and never re-pricing after.
+4. **Standing ceiling — 0.6 GiB per lane.** Re-declaration required
+   **only to exceed**. Honest cost: the band slot is over-provisioned
+   while idle, which is the safe direction.
+5. **Inner lanes** — no separate price under the standing figure, but
+   still **named in the outer close**. The risk was never disk, it was
+   separability.
+
+**The per-commit `du -sk target` stamp stays.** The standing ceiling
+removes the *judgement*, never the *attribution*.
+
+**Citation defect, self-reported.** The agent brief below cites
+`0a1e2c7`, which **does not exist in this repo**. The real commit is
+**`a13d6a2`** (`git log --oneline -1 -- crates/iridium-editor/src/render/units.rs`).
+The brief survived only because it *also* described the change by
+content. ⇒ ★ **name the object, not just the pointer to it** — a dead
+hash is a plausible sentence, a wrong crate list is not. Same
+mechanism as the blank-field law, one level up.
+
 ## ⚠️ LIVE AT COMPACTION #2 (5 Aug ~19:1x local) — READ THIS FIRST
 
 **AGENT RUNNING (Opus), id in the task list — "warnings gate" lane.**
 It was redirected mid-flight. Its instructions now are:
 
-- **Part 1 — DO IT.** Revert `0a1e2c7`'s `#[cfg(feature = "render")]`
+- **Part 1 — DO IT.** Revert `a13d6a2`'s `#[cfg(feature = "render")]`
   (4 fns + 3 tests in `render/units.rs`, plus the doc paragraph about
   the gating), widen `mod units` to `pub(crate)` **without** widening
   the crate's public API, and route `input/mouse.rs:556,566` through

@@ -276,6 +276,99 @@ that decides attribution must be fixed BEFORE the event it attributes
 is set with the answer visible; a known flake is the most comfortable
 place to hide a real defect.
 
+## ⚠️ LIVE AT COMPACTION (5 Aug ~17:4x local) — READ THIS FIRST
+
+**SWAP #4 DELIVERED.** Tom is on pid **71394** (fence rides the
+PROCESS, not the number — pid-reuse law). Bundle carries bd5c85c +
+1198fa6 + 5f7a37d.
+
+**CONTEXT-MENU LANE IN FLIGHT.** Implementation agent running (Opus)
+against CONTEXT-MENU-MAP.md's ruled path B, all six D's ruled by Tom.
+Files per map: `apps/iridium-desktop/src/context_menu.rs` (NEW) +
+overlay.rs + app.rs; kernel untouched. Lane open with Athena: anchor
+**45,471,720**, expectation 0.3–0.9, ceiling **1.4**, priced off
+RELINK REACH not warmth. Extra instruction sent to that agent: keep
+**D-4's click-through fix COMMIT-SEPARABLE** from the menu (fix to
+shipped behaviour vs new feature = different revert lifetimes); if
+genuinely inseparable it must name the lines that force it so the
+joint commit is knowing. On its report: review diff → my five-gate
+battery → commit (separably if possible) → lane close.
+
+**TOM'S TWO LIVE REPORTS, both answered as EXPECTED-not-broken:**
+(1) word-by-word select doesn't work — correct, ⌥⇧←/→ was
+deliberately excluded pending his ruling (it currently resolves to
+ast.shrink/expandSelection). **I told him his message reads as the
+answer and that I will bind word-select to ⌥⇧←/→ and MOVE
+expand/shrink to ⌃⇧⌘←/→ (VS Code mac spelling) UNLESS HE VETOES.**
+Ids verified this hand: `cursor.wordLeftSelect` ids.rs:47,
+`cursor.wordRightSelect` :49, `ast.expandSelection` :217,
+`ast.shrinkSelection` :219. Implementation note: the ⌥ patterns in
+apps/iridium-desktop/src/commands.rs MAC_CHORDS currently FORBID
+Shift precisely to leave this gap, and
+`the_word_select_chords_are_left_to_the_syntax_verbs` pins the
+current resolution — that test must be updated as part of the swap,
+which is the design working as intended (the collision becomes a
+decision, not a drift). Asked him to report if ⌥←/→ or ⌘←/→ do
+nothing, since THAT would be a real bug.
+(2) theme unchanged — correct, no switch exists; candidates are
+face-unreachable (verified). Asked him for one word: platinum /
+paper / monochrome.
+
+**AWAITING FROM TOM (4):** theme pick; ⌥⇧ veto-or-silence; accented
+characters (⌥ no longer composes é/ü — offered OnlyLeft alternative:
+chords on left ⌥, composition on right); the older "switching"
+question (file/project/window/app-level).
+
+**ATHENA STANDING DECLARATION (no restatement per lane):** while
+Tom's hold on her seat lasts, every lane I open is
+**provisional-permanent** — her anchor corroboration is unavailable,
+`du` readings are mutable and die of the delay. Durable artifacts
+(commits, trees, files on durable ground) stay verifiable at any
+hand. To get a corroborated close instead: say so AT LANE OPEN and
+take a second hand from an unheld seat.
+
+**ARTIFACTS:** full 21-PNG set at
+`/Users/tom/Developer/ablative/libs/iridium-artifacts/theme-shots-2026-08-05/`
+(476 MB, OUTSIDE any git working tree — verified by `git rev-parse
+--show-toplevel` failing from inside it; on Athena's NO-SWEEP ledger).
+2 MB `preview/` stays at `~/Desktop/iridium-theme-shots/` = Tom's
+delivery surface. **Do not re-encode the originals** (recompressing
+evidence through a tool that may touch colour profiles transforms the
+artifact a decision rests on).
+
+**WEB DEMO:** python http.server pid may be dead after restarts —
+re-raise with `cd examples/web/dist && python3 -m http.server 12223`
+if Tom asks. Kill only that exact pid.
+
+**LAWS BANKED THIS STRETCH (beyond those listed below):**
+- **Latent ≠ benign**: file a finding against the change that would
+  EXPOSE it, not the pass that found it. Applied: the two light-theme
+  defects (`attribute == error == #ff0000`; BACKDROP_ALPHA 0.45
+  crushing light pages to (131,131,131)) are now **binding
+  preconditions of the theme-switch lane**, which is their detonator.
+- **A revert inherits whatever was committed alongside it**, and
+  nobody reads the diff of what they're removing as carefully as what
+  they're adding → separate fixes-to-shipped-behaviour from new
+  features at lane open, cheap then, expensive after.
+- **A false incomparability looks like caution while discarding
+  evidence** — I wrongly refused a `du` as contaminated by foreign
+  cargo pids; they built a DIFFERENT tree (`stack/aion`, proved by
+  `lsof -p PID -a -d cwd`). Ask whether the nouns are even shared
+  before declaring unmeasurable.
+- **Read a surprising size as an arithmetic claim about a PRODUCER**,
+  not a fact about the artifact → found the harness writes
+  uncompressed PNGs (task #32; ratio 1.00008, 476 MB → 10–30 MB
+  fixable with no new dependency).
+- **A documented decision is not a priced decision** (the encoder's
+  doc was truthful about stored blocks, silent on cost at 3024×1964).
+- **Durability is about which HABITS a location invites**: untracked
+  noise has two standard cures (gitignore, clean) and both destroy
+  evidence while feeling like tidying.
+- **Ceiling tracks RELINK REACH, not lane sequence.** Warm series now
+  1.35 → 0.43 → 0.07 → 0.70 → 0.006. Expectation may track the
+  series; ceiling stays conditioned on the reset discriminator (cold
+  crate or lockfile motion → first-touch 1.35+).
+
 **OPEN QUEUE after swap:** 0. Bundle swap on Tom's word (input fixes
 NOT yet in his hands — he's on the previous bundle, pid 57370).
 1. Context-menu implementation (task #28,

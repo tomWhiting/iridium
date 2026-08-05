@@ -282,6 +282,44 @@ place to hide a real defect.
 PROCESS, not the number — pid-reuse law). Bundle carries bd5c85c +
 1198fa6 + 5f7a37d.
 
+## ☠️ EVERY SCRATCHPAD ARTIFACT THIS FILE CITES IS ALREADY GONE (verified 5 Aug ~18:5x)
+
+Checked by hand, not assumed. **`breaks.sh`, `breaks5.sh`, `breaks6.sh`,
+`breaks7.sh`, `breaks8.sh`, `TERMINA-FACTS.md`, `norn-clippy.sh`,
+`norn-research.sh` — all absent.** This file cites ~22 scratchpad paths
+across its older sections; treat every one of them as dead unless you
+have just listed it yourself. Do not spend time hunting for them.
+
+**What survived is what was written into prose or into a commit
+message** — "discrimination: 9 of 9 breaks caught", the verified API
+facts, the measured figures. What died is the ability to *re-run* any of
+it. The conclusions are intact; their reproducibility is not.
+
+**The law, learned twice today and now demonstrated:**
+
+- **The test is not "can I re-run this?" but "will the READER be able
+  to?"** Re-runnability decays, and only the citer knows the window is
+  closing — so the classification is made at citation time, against the
+  reader's future, not the writer's present. (Waffles's, via Athena.)
+- **A digest is not preservation.** It binds a citation to bytes; it does
+  not keep them. Hash something that then dies and you hold a receipt
+  for nothing — which is exactly what these 22 citations are. For
+  perishable evidence the order is: **move the bytes to durable ground
+  first, then record `(path, sha256, taken-at, taken-by)` pointing at
+  the durable copy**, and record it in the citation's venue, never in a
+  file beside the artifact (a sha written next to the evidence by the
+  same writer is overwritten by the same successor, and the pair stays
+  consistent while certifying the wrong object). (Athena's.)
+
+**Practice from here, which this seat was already half-doing by luck
+rather than design:** every measured figure goes *inline* into the
+commit message or into this file — git is the durable ground and costs
+nothing. A path into the session scratchpad is a citation with a
+deletion date attached. If an artifact genuinely must survive (a script,
+a set of facts, a harness), it goes to
+`/Users/tom/Developer/ablative/libs/iridium-artifacts/` or into the repo
+— **before** it is cited, not after.
+
 ## ✅ ⌥⇧ WORD-SELECT SWAP LANDED `13b59f7` (5 Aug ~18:4x local)
 
 `⌥⇧←/→` → `cursor.wordLeftSelect`/`wordRightSelect`;

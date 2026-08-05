@@ -293,34 +293,96 @@ longer a state outside a declaration.
    lane already in flight.
 2. **Anchor — 46,852,540 KiB.** `du -sk .../target` → `46852540`,
    `exit=0`, redirected to file with the exit echoed separately.
+   ⚠️ **Athena amendment B:** this is a MID-LANE anchor. The last
+   close was **46,790,800**; the in-flight warnings-gate lane had
+   already drawn **+61,740 KiB (0.0589 GiB)** through the agent's
+   Parts 1–2 before the declaration opened. **That lane is priced
+   from 46,790,800, not from the standing anchor** — otherwise the
+   0.6 protects only the remainder and the lane silently gets 0.659.
+   The standing anchor governs everything OPENED after it.
 3. **Invalidation set — the CLASS, not a lane's crate list.** Covers
    *source-only edits inside the existing workspace graph*: the edited
    crate's fingerprint plus every downstream crate and test binary
    (`iridium-editor →` its consumers `→ iridium-bindings`,
    `iridium-desktop`, `iridium-tui`, and all their test binaries).
-   **EXCLUDES anything that mutates `Cargo.lock` or feature
-   resolution** — new dependency, new feature, a feature that unifies
-   onto a package already in the graph, a profile or target change.
-   The class key is **feature resolution, not dependency edges**;
-   that clause is inline because the PNG breach happened by pricing
-   field 4 before that correction arrived and never re-pricing after.
+   **EXCLUDES (a)** anything that mutates `Cargo.lock` or feature
+   resolution — new dependency, new feature, a feature that unifies
+   onto a package already in the graph, a profile or target change;
+   **and (b) — Athena amendment C — anything that ADDS a compilation
+   target**: a new `tests/*.rs`, bench, example or bin.
+   ⇒ ★ **The class key is NEW ARTIFACT IDENTITY vs OVERWRITE.**
+   Resolution change is one way to get there; adding a target is
+   another, and her bank already prices a new test binary like a
+   half-profile off two measured points. I first wrote this field as
+   "resolution, not edges", which states an *instance* as if it were
+   the rule — the same defect as a cardinality check standing in for
+   an identity check: **it passes on every case you thought of.**
+   The exclusion's reason stays inline because the PNG breach came
+   from pricing field 4 before that correction and never re-pricing.
 4. **Standing ceiling — 0.6 GiB per lane.** Re-declaration required
    **only to exceed**. Honest cost: the band slot is over-provisioned
    while idle, which is the safe direction.
 5. **Inner lanes** — no separate price under the standing figure, but
    still **named in the outer close**. The risk was never disk, it was
    separability.
+6. **AGGREGATE — 1.5 GiB for the window** (Athena amendment D-2; she
+   proposed 3.0, I countered down and she has it). Re-declare to
+   exceed, same inversion. A per-lane ceiling with an operator-defined
+   lane is **unbounded in aggregate**, and the box's exposure does not
+   reset between my commits. Countered downward deliberately: under
+   this design **re-declaring to exceed is the DESIGNED ACT, not a
+   cost to minimise** — a generous aggregate buys fewer of exactly the
+   events the inversion exists to produce.
+
+**LANE ≡ COMMIT, mechanically** (Athena amendment D-1). The per-commit
+`du -sk target` stamp *is* the lane close. The boundary stops being a
+retrospective judgement and can no longer drift with how I feel about
+grouping — three edits closed once and the same work closed thrice can
+no longer differ, because commit count is lane count.
+
+**Athena is under Tom's hold and CANNOT stamp the band.** Anywhere the
+slot is cited it must read as *the arithmetic and slot she would
+carry, unstamped, pending the hold lifting* — never as a stamp.
+Quoting it without that qualifier is the laundering failure with the
+roles swapped.
+
+**Field 3(b) fired on the very next commit and came out safe by
+luck, not by rule.** Verified from my hand before replying: the
+warnings-gate tree modifies five **existing** files, and the same
+`git status --short` scoped to `crates/*/tests`, `crates/*/benches`,
+`apps/*/tests`, `apps/*/benches` returns **empty** — the boundary
+oracle went in as `#[test]` fns inside `mouse.rs`'s existing test
+module (+176 lines), so it is overwrite-class. That was the agent's
+judgement, not the declaration's guarantee, which is precisely why
+the amendment is in the field and not in my memory.
 
 **The per-commit `du -sk target` stamp stays.** The standing ceiling
 removes the *judgement*, never the *attribution*.
 
-**Citation defect, self-reported.** The agent brief below cites
-`0a1e2c7`, which **does not exist in this repo**. The real commit is
-**`a13d6a2`** (`git log --oneline -1 -- crates/iridium-editor/src/render/units.rs`).
-The brief survived only because it *also* described the change by
-content. ⇒ ★ **name the object, not just the pointer to it** — a dead
-hash is a plausible sentence, a wrong crate list is not. Same
-mechanism as the blank-field law, one level up.
+**Citation defect, self-reported — AND IT PROPAGATED.** The agent
+brief below cites `0a1e2c7`, which **does not exist in this repo**
+(`git cat-file -t 0a1e2c7` → `fatal: Not a valid object name`). The
+real commit is **`a13d6a2`**. The brief survived only because it
+*also* described the change by content.
+
+Within minutes the dead hash reached **two of Athena's durable memory
+files**, banked as the range `4d8ffd4..0a1e2c7` — a seat whose entire
+product is verification relayed a pointer without resolving it,
+because under Tom's hold she cannot run `git log` at her own hand.
+Both files corrected and marked **relayed-unverified**.
+
+Full range restated from my hand for her: **`4d8ffd4..a13d6a2`**. The
+start was sound, the end was not — she was right to refuse the start
+on my say-so anyway.
+
+⇒ ★ **Name the object, not just the pointer to it.** A dead hash is a
+plausible sentence, and a plausible sentence is indistinguishable from
+a right one at the surface; a wrong crate list is not. Same mechanism
+as the blank-field law, one level up.
+⇒ ★ **Athena's sharpening, banked over mine: a dead pointer doesn't
+just fail, IT TRAVELS — and each relay adds credibility while
+subtracting checkability.** The relay is exactly where the
+checkability is spent, which makes it worse than a plain error.
 
 ## ⚠️ LIVE AT COMPACTION #2 (5 Aug ~19:1x local) — READ THIS FIRST
 

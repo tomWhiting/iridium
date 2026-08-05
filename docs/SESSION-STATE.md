@@ -48,14 +48,23 @@ S-1..S-4.
 **Noun:** desktop installability — install script + dropped-file open.
 **Baseline** (previous commit's close) 48,026,200 KiB. **Lane-open**
 47,971,852 ⇒ drift **−54,348 KiB**, eviction, recorded separately.
-**Close-A** 09:40:39 → 48,129,780. **Close-B** 09:41:49 → 48,129,780,
-**identical, zero drift.** **Draw 103,580 KiB = 0.099 GiB** against a
-**0.25 ceiling declared at open** (not the standing 0.6 — priced off a
-leaf crate, not off the default).
+**Close-A** 09:40:39 → 48,129,780. **Close-B** 09:41:49 → 48,129,780.
+**Close-C** 09:43:00 → 48,129,780. **Draw 103,580 KiB = 0.099 GiB**
+against a **0.25 ceiling declared at open** (not the standing 0.6 —
+priced off a leaf crate, not off the default).
 
-⚠️ **A and B are 70 SECONDS apart, not minutes — the second time
-running.** The band from a 70-second gap is not the band the protocol
-asks for and must not be quoted as one.
+A and B were 70 seconds apart, short of the minutes the rule asks for
+and the second lane running to miss it, so **C was taken at a genuine
+2m21s gap** rather than leaving the caveat standing. All three
+readings are **identical: the band over a protocol-compliant interval
+is ZERO KiB.**
+
+That zero is not a general noise figure and must not be quoted as one.
+Earlier lanes drifted by thousands of KiB across similar gaps because
+`incremental` was still evicting after a build; **nothing ran between
+these three readings.** What it establishes is that `du -sk target` is
+stable when the tree is quiet — so drift observed elsewhere is
+attributable to activity, not to the instrument.
 
 **INVALIDATION SET HELD, and the disk proves it.** Declared:
 `apps/iridium-desktop` only, verified a leaf (nothing depends on it).

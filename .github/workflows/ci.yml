@@ -108,6 +108,18 @@ jobs:
         # configurations compile DIFFERENT code and have never been run
         # through clippy at all — 17 and 110 warnings respectively as of
         # 2026-08-05. Extending the gate to them is a burn-down, not a flag.
+        #
+        # ⚠️ THIS GATE'S VERDICT DEPENDS ON WORKSPACE ARTIFACTS NOT BEING
+        # CACHED. `rust-cache` runs with `cache-all-crates: false`, so it
+        # restores dependencies but cleans our crates before saving — every
+        # run re-analyses all seven from source, which is the only reason a
+        # denial here means anything. `--` args reach primary units only, so
+        # the cache's scope and this flag's scope are disjoint by
+        # construction. Flip `cache-all-crates` to `true` and the gate
+        # silently degrades to replaying cached diagnostics: still green,
+        # still fast, no longer checking anything. Verified 2026-08-05 —
+        # a cache-hit run still printed `Checking` for six workspace crates
+        # and `Compiling` for the seventh.
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
   fmt:

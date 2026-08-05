@@ -45,9 +45,38 @@
 //! The `Ctrl` spellings stay bound by the default keymap underneath this
 //! layer — `Ctrl+F`, `Ctrl+K`, `Ctrl+P` and `Ctrl+Alt+H` included; both
 //! spellings work.
+//!
+//! # The ⌥ and ⌘ chords on the arrows and the delete keys
+//!
+//! The kernel's default keymap reads only `Ctrl` and `Shift` on the arrows and
+//! only `Ctrl` on `Backspace`/`Delete`, declaring `Alt` and `Meta`
+//! `Any` — a terminal cannot see either, so the kernel neither reads nor
+//! forbids them. On a window it can: winit reports `⌥←` as `Left` with `alt`
+//! held and `⌘←` as `Left` with `meta` held. Without the rows in
+//! `MAC_CHORDS` those chords match the loose default patterns and arrive as
+//! plain character motion and a plain backspace — the whole macOS chord set
+//! silently doing the unmodified thing.
+//!
+//! | Key | Command |
+//! |---|---|
+//! | `⌥←` / `⌥→` | `cursor.wordLeft` / `cursor.wordRight` |
+//! | `⌘←` / `⌘→` | `cursor.lineStart` / `cursor.lineEnd` |
+//! | `⌘⇧←` / `⌘⇧→` | `cursor.lineStartSelect` / `cursor.lineEndSelect` |
+//! | `⌘↑` / `⌘↓` | `cursor.documentStart` / `cursor.documentEnd` |
+//! | `⌘⇧↑` / `⌘⇧↓` | `cursor.documentStartSelect` / `cursor.documentEndSelect` |
+//! | `⌥⌫` / `⌥⌦` | `edit.deleteWordBackward` / `edit.deleteWordForward` |
+//! | `⌘⌫` / `⌘⌦` | `edit.deleteToLineStart` / `edit.deleteToLineEnd` |
+//!
+//! `edit.deleteToLineStart` and `edit.deleteToLineEnd` are the two verbs the
+//! kernel implements and no keymap bound: they have no `Ctrl` spelling to
+//! inherit, and `⌘⌫`/`⌘⌦` is where a mac hand looks for them.
 
 use iridium_editor::commands::builtin::{
-    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
+    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, CURSOR_DOCUMENT_END,
+    CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START, CURSOR_DOCUMENT_START_SELECT,
+    CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START, CURSOR_LINE_START_SELECT,
+    CURSOR_WORD_LEFT, CURSOR_WORD_RIGHT, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
+    EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
     HISTORY_UNDO, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL,
 };
 use iridium_editor::{
@@ -120,6 +149,31 @@ const META_SHIFT: ModifierPattern = pattern(Required, Forbidden, Forbidden, Requ
 /// A `⌘⌥` chord, with the `AltGraph` guard [`CTRL_ALT`] carries.
 const META_ALT: ModifierPattern = pattern(Any, Forbidden, Required, Required, Forbidden);
 
+/// A bare `⌥` chord on a navigation key: nothing else held.
+///
+/// `Shift` is [`Forbidden`] rather than [`Any`] deliberately — see the note
+/// above the `⌥⇧` gap in [`MAC_CHORDS`]. `AltGraph` is forbidden for the reason
+/// [`CTRL_ALT`] forbids it, and on this face it is always reported absent
+/// anyway: a mac keyboard has no `AltGr`.
+const ALT_NAV: ModifierPattern = pattern(Forbidden, Forbidden, Required, Forbidden, Forbidden);
+
+/// A bare `⌘` chord on a navigation key, `Shift` absent.
+const META_NAV: ModifierPattern = pattern(Forbidden, Forbidden, Forbidden, Required, Forbidden);
+
+/// A `⌘⇧` chord on a navigation key: the selecting half of [`META_NAV`].
+const META_SHIFT_NAV: ModifierPattern =
+    pattern(Required, Forbidden, Forbidden, Required, Forbidden);
+
+/// A bare `⌥` chord on a delete key, `Shift` ignored.
+///
+/// `Shift` is [`Any`] here for the reason the default keymap's `Backspace`
+/// patterns declare it so: a delete key deletes whatever `Shift` is doing, and
+/// no `⌥⇧⌫` verb exists for it to swallow.
+const ALT_DELETE: ModifierPattern = pattern(Any, Forbidden, Required, Forbidden, Forbidden);
+
+/// A bare `⌘` chord on a delete key, `Shift` ignored.
+const META_DELETE: ModifierPattern = pattern(Any, Forbidden, Forbidden, Required, Forbidden);
+
 /// No continuation: every binding here is a single chord.
 const CHORD: &[StrokePattern] = &[];
 
@@ -166,10 +220,80 @@ const BINDINGS: &[(StrokePattern, CommandId)] = &[
     ),
 ];
 
+/// The macOS chord table: `(stroke, command)`, for the arrows and the delete
+/// keys.
+///
+/// Kept apart from [`BINDINGS`] because these rows and only these rows
+/// deliberately override the default keymap. Every pattern here declares `Alt`
+/// or `Meta` [`Required`], which is both what makes the chord distinguishable
+/// from the unmodified key and what outranks the default's loose patterns
+/// within a layer; the rows in [`BINDINGS`] override nothing, and the test
+/// below holds them to it.
+const MAC_CHORDS: &[(StrokePattern, CommandId)] = &[
+    (StrokePattern::new(KeyCode::Left, ALT_NAV), CURSOR_WORD_LEFT),
+    (
+        StrokePattern::new(KeyCode::Right, ALT_NAV),
+        CURSOR_WORD_RIGHT,
+    ),
+    // ⌥⇧← / ⌥⇧→ are deliberately absent. The default keymap gives that pair to
+    // `ast.shrinkSelection` and `ast.expandSelection`, which is why every ⌥
+    // pattern above forbids `Shift` rather than ignoring it: word-select would
+    // have to take the chord away from the syntax verbs, and that collision is
+    // the owner's to rule on, not this table's to settle by arriving first.
+    (
+        StrokePattern::new(KeyCode::Left, META_NAV),
+        CURSOR_LINE_START,
+    ),
+    (
+        StrokePattern::new(KeyCode::Right, META_NAV),
+        CURSOR_LINE_END,
+    ),
+    (
+        StrokePattern::new(KeyCode::Left, META_SHIFT_NAV),
+        CURSOR_LINE_START_SELECT,
+    ),
+    (
+        StrokePattern::new(KeyCode::Right, META_SHIFT_NAV),
+        CURSOR_LINE_END_SELECT,
+    ),
+    (
+        StrokePattern::new(KeyCode::Up, META_NAV),
+        CURSOR_DOCUMENT_START,
+    ),
+    (
+        StrokePattern::new(KeyCode::Down, META_NAV),
+        CURSOR_DOCUMENT_END,
+    ),
+    (
+        StrokePattern::new(KeyCode::Up, META_SHIFT_NAV),
+        CURSOR_DOCUMENT_START_SELECT,
+    ),
+    (
+        StrokePattern::new(KeyCode::Down, META_SHIFT_NAV),
+        CURSOR_DOCUMENT_END_SELECT,
+    ),
+    (
+        StrokePattern::new(KeyCode::Backspace, ALT_DELETE),
+        EDIT_DELETE_WORD_BACKWARD,
+    ),
+    (
+        StrokePattern::new(KeyCode::Delete, ALT_DELETE),
+        EDIT_DELETE_WORD_FORWARD,
+    ),
+    (
+        StrokePattern::new(KeyCode::Backspace, META_DELETE),
+        EDIT_DELETE_TO_LINE_START,
+    ),
+    (
+        StrokePattern::new(KeyCode::Delete, META_DELETE),
+        EDIT_DELETE_TO_LINE_END,
+    ),
+];
+
 /// The number of bindings this face adds.
 ///
-/// Derived from [`BINDINGS`] so it cannot drift from the table.
-pub const BINDING_COUNT: usize = BINDINGS.len();
+/// Derived from the two tables so it cannot drift from either.
+pub const BINDING_COUNT: usize = BINDINGS.len() + MAC_CHORDS.len();
 
 /// Builds the keymap layer this face pushes onto the kernel's default.
 ///
@@ -178,7 +302,7 @@ pub const BINDING_COUNT: usize = BINDINGS.len();
 #[must_use]
 pub fn keymap() -> Keymap {
     let mut keymap = Keymap::new("iridium-desktop");
-    for (stroke, command) in BINDINGS {
+    for (stroke, command) in BINDINGS.iter().chain(MAC_CHORDS) {
         keymap.push(KeyBinding::new(*stroke, CHORD, command.clone()));
     }
     keymap
@@ -194,10 +318,139 @@ pub fn command_metas() -> Vec<CommandMeta> {
 mod tests {
     use std::collections::BTreeSet;
 
-    use iridium_editor::Editor;
-    use iridium_editor::commands::default_non_modal_keymap;
+    use iridium_editor::commands::builtin::{AST_EXPAND_SELECTION, AST_SHRINK_SELECTION};
+    use iridium_editor::commands::{default_keymap_stack, default_non_modal_keymap};
+    use iridium_editor::{Editor, KeyPress, KeymapResolver, KeymapStack, Modifiers};
 
     use super::*;
+
+    /// The whole stack a session resolves against: the kernel's default layer
+    /// with this face's layer pushed on top, exactly as `DesktopApp::new`
+    /// builds it. A chord is only bound if it resolves *here* — a row in the
+    /// table proves nothing on its own, because the layer underneath binds the
+    /// same keys under looser patterns.
+    fn session_stack() -> KeymapStack {
+        let mut stack = default_keymap_stack();
+        stack.push(keymap());
+        stack
+    }
+
+    /// Modifiers with only the named bits held.
+    const fn held(shift: bool, alt: bool, meta: bool) -> Modifiers {
+        Modifiers {
+            shift,
+            ctrl: false,
+            alt,
+            meta,
+            alt_graph: false,
+        }
+    }
+
+    /// Asserts one keypress resolves to `expected` through the full stack.
+    fn resolves_to(stack: &KeymapStack, key: KeyCode, modifiers: Modifiers, expected: &CommandId) {
+        let mut resolver = KeymapResolver::new();
+        let outcome = resolver.resolve(stack, KeyPress::new(key, modifiers));
+        assert_eq!(
+            outcome.command().map(CommandId::as_str),
+            Some(expected.as_str()),
+            "{key:?} with {modifiers:?} did not resolve to {expected}"
+        );
+    }
+
+    #[test]
+    fn the_mac_navigation_chords_resolve_through_the_whole_stack() {
+        let stack = session_stack();
+        let cases: &[(KeyCode, Modifiers, &CommandId)] = &[
+            (KeyCode::Left, held(false, true, false), &CURSOR_WORD_LEFT),
+            (KeyCode::Right, held(false, true, false), &CURSOR_WORD_RIGHT),
+            (KeyCode::Left, held(false, false, true), &CURSOR_LINE_START),
+            (KeyCode::Right, held(false, false, true), &CURSOR_LINE_END),
+            (
+                KeyCode::Left,
+                held(true, false, true),
+                &CURSOR_LINE_START_SELECT,
+            ),
+            (
+                KeyCode::Right,
+                held(true, false, true),
+                &CURSOR_LINE_END_SELECT,
+            ),
+            (
+                KeyCode::Up,
+                held(false, false, true),
+                &CURSOR_DOCUMENT_START,
+            ),
+            (
+                KeyCode::Down,
+                held(false, false, true),
+                &CURSOR_DOCUMENT_END,
+            ),
+            (
+                KeyCode::Up,
+                held(true, false, true),
+                &CURSOR_DOCUMENT_START_SELECT,
+            ),
+            (
+                KeyCode::Down,
+                held(true, false, true),
+                &CURSOR_DOCUMENT_END_SELECT,
+            ),
+        ];
+        for &(key, modifiers, expected) in cases {
+            resolves_to(&stack, key, modifiers, expected);
+        }
+    }
+
+    #[test]
+    fn the_mac_deletion_chords_resolve_through_the_whole_stack() {
+        let stack = session_stack();
+        let cases: &[(KeyCode, Modifiers, &CommandId)] = &[
+            (
+                KeyCode::Backspace,
+                held(false, true, false),
+                &EDIT_DELETE_WORD_BACKWARD,
+            ),
+            (
+                KeyCode::Delete,
+                held(false, true, false),
+                &EDIT_DELETE_WORD_FORWARD,
+            ),
+            (
+                KeyCode::Backspace,
+                held(false, false, true),
+                &EDIT_DELETE_TO_LINE_START,
+            ),
+            (
+                KeyCode::Delete,
+                held(false, false, true),
+                &EDIT_DELETE_TO_LINE_END,
+            ),
+        ];
+        for &(key, modifiers, expected) in cases {
+            resolves_to(&stack, key, modifiers, expected);
+        }
+    }
+
+    #[test]
+    fn the_word_select_chords_are_left_to_the_syntax_verbs() {
+        // ⌥⇧← / ⌥⇧→ are the one contested pair: the default keymap gives them
+        // to the syntax expand/shrink verbs, and this face does not take them
+        // back. If a row is ever added for them, this test is the one that
+        // says the collision was a decision.
+        let stack = session_stack();
+        resolves_to(
+            &stack,
+            KeyCode::Left,
+            held(true, true, false),
+            &AST_SHRINK_SELECTION,
+        );
+        resolves_to(
+            &stack,
+            KeyCode::Right,
+            held(true, true, false),
+            &AST_EXPAND_SELECTION,
+        );
+    }
 
     #[test]
     fn every_command_this_face_adds_is_one_the_kernel_does_not_implement() {
@@ -224,7 +477,7 @@ mod tests {
             .iter()
             .map(|meta| meta.id().as_str())
             .collect();
-        for (_, command) in BINDINGS {
+        for (_, command) in BINDINGS.iter().chain(MAC_CHORDS) {
             if ours.contains(command.as_str()) {
                 continue;
             }
@@ -257,6 +510,7 @@ mod tests {
     fn every_command_this_face_adds_is_bound() {
         let bound: BTreeSet<&str> = BINDINGS
             .iter()
+            .chain(MAC_CHORDS)
             .map(|(_, command)| command.as_str())
             .collect();
         for meta in COMMANDS {
@@ -277,27 +531,49 @@ mod tests {
         assert_eq!(FILE_SAVE_FORCE.as_str(), "file.saveForce");
     }
 
+    /// Every single-stroke binding of the default keymap that `stroke` could
+    /// fire instead of, named by its command.
+    fn defaults_overlapped(defaults: &Keymap, stroke: &StrokePattern) -> Vec<String> {
+        defaults
+            .bindings()
+            .iter()
+            .filter(|binding| {
+                let Some((first, rest)) = binding.sequence().split_first() else {
+                    return false;
+                };
+                rest.is_empty() && first.overlaps(stroke)
+            })
+            .filter_map(|binding| binding.command().map(ToString::to_string))
+            .collect()
+    }
+
     #[test]
-    fn no_binding_collides_with_the_default_keymap() {
+    fn no_binding_collides_with_the_default_keymap_except_the_mac_chords() {
         // Two layers may legitimately bind one stroke — that is what a layer
-        // is for — but this face is adding verbs and mac spellings, not
-        // rebinding the kernel's `Ctrl` chords, so an overlap here means a key
-        // silently stopped doing what it did.
+        // is for — but the letter rows of this face are adding verbs and mac
+        // spellings, not rebinding the kernel's `Ctrl` chords, so an overlap
+        // there means a key silently stopped doing what it did.
         let defaults = default_non_modal_keymap();
         for (stroke, command) in BINDINGS {
-            for binding in defaults.bindings() {
-                let Some((first, rest)) = binding.sequence().split_first() else {
-                    continue;
-                };
-                if !rest.is_empty() {
-                    continue;
-                }
-                assert!(
-                    !first.overlaps(stroke),
-                    "{command} shadows the default binding for {:?}",
-                    binding.command()
-                );
-            }
+            let shadowed = defaults_overlapped(&defaults, stroke);
+            assert!(
+                shadowed.is_empty(),
+                "{command} shadows the default bindings for {shadowed:?}"
+            );
+        }
+
+        // `MAC_CHORDS` is the allowlist, and it overlaps by construction: the
+        // default keymap's arrow and delete patterns declare `Alt` and `Meta`
+        // `Any`, so the only way to give `⌥←` or `⌘⌫` a verb of its own is a
+        // `Required` mac spelling that matches inside the loose pattern and
+        // outranks it. A row that overrides *nothing* is the mistake this half
+        // catches: it would mean the chord was already bound elsewhere, or that
+        // the pattern is not the one the default keymap actually uses.
+        for (stroke, command) in MAC_CHORDS {
+            assert!(
+                !defaults_overlapped(&defaults, stroke).is_empty(),
+                "{command} is filed as a deliberate override but overrides nothing"
+            );
         }
     }
 
@@ -310,7 +586,7 @@ mod tests {
             .iter()
             .filter_map(|binding| binding.command().map(ToString::to_string))
             .collect();
-        for (_, command) in BINDINGS {
+        for (_, command) in BINDINGS.iter().chain(MAC_CHORDS) {
             assert!(bound.contains(command.as_str()), "{command} is not bound");
         }
     }

@@ -470,6 +470,103 @@ just fail, IT TRAVELS — and each relay adds credibility while
 subtracting checkability.** The relay is exactly where the
 checkability is spent, which makes it worse than a plain error.
 
+## ✅ WARNINGS-GATE LANE CLOSED (5 Aug ~19:4x) — `1e22ea8`, `e8019d3`
+
+Baseline **46,790,800** (Athena amendment B, not the standing anchor)
+→ close **47,029,136**. Draw **238,336 KiB = 0.227 of 0.6.** Pushed.
+Five gates from my hand: 1897/0/20 all-features; **891/0 GPU-free with
+ZERO warnings**; wasm check clean; clippy clean; fmt clean.
+
+### 🔬 THE STRONG FORM OF THE PATH-NOVELTY MODEL IS FALSIFIED
+
+Athena's `.d`/`.rmeta` discriminator, read either side of five full
+gate runs (workspace tests, GPU-free tests, wasm check, clippy
+`--all-targets`, fmt):
+
+| reading | before | after |
+|---|---|---|
+| workspace `.d` | 334 | **334** |
+| workspace `.rmeta` | 270 | **270** |
+| workspace `.o` | 223,100 | **223,100** |
+| workspace total | 223,814 | **223,814** |
+| `deps` dir total | 241,897 | **241,897** |
+
+**Not one file changed. 0.227 GiB of bytes appeared.** ⇒ ★ **byte
+growth does NOT imply retired identities.** The model's *directional*
+claim survives (source-only overwrites, graph mutations mint), but
+**`du -sk target` is not a measure of path novelty** — it measures
+something that merely correlates.
+
+**NOT established, do not claim:** where the 238 MB went. No
+per-directory before-reading existed. Standing shape only:
+`target/debug` 38.5M KiB (**`deps` 25.5M, `incremental` 12.6M**),
+`release` 7.3M, `wasm32` 1.1M. **`target/debug/incremental` is 12 GiB
+of rustc's own cache, NOT identity-keyed like `deps`** — the obvious
+candidate, named as a candidate. **FIX FROM THE NEXT LANE ON:
+per-directory `du -sk target/*` both sides.**
+
+### Row 13 — caught from the desk, BEFORE building
+
+Part 3 came back as **CI-invocation**: `env: RUSTFLAGS: "-D warnings"`
+on four CI steps, no `Cargo.toml`, no local rebuild. Mechanism right,
+**flag wrong**: `RUSTFLAGS` reaches **dependency** compilation, and
+this graph already carries `block v0.1.6` flagged for future-incompat.
+⇒ *"the flag denies our warnings"* proxies *"the flag denies ONLY our
+warnings"*, divergence sitting in our own tree. **NOT ARMED. Held for
+a ruling.** The two wasm deletions landed without it.
+
+⚠️ **The argument-hashing question is STILL OPEN and now UNTESTED** —
+the fork resolved to a third branch neither seat enumerated (CI-only,
+no local build), so nothing ever ran with the flag. **A clean lane
+close is not an answered question.**
+
+### Row 12 — MINE, and it is the stock/flow error again
+
+I have said all session, and written into this file, that this
+codebase carries **ZERO `#[allow]`/`#[expect]`**. Grepped:
+**71.** Including **seven `#[allow(dead_code)]` in
+`render/pipeline.rs`** ("Part of T150 API for future shader
+integration") — dead code deliberately hidden from exactly the gate I
+was about to arm. **My rule is a FLOW control on new suppressions; I
+was quoting it as a STOCK claim about the tree.** A `-D warnings` gate
+would therefore proxy "no dead code" and diverge at seven known sites
+before it ran.
+
+### `cargo fmt --all --check` prints 441 warnings and exits 0
+
+**21 of 33 settings in `rustfmt.toml` (64%) are nightly-only and
+silently inert on stable** — `imports_granularity`, `group_imports`,
+`wrap_comments`, `brace_style`, `trailing_comma`,
+`format_macro_bodies`, `normalize_comments`, +14 more. Green forever;
+two-thirds of the declared format never enforced. Ran-and-unread.
+Proxy: *"fmt gate green"* for *"the configured format is enforced."*
+
+### Still open from the agent's report — FILED, NOT FIXED
+
+1. **`WebSpanIndex::count` is computed BEFORE filtering**
+   (`web_span_index.rs:35` vs `:39`). An all-degenerate span set
+   (`start >= end`) gives `count > 0` with an empty lapper, so
+   `is_empty()` is false, `wasm.rs:2827` takes the index path, and
+   **zero highlights render instead of falling back.** Real latent
+   defect; behaviour change, needs a ruling.
+2. **HiDPI ratio changes are never re-applied** — font scaled once at
+   construction, `resize()` never rescales. Moving between displays of
+   different `devicePixelRatio` leaves the old scale. The removed
+   field could not have fixed it; `resize` must take the live ratio.
+3. **Three pre-existing cast suppressions of the shape just
+   eliminated** — `render/viewport.rs:86`, `:228`, `editor/core.rs:909`.
+   `viewport.rs:230` (`document_line_at_y`) is the SAME computation as
+   the `mouse.rs` line resolution and a direct `pixel_to_index`
+   candidate; `core.rs:915` is a `pixel_to_bound` candidate and is
+   what would let that function's `#[cfg]` come off honestly.
+4. **127 clippy warnings in configurations no clippy gate compiles**
+   (17 GPU-free, 110 wasm) — the clippy gate only ever runs
+   `--all-features`, which compiles *different code*.
+5. **`continue-on-error: true` on the clippy CI job** (`ci.yml:63`) —
+   a gate that CANNOT FAIL, with a stale comment citing "228 on
+   2026-07-12" against an actual count of 0. Mechanism (2) in its
+   purest form. Removing the flag is now safe.
+
 ## ⚠️ LIVE AT COMPACTION #2 (5 Aug ~19:1x local) — READ THIS FIRST
 
 **AGENT RUNNING (Opus), id in the task list — "warnings gate" lane.**

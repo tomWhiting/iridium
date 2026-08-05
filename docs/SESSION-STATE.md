@@ -505,6 +505,65 @@ of rustc's own cache, NOT identity-keyed like `deps`** — the obvious
 candidate, named as a candidate. **FIX FROM THE NEXT LANE ON:
 per-directory `du -sk target/*` both sides.**
 
+### ✅ GATE ARMED AND THE PRICE QUESTION ANSWERED — `885c7e9`
+
+`cargo clippy --workspace --all-features --all-targets -- -D warnings`,
+and **`continue-on-error: true` removed from the same job in the same
+commit** (Athena's close condition: adding a stricter flag to a job
+that cannot fail buys a stricter report and no enforcement).
+
+**MEASURED, per-directory, both sides — the experiment that had been
+stranded:**
+
+| reading | before | after | Δ |
+|---|---|---|---|
+| deps files | 241,897 | 241,897 | **0** |
+| workspace `.d` | 334 | 334 | **0** |
+| workspace `.rmeta` | 270 | 270 | **0** |
+| workspace `.o` | 223,100 | 223,100 | **0** |
+| **deps BYTES** | 25,521,744 | 25,521,744 | **0, exactly** |
+| **incremental** | 12,608,780 | 12,611,636 | **+2,856** |
+| target | 47,029,136 | 47,031,992 | **+2,856** |
+
+⇒ **Argument hashing does NOT reach artifact identity for the `--`
+form.** My named divergence case did not occur; Athena's sentence was
+right — **but not for the reason it gave**, since 2,856 KiB of work
+happened. *"No build inputs changed"* is the imprecise form of *"no
+artifact identity changed"*, and that imprecision is what let it be
+held as a claim about **cost**.
+
+⇒ **THE TWO-TERM MODEL REPRODUCED THE TOTAL EXACTLY on first
+predictive use.** Term 1 (deps accumulation, path-novel only) = 0.
+Term 2 (incremental, ∝ compile work) = 2,856 KiB. Sum = the whole
+draw, to the kilobyte. Better than its predecessor because it predicts
+a **decomposition**, and the decomposition is what got checked.
+
+The flagged run exits 0 **while still emitting the `block v0.1.6`
+future-incompat note** — the RUSTFLAGS divergence confirmed benign
+under `--`.
+
+### ★★ ROW 14 (Athena's, the biggest on the board)
+
+**`du -sk target` SUMS TWO STORES OBEYING OPPOSITE LAWS.** `deps`
+prices **bytes retained**; `incremental` prices **work performed**.
+Summing destroys both signals — which is why five identical counts and
+a 238 MB delta were never a contradiction. **Everything either seat
+priced this week was read off that sum.**
+
+> **SUCCESSOR MODEL: draw = accumulation in `deps` (path-novel
+> identities only) + growth in `incremental` (∝ compile work)**
+
+Retro-fits everything: source-only overwrites `deps` (term 1 ≈ 0) yet
+does full compile work (term 2 carries it); the encoder lane minted
+identities *and* did work, so both fired at 0.746. The warm series
+tracked relink reach because **relink reach proxies compile volume**,
+which is term 2 — the old model was predictive **through a mechanism
+it had misidentified.**
+
+⚠️ **STANDING REQUIREMENT FROM HERE: read `deps` and `incremental`
+SEPARATELY, both sides, every lane.** A single `target` figure cannot
+be interpreted.
+
 ### Row 13 — caught from the desk, BEFORE building
 
 Part 3 came back as **CI-invocation**: `env: RUSTFLAGS: "-D warnings"`

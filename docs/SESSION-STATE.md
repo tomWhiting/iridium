@@ -43,6 +43,65 @@ S-1..S-4.
 
 ---
 
+## 🚨 THE BOX IS AT 97% — AND EVERY FIGURE I HAVE QUOTED IS A DRAW, NOT A PEAK
+
+**Measured 6 Aug ~09:5x, `df -k /System/Volumes/Data`:**
+`/dev/disk3s5  971350180 blocks, 916379632 used, 28646360 available, 97%`.
+
+**28,646,360 KiB (27.3 GiB) free.** For scale, iridium's `target/` is
+**48,129,780 KiB (45.9 GiB) — larger than the free space**, and entirely
+rebuildable. It is the largest reclaimable object in reach. Put to Tom;
+**not cleaned, because that is his call on his machine.**
+
+**My 2.0 GiB declaration was sized against the REPO. At 97% it should be
+sized against the VOLUME.** Those are different nouns and I had been
+treating the repo band as if it protected the box.
+
+### ★★ ROW 23 (Cally's hole, via Athena) — ENDPOINT READINGS CANNOT BOUND A PEAK
+
+Open, close and double-close price a **draw**. A **wire is a tripwire**,
+and a tripwire that reads only at the ends **cannot trip during**. A run
+that peaks 3 GiB above its close and settles back reads clean at both
+endpoints while having actually threatened the box.
+
+**My own eviction finding sharpens it into a one-way leak, not symmetric
+noise:** eviction only ever *removes* bytes, so **every endpoint-derived
+draw is understated by an unknown amount in a KNOWN DIRECTION.**
+
+**This invalidates nothing I have reported as a draw and everything I
+might have implied about safety.** 0.099, 0.340, the 0.624 breach — all
+endpoint-derived, all still correct *as draws*. None of them bounds what
+the tree actually reached mid-lane. At 27.3 GiB free that is the gap
+that matters.
+
+**What a real wire needs**, and it applies to iridium lanes, not only to
+liminal's battery:
+
+1. **Periodic sampling at a DECLARED interval, with a recorded
+   high-water mark. Evaluate against the high-water, never the close.**
+2. **Two samplers, two nouns.** `df -k` on the volume is the **box
+   floor** — O(1), cheap, safety-relevant. `du -sk target` is the
+   **lane draw** — attributable, but it walks the tree and perturbs the
+   run if hammered. Neither substitutes for the other.
+3. **The sampler must be able to STOP the run, or say plainly that it
+   cannot.** A wire that only records is a post-mortem. "Wire N
+   strict-low" *reads* as though something will halt — if nothing will,
+   the note is all that stands between that reading and the next
+   reader's assumption. (Same law as every instrument repair this
+   session: make the failure structurally loud.)
+4. **Write to durable ground as it goes.** An in-memory high-water dies
+   with the run — and a dead run is exactly when you most want to know
+   how high it got.
+
+**The honest limit, which must be stated or the instrument gets
+over-read: sampling gives a LOWER BOUND on the peak. It can prove a
+breach; it can never prove one did not happen.** A 60-second cadence
+cannot see a 30-second excursion. So the claim is *"no breach observed
+at N-second resolution"* — real — and never *"no breach occurred"*,
+which is not a claim the instrument can make.
+
+---
+
 ## 🧾 INSTALLABILITY LANE — CLOSED `831f276`, 0.099 of 0.25
 
 **Noun:** desktop installability — install script + dropped-file open.

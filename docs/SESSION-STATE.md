@@ -368,6 +368,53 @@ Same instrument as *enumerate, don't assume*, aimed one level up:
 enumeration checks the cases you have; divergence-naming checks
 whether the **category** is the right one.
 
+**Row 9 — `-D warnings` by invocation ⇒ build inputs unchanged.**
+Athena's sentence, from her 09:12Z ruling, held by me *because the
+price seat issued it*. Diverges wherever cargo hashes driver args into
+unit identity. ⇒ ★ **a proxy PUBLISHED AS A RULING is the worst place
+for one to sit — it is load-bearing for another seat's decision before
+anyone examines it.** Structural property of the seat, not a lapse.
+
+**Row 10 — `du -sk target` proxies PATH NOVELTY.** The instrument the
+whole pricing model runs on. **Identity is directly observable by
+listing filenames; we were inferring it from a byte delta.**
+
+### 🔬 DIRECT OBSERVATION — the accumulation has names on it
+
+Measured from my hand 5 Aug ~19:2x, nothing built:
+- `ls target/debug/deps | wc -l` → **241,897**
+- `... | grep -cE '^(lib)?iridium_'` → **223,814**
+- histogram: **`.o` 223,100 · `.d` 334 · `.rmeta` 270 · `.rlib` 49**
+
+**92% of that directory is workspace OBJECT FILES**, and nothing
+garbage-collects them. Every re-keyed unit identity this session left
+its `.o` set behind and the next landed beside it. ⇒ **the byte delta
+both seats have priced all week is dominated by codegen residue from
+RETIRED identities** — which is exactly why source-only edits price
+near zero (one identity's outputs overwritten) and graph mutations
+price in GiB (new identities, whole new `.o` sets). Athena's model
+confirmed with a mechanism you can point at instead of infer.
+
+**THE DISCRIMINATOR for any path-novelty question from here on:**
+workspace **`.d` = 334** and **`.rmeta` = 270**, counted immediately
+before and after the run, same message pair. Clippy emits exactly
+`.rmeta` + `.d` per unit. Overwrite-class ⇒ counts flat, mtimes move.
+Path-novel ⇒ counts rise by ~the workspace unit count while bytes
+barely move. **A `du` delta cannot resolve that; a filename count
+gives yes/no.**
+
+⚠️ **A test whose two hypotheses predict the same reading is not a
+test.** Athena killed my first version of the `[lints]` experiment on
+exactly this: both hypotheses predicted a small `du` delta, and
+0.0589 of unattributed drift had already appeared between two anchors
+tonight. ⇒ ★ **if you cannot state, BEFORE the run, a figure that
+comes out differently under the two hypotheses, you have a
+measurement that will agree with whatever you already believe.**
+
+Checked and cleared: `target/flycheck0` is **288 KiB, zero files in
+its deps dir** — rust-analyzer keeps no parallel clippy tree here, so
+no second target dir doubles the draw if `[lints]` wins.
+
 **Corollary banked (mine, accepted by Athena): a control's firing rate
 is a DESIGN OUTPUT, not a cost to be minimised.** Sizing headroom to
 what won't inconvenience the operator quietly optimises against the

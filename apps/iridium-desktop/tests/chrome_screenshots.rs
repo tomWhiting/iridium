@@ -13,8 +13,9 @@
 //! into the named directory (the system temp directory when the variable is
 //! unset). What it writes:
 //!
-//! - **the dark control**, unchanged: `chrome-palette.png`,
-//!   `chrome-search.png`, `chrome-history.png`;
+//! - **the dark control**: `chrome-palette.png`, `chrome-search.png`,
+//!   `chrome-history.png`, plus the context menu as `chrome-menu.png` and
+//!   `chrome-menu-read-only.png` (the frame that shows the greyed verbs);
 //! - **six frames per candidate light variant** of
 //!   `docs/design/LIGHT-THEME-MAP.md` §2.3, named `light-<variant>-<state>.png`
 //!   — `editor`, `selection`, `palette`, `search`, `history`, `bridge`.
@@ -48,10 +49,12 @@
 use std::path::{Path, PathBuf};
 
 use iridium_desktop::command_palette::CommandPalette;
+use iridium_desktop::context_menu::ContextMenu;
 use iridium_desktop::highlight::HighlightCache;
 use iridium_desktop::history_overlay::HistoryPanel;
 use iridium_desktop::overlay::{OverlayPainter, PanelContent, PanelFit, StripContent};
 use iridium_desktop::search::SearchOverlay;
+use iridium_desktop::units::u32_to_f32;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
 use iridium_editor::theme::{ClassicVariant, Color, Theme};
@@ -650,6 +653,35 @@ fn palette_shot(
     Ok(())
 }
 
+/// The context menu hung from a click in the document — the frame that
+/// answers what no CPU test can: row height and padding against the
+/// palette's, the separator rules, and (in the read-only shot) the exact
+/// alpha a greyed verb is drawn at.
+fn menu_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    fit: PanelFit,
+    theme: &Theme,
+    palette: Palette,
+    read_only: bool,
+    path: &Path,
+) -> Result<(), String> {
+    let mut editor = editor_with_document(theme, palette)?;
+    // A selection under the click, which is what a real right-press finds.
+    for _ in 0..2 {
+        let _ = editor.handle_key(&chord(KeyCode::Right, Modifiers::shift()));
+    }
+    editor.state_mut().read_only = read_only;
+    let menu = ContextMenu::open(&editor, 0.34 * u32_to_f32(WIDTH), 0.30 * u32_to_f32(HEIGHT));
+    let content = menu.content(&editor.state().theme, fit);
+    let chrome = Chrome {
+        strip: None,
+        panels: &[&content],
+    };
+    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
+    Ok(())
+}
+
 /// The search panel above the strip, a query with live matches — where
 /// `search_match` and `search_match_current` are judged against real text.
 fn search_shot(
@@ -822,6 +854,32 @@ fn run() -> Result<Vec<PathBuf>, String> {
         &search_path,
     )?;
     written.push(search_path);
+
+    let menu_path = out_dir.join("chrome-menu.png");
+    menu_shot(
+        &gpu,
+        &mut overlay,
+        fit,
+        &dark,
+        Palette::KeywordBridge,
+        false,
+        &menu_path,
+    )?;
+    written.push(menu_path);
+
+    // The same menu over a read-only document, where the two mutating verbs
+    // are greyed — the only frame that shows the disabled alpha.
+    let menu_read_only_path = out_dir.join("chrome-menu-read-only.png");
+    menu_shot(
+        &gpu,
+        &mut overlay,
+        fit,
+        &dark,
+        Palette::KeywordBridge,
+        true,
+        &menu_read_only_path,
+    )?;
+    written.push(menu_read_only_path);
 
     let history_path = out_dir.join("chrome-history.png");
     history_shot(

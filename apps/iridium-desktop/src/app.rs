@@ -72,7 +72,7 @@ use iridium_editor::render::{FrameCompositor, FrameTarget};
 use iridium_editor::theme::Theme;
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyCode, KeyEvent,
-    KeymapError, Language, MouseResult, RegistryError,
+    KeymapError, Language, MouseResult, Position, RegistryError,
 };
 use iridium_file::{FileError, TextFile};
 use winit::application::ApplicationHandler;
@@ -83,12 +83,13 @@ use winit::window::{Window, WindowId};
 
 use crate::command_palette::{CommandPalette, PaletteOutcome};
 use crate::commands;
+use crate::context_menu::{ContextMenu, MenuOutcome};
 use crate::highlight::HighlightCache;
 use crate::history_overlay::{HistoryOutcome, HistoryPanel};
 use crate::keys;
 use crate::latency::LatencyMonitor;
 use crate::mouse::{self, Grid, Pointer};
-use crate::overlay::{OverlayPainter, PanelContent, StripContent};
+use crate::overlay::{OverlayPainter, PanelContent, PanelGeometry, StripContent};
 use crate::prompt::{Answer, Deed, Message, Prompt};
 use crate::search::{SearchOutcome, SearchOverlay};
 use crate::surface::NativeSurface;
@@ -261,6 +262,9 @@ pub struct DesktopApp {
     /// Recorded only after a command actually ran — an entry for a command
     /// that errored would rank a failure as a favourite.
     mru: CommandMru,
+    /// The right-click context menu, while one is up. Modal while it is:
+    /// it holds key focus, and the click that leaves it is spent leaving it.
+    menu: Option<ContextMenu>,
     /// The undo-tree panel.
     history: HistoryPanel,
     /// Whether the undo-tree panel is on screen. Modal while it is.
@@ -340,6 +344,7 @@ impl DesktopApp {
             palette: CommandPalette::new(),
             palette_open: false,
             mru: CommandMru::default(),
+            menu: None,
             history: HistoryPanel::new(),
             history_open: false,
             prompt: None,
@@ -401,6 +406,8 @@ impl DesktopApp {
 
         let flow = if self.prompt.is_some() {
             self.prompt_key(event)
+        } else if self.menu.is_some() {
+            self.drive_menu(event)
         } else if self.palette_open {
             self.drive_palette(event)
         } else if self.history_open {
@@ -467,7 +474,7 @@ impl DesktopApp {
             },
             PaletteOutcome::Run(command) => {
                 self.palette_open = false;
-                self.run_palette_command(&command)
+                self.run_chosen_command(&command)
             },
         }
     }
@@ -494,12 +501,19 @@ impl DesktopApp {
         }
     }
 
-    /// Runs a command the palette resolved: the kernel's own if it implements
-    /// it, this face's if not, and an honest message when neither does.
+    /// Runs a command a panel resolved — the palette's `Enter`, or the
+    /// context menu's row: the kernel's own if it implements it, this face's
+    /// if not, and an honest message when neither does.
     ///
-    /// The recency list records only commands that actually dispatched, so a
-    /// palette entry nothing runs cannot become a ranked favourite.
-    fn run_palette_command(&mut self, command: &CommandId) -> Flow {
+    /// There is deliberately one of these. A menu verb reaches the document
+    /// through the same kernel-first, command-sourced, undoable path a chord
+    /// and a palette entry do; a second dispatch would be a second set of
+    /// semantics to keep in step.
+    ///
+    /// The recency list records only commands that actually dispatched, so an
+    /// entry nothing runs cannot become a ranked favourite — and a verb run
+    /// from the menu trains the same ranking a palette run does.
+    fn run_chosen_command(&mut self, command: &CommandId) -> Flow {
         match self.editor.run_command(command.as_str(), CommandArgs::NONE) {
             Ok(result) => {
                 self.mru.record(command);
@@ -806,6 +820,12 @@ impl DesktopApp {
     /// Records where the cursor is and extends a drag if one is under way.
     fn pointer_moved(&mut self, x: f32, y: f32) {
         self.pointer.set_position(x, y);
+        if self.menu.is_some() {
+            // The one overlay this face steers with the pointer; the document
+            // underneath is not being selected while a menu is up.
+            self.hover_menu();
+            return;
+        }
         if !self.pointer.is_dragging() || self.prompt.is_some() {
             return;
         }
@@ -827,20 +847,55 @@ impl DesktopApp {
         self.apply_mouse(result);
     }
 
-    /// Asks for the next frame, when there is a window to ask.
-    fn request_redraw(&self) {
-        if let Some(shell) = &self.shell {
-            shell.window.request_redraw();
+    /// Handles the primary button going down.
+    ///
+    /// Modal like the keyboard, and in the same order: while a prompt is open
+    /// a click answers nothing and edits nothing, so it is swallowed; an open
+    /// context menu owns the click ([`Self::menu_click`]); an open modal panel
+    /// spends it being dismissed ([`Self::dismiss_modal_panel`]); only then
+    /// does the document see it. The wheel stays live throughout — reading the
+    /// document can inform the answer.
+    fn pointer_pressed(&mut self) -> Flow {
+        if self.prompt.is_some() {
+            return Flow::Running;
         }
+        if self.menu.is_some() {
+            return self.menu_click();
+        }
+        if self.dismiss_modal_panel() {
+            return Flow::Running;
+        }
+        self.message = None;
+        let Some((grid, line, column)) = self.hit_test() else {
+            return Flow::Running;
+        };
+        let modifiers = keys::kernel_modifiers(self.modifiers);
+        let result = {
+            let state = self.editor.state();
+            self.pointer.press(
+                line,
+                column,
+                modifiers,
+                grid,
+                &state.document,
+                &state.cursor,
+            )
+        };
+        self.apply_mouse(result);
+        Flow::Running
     }
 
-    /// Spends a press on an open modal panel, reporting whether it was spent.
+    /// Spends a press on the modal panel that is open, reporting whether it
+    /// was spent.
     ///
-    /// A press outside the palette or the undo tree dismisses it; a press on
-    /// one swallows the click and leaves it up — those panels are
-    /// keyboard-driven, so there is nothing inside one for a click to do, but
-    /// dismissing on a click that landed on the panel itself would be a trap.
-    /// Either way the document never sees the click.
+    /// The click-through fix (D-4): before this, a click while the palette or
+    /// the undo tree was up fell straight through to the document and moved
+    /// the caret under a panel the user was still reading. A press outside the
+    /// panel now dismisses it, macOS-style, and a press *on* it is swallowed
+    /// and leaves it up — those panels are keyboard-driven, so there is
+    /// nothing inside one for a click to do, but dismissing on a click that
+    /// landed on the panel itself would be a trap. Either way the document
+    /// never sees the click.
     ///
     /// The search panel is deliberately not included: it is not modal — keys
     /// it does not bind stay the host's — so clicking into the document while
@@ -873,37 +928,145 @@ impl DesktopApp {
             .any(|geometry| geometry.contains(x, y))
     }
 
-    /// Handles the primary button going down.
+    /// Handles the secondary button going down: the context menu.
     ///
-    /// Modal like the keyboard, and in the same order: while a prompt is open
-    /// a click answers nothing and edits nothing, so it is swallowed; an open
-    /// modal panel spends it being dismissed ([`Self::dismiss_modal_panel`]);
-    /// only then does the document see it. The wheel stays live — reading the
-    /// document can inform the answer.
-    fn pointer_pressed(&mut self) {
-        if self.prompt.is_some() {
+    /// Only the secondary button opens it (D-3); Ctrl+click keeps the
+    /// add-cursor meaning it shipped with. A press while a prompt or a modal
+    /// panel is up is spent on that panel and opens nothing — modal means
+    /// modal.
+    fn secondary_pressed(&mut self) {
+        if self.prompt.is_some() || self.palette_open || self.history_open {
             return;
         }
-        if self.dismiss_modal_panel() {
-            return;
-        }
+        // A message describes the input before this one.
         self.message = None;
-        let Some((grid, line, column)) = self.hit_test() else {
+        self.place_caret_under_pointer();
+        let (x, y) = self.pointer.position();
+        self.menu = Some(ContextMenu::open(&self.editor, x, y));
+        if let Some(shell) = &mut self.shell {
+            shell.compositor.reset_blink();
+            shell.window.request_redraw();
+        }
+    }
+
+    /// Moves the caret to the cell the pointer is over, unless the pointer is
+    /// inside a selection.
+    ///
+    /// D-6, the macOS rule: right-pressing inside a selection leaves it alone
+    /// — it is what the verbs are about to act on — and right-pressing outside
+    /// one moves the caret to the clicked cell, so Cut and Copy act where the
+    /// user pointed rather than where the caret happened to be.
+    fn place_caret_under_pointer(&mut self) {
+        let Some((_, line, column)) = self.hit_test() else {
             return;
         };
-        let modifiers = keys::kernel_modifiers(self.modifiers);
-        let result = {
-            let state = self.editor.state();
-            self.pointer.press(
-                line,
-                column,
-                modifiers,
-                grid,
-                &state.document,
-                &state.cursor,
-            )
-        };
+        let position = Position::new(line, column);
+        let state = self.editor.state();
+        if mouse::selection_covers(&state.cursor, position) {
+            return;
+        }
+        let result = mouse::caret_at(position, &state.document, &state.cursor);
         self.apply_mouse(result);
+    }
+
+    /// Hands a key to the open context menu and acts on the outcome.
+    fn drive_menu(&mut self, event: &KeyEvent) -> Flow {
+        let Some(menu) = self.menu.as_mut() else {
+            return Flow::Running;
+        };
+        match menu.handle_key(event) {
+            MenuOutcome::Handled => Flow::Running,
+            MenuOutcome::Closed => {
+                self.menu = None;
+                Flow::Running
+            },
+            MenuOutcome::Run(command) => {
+                self.menu = None;
+                self.run_chosen_command(&command)
+            },
+        }
+    }
+
+    /// Spends a press on the open context menu: a row runs, the padding does
+    /// nothing, and anything outside dismisses.
+    fn menu_click(&mut self) -> Flow {
+        let (x, y) = self.pointer.position();
+        let row = self
+            .painted_menu()
+            .filter(|(_, geometry)| geometry.contains(x, y))
+            .map(|(menu, geometry)| geometry.row_at(x, y, menu.rows()));
+        match row {
+            None => {
+                self.menu = None;
+                self.request_redraw();
+                Flow::Running
+            },
+            // On the menu, but on its padding: nothing runs, nothing changes.
+            Some(None) => Flow::Running,
+            Some(Some(row)) => match self.menu.as_mut().and_then(|menu| menu.activate(row)) {
+                Some(command) => {
+                    self.menu = None;
+                    let flow = self.run_chosen_command(&command);
+                    self.request_redraw();
+                    flow
+                },
+                // A separator or a greyed verb: the menu stays up rather than
+                // vanishing on a click that meant nothing.
+                None => Flow::Running,
+            },
+        }
+    }
+
+    /// Asks for the next frame, when there is a window to ask.
+    fn request_redraw(&self) {
+        if let Some(shell) = &self.shell {
+            shell.window.request_redraw();
+        }
+    }
+
+    /// Highlights the menu row the pointer is over, repainting only when the
+    /// highlight actually moved.
+    fn hover_menu(&mut self) {
+        let (x, y) = self.pointer.position();
+        let Some(row) = self
+            .painted_menu()
+            .filter(|(_, geometry)| geometry.contains(x, y))
+            .and_then(|(menu, geometry)| geometry.row_at(x, y, menu.rows()))
+        else {
+            return;
+        };
+        if self.menu.as_mut().is_some_and(|menu| menu.hover(row)) {
+            self.request_redraw();
+        }
+    }
+
+    /// The open menu as the last frame painted it.
+    ///
+    /// The menu is composed last of all the panels ([`Self::panel_contents`]),
+    /// so it is the last placement the painter recorded. `None` when it is
+    /// closed, when the window could not hold it, or before the first frame
+    /// that showed it — a press that cannot be resolved against painted chrome
+    /// is honestly not on the menu.
+    fn painted_menu(&self) -> Option<(&ContextMenu, PanelGeometry)> {
+        let menu = self.menu.as_ref()?;
+        let geometry = self
+            .shell
+            .as_ref()?
+            .overlay
+            .painted_panels()
+            .last()
+            .copied()
+            .flatten()?;
+        Some((menu, geometry))
+    }
+
+    /// Handles the window losing focus.
+    fn blurred(&mut self) {
+        // A chord left pending across a blur would eat the first keystroke
+        // after the user came back; the kernel names this path explicitly.
+        self.editor.abort_pending_key_sequence();
+        // A menu is aimed at a click that is no longer being made.
+        self.menu = None;
     }
 
     /// Handles the primary button going up, ending any drag.
@@ -1285,6 +1448,11 @@ impl DesktopApp {
         if self.palette_open {
             panels.push(self.palette.content(&self.editor, &self.mru, theme, fit));
         }
+        // Last, and so on top and last in the painter's placement record —
+        // which is how `painted_menu` finds it again for the pointer.
+        if let Some(menu) = &self.menu {
+            panels.push(menu.content(theme, fit));
+        }
         panels
     }
 }
@@ -1408,20 +1576,26 @@ impl ApplicationHandler for DesktopApp {
                 self.pointer_moved(pixel_from_f64(position.x), pixel_from_f64(position.y));
             },
             WindowEvent::MouseInput { state, button, .. } => {
-                if button == winit::event::MouseButton::Left {
-                    match state {
-                        ElementState::Pressed => self.pointer_pressed(),
-                        ElementState::Released => self.pointer_released(),
-                    }
+                match (button, state) {
+                    (winit::event::MouseButton::Left, ElementState::Pressed) => {
+                        if self.pointer_pressed() == Flow::Exit {
+                            event_loop.exit();
+                        }
+                    },
+                    (winit::event::MouseButton::Left, ElementState::Released) => {
+                        self.pointer_released();
+                    },
+                    // The secondary button opens the context menu, and only
+                    // the secondary button does (D-3): Ctrl+click keeps the
+                    // add-cursor meaning it has shipped with.
+                    (winit::event::MouseButton::Right, ElementState::Pressed) => {
+                        self.secondary_pressed();
+                    },
+                    _ => {},
                 }
             },
             WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
-            WindowEvent::Focused(false) => {
-                // A chord left pending across a blur would eat the first
-                // keystroke after the user came back; the kernel names this
-                // path explicitly.
-                self.editor.abort_pending_key_sequence();
-            },
+            WindowEvent::Focused(false) => self.blurred(),
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {},
         }
@@ -1746,6 +1920,179 @@ mod tests {
     }
 
     #[test]
+    fn a_right_press_opens_the_context_menu_at_the_pointer() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "hello");
+        app.pointer.set_position(120.0, 240.0);
+        app.secondary_pressed();
+
+        let menu = app.menu.as_ref().expect("the right button opens the menu");
+        assert_eq!(
+            menu.anchor(),
+            (120.0, 240.0),
+            "the menu hangs from the click"
+        );
+        assert_eq!(
+            app.editor.content(),
+            "hello",
+            "opening the menu edits nothing"
+        );
+    }
+
+    #[test]
+    fn a_right_press_while_a_modal_panel_is_open_opens_no_menu() {
+        // Modal means modal: the press is spent on the panel that is up.
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        app.pointer.set_position(120.0, 240.0);
+        app.secondary_pressed();
+        assert!(app.menu.is_none(), "no menu opens over the palette");
+        assert!(app.palette_open, "and the palette stays up");
+    }
+
+    #[test]
+    fn the_context_menu_is_modal_and_escape_gives_the_document_back() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        app.pointer.set_position(10.0, 10.0);
+        app.secondary_pressed();
+        assert!(app.menu.is_some());
+
+        assert_eq!(app.press(&press(KeyCode::Char('x'))), Flow::Running);
+        assert_eq!(
+            app.editor.content(),
+            "",
+            "the keystroke was swallowed by the menu"
+        );
+
+        assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
+        assert!(app.menu.is_none(), "Escape closes the menu");
+        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+        assert_eq!(app.editor.content(), "y", "the document is back");
+    }
+
+    #[test]
+    fn enter_runs_the_highlighted_menu_verb_through_the_kernel() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "hello");
+        app.pointer.set_position(10.0, 10.0);
+        app.secondary_pressed();
+
+        // Down to Select All: Cut, Copy, Paste, ——, Select All.
+        for _ in 0..3 {
+            assert_eq!(app.press(&press(KeyCode::Down)), Flow::Running);
+        }
+        assert_eq!(app.press(&press(KeyCode::Enter)), Flow::Running);
+        assert!(app.menu.is_none(), "running a verb closes the menu");
+        assert!(
+            !app.mru.is_empty(),
+            "a menu run trains the same recency list a palette run does"
+        );
+
+        // The whole document is selected, so typing replaces it.
+        type_into(&mut app, "z");
+        assert_eq!(app.editor.content(), "z");
+    }
+
+    #[test]
+    fn the_menus_palette_row_opens_the_palette() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        app.pointer.set_position(10.0, 10.0);
+        app.secondary_pressed();
+        assert_eq!(app.press(&press(KeyCode::End)), Flow::Running);
+        assert_eq!(app.press(&press(KeyCode::Enter)), Flow::Running);
+        assert!(app.menu.is_none());
+        assert!(
+            app.palette_open,
+            "the host command behind the row reached `dispatch_host_command`"
+        );
+    }
+
+    #[test]
+    fn losing_focus_closes_the_menu() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        app.pointer.set_position(10.0, 10.0);
+        app.secondary_pressed();
+        assert!(app.menu.is_some());
+        app.blurred();
+        assert!(
+            app.menu.is_none(),
+            "a menu does not outlive the window's focus"
+        );
+    }
+
+    #[test]
+    fn a_click_outside_the_open_menu_dismisses_it_and_never_reaches_the_document() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "hello");
+        app.pointer.set_position(10.0, 10.0);
+        app.secondary_pressed();
+        assert!(app.menu.is_some());
+
+        app.pointer.set_position(900.0, 900.0);
+        assert_eq!(app.pointer_pressed(), Flow::Running);
+        assert!(app.menu.is_none(), "the click outside dismissed the menu");
+        assert_eq!(
+            app.editor.content(),
+            "hello",
+            "the dismissing click never reached the document"
+        );
+    }
+
+    #[test]
+    fn a_click_outside_the_palette_dismisses_it_and_never_reaches_the_document() {
+        // D-4: a modal panel swallows the click that dismisses it. Before the
+        // context-menu slice the press fell straight through to the document
+        // while the palette stayed on screen.
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "hello");
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        assert!(app.palette_open, "⌘K opens the palette");
+
+        app.pointer.set_position(12.0, 34.0);
+        app.pointer_pressed();
+
+        assert!(
+            !app.palette_open,
+            "a click outside the palette dismisses it"
+        );
+        assert_eq!(
+            app.editor.content(),
+            "hello",
+            "the dismissing click never reached the document"
+        );
+    }
+
+    #[test]
+    fn a_click_outside_the_undo_tree_dismisses_it_too() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
+        assert!(app.history_open, "Ctrl+Alt+H opens the undo tree");
+
+        app.pointer.set_position(12.0, 34.0);
+        app.pointer_pressed();
+
+        assert!(!app.history_open, "a click outside the panel dismisses it");
+    }
+
+    #[test]
+    fn a_click_while_the_search_panel_is_open_still_reaches_the_document() {
+        // The search panel is deliberately *not* modal — keys it does not bind
+        // stay the host's — so D-4 does not touch it: a click while it is open
+        // belongs to the document, and the panel stays up.
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        assert!(app.search_open);
+
+        app.pointer.set_position(12.0, 34.0);
+        app.pointer_pressed();
+
+        assert!(app.search_open, "a click does not dismiss the search panel");
+    }
+
+    #[test]
     fn the_history_panel_toggles_and_is_modal() {
         let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
         type_into(&mut app, "a");
@@ -1903,59 +2250,5 @@ mod tests {
             Flow::Running
         );
         assert!(!app.is_dirty(), "an undone edit leaves a clean buffer");
-    }
-
-    #[test]
-    fn a_click_outside_the_palette_dismisses_it_and_never_reaches_the_document() {
-        // D-4: a modal panel swallows the click that dismisses it. Until this
-        // fix the press fell straight through to the document while the
-        // palette stayed on screen.
-        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
-        type_into(&mut app, "hello");
-        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
-        assert!(app.palette_open, "⌘K opens the palette");
-
-        app.pointer.set_position(12.0, 34.0);
-        app.pointer_pressed();
-
-        assert!(
-            !app.palette_open,
-            "a click outside the palette dismisses it"
-        );
-        assert_eq!(
-            app.editor.content(),
-            "hello",
-            "the dismissing click never reached the document"
-        );
-    }
-
-    #[test]
-    fn a_click_outside_the_undo_tree_dismisses_it_too() {
-        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
-        assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
-        assert!(app.history_open, "Ctrl+Alt+H opens the undo tree");
-
-        app.pointer.set_position(12.0, 34.0);
-        app.pointer_pressed();
-
-        assert!(!app.history_open, "a click outside the panel dismisses it");
-    }
-
-    #[test]
-    fn a_click_while_the_search_panel_is_open_still_reaches_the_document() {
-        // The search panel is deliberately *not* modal — keys it does not bind
-        // stay the host's — so D-4 does not touch it: a click while it is open
-        // belongs to the document, and the panel stays up.
-        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
-        assert_eq!(
-            app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),
-            Flow::Running
-        );
-        assert!(app.search_open);
-
-        app.pointer.set_position(12.0, 34.0);
-        app.pointer_pressed();
-
-        assert!(app.search_open, "a click does not dismiss the search panel");
     }
 }

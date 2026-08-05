@@ -1093,10 +1093,50 @@ Proxy: *"fmt gate green"* for *"the configured format is enforced."*
    2026-07-12" against an actual count of 0. Mechanism (2) in its
    purest form. Removing the flag is now safe.
 
-## ⚠️ LIVE AT COMPACTION #2 (5 Aug ~19:1x local) — READ THIS FIRST
+## ✅ LIVE AT COMPACTION #3 (5 Aug ~20:1x local) — READ THIS FIRST
 
-**AGENT RUNNING (Opus), id in the task list — "warnings gate" lane.**
-It was redirected mid-flight. Its instructions now are:
+**NOTHING IS IN FLIGHT.** No agent running, no monitor armed, working
+tree clean apart from untracked `.claude/skills/`. HEAD pushed.
+A `/loop` dynamic wakeup is armed (~20:21) — the autonomous check.
+
+**DONE AND PUSHED THIS SESSION:** warnings backlog cleared
+(`1e22ea8`, `e8019d3`); clippy gate armed + `continue-on-error`
+removed + scope and validity condition written into `ci.yml`
+(`885c7e9`, `3593858`); span-index highlight erasure fixed
+(`ba16fe6`); **CI GREEN after 46 red runs** (`4d7dcf8` lavapipe).
+Earlier: context menu `5e91b03`, D-4 `44ab514`, light preset
+`0c288e1`, ⌥⇧ chords `13b59f7`, PNG encoder `ce62cb0`.
+
+**OPEN, WAITING ON TOM:** #31 theme variant pick
+(platinum/paper/monochrome); the right-press-vs-left-press dismissal
+ruling; accented characters (⌥ no longer composes é/ü; `OnlyLeft`
+offered); the older "switching" question.
+**OWED AT THE NEXT BUILD SWAP** (not the baton): one line naming
+**both halves** — *word-select is now ⌥⇧←/→; expand/shrink moved to
+⌃⇧⌘←/→*. That change proceeded on **silence, not a ruling**.
+**Tom: pid 71394, live since 17:36:14 — NO SWAP while that process
+lives** (pid-reuse law; `ps lstart` is the discriminator).
+
+**OPEN, MINE TO DO:** #35 HiDPI rescale (needs a `resize` signature
+change on the TS boundary — ruling first). GPU-free + wasm clippy
+burn-down (17 + 110) — **priced as a defect-density estimate for code
+nobody has ever looked at, NOT as tidying.** The `-p`-vs-`--workspace`
+`.d` experiment (real test: the two hypotheses predict different
+counts). Exact byte sums of the 33 `.rmeta` across a touch-and-rerun.
+
+**DISK:** standing declaration open — anchor 46,852,540; **aggregate
+0.779 of 1.5, 0.721 remaining**; ceiling 0.6/lane; **lane ≡ commit**;
+baseline **IS the previous commit's close**, with lane-open drift
+recorded separately; **full partition (`du -sk target/*` AND
+`target/debug/*`) in ONE atomic snapshot**, open and close; **close
+read TWICE minutes apart, both reported** as the empirical noise band.
+One breach filed at 0.624 (`ba16fe6`), not re-termed.
+
+---
+
+### (HISTORICAL) The warnings-gate agent's brief — lane now CLOSED
+
+Kept for the reasoning, not as live instructions:
 
 - **Part 1 — DO IT.** Revert `a13d6a2`'s `#[cfg(feature = "render")]`
   (4 fns + 3 tests in `render/units.rs`, plus the doc paragraph about

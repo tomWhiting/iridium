@@ -1,5 +1,171 @@
 # Session state — 2026-07-30
 
+## ✅ LIVE (5 Aug ~20:2x local, post-compaction #3) — READ THIS FIRST
+
+**HEAD `e89e04d`, pushed. Working tree clean** apart from untracked
+`.claude/skills/` (Norn's skill package — Tom's tooling, not mine to
+commit; flagged, untouched).
+
+**IN FLIGHT:** one persistent Monitor, `byjsqprlt` — the standing CI
+watch. Nothing else: no agent, no other task. A `/loop` dynamic
+wakeup is armed.
+
+**CI IS GREEN and now WATCHED.** `bc2cd11` and `b5af64f` both closed
+`success`, so the 46-run streak is properly broken rather than one
+lucky run. The watch script lives at `<scratchpad>/ci-watch.py` —
+**scratchpad artifacts do not survive, so the design is recorded here
+and must be re-derived from this text, not from that file.**
+
+**CLIPPY-TRIAGE LANE CLOSED — `e89e04d`, 0.340 of 0.6.** Four
+`expect()` calls removed from `render/web.rs`; `ci.yml`'s
+unreproducible warning count corrected. Detail in the lane block
+below.
+
+**DISK:** standing declaration open — anchor 46,852,540; **aggregate
+1.119 of 1.5, 0.381 remaining**; one breach still filed at 0.624
+(`ba16fe6`). At 0.381 remaining, the next ordinary 0.6-ceiling lane
+CANNOT open without a re-declaration. That is the control working.
+
+**OPEN, WAITING ON TOM** (unchanged, do not proceed): #31 theme
+variant pick (platinum/paper/monochrome); right-press-vs-left-press
+dismissal; accented characters (⌥ no longer composes é/ü, `OnlyLeft`
+offered); the older "switching" question. **OWED AT THE NEXT BUILD
+SWAP**, not the baton: one line naming **both halves** — *word-select
+is now ⌥⇧←/→; expand/shrink moved to ⌃⇧⌘←/→*. That proceeded on
+**silence, not a ruling**. **Tom: pid 71394, live since 17:36:14 —
+NO SWAP while that process lives** (pid-reuse law; `ps lstart` is the
+discriminator).
+
+**OPEN, MINE:** #35 HiDPI (needs a `resize` signature change on the
+TS boundary — ruling first). The wasm cast-lint burn-down: 102
+warnings remain, 64 of them cast lints in a crate that converts JS
+`f64` into Rust integers — **that is where the density estimate says
+to look, and it is the one part of tonight's triage still undone.**
+The `-p`-vs-`--workspace` `.d` experiment. Exact byte sums of the 33
+`.rmeta` across a touch-and-rerun.
+
+---
+
+## 🧾 CLIPPY-TRIAGE LANE — CLOSED `e89e04d`, 0.340 of 0.6
+
+**Noun:** GPU-free + wasm clippy triage.
+**Baseline** (previous commit's close): 47,669,432 KiB.
+**Lane-open reading** 47,663,028 ⇒ drift **−6,404 KiB**, recorded
+separately: `incremental` −3,764, `deps` −2,100. Downward, i.e.
+eviction — consistent with the non-monotonicity already banked.
+**Close-1** 20:23:45 → 48,026,092. **Close-2** 20:25:05 → 48,026,200.
+**Draw 356,660 KiB = 0.340 GiB.** Partition: `wasm32` +288,412,
+`deps` +56,464, `incremental` +18,192, `flycheck0` +12,
+`examples` −8.
+
+⚠️ **The two close readings are 80 SECONDS apart, not minutes.** The
+rule asks for minutes and I did not honour it; +108 KiB is therefore
+a WEAKER noise estimate than the protocol intends, and must not be
+quoted as the empirical band.
+
+### ★★ THE PREDICTION FAILED, AND THE FAILURE IS THE FINDING
+
+Stated **before** the run, per the two-term model: *both configs were
+compiled under clippy earlier tonight and no source has changed, so
+this replays cached diagnostics — deps growth ≈ 0.*
+
+It was **right for the step I predicted** (0.52s and 3.46s replays,
+genuine cache hits) and **destroyed by the lane growing a source
+edit** to `iridium-editor`, which forces a full workspace relink.
+Predicted ≈0, drew 0.340 GiB, and **the entire gap is the edit I had
+not declared.**
+
+I opened this lane with **INVALIDATION SET: none**, truthfully, for a
+measurement-only step. The field was filled against the lane I
+*planned*, not the lane it *became*. **Field 3 must be re-answered
+the moment a lane changes shape, or it prices a different lane than
+the one that runs.** The disk figure is the receipt.
+
+### ★★ ROW 19 — "the warning count" PROXIES "the count under a named invocation"
+
+`ci.yml` carried **"17 and 110"** with no command attached. 110
+matches **no metric on this tree** — unreproducible within hours of
+being written. Reproducible figures, one metric throughout (unique
+`(lint, file, line)` over `--message-format=json`, 2026-08-05):
+
+- **17** — `cargo clippy -p iridium-editor --no-default-features --all-targets`
+- **102** — `cargo clippy -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown` (adding `--all-targets` changes nothing)
+
+**NAMED DIVERGENCE, two of them.** (1) Target selection: lib-only vs
+`--all-targets`. (2) **Cargo's own summary says "78" for the same run
+that JSON says 102** — the summary line counts only the
+`iridium-bindings` unit; the other 25 belong to `iridium-editor`
+compiled under the web feature set. Two honest numbers, one command.
+
+**The generalisation, which is the transferable part:** the rule *a
+figure travels only with the command that produced it* was being
+enforced on **messages** and not on **durable artifacts** — the one
+place a number is GUARANTEED to outlive its command. A message is
+read once beside its evidence; a comment is read for months without
+it.
+
+### ★★ ROW 20 — a comparison assembled ACROSS A CODE CHANGE
+
+I measured wasm all-targets and gpu-free, **then edited `web.rs`**,
+then measured wasm lib-only, then compared all three. It produced a
+confident, entirely fictitious finding: *"lib-only is NOT a subset of
+all-targets — 8 extra, 4 missing."* Re-measured on one tree: **102
+and 102, lib-only a proper subset, difference exactly zero.**
+
+Same law as the disk partition — **a comparison must be a SINGLE
+ATOMIC SNAPSHOT** — reappearing on a different instrument. Banked for
+disk on Monday, violated on clippy tonight, which is the evidence
+that a law learned on one instrument does **not** transfer to another
+by being known. It transfers by being *checked for* on each new
+instrument.
+
+### ★★ ROW 21 — AN ALERT THAT REPLAYS HISTORY AS NEWS
+
+First CI watch emitted the four pre-lavapipe reds on its first poll,
+because `seen` started empty. Harmless-looking; it is not. **A watch
+that reports 35-hour-old failures as events trains its reader to
+ignore it** — which is the precise mechanism that let the red streak
+survive 46 runs. Repaired: prime `seen` on the first poll and emit
+nothing for it.
+
+**Re-derivable design of `ci-watch.py`** (the file itself will be
+gone): poll `gh run list --limit 12 --json
+databaseId,conclusion,status,headSha,displayTitle` every 120s;
+**prime** on first poll; emit on **every terminal conclusion that is
+not `success`** (never an allow-list — an unanticipated conclusion
+must still surface); emit **one proving line** at priming so silence
+is never the only evidence the watch is alive; emit a **DEGRADED**
+line after 5 consecutive `gh` failures, because a watch that has
+silently stopped working looks identical to a green branch. Check
+`gh`'s **exit status**, never "output was empty" — an empty run list
+is a legitimate answer.
+
+### The triage result, stated against the price I set
+
+I priced this as *"a defect-density estimate for code nobody has ever
+looked at, NOT tidying."* The estimate came back and it **split**:
+
+- **GPU-free: 17 warnings, defect density ≈ ZERO.** 13 of 17 sit in
+  one file, `syntax_stubs.rs`, and every one is cosmetic (doc
+  backticks, `const fn`, `Self`). On this half the honest answer is
+  **it IS tidying** — the premise I set the price on did not hold,
+  and it should not be re-opened as anything else.
+- **wasm: 102, and the density is real but UNMEASURED.** Four
+  `expect()` violations found and removed. 64 of the remaining are
+  cast lints (`cast_possible_truncation` ×42 by emission,
+  `cast_sign_loss`, `cast_precision_loss`, `cast_possible_wrap`) in
+  the crate that converts JS `f64` into Rust `usize`/`u32`. **That is
+  exactly where a silent wrong-value defect would live, and I have
+  not looked at one of them yet.** Not deferred silently: named here
+  as the open half.
+
+`future_not_send` ×8 and `arc_with_non_send_sync` ×4 are expected on
+single-threaded wasm and are suppression candidates, not defects —
+but that is a judgement, not a measurement, and it has not been
+verified site by site.
+
+---
+
 ## ▶ DESKTOP SHELL TRACK — GREEN-LIT, STEP 1 LANDED 3 Aug ~17:4x local
 
 Tom green-lit the native desktop shell (his DM ~06:22–06:27Z) after ruling

@@ -362,7 +362,51 @@ this seat's own instance of it, not a borrowed one.
 
 The template catches this **when I reach the template**, and both
 failures were edits that looked too small to warrant reaching for it.
-**Named as OPEN. The self-report is not the cure.**
+**Named as OPEN — and now CLOSABLE. Athena's diagnosis + cure, adopt
+on next lane open:**
+
+**Why it happens (not laziness):** *the template's cost is FIXED and the
+edit's cost is not, so the ratio explodes exactly as the work gets
+small* — and an operator evaluates ratios, never absolutes. ⇒ ★ **a
+fixed-cost control is walked past precisely when the work is small,
+which is the regime where it is most often unnecessary and therefore
+where walking past it is most often REWARDED.** Every skip on a truly
+trivial edit is reinforced by a true outcome. More resolve cannot fix a
+property of the instrument.
+
+**The cure — invert which state requires an act.** Declaring is
+currently the affirmative act, so it is gated on a judgement whose
+input (size) is *anti-correlated* with reaching for it. Instead:
+
+- **Open a STANDING declaration at session start** — anchor, standing
+  ceiling, class key — covering everything until closed or re-declared.
+- **Re-declare only to EXCEED it.** That is a judgement about a *large*
+  edit, made in the regime where size already makes you reach for the
+  template. The judgement input becomes *aligned* with the control.
+- Undeclared work becomes structurally impossible: there is no state
+  outside a declaration.
+
+**Keep the per-commit `du -sk target` stamp** — it preserves
+separability lane by lane, so the standing ceiling removes only the
+*judgement*, never the attribution. **Proposed standing figure: 0.6**
+(the warm-series class), re-declaring for anything expected to reset to
+first-touch. That covers every lane run today except the encoder one —
+and the encoder one is exactly the case where the template would have
+been reached anyway. Honest cost, named by her rather than hidden: the
+band slot sits **over-provisioned while idle**, which is the safe
+direction.
+
+**Same defect exists on the price seat** (skipping a restamp judged
+trivial) — one instrument defect, two seats, one cure.
+
+**NEXT LANE OPEN MUST PROPOSE THE STANDING FIGURE**, not another
+per-lane declaration.
+
+**Also ruled:** commit B's message must name the four f32 warnings as
+**defects**, explicitly — *"fixed" is compatible with "was a
+standard"*. And generally: **a correction reaches only the readers of
+the medium it is published in**, so a poisoned line in commit messages
+can only be answered by another commit message.
 
 ### Anchor and obligations
 

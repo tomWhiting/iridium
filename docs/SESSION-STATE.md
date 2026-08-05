@@ -164,6 +164,78 @@ single-threaded wasm and are suppression candidates, not defects —
 but that is a judgement, not a measurement, and it has not been
 verified site by site.
 
+### ✅ THE CAST HALF IS NOW MEASURED — 31 sites, read, classified
+
+Done read-only: **reading source compiles nothing, so this cost no
+disk and needed no lane.** 31 unique `(file, line, lint)`, every one
+in `wasm.rs`. (The "42" quoted earlier was an EMISSION count across
+units — the same metric trap as row 19, one paragraph after writing
+it down. Unique is 31.)
+
+Classified **by direction**, which is what decides whether a cast can
+hurt:
+
+- **Inbound, JS `f64` → Rust integer — the only dangerous direction.**
+  7 sites: `Reflect::get(...,"line")` at 1204/1244/1327,
+  `start`/`end` at 1674/1679, and the viewport math at 2827/2828.
+  A JS number is an `f64` and can arrive negative, fractional, `NaN`
+  or enormous. Rust's `as` has been **saturating** since 1.45 —
+  `NaN` → 0, negatives → 0, huge → `usize::MAX` — so these are
+  *defined*, not UB. None is a live wrong-value defect.
+- **Outbound, `usize` → `u32`/`i32` for the JS boundary.** 21 sites
+  (1774, 1780, 1786, 2370–2388, 2603, 2644, 2727, 2733, 2740, 2749).
+  Truncates only past 4.29 billion lines. Theoretical.
+- **`usize` → `f32` precision loss.** 3 sites (1518, 1531, 1594),
+  surface heights. Benign.
+
+**Verdict: no live defect in the cast family.** Stated plainly
+because the estimate is only worth what its negative results are
+worth — I went looking here expecting density and did not find it.
+
+### ★★ THE REAL FIND — the tested helper CANNOT REACH the web face
+
+`wasm.rs:2827` open-codes `(scroll_y / line_height).floor() as usize`.
+The native `pixel_to_index` **documents and tests** that
+`pixel_to_index(v)` and `v.floor().max(0.0) as usize` agree for every
+`f32`, with boundary oracles landed tonight at `1e22ea8`. So the two
+**agree today** — this is NOT a live bug and must not be filed as
+one.
+
+The problem is structural: `mod units` is `pub(crate)` to
+`iridium-editor`, so `iridium-bindings` **cannot call it**. I made it
+`pub(crate)` tonight, correctly, having checked it was never
+re-exported. Correct for that crate; it also means the one
+bit-exactly-tested implementation of "pixel → line index" is
+unreachable from the face Tom actually uses in the browser, which
+therefore hand-rolls its own.
+
+**Two implementations of one computation, one tested to the bit and
+one not, agreeing only by coincidence of authorship.** They diverge
+the first time either is touched — and the divergence surfaces as a
+caret or a highlight one line out in the browser and correct
+natively, which is the hardest shape of bug to attribute. Fix is a
+narrow `pub` on the helper (not the module), so the face can borrow
+the tested one. **Not done: it is a source edit to `iridium-editor`,
+i.e. a full workspace relink, and at 0.381 GiB remaining that needs a
+re-declaration first.** Named here, not deferred silently.
+
+### ❔ OPEN QUESTION — is `line_height` guaranteed non-zero?
+
+If `context.line_height` is ever `0.0`, `scroll_y / 0.0` is `inf`;
+`inf.floor() as usize` saturates to `usize::MAX`, and 2828's
+`... as usize + 1` then **overflows — panic in debug, wrap to 0 in
+release.**
+
+**I have NOT established that this is reachable.** Scope of what I
+actually checked, so the next reader does not inherit a false
+negative: `grep` for `line_height` in `crates/iridium-bindings/src/wasm.rs`,
+and a guard-shaped grep under `crates/iridium-editor/src/render/compose/`.
+It traces to `self.compositor.line_height()` and I did not follow it
+to its source. **Absence of a guard in two greps is not absence of a
+guard** — that is precisely the proxy this session keeps catching.
+Resolve by following `Compositor::line_height` to where the value is
+set and asking whether a zero can reach it.
+
 ---
 
 ## ▶ DESKTOP SHELL TRACK — GREEN-LIT, STEP 1 LANDED 3 Aug ~17:4x local

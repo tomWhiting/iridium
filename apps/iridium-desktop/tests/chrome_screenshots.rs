@@ -1,5 +1,6 @@
 //! Headless screenshot harness for the desktop chrome — the review artifact
-//! for the rounded-panel reskin, which no CPU test can judge by eye.
+//! for the rounded-panel reskin, and now for the three candidate light
+//! themes, neither of which any CPU test can judge by eye.
 //!
 //! Ignored by default: it needs a GPU adapter and writes multi-megabyte
 //! images. Run it explicitly with
@@ -9,9 +10,32 @@
 //!     cargo test -p iridium-desktop --test chrome_screenshots -- --ignored
 //! ```
 //!
-//! and it writes `chrome-palette.png`, `chrome-search.png` and
-//! `chrome-history.png` into the named directory (the system temp directory
-//! when the variable is unset).
+//! into the named directory (the system temp directory when the variable is
+//! unset). What it writes:
+//!
+//! - **the dark control**, unchanged: `chrome-palette.png`,
+//!   `chrome-search.png`, `chrome-history.png`;
+//! - **six frames per candidate light variant** of
+//!   `docs/design/LIGHT-THEME-MAP.md` §2.3, named `light-<variant>-<state>.png`
+//!   — `editor`, `selection`, `palette`, `search`, `history`, `bridge`.
+//!
+//! # Which syntax palette a frame is showing
+//!
+//! This matters more than anything else here, because two different light
+//! code palettes ship in the same binary (the light-theme map's fact 2):
+//!
+//! - Every frame but `bridge` sets a Rust grammar and resolves the kernel's
+//!   real tree-sitter spans through [`HighlightCache`], coloured from
+//!   `theme.syntax` — **the variant's own palette**, which is what the
+//!   variants are being chosen on.
+//! - The `bridge` frame plays a language'd document whose spans never arrive
+//!   ([`NoHighlights`]), which is the one legitimate case for the
+//!   compositor's built-in keyword fallback. That fallback keeps its own
+//!   palette, selected on `theme.is_dark` alone, and never consults
+//!   `theme.syntax` — so the `bridge` frame shows **the same colours in all
+//!   three variants** and is not a judgement of any of them. It is here as
+//!   the map asks (§4.1 state 2): the proof of what the divergence costs
+//!   while D-8 is unruled.
 //!
 //! # Headless, by construction
 //!
@@ -24,13 +48,14 @@
 use std::path::{Path, PathBuf};
 
 use iridium_desktop::command_palette::CommandPalette;
+use iridium_desktop::highlight::HighlightCache;
 use iridium_desktop::history_overlay::HistoryPanel;
-use iridium_desktop::overlay::{OverlayPainter, PanelContent, StripContent};
+use iridium_desktop::overlay::{OverlayPainter, PanelContent, PanelFit, StripContent};
 use iridium_desktop::search::SearchOverlay;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
-use iridium_editor::theme::Color;
-use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers, Position};
+use iridium_editor::theme::{ClassicVariant, Color, Theme};
+use iridium_editor::{Editor, KeyCode, KeyEvent, Language, Modifiers, Position};
 
 /// Frame width in physical pixels — a 2× desktop window.
 const WIDTH: u32 = 3024;
@@ -123,8 +148,13 @@ fn headless_gpu() -> Result<Gpu, String> {
 }
 
 /// A realistic Rust document: enough repeated request handlers to fill the
-/// viewport with keyword-highlighted code, the word `entry` recurring so the
-/// search shot has matches to count.
+/// viewport with highlighted code, the word `entry` recurring so the search
+/// shot has matches to count.
+///
+/// Every block carries one of each token class a light theme is judged on —
+/// a doc comment, an attribute, a keyword, a type, a function, a string
+/// literal, a numeric literal and punctuation — because a variant whose
+/// string colour never appears on screen cannot be chosen from a picture.
 fn rust_document() -> String {
     use std::fmt::Write as _;
     let mut source = String::new();
@@ -132,13 +162,15 @@ fn rust_document() -> String {
         let _ = write!(
             source,
             "/// Applies request {block} against the shared store.\n\
+             #[instrument(skip(store))]\n\
              pub fn handle_request_{block}(store: &mut Store) -> Result<Response, Error> {{\n\
+             \x20   const LABEL: &str = \"request {block}: entry lookup\";\n\
              \x20   let key = EntryKey::new({block});\n\
              \x20   let entry = store.entry(&key).ok_or(Error::Missing)?;\n\
              \x20   if entry.revision > {block} {{\n\
              \x20       return Err(Error::Stale);\n\
              \x20   }}\n\
-             \x20   let response = Response::from(entry.value.clone());\n\
+             \x20   let response = Response::from(entry.value.clone(), LABEL);\n\
              \x20   Ok(response)\n\
              }}\n"
         );
@@ -164,11 +196,31 @@ const fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEvent {
     }
 }
 
-/// An editor over the document, carrying this face's commands and keymap —
-/// the same seeding the desktop shell performs at startup.
-fn editor_with_document() -> Result<Editor, String> {
+/// Which syntax palette a shot exercises — the distinction the module doc
+/// opens on, made explicit at every call site rather than implied by a bare
+/// `bool`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Palette {
+    /// A Rust grammar, real tree-sitter spans, coloured from `theme.syntax`:
+    /// the theme's own code colours.
+    ThemeSyntax,
+    /// A language'd document whose spans never arrive: the compositor's
+    /// built-in keyword fallback, whose palette the theme cannot influence.
+    KeywordBridge,
+}
+
+/// An editor over the document under `theme`, carrying this face's commands
+/// and keymap — the same seeding the desktop shell performs at startup.
+///
+/// [`Palette::ThemeSyntax`] sets the Rust grammar, which is what gives the
+/// kernel a parse tree for [`HighlightCache`] to read.
+fn editor_with_document(theme: &Theme, palette: Palette) -> Result<Editor, String> {
     let mut editor = Editor::with_defaults();
+    editor.set_theme(theme.clone());
     editor.set_content(&rust_document());
+    if palette == Palette::ThemeSyntax {
+        editor.set_language(Language::Rust);
+    }
     for meta in iridium_desktop::commands::command_metas() {
         editor
             .register_command(meta)
@@ -181,22 +233,61 @@ fn editor_with_document() -> Result<Editor, String> {
     Ok(editor)
 }
 
+/// A compositor already holding `theme`, built fresh for one shot.
+///
+/// Fresh per shot on purpose: the compositor retains shaped buffers keyed on
+/// its theme generation and the highlight source's generation, and two shots
+/// of the same document under the same theme but different palettes (the
+/// grammar path and the bridge) can present the same generations. A new
+/// compositor cannot serve one shot's colours to another.
+fn shot_compositor(gpu: &Gpu, theme: &Theme) -> Result<FrameCompositor, String> {
+    let mut compositor = FrameCompositor::new(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Bgra8Unorm,
+        WIDTH,
+        HEIGHT,
+    )
+    .map_err(|error| format!("the compositor could not be created: {error}"))?;
+    compositor.set_font_size(FONT_SIZE);
+    compositor.load_font(FONT.to_vec());
+    compositor.set_theme(theme.clone());
+    Ok(compositor)
+}
+
+/// What one shot paints over the composed document — the docked strip and the
+/// floating panels, together, because no caller ever varies one alone.
+#[derive(Debug, Clone, Copy)]
+struct Chrome<'a> {
+    /// The docked strip, when the state has one.
+    strip: Option<&'a StripContent>,
+    /// The floating panels, back to front.
+    panels: &'a [&'a PanelContent],
+}
+
+impl Chrome<'_> {
+    /// No overlay at all: the bare document.
+    const NONE: Self = Self {
+        strip: None,
+        panels: &[],
+    };
+}
+
 /// Composes the document and paints the given overlays over it, headlessly.
 fn render_shot(
     gpu: &Gpu,
     compositor: &mut FrameCompositor,
     overlay: &mut OverlayPainter,
     editor: &Editor,
-    strip: Option<&StripContent>,
-    panels: &[&PanelContent],
+    highlights: &mut dyn HighlightSource,
+    chrome: Chrome<'_>,
 ) -> Result<(), String> {
-    let mut highlights = NoHighlights;
     compositor
         .compose(
             editor,
             editor.fold_state(),
             0.0,
-            &mut highlights,
+            highlights,
             FrameTarget {
                 view: &gpu.view,
                 device: &gpu.device,
@@ -215,8 +306,8 @@ fn render_shot(
                 width: WIDTH,
                 height: HEIGHT,
             },
-            strip,
-            panels,
+            chrome.strip,
+            chrome.panels,
             &editor.state().theme,
         )
         .map_err(|error| format!("the overlay pass failed: {error}"))?;
@@ -378,21 +469,103 @@ fn png_bytes(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Renders one shot and writes it as a PNG.
+/// Renders one shot, writes it as a PNG, and hands back its pixels so a
+/// caller can assert on them.
 fn capture(
     gpu: &Gpu,
     compositor: &mut FrameCompositor,
     overlay: &mut OverlayPainter,
     editor: &Editor,
-    strip: Option<&StripContent>,
-    panels: &[&PanelContent],
+    highlights: &mut dyn HighlightSource,
+    chrome: Chrome<'_>,
     path: &Path,
-) -> Result<(), String> {
-    render_shot(gpu, compositor, overlay, editor, strip, panels)?;
+) -> Result<Vec<u8>, String> {
+    render_shot(gpu, compositor, overlay, editor, highlights, chrome)?;
     let pixels = read_pixels(gpu)?;
     let encoded = png_bytes(WIDTH, HEIGHT, &pixels)?;
     std::fs::write(path, &encoded)
         .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok(pixels)
+}
+
+/// Composes one shot under `theme` with the palette the caller names, writes
+/// the PNG, and returns its pixels.
+///
+/// This is where the two highlight sources are chosen between, and the only
+/// place either is constructed.
+fn shoot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    theme: &Theme,
+    editor: &Editor,
+    palette: Palette,
+    chrome: Chrome<'_>,
+    path: &Path,
+) -> Result<Vec<u8>, String> {
+    let mut compositor = shot_compositor(gpu, theme)?;
+    match palette {
+        Palette::ThemeSyntax => {
+            let mut cache = HighlightCache::new();
+            cache.refresh(editor);
+            let mut highlights = cache.resolver(&editor.state().theme.syntax);
+            capture(
+                gpu,
+                &mut compositor,
+                overlay,
+                editor,
+                &mut highlights,
+                chrome,
+                path,
+            )
+        },
+        Palette::KeywordBridge => {
+            let mut highlights = NoHighlights;
+            capture(
+                gpu,
+                &mut compositor,
+                overlay,
+                editor,
+                &mut highlights,
+                chrome,
+                path,
+            )
+        },
+    }
+}
+
+/// The tolerance a channel comparison needs when an `f32` colour has been
+/// quantised to eight bits and back — one step, generously.
+const CHANNEL_TOLERANCE: f32 = 1.5 / 255.0;
+
+/// Proves the frame really reached the GPU wearing the theme it was given:
+/// the bottom-right pixel is past every glyph, every band and the gutter, so
+/// it is the compositor's clear colour and nothing else — and the clear
+/// colour is `theme.editor.background`, verbatim.
+///
+/// Cheap, and it is what stops a variant silently rendering a colour nobody
+/// chose.
+fn check_clear_colour(pixels: &[u8], expected: Color, label: &str) -> Result<(), String> {
+    let corner = pixels
+        .len()
+        .checked_sub(4)
+        .ok_or_else(|| format!("{label}: the frame has no pixels"))?;
+    let actual = &pixels[corner..];
+    let channels = [
+        ("red", f32::from(actual[0]), expected.r),
+        ("green", f32::from(actual[1]), expected.g),
+        ("blue", f32::from(actual[2]), expected.b),
+        ("alpha", f32::from(actual[3]), expected.a),
+    ];
+    for (channel, read, wanted) in channels {
+        if (read / 255.0 - wanted).abs() > CHANNEL_TOLERANCE {
+            return Err(format!(
+                "{label}: the page renders {channel} {read}/255, but the \
+                 theme states {:.0}/255 — the frame is not wearing the \
+                 theme it was given",
+                wanted * 255.0
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -401,21 +574,212 @@ fn shot_dir() -> PathBuf {
     std::env::var_os("IRIDIUM_CHROME_SHOT_DIR").map_or_else(std::env::temp_dir, PathBuf::from)
 }
 
-/// The whole harness: three frames, three PNGs.
+/// The bare document: the surface, the gutter, the current-line band under
+/// the caret, and the code in the theme's own syntax colours.
+///
+/// The only shot that asserts a pixel, because it is the only one with an
+/// uncovered page: [`check_clear_colour`] reads its corner.
+fn document_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    theme: &Theme,
+    palette: Palette,
+    path: &Path,
+) -> Result<(), String> {
+    let editor = editor_with_document(theme, palette)?;
+    let pixels = shoot(gpu, overlay, theme, &editor, palette, Chrome::NONE, path)?;
+    check_clear_colour(
+        &pixels,
+        theme.editor.background,
+        &format!("{} ({})", path.display(), theme.name),
+    )
+}
+
+/// A live multi-line selection over the page — `selection` and
+/// `selection_inactive`'s hue judged against the code it covers.
+///
+/// Not a current-line shot, and deliberately not named one: the compositor's
+/// only line-background pass is fed by `line_backgrounds_mut`, which nothing
+/// in this face populates, so `theme.editor.current_line` never reaches the
+/// document surface. It reaches pixels through the overlay's panel and strip
+/// derivation instead, which is what the `palette`, `search` and `history`
+/// frames show.
+fn selection_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    theme: &Theme,
+    palette: Palette,
+    path: &Path,
+) -> Result<(), String> {
+    let mut editor = editor_with_document(theme, palette)?;
+    for _ in 0..3 {
+        let _ = editor.handle_key(&chord(KeyCode::Down, Modifiers::shift()));
+    }
+    let _ = editor.handle_key(&chord(KeyCode::Right, Modifiers::shift()));
+    shoot(gpu, overlay, theme, &editor, palette, Chrome::NONE, path)?;
+    Ok(())
+}
+
+/// The command palette: a query typed, the selection moved off the first row,
+/// over a document with a visible text selection.
+fn palette_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    fit: PanelFit,
+    theme: &Theme,
+    palette: Palette,
+    path: &Path,
+) -> Result<(), String> {
+    let mut editor = editor_with_document(theme, palette)?;
+    for _ in 0..2 {
+        let _ = editor.handle_key(&chord(KeyCode::Down, Modifiers::shift()));
+    }
+    let mut command_palette = CommandPalette::new();
+    command_palette.open();
+    let mru = CommandMru::default();
+    for character in "se".chars() {
+        let _ = command_palette.handle_key(&press(KeyCode::Char(character)), &editor, &mru);
+    }
+    let _ = command_palette.handle_key(&press(KeyCode::Down), &editor, &mru);
+    let content = command_palette.content(&editor, &mru, &editor.state().theme, fit);
+    let chrome = Chrome {
+        strip: None,
+        panels: &[&content],
+    };
+    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
+    Ok(())
+}
+
+/// The search panel above the strip, a query with live matches — where
+/// `search_match` and `search_match_current` are judged against real text.
+fn search_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    fit: PanelFit,
+    theme: &Theme,
+    palette: Palette,
+    path: &Path,
+) -> Result<(), String> {
+    let mut editor = editor_with_document(theme, palette)?;
+    let mut search = SearchOverlay::new();
+    search.open(&mut editor);
+    for character in "entry".chars() {
+        let _ = search.handle_key(&press(KeyCode::Char(character)), &mut editor);
+    }
+    let strip = StripContent {
+        text: "chrome preview — the strip stands on an honest background".to_string(),
+        caret_column: None,
+        is_error: false,
+    };
+    let content = search.content(&editor, &editor.state().theme, fit);
+    let chrome = Chrome {
+        strip: Some(&strip),
+        panels: &[&content],
+    };
+    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
+    Ok(())
+}
+
+/// The undo tree, with a real branch to badge — the panel's dim rows are the
+/// `line_number`-class grey.
+fn history_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    fit: PanelFit,
+    theme: &Theme,
+    palette: Palette,
+    path: &Path,
+) -> Result<(), String> {
+    let mut editor = editor_with_document(theme, palette)?;
+    for character in "abc".chars() {
+        let _ = editor.handle_key(&press(KeyCode::Char(character)));
+    }
+    let _ = editor.handle_key(&chord(KeyCode::Char('z'), Modifiers::ctrl()));
+    for character in "xy".chars() {
+        let _ = editor.handle_key(&press(KeyCode::Char(character)));
+    }
+    let mut history = HistoryPanel::new();
+    history.open();
+    let content = history.content(&editor, &editor.state().theme, fit);
+    let chrome = Chrome {
+        strip: None,
+        panels: &[&content],
+    };
+    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
+    Ok(())
+}
+
+/// One candidate light variant's six frames, per the light-theme map §4.1.
+///
+/// Five of them wear the variant's own syntax palette; the sixth is the
+/// bridge, which wears nobody's — see the module doc.
+fn variant_shots(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    fit: PanelFit,
+    variant: ClassicVariant,
+    out_dir: &Path,
+) -> Result<Vec<PathBuf>, String> {
+    let theme = variant.theme();
+    let slug = variant.slug();
+    let named = |state: &str| out_dir.join(format!("light-{slug}-{state}.png"));
+
+    let editor_path = named("editor");
+    document_shot(gpu, overlay, &theme, Palette::ThemeSyntax, &editor_path)?;
+
+    let selection_path = named("selection");
+    selection_shot(gpu, overlay, &theme, Palette::ThemeSyntax, &selection_path)?;
+
+    let palette_path = named("palette");
+    palette_shot(
+        gpu,
+        overlay,
+        fit,
+        &theme,
+        Palette::ThemeSyntax,
+        &palette_path,
+    )?;
+
+    let search_path = named("search");
+    search_shot(
+        gpu,
+        overlay,
+        fit,
+        &theme,
+        Palette::ThemeSyntax,
+        &search_path,
+    )?;
+
+    let history_path = named("history");
+    history_shot(
+        gpu,
+        overlay,
+        fit,
+        &theme,
+        Palette::ThemeSyntax,
+        &history_path,
+    )?;
+
+    let bridge_path = named("bridge");
+    document_shot(gpu, overlay, &theme, Palette::KeywordBridge, &bridge_path)?;
+
+    Ok(vec![
+        editor_path,
+        selection_path,
+        palette_path,
+        search_path,
+        history_path,
+        bridge_path,
+    ])
+}
+
+/// The whole harness: the dark control's three frames, then six per candidate
+/// light variant.
 fn run() -> Result<Vec<PathBuf>, String> {
     let out_dir = shot_dir();
+    std::fs::create_dir_all(&out_dir)
+        .map_err(|error| format!("cannot create {}: {error}", out_dir.display()))?;
     let gpu = headless_gpu()?;
-
-    let mut compositor = FrameCompositor::new(
-        &gpu.device,
-        &gpu.queue,
-        wgpu::TextureFormat::Bgra8Unorm,
-        WIDTH,
-        HEIGHT,
-    )
-    .map_err(|error| format!("the compositor could not be created: {error}"))?;
-    compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
 
     let mut overlay = OverlayPainter::new(
         &gpu.device,
@@ -433,96 +797,63 @@ fn run() -> Result<Vec<PathBuf>, String> {
         .ok_or_else(|| "the shot window cannot fit a panel".to_string())?;
     let mut written = Vec::new();
 
-    // (a) The command palette: a query typed, the selection moved off the
-    // first row, over a document with a visible text selection.
-    {
-        let mut editor = editor_with_document()?;
-        for _ in 0..2 {
-            let _ = editor.handle_key(&chord(KeyCode::Down, Modifiers::shift()));
-        }
-        let mut palette = CommandPalette::new();
-        palette.open();
-        let mru = CommandMru::default();
-        for character in "se".chars() {
-            let _ = palette.handle_key(&press(KeyCode::Char(character)), &editor, &mru);
-        }
-        let _ = palette.handle_key(&press(KeyCode::Down), &editor, &mru);
-        let content = palette.content(&editor, &mru, &editor.state().theme, fit);
-        let path = out_dir.join("chrome-palette.png");
-        capture(
-            &gpu,
-            &mut compositor,
-            &mut overlay,
-            &editor,
-            None,
-            &[&content],
-            &path,
-        )?;
-        written.push(path);
-    }
+    // The dark control: the three frames this harness has always produced,
+    // under the same theme and the same keyword-bridge source, under the same
+    // names — so the light set is judged against an unchanged reference.
+    let dark = Theme::dark();
+    let palette_path = out_dir.join("chrome-palette.png");
+    palette_shot(
+        &gpu,
+        &mut overlay,
+        fit,
+        &dark,
+        Palette::KeywordBridge,
+        &palette_path,
+    )?;
+    written.push(palette_path);
 
-    // (b) The search panel above the strip, a query with live matches.
-    {
-        let mut editor = editor_with_document()?;
-        let mut search = SearchOverlay::new();
-        search.open(&mut editor);
-        for character in "entry".chars() {
-            let _ = search.handle_key(&press(KeyCode::Char(character)), &mut editor);
-        }
-        let strip = StripContent {
-            text: "chrome preview — the strip stands on an honest background".to_string(),
-            caret_column: None,
-            is_error: false,
-        };
-        let content = search.content(&editor, &editor.state().theme, fit);
-        let path = out_dir.join("chrome-search.png");
-        capture(
-            &gpu,
-            &mut compositor,
-            &mut overlay,
-            &editor,
-            Some(&strip),
-            &[&content],
-            &path,
-        )?;
-        written.push(path);
-    }
+    let search_path = out_dir.join("chrome-search.png");
+    search_shot(
+        &gpu,
+        &mut overlay,
+        fit,
+        &dark,
+        Palette::KeywordBridge,
+        &search_path,
+    )?;
+    written.push(search_path);
 
-    // (c) The undo tree, with a real branch to badge.
-    {
-        let mut editor = editor_with_document()?;
-        for character in "abc".chars() {
-            let _ = editor.handle_key(&press(KeyCode::Char(character)));
-        }
-        let _ = editor.handle_key(&chord(KeyCode::Char('z'), Modifiers::ctrl()));
-        for character in "xy".chars() {
-            let _ = editor.handle_key(&press(KeyCode::Char(character)));
-        }
-        let mut history = HistoryPanel::new();
-        history.open();
-        let content = history.content(&editor, &editor.state().theme, fit);
-        let path = out_dir.join("chrome-history.png");
-        capture(
-            &gpu,
-            &mut compositor,
-            &mut overlay,
-            &editor,
-            None,
-            &[&content],
-            &path,
-        )?;
-        written.push(path);
+    let history_path = out_dir.join("chrome-history.png");
+    history_shot(
+        &gpu,
+        &mut overlay,
+        fit,
+        &dark,
+        Palette::KeywordBridge,
+        &history_path,
+    )?;
+    written.push(history_path);
+
+    // The three candidates.
+    for variant in ClassicVariant::ALL {
+        written.extend(variant_shots(&gpu, &mut overlay, fit, variant, &out_dir)?);
     }
 
     Ok(written)
 }
 
-/// The review artifact: three chrome screenshots, produced headlessly.
+/// The review artifact: the dark control plus the three candidate light
+/// variants, produced headlessly.
 #[test]
 #[ignore = "needs a GPU and writes multi-megabyte artifacts; run with --ignored"]
 fn chrome_screenshots_render_headlessly() {
     match run() {
         Ok(paths) => {
+            assert_eq!(
+                paths.len(),
+                3 + 6 * ClassicVariant::ALL.len(),
+                "the shot set is the dark control plus six frames per variant"
+            );
             for path in paths {
                 let size = std::fs::metadata(&path).map_or(0, |meta| meta.len());
                 assert!(size > 0, "{} is empty", path.display());

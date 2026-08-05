@@ -827,13 +827,64 @@ impl DesktopApp {
         self.apply_mouse(result);
     }
 
+    /// Asks for the next frame, when there is a window to ask.
+    fn request_redraw(&self) {
+        if let Some(shell) = &self.shell {
+            shell.window.request_redraw();
+        }
+    }
+
+    /// Spends a press on an open modal panel, reporting whether it was spent.
+    ///
+    /// A press outside the palette or the undo tree dismisses it; a press on
+    /// one swallows the click and leaves it up — those panels are
+    /// keyboard-driven, so there is nothing inside one for a click to do, but
+    /// dismissing on a click that landed on the panel itself would be a trap.
+    /// Either way the document never sees the click.
+    ///
+    /// The search panel is deliberately not included: it is not modal — keys
+    /// it does not bind stay the host's — so clicking into the document while
+    /// it is up is the shipped, wanted behaviour.
+    fn dismiss_modal_panel(&mut self) -> bool {
+        if !(self.palette_open || self.history_open) {
+            return false;
+        }
+        if !self.pointer_is_on_a_panel() {
+            self.palette_open = false;
+            self.history_open = false;
+            // Only a dismissal changed the frame; a press on the panel itself
+            // leaves the screen exactly as it was.
+            self.request_redraw();
+        }
+        true
+    }
+
+    /// Whether the pointer is on any panel the last frame actually painted.
+    fn pointer_is_on_a_panel(&self) -> bool {
+        let Some(shell) = &self.shell else {
+            return false;
+        };
+        let (x, y) = self.pointer.position();
+        shell
+            .overlay
+            .painted_panels()
+            .iter()
+            .flatten()
+            .any(|geometry| geometry.contains(x, y))
+    }
+
     /// Handles the primary button going down.
     ///
-    /// Modal like the keyboard: while a prompt is open a click answers
-    /// nothing and edits nothing, so it is swallowed. The wheel stays live —
-    /// reading the document can inform the answer.
+    /// Modal like the keyboard, and in the same order: while a prompt is open
+    /// a click answers nothing and edits nothing, so it is swallowed; an open
+    /// modal panel spends it being dismissed ([`Self::dismiss_modal_panel`]);
+    /// only then does the document see it. The wheel stays live — reading the
+    /// document can inform the answer.
     fn pointer_pressed(&mut self) {
         if self.prompt.is_some() {
+            return;
+        }
+        if self.dismiss_modal_panel() {
             return;
         }
         self.message = None;
@@ -1852,5 +1903,59 @@ mod tests {
             Flow::Running
         );
         assert!(!app.is_dirty(), "an undone edit leaves a clean buffer");
+    }
+
+    #[test]
+    fn a_click_outside_the_palette_dismisses_it_and_never_reaches_the_document() {
+        // D-4: a modal panel swallows the click that dismisses it. Until this
+        // fix the press fell straight through to the document while the
+        // palette stayed on screen.
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        type_into(&mut app, "hello");
+        assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
+        assert!(app.palette_open, "⌘K opens the palette");
+
+        app.pointer.set_position(12.0, 34.0);
+        app.pointer_pressed();
+
+        assert!(
+            !app.palette_open,
+            "a click outside the palette dismisses it"
+        );
+        assert_eq!(
+            app.editor.content(),
+            "hello",
+            "the dismissing click never reached the document"
+        );
+    }
+
+    #[test]
+    fn a_click_outside_the_undo_tree_dismisses_it_too() {
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
+        assert!(app.history_open, "Ctrl+Alt+H opens the undo tree");
+
+        app.pointer.set_position(12.0, 34.0);
+        app.pointer_pressed();
+
+        assert!(!app.history_open, "a click outside the panel dismisses it");
+    }
+
+    #[test]
+    fn a_click_while_the_search_panel_is_open_still_reaches_the_document() {
+        // The search panel is deliberately *not* modal — keys it does not bind
+        // stay the host's — so D-4 does not touch it: a click while it is open
+        // belongs to the document, and the panel stays up.
+        let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        assert!(app.search_open);
+
+        app.pointer.set_position(12.0, 34.0);
+        app.pointer_pressed();
+
+        assert!(app.search_open, "a click does not dismiss the search panel");
     }
 }

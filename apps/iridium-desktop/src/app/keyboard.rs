@@ -11,6 +11,7 @@ use iridium_editor::{CommandArgs, CommandId, EditorKeyResult, KeyCode, KeyEvent}
 
 use super::state::{DesktopApp, Flow};
 use crate::command_palette::PaletteOutcome;
+use crate::file_tree::ExplorerOutcome;
 use crate::history_overlay::HistoryOutcome;
 use crate::prompt::{Answer, Deed, Message};
 use crate::search::SearchOutcome;
@@ -32,6 +33,8 @@ impl DesktopApp {
             self.drive_palette(event)
         } else if self.history_open {
             self.drive_history(event)
+        } else if self.explorer.is_some() {
+            self.drive_explorer(event)
         } else {
             self.search_or_document_key(event)
         };
@@ -108,6 +111,30 @@ impl DesktopApp {
             PaletteOutcome::Run(command) => {
                 self.palette_open = false;
                 self.run_chosen_command(&command)
+            },
+        }
+    }
+
+    /// Hands a key to the open file explorer and acts on the outcome.
+    ///
+    /// Opening a file goes through [`open_file`](Self::open_file) — the same
+    /// path a drop and `Ctrl+O` take — so the explorer cannot grow its own
+    /// idea of what opening means. The panel closes on the way, because the
+    /// thing it was for has happened.
+    fn drive_explorer(&mut self, event: &KeyEvent) -> Flow {
+        let Some(explorer) = self.explorer.as_mut() else {
+            return Flow::Running;
+        };
+        match explorer.handle_key(event) {
+            ExplorerOutcome::Handled => Flow::Running,
+            ExplorerOutcome::Closed => {
+                self.explorer = None;
+                Flow::Running
+            },
+            ExplorerOutcome::Open(path) => {
+                self.explorer = None;
+                self.open_file(&path);
+                Flow::Running
             },
         }
     }

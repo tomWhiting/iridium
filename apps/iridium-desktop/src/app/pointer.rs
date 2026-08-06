@@ -112,12 +112,13 @@ impl DesktopApp {
     /// it does not bind stay the host's — so clicking into the document while
     /// it is up is the shipped, wanted behaviour.
     fn dismiss_modal_panel(&mut self) -> bool {
-        if !(self.palette_open || self.history_open) {
+        if !(self.palette_open || self.history_open || self.explorer.is_some()) {
             return false;
         }
         if !self.pointer_is_on_a_panel() {
             self.palette_open = false;
             self.history_open = false;
+            self.explorer = None;
             // Only a dismissal changed the frame; a press on the panel itself
             // leaves the screen exactly as it was.
             self.request_redraw();

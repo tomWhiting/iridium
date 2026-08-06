@@ -34,6 +34,16 @@ impl DesktopApp {
         // rebuilt — over the frame's viewport plus overscan, never the whole
         // document — only when the kernel actually reparsed or the viewport
         // escaped the covered window.
+        // The explorer's directory reads land on a worker thread, and
+        // nothing wakes winit when they do. Collecting them here — before
+        // the panels are composed — is what puts them on *this* frame rather
+        // than the next input's, and `is_waiting` below is what guarantees
+        // there is a next frame at all.
+        let waiting = self.explorer.as_mut().is_some_and(|explorer| {
+            explorer.poll();
+            explorer.is_waiting()
+        });
+
         let window = self.viewport_window();
         if let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() {
             match window {
@@ -97,6 +107,14 @@ impl DesktopApp {
             }
             Ok(())
         });
+
+        if waiting && let Some(shell) = &self.shell {
+            // Exactly while a read is outstanding, and not one frame longer:
+            // a panel that repainted whenever it was merely *open* would spin
+            // the GPU at the display's refresh rate for as long as someone
+            // was reading a file list.
+            shell.window.request_redraw();
+        }
 
         match outcome {
             Ok(()) => {
@@ -163,6 +181,9 @@ impl DesktopApp {
         }
         if self.history_open {
             panels.push(self.history.content(editor, theme, fit));
+        }
+        if let Some(explorer) = self.explorer.as_mut() {
+            panels.push(explorer.content(theme, fit));
         }
         if self.palette_open {
             panels.push(self.palette.content(editor, &self.mru, theme, fit));

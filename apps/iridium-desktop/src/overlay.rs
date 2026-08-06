@@ -655,8 +655,12 @@ impl OverlayPainter {
     /// Sets the overlay font, size first so the load remeasures at it —
     /// the same order the compositor requires, for the same reason:
     /// `load_font` is the only remeasuring path.
+    ///
+    /// A refused size leaves the painter at its previous one; see the call
+    /// site in `app` for why that is handled by surviving rather than by
+    /// reporting.
     pub fn set_font(&mut self, size: f32, data: Vec<u8>) {
-        self.text.set_font_size(size);
+        let _ = self.text.set_font_size(size);
         self.text.load_font(data);
     }
 

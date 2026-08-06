@@ -199,7 +199,13 @@ impl Shell {
 
         compositor.set_theme(theme);
         let font_size = BASE_FONT_SIZE * scale_to_f32(window.scale_factor());
-        compositor.set_font_size(font_size);
+        // The rejection is deliberately unhandled rather than unnoticed.
+        // winit reports a positive finite scale factor, and `scale_to_f32`
+        // maps anything else to zero, so this can only refuse a scale factor
+        // that was already nonsense — in which case the compositor keeps its
+        // default size, which is legible. There is nowhere to report it to:
+        // this face writes nothing to a console by design (see `run`).
+        let _ = compositor.set_font_size(font_size);
         compositor.load_font(FONT.to_vec());
 
         let mut overlay = OverlayPainter::new(
@@ -1361,7 +1367,10 @@ impl DesktopApp {
     fn rescaled(&mut self, scale_factor: f64) {
         if let Some(shell) = &mut self.shell {
             let font_size = BASE_FONT_SIZE * scale_to_f32(scale_factor);
-            shell.compositor.set_font_size(font_size);
+            // Ignored for the reason given where the shell is built: a
+            // refusal means the previous, legible size survives, and this
+            // face has no console to report it on.
+            let _ = shell.compositor.set_font_size(font_size);
             shell.compositor.load_font(FONT.to_vec());
             shell.overlay.set_font(font_size, FONT.to_vec());
             shell.overlay.set_scale(scale_to_f32(scale_factor));

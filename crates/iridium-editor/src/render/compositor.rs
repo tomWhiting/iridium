@@ -1977,8 +1977,15 @@ impl FrameCompositor {
     /// loaded there is nothing honest to measure, and the cached width keeps
     /// its unloaded-font default until [`Self::load_font`] measures the real
     /// glyphs.
-    pub fn set_font_size(&mut self, size: f32) {
-        self.text_renderer.set_font_size(size);
+    ///
+    /// Returns whether the size was accepted; a rejected size leaves the
+    /// previous one in place. The bound is
+    /// [`TextRenderer::set_font_size`]'s, and the reason it is forwarded
+    /// rather than swallowed is that a face which scales the font by a
+    /// display factor is exactly the caller that can supply a degenerate one
+    /// and wants to know.
+    pub fn set_font_size(&mut self, size: f32) -> bool {
+        self.text_renderer.set_font_size(size)
     }
 
     /// Updates the renderers' viewport uniforms for a resized surface.

@@ -43,6 +43,7 @@
 
 // Shared, target-independent modules (used by the WASM surface,
 // unit-tested natively).
+pub mod display_scale;
 pub mod edit_tracking;
 pub mod highlight_span_shift;
 pub mod key_map;

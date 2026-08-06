@@ -21,12 +21,47 @@ install could run; he has been told what is and is not in it.
 
 ---
 
-## ⏭ NEXT: Desktop C — draw the tab strip (task #48)
+## ⏭ IN FLIGHT: Desktop C — draw the tab strip (task #48)
 
-This is the first thing Tom can *see*, and it is a bigger piece than A or
-B because of one fact:
+### ✅ Half of it is done and pushed
 
-### The crux: the document must start *below* the strip
+**`FrameCompositor::set_top_inset` landed.** The kernel half of the
+crux below is finished: one field, read by the painter, the hit test,
+`cursor_anchor_y` and `max_scroll_y`. Five headless tests in
+`crates/iridium-editor/tests/top_inset.rs`, gated on the `render`
+feature in `Cargo.toml` (`[[test]] name = "top_inset"`). All six gates
+green, pushed.
+
+The load-bearing test is a **round trip**: `position_to_pixel(line) → y`,
+click at `y + line_height/2`, assert `pixel_to_position` gives that line
+back — over four lines × three scroll offsets. Beside it a control that
+stops two wrongs agreeing (the inset must actually move line 0 down).
+
+### ▶️ WHAT IS LEFT
+
+1. **Desktop face calls it.** `app.rs` — when the strip is up, call
+   `shell.compositor.set_top_inset(10.0 + strip_height)`; when it is
+   not, leave it. Do this wherever the strip height becomes known
+   (`resumed`, `resized`, `rescaled`).
+2. **Draw the strip.** `apps/iridium-desktop/src/overlay.rs` paints
+   **floating panels** (`PanelAnchor` is Top/Bottom/Point, all
+   *floating* and centred). A strip is a full-width band flush to the
+   top edge — it needs its own placement, not a `PanelAnchor`.
+   The painter already draws rounded rects (`PanelRect` carries a
+   radius), so the vocabulary is there. **Tom's rule: rounded corners,
+   genuine arcs, never sharp.**
+3. **Strip content from the workspace.** `Workspace::tabs()` gives the
+   node ids in display order; `Node::label()` the title; `active()` the
+   one in front. A dirty marker per tab needs the same `is_dirty` test
+   `app.rs` does, but per document rather than per active tab.
+4. **Clicking a tab activates it**, and clicking its close box closes
+   it — through `close_active_tab` so the unsaved-work question still
+   gets asked. `pointer_pressed` must consult the strip *before* the
+   document, the way `dismiss_modal_panel` does.
+
+### The crux (kernel half now solved — kept for the reasoning)
+
+The document must start *below* the strip.
 
 `apps/iridium-desktop/src/overlay.rs` paints **floating panels** — the
 palette, the undo tree, search, the context menu. A tab strip is not that

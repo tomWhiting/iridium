@@ -34,6 +34,8 @@ mod tree_source;
 #[cfg(test)]
 mod nav_tests;
 #[cfg(test)]
+mod payload_tests;
+#[cfg(test)]
 mod tree_source_tests;
 #[cfg(test)]
 mod workspace_tests;

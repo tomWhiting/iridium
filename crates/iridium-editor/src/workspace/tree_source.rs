@@ -19,7 +19,7 @@ use iridium_tree::TreeSource;
 
 use super::{Node, NodeId, Workspace};
 
-impl TreeSource for Workspace {
+impl<T> TreeSource for Workspace<T> {
     type Id = NodeId;
 
     /// The roots, or a group's children in display order.

@@ -22,9 +22,28 @@ use crate::theme::Theme;
 /// the *active* editor's theme as if it were the workspace's theme agrees
 /// with the truth right up until a document is opened after a theme
 /// change, at which point the new tab renders in the old colours.
-pub struct Workspace {
-    /// The buffers, by id. Dropped when the last node referencing one goes.
-    documents: HashMap<DocumentId, Editor>,
+///
+/// # The per-document payload
+///
+/// `T` is whatever a face needs to keep *per buffer* — a scroll offset, a
+/// span index, a fold state. It rides beside the [`Editor`] rather than in
+/// a second map the face owns, and that is the whole point: the rule for
+/// when it goes away is *"when the last tab onto its document closes"*,
+/// which is already implemented and tested here in [`close`](Self::close).
+///
+/// A face keeping its own `HashMap<DocumentId, _>` would have to
+/// reimplement that rule from the outside, using only `close`'s return
+/// value — which reports whether a **node** went away, not whether a
+/// **document** did. Those two agree in every workspace where no file is
+/// open twice, so the mistake survives every test anyone writes by hand
+/// and shows up as a leak once a real user opens their fortieth file.
+///
+/// `Workspace<()>` is the default and costs nothing; the kernel's own
+/// tests use it.
+pub struct Workspace<T = ()> {
+    /// The buffers and their per-face payloads, by id. Dropped together
+    /// when the last node referencing one goes.
+    documents: HashMap<DocumentId, Open<T>>,
     /// The organisation, by id.
     nodes: HashMap<NodeId, Node>,
     /// Child to parent, so `parent_of` is O(1) rather than a search over
@@ -49,7 +68,17 @@ pub struct Workspace {
     theme: Theme,
 }
 
-impl Workspace {
+/// One open buffer and the face state that belongs to it.
+///
+/// Private, and stored by value rather than as a tuple, so that the two
+/// halves cannot be swapped at a call site and so the field names say which
+/// is which.
+struct Open<T> {
+    editor: Editor,
+    payload: T,
+}
+
+impl<T> Workspace<T> {
     /// Creates an empty workspace.
     ///
     /// Empty means no documents and no groups, which is a legitimate state —
@@ -79,17 +108,43 @@ impl Workspace {
     ///
     /// The first document opened becomes active, so a face that opens one
     /// file does not also have to remember to activate it.
+    ///
+    /// The per-document payload is [`Default::default()`]; use
+    /// [`open_with`](Self::open_with) when it cannot be.
     pub fn open(
         &mut self,
         content: &str,
         title: impl Into<String>,
         parent: Option<NodeId>,
+    ) -> Option<NodeId>
+    where
+        T: Default,
+    {
+        self.open_with(content, title, parent, T::default())
+    }
+
+    /// Opens `content` with an explicitly supplied payload.
+    ///
+    /// The form that exists because not every face's per-document state can
+    /// be conjured from nothing — one holding a GPU resource, or an index
+    /// built against the content, has to be constructed by the face. Making
+    /// [`Default`] the only way in would push those faces back to keeping a
+    /// second map, which is the exact thing the payload is here to prevent.
+    ///
+    /// `parent` of `None` places the tab at the top level; returns `None`
+    /// if `parent` does not name a group.
+    pub fn open_with(
+        &mut self,
+        content: &str,
+        title: impl Into<String>,
+        parent: Option<NodeId>,
+        payload: T,
     ) -> Option<NodeId> {
         if !self.is_valid_parent(parent) {
             return None;
         }
 
-        let document = self.allocate_document(content);
+        let document = self.allocate_document(content, payload);
         Some(self.insert_tab(document, title.into(), parent))
     }
 
@@ -172,12 +227,66 @@ impl Workspace {
     /// The editor for a document, if it is open.
     #[must_use]
     pub fn editor(&self, document: DocumentId) -> Option<&Editor> {
-        self.documents.get(&document)
+        self.documents.get(&document).map(|open| &open.editor)
     }
 
     /// The editor for a document, mutably, if it is open.
     pub fn editor_mut(&mut self, document: DocumentId) -> Option<&mut Editor> {
-        self.documents.get_mut(&document)
+        self.documents
+            .get_mut(&document)
+            .map(|open| &mut open.editor)
+    }
+
+    /// The face's payload for a document, if it is open.
+    #[must_use]
+    pub fn payload(&self, document: DocumentId) -> Option<&T> {
+        self.documents.get(&document).map(|open| &open.payload)
+    }
+
+    /// The face's payload for a document, mutably, if it is open.
+    pub fn payload_mut(&mut self, document: DocumentId) -> Option<&mut T> {
+        self.documents
+            .get_mut(&document)
+            .map(|open| &mut open.payload)
+    }
+
+    /// The editor and its payload together, mutably.
+    ///
+    /// Both at once because the borrow checker will not permit
+    /// [`editor_mut`](Self::editor_mut) and
+    /// [`payload_mut`](Self::payload_mut) to be held simultaneously — and a
+    /// face that needs to consult its span index while applying an edit
+    /// needs exactly that. Splitting the pair here is the only place that
+    /// can do it soundly.
+    pub fn editor_and_payload_mut(
+        &mut self,
+        document: DocumentId,
+    ) -> Option<(&mut Editor, &mut T)> {
+        self.documents
+            .get_mut(&document)
+            .map(|open| (&mut open.editor, &mut open.payload))
+    }
+
+    /// The active tab's payload, if there is one.
+    #[must_use]
+    pub fn active_payload(&self) -> Option<&T> {
+        self.active_document()
+            .and_then(|document| self.payload(document))
+    }
+
+    /// The active tab's payload, mutably, if there is one.
+    pub fn active_payload_mut(&mut self) -> Option<&mut T> {
+        self.active_document()
+            .and_then(|document| self.payload_mut(document))
+    }
+
+    /// The active tab's editor and payload together, mutably.
+    ///
+    /// See [`editor_and_payload_mut`](Self::editor_and_payload_mut) for why
+    /// the pair is handed out together.
+    pub fn active_editor_and_payload_mut(&mut self) -> Option<(&mut Editor, &mut T)> {
+        self.active_document()
+            .and_then(|document| self.editor_and_payload_mut(document))
     }
 
     /// The active tab, if there is one.
@@ -198,13 +307,13 @@ impl Workspace {
     #[must_use]
     pub fn active_editor(&self) -> Option<&Editor> {
         self.active_document()
-            .and_then(|document| self.documents.get(&document))
+            .and_then(|document| self.editor(document))
     }
 
     /// The editor the user is typing into, mutably, if any.
     pub fn active_editor_mut(&mut self) -> Option<&mut Editor> {
         let document = self.active_document()?;
-        self.documents.get_mut(&document)
+        self.editor_mut(document)
     }
 
     /// Makes `id` the active tab, returning whether it could be.
@@ -309,8 +418,8 @@ impl Workspace {
     /// the workspace's — so the two would disagree in opposite directions
     /// depending on which tab you looked at.
     pub fn set_theme(&mut self, theme: Theme) {
-        for editor in self.documents.values_mut() {
-            editor.set_theme(theme.clone());
+        for open in self.documents.values_mut() {
+            open.editor.set_theme(theme.clone());
         }
         self.theme = theme;
     }
@@ -324,8 +433,8 @@ impl Workspace {
     /// Sets the configuration on the workspace **and on every open editor**,
     /// for the reason given on [`set_theme`](Self::set_theme).
     pub fn set_config(&mut self, config: EditorConfig) {
-        for editor in self.documents.values_mut() {
-            editor.set_config(config.clone());
+        for open in self.documents.values_mut() {
+            open.editor.set_config(config.clone());
         }
         self.config = config;
     }
@@ -335,15 +444,15 @@ impl Workspace {
         parent.is_none_or(|id| self.nodes.get(&id).is_some_and(Node::is_group))
     }
 
-    /// Allocates the next document id and its editor.
-    fn allocate_document(&mut self, content: &str) -> DocumentId {
+    /// Allocates the next document id, its editor, and its face payload.
+    fn allocate_document(&mut self, content: &str, payload: T) -> DocumentId {
         let id = DocumentId(self.next_document);
         self.next_document = self.next_document.saturating_add(1);
 
         let mut editor = Editor::new(self.config.clone());
         editor.set_theme(self.theme.clone());
         editor.set_content(content);
-        self.documents.insert(id, editor);
+        self.documents.insert(id, Open { editor, payload });
         id
     }
 
@@ -448,7 +557,7 @@ impl Workspace {
     }
 }
 
-impl fmt::Debug for Workspace {
+impl<T> fmt::Debug for Workspace<T> {
     /// Written by hand because [`Editor`] is not `Debug` — and it should not
     /// become so for this: an editor's debug output would be the whole
     /// document, which is exactly what nobody wants printed. The documents

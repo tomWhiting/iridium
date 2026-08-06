@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 use super::{Node, NodeId, Workspace};
 
-impl Workspace {
+impl<T> Workspace<T> {
     /// Every tab, in the order they are displayed.
     ///
     /// Depth-first pre-order over the organisation, keeping only tabs.

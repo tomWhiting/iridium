@@ -26,7 +26,7 @@ pub enum WorkspaceCommandError {
     NotAWorkspaceCommand,
 }
 
-impl Workspace {
+impl<T> Workspace<T> {
     /// Runs a `workspace.*` command, reporting whether it changed anything.
     ///
     /// `Ok(true)` means the workspace changed — the face should redraw.
@@ -84,7 +84,7 @@ mod dispatch_tests {
     use crate::workspace::workspace_tests::active_label;
 
     fn two_tabs() -> Workspace {
-        let mut workspace = Workspace::new(EditorConfig::default(), Theme::default());
+        let mut workspace: Workspace = Workspace::new(EditorConfig::default(), Theme::default());
         workspace.open("a", "a.rs", None).expect("top level");
         workspace.open("b", "b.rs", None).expect("top level");
         workspace
@@ -157,7 +157,7 @@ mod dispatch_tests {
 
     #[test]
     fn closing_with_nothing_open_reports_false_rather_than_erroring() {
-        let mut workspace = Workspace::new(EditorConfig::default(), Theme::default());
+        let mut workspace: Workspace = Workspace::new(EditorConfig::default(), Theme::default());
 
         assert_eq!(workspace.run_command(&WORKSPACE_CLOSE_TAB), Ok(false));
     }

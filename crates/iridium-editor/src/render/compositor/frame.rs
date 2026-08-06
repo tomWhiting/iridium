@@ -370,7 +370,7 @@ impl FrameCompositor {
         self.cpu_background_quads
             .extend(self.cpu_selection_quads.iter().copied());
 
-        self.submit_pass(view, device, queue, clear_color)?;
+        self.submit_pass(view, device, queue, clear_color, width, height)?;
 
         // Trim glyph cache periodically
         self.text_renderer.trim_cache();
@@ -408,6 +408,8 @@ impl FrameCompositor {
         device: &Device,
         queue: &Queue,
         clear_color: wgpu::Color,
+        width: u32,
+        height: u32,
     ) -> Result<(), IridiumError> {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Iridium Frame Encoder"),
@@ -431,6 +433,26 @@ impl FrameCompositor {
                 multiview_mask: None,
             });
 
+            // Everything below draws inside the document's own region and
+            // nowhere else. The clear above still covers the whole target, so
+            // a face's reserved band comes back page-coloured rather than
+            // whatever was in the buffer — it is the *document* that is
+            // fenced out, not the frame.
+            //
+            // The fence has to be here rather than on each quad. Every text
+            // area already carries `top: top_inset` in its `TextBounds`, but
+            // **`TextBounds` clips text, and every quad is geometry**: the
+            // gutter's background, its change bars, the diff line
+            // backgrounds, the selection and the caret each test visibility
+            // against `0.0`, the window's top edge. That is the same number
+            // as the band's bottom edge for exactly as long as no face
+            // reserves anything — and a row scrolls *into* the band rather
+            // than starting there, so the builders' cull cannot see it. One
+            // scissor answers for all five, and for any quad added later.
+            let scissor_x = reserved_edge(self.left_inset, width);
+            let scissor_y = reserved_edge(self.top_inset, height);
+            pass.set_scissor_rect(scissor_x, scissor_y, width - scissor_x, height - scissor_y);
+
             // Render gutter background and selection highlights (behind text)
             self.background_quad_renderer
                 .render(&mut pass, queue, &self.cpu_background_quads);
@@ -447,4 +469,26 @@ impl FrameCompositor {
         queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
+}
+
+/// A reserved inset as a scissor coordinate: truncated, and never past the
+/// extent it is measured against.
+///
+/// **Truncated, to match [`pixel_to_bound`]**, which is what the text areas
+/// clip with. A band 44.5 pixels deep clips both at row 44, so a glyph and
+/// the caret beside it lose the same row; rounding the scissor up instead
+/// would leave the caret one pixel shorter than the character it sits on,
+/// on every frame where the inset landed off a pixel boundary — which is
+/// every frame on a fractional-scale display.
+///
+/// A negative, NaN or infinite inset reserves nothing rather than producing
+/// a scissor wgpu would reject; [`FrameCompositor::set_top_inset`] already
+/// refuses those, and this is the second door.
+fn reserved_edge(inset: f32, extent: u32) -> u32 {
+    if !inset.is_finite() || inset <= 0.0 {
+        return 0;
+    }
+    u32::try_from(pixel_to_index(inset))
+        .unwrap_or(u32::MAX)
+        .min(extent)
 }

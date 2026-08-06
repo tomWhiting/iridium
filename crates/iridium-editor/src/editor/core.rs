@@ -1178,6 +1178,33 @@ impl Editor {
         &self.state.theme
     }
 
+    /// Returns the current configuration.
+    #[must_use]
+    pub const fn get_config(&self) -> &EditorConfig {
+        &self.state.config
+    }
+
+    /// Replaces the configuration at runtime.
+    ///
+    /// The undo grouping timeout is applied to the existing history as well
+    /// as stored, because `UndoTree` reads it at construction. Storing it
+    /// alone would leave the setting visible in the config and inert in
+    /// behaviour — the config would say one thing and the editor do another,
+    /// which is worse than not supporting the change at all.
+    ///
+    /// Nothing else in [`EditorConfig`] is cached elsewhere: the remaining
+    /// fields are read at the point of use.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The new configuration
+    pub fn set_config(&mut self, config: EditorConfig) {
+        self.state
+            .history
+            .set_group_timeout_ms(config.undo_group_timeout_ms);
+        self.state.config = config;
+    }
+
     /// Sets the theme at runtime (T147, T152).
     ///
     /// This updates the editor's theme and emits a `ThemeChanged` event.

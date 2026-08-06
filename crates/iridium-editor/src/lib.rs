@@ -60,6 +60,7 @@ pub mod syntax_stubs;
 pub mod text;
 pub mod theme;
 pub mod view;
+pub mod workspace;
 
 /// Span indexing for efficient viewport-based syntax highlighting.
 #[cfg(feature = "syntax")]

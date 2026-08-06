@@ -428,6 +428,92 @@ reads and break the stability the tree splices on.
 
 Both wait until something is on screen to react to.
 
+## 🔎 POPOVER STEP 3 — FILTERING, landed 6 Aug, `1148e73`
+
+**Tom's ruling stands: hierarchy, not a flat list.** He confirmed it over
+Meridian on 6 Aug — *"the hierarchy call from last time still stands"*.
+
+### What landed
+
+**Kernel — `crates/iridium-editor/src/fuzzy/path.rs`** (+ `path_tests.rs`,
+14 tests). `match_path(&Query, &str) -> Option<PathMatch>`: a *field chooser*
+over the existing scorer, exactly the shape `commands/palette/matcher.rs`
+has. `PathField::Name` at weight 100, `PathField::Path` at 70, best field
+wins, ties to the name.
+
+**The one subtle thing in it:** `PathMatch::matched_in_name()` always returns
+positions **into the basename**, whatever field won — path-field positions
+are rebased by the basename's character offset and the ones that fall above
+it are *dropped, not clamped*. Clamping would pile several matched characters
+onto the name's first glyph. The panel draws only the basename, so a caller
+never has to know which field matched. This also closes #52's step 2 (the
+path-aware entry point).
+
+**`iridium-explorer` gained two read-only accessors:**
+
+- `FileTree::listed_children(node) -> &[NodeId]` — **posts nothing.**
+  `TreeSource::children` is the frame path and requests what it lacks, which
+  is right for a node someone opened and *wrong for anything that walks*.
+- `FileTree::parent(node)` — the chain the reveal path climbs.
+
+**Desktop — `file_tree/` is now six files + a `tests/` directory**, all under
+the bar: `panel` (state) · `keys` (what a key does) · `compose` (what reaches
+the screen) · `filter` (the walk) · `rows` (one row) · `mod`. Same seam as
+the app split: *which question does a defect in this file present as*.
+
+**`highlighted_spans` and `match_color` moved from `command_palette.rs` into
+`line.rs`.** Two panels underlining matches through two implementations is
+the drift this codebase keeps warning about.
+
+### The three decisions in the filter, and why
+
+1. **Folders kept as context are not selectable.** `FilterRow::score` is
+   `None` for them, and that *is* the selectable flag. The arrows step
+   between matches and skip the scenery, so they never land somewhere `Enter`
+   has nothing to do.
+2. **`Enter` on a matched folder reveals it** — drops the query, opens the
+   tree down to it, selects it. Safe to expand every step without the
+   deferred-intent dance, because **every ancestor of anything the filter
+   found is already listed** (a node is in the arena because it appeared in
+   its parent's listing). The `open_row` guard is kept anyway: one expansion
+   path in the module, not two.
+3. **A read landing under a query does not move the selection.** `poll`
+   re-filters holding the selected `NodeId`; only if it is gone does the
+   selection fall back to the best match. A background read is not a reason
+   to open a different file.
+
+### ⚠️ THE HONEST GAP — step 3b, NOT YET BUILT
+
+**The filter reaches only what has been read.** A file in a folder nobody has
+opened is not found. This is deliberate — walking with the frame-path
+accessor would post a directory read for every unlisted folder, so one
+keystroke on a large project queues thousands — and it is pinned by
+`a_filter_reaches_only_what_has_been_read_and_never_starts_a_crawl`.
+
+**What 3b needs, and why it was not folded into 3a:** a query-driven crawl
+needs an *ignore policy* or it walks `target/` (20 GB in this checkout) and
+`node_modules`. Doing it without one would be the lazy version. The shape I
+had settled on before stopping:
+
+- **Breadth-first** from the root, so shallow files are found first — that
+  alone makes the useful hits arrive before the generated ones.
+- **A bounded node budget**, and `log`-equivalent honesty about hitting it: a
+  silent cap reads as "searched everything" when it did not.
+- **Ignore rules.** `.gitignore` is the rule a code project actually means.
+  Neither `ignore` nor `globset` is in the lock file today — that is a real
+  decision (take the dependency vs. own ~300 lines of gitignore semantics)
+  and it should be made explicitly, not by default.
+- **The crawl respects ignore rules; the manual tree does not.** You can
+  still expand `target/` by hand; typing will not dredge it up. State that
+  plainly wherever it lands.
+
+### The query field is deliberately caretless
+
+It takes printable characters, `Backspace` and paste — nothing else. `←`/`→`
+in a tree panel belong to the tree, and a filter is three or four characters
+someone retypes rather than edits. `Escape` clears the query first and closes
+the panel second.
+
 ## ▶️ WHAT IS LEFT ON THE STRIP (small, none of it blocking)
 
 - **The close control's alpha is 0.40**, nearly invisible on an inactive tab.

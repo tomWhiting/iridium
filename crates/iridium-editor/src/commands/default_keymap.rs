@@ -51,6 +51,7 @@ use super::builtin::{
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
     MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_NEXT_MATCH, SEARCH_OPEN,
     SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
+    WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -60,7 +61,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 62;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 65;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -482,6 +483,35 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         CHORD,
         PALETTE_OPEN,
     ),
+    // ----- Tabs -----
+    //
+    // `Ctrl+Shift+]` and `Ctrl+Shift+[`, which the web face receives from
+    // macOS's `Cmd+Shift+]` / `Cmd+Shift+[` — the bracket pair every editor
+    // on this platform already uses to walk a tab strip. `Ctrl+PageDown`
+    // was the obvious alternative and is **not available**: the paging
+    // bindings above take `Any` for control, so `Ctrl+PageDown` already
+    // resolves to page-down and would be shadowed rather than added.
+    (
+        StrokePattern::new(KeyCode::Char(']'), CTRL_SHIFT),
+        CHORD,
+        WORKSPACE_NEXT_TAB,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('['), CTRL_SHIFT),
+        CHORD,
+        WORKSPACE_PREVIOUS_TAB,
+    ),
+    // Closing takes `Ctrl+W` with shift forbidden, leaving `Ctrl+Shift+W`
+    // free for a future close-window rather than silently claiming it.
+    (
+        StrokePattern::new(KeyCode::Char('w'), CTRL_NO_SHIFT),
+        CHORD,
+        WORKSPACE_CLOSE_TAB,
+    ),
+    // `workspace.firstTab` and `workspace.lastTab` are deliberately left
+    // unbound: they are palette verbs. Binding every command is what
+    // exhausts the chord space, and jumping to the ends of a tab strip is
+    // not something anyone reaches for by key.
     // ----- Search -----
     (
         StrokePattern::new(KeyCode::Char('f'), CTRL_ANY_SHIFT),

@@ -72,11 +72,13 @@ fn every_command_the_palette_lists_is_either_run_or_reported_to_the_host() {
     // no-op does nothing by definition — and both are still *invocable*, they
     // simply change nothing.
     //
-    // Host commands are the second case. `run_command` cannot run one, and says so
-    // with `Unimplemented` naming the id, which is the face's cue to handle it.
-    // The distinction is asserted in both directions: a kernel command must never
-    // report `Unimplemented`, and a host command must never quietly succeed as
-    // though the kernel had done something.
+    // Host commands are the second case, workspace commands the third. `Editor`
+    // runs neither, and says so with `Unimplemented` naming the id — which is the
+    // face's cue to handle it, by drawing a palette for the first and by forwarding
+    // to `Workspace::run_command` for the second. The two are counted separately
+    // rather than lumped together as "not built-in", so that a workspace command
+    // that quietly acquired an editor-level implementation — or a built-in that
+    // lost one — names its own category when it breaks.
     let mut editor = editor_with("alpha beta\ngamma delta\n");
     let ids: Vec<String> = editor
         .commands()
@@ -86,10 +88,19 @@ fn every_command_the_palette_lists_is_either_run_or_reported_to_the_host() {
         .collect();
     assert_eq!(
         ids.len(),
-        builtin::BUILTIN_COMMAND_COUNT + builtin::HOST_COMMAND_COUNT
+        builtin::BUILTIN_COMMAND_COUNT
+            + builtin::HOST_COMMAND_COUNT
+            + builtin::WORKSPACE_COMMAND_COUNT
     );
 
-    let mut reported = 0;
+    let is_workspace = |id: &str| {
+        builtin::WORKSPACE
+            .iter()
+            .any(|meta| meta.id().as_str() == id)
+    };
+
+    let mut reported_host = 0;
+    let mut reported_workspace = 0;
     for id in &ids {
         editor.set_cursor(Position::new(0, 2));
         let outcome = editor.run_command(id, CommandArgs::NONE);
@@ -97,19 +108,28 @@ fn every_command_the_palette_lists_is_either_run_or_reported_to_the_host() {
             outcome
                 .unwrap_or_else(|error| panic!("kernel command `{id}` is not invocable: {error}"));
         } else {
-            reported += 1;
+            if is_workspace(id) {
+                reported_workspace += 1;
+            } else {
+                reported_host += 1;
+            }
             match outcome {
                 Err(CommandRunError::Unimplemented { id: reported_id }) => {
                     assert_eq!(&reported_id, id);
                 },
-                other => panic!("host command `{id}` should be reported, got {other:?}"),
+                other => panic!("`{id}` should be reported to the host, got {other:?}"),
             }
         }
     }
     assert_eq!(
-        reported,
+        reported_host,
         builtin::HOST_COMMAND_COUNT,
         "every host command, and nothing else, must be reported rather than run"
+    );
+    assert_eq!(
+        reported_workspace,
+        builtin::WORKSPACE_COMMAND_COUNT,
+        "every workspace command must be reported by the editor, since the workspace owns it"
     );
 }
 

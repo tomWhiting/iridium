@@ -182,12 +182,23 @@ fn the_action_table_covers_the_registry_exactly_once() {
 
 #[test]
 fn every_default_binding_names_a_command_the_kernel_or_a_host_owns() {
-    // A default binding may name a command the kernel does not implement, but only
-    // a *host command* — one the kernel deliberately names and reports rather than
-    // runs. Anything else is a typo that would surface as a key doing nothing, so
-    // the two cases are separated here rather than the check being loosened.
-    let host_ids: Vec<&str> = crate::commands::builtin::host_command_metas()
+    // A default binding may name a command the kernel does not implement *at the
+    // editor level*, but only in one of two declared cases:
+    //
+    //   - a **host command**, which the kernel cannot implement at all — it cannot
+    //     draw a palette — and so names and reports for each face to run;
+    //   - a **workspace command**, which the kernel does implement, in
+    //     `Workspace::run_command`, just not on `Editor`. It has no
+    //     `KeyboardAction` because the action table acts on one editor and a
+    //     workspace command acts on the thing that owns the editors.
+    //
+    // Both resolve to `KeyResult::HostCommand`, so "no action" alone cannot tell
+    // either of them from a typo — and a typo surfaces as a key that does nothing
+    // at all. The three cases are therefore separated here rather than the check
+    // being loosened to "not implemented is fine".
+    let unimplemented_by_design: Vec<&str> = crate::commands::builtin::host_command_metas()
         .iter()
+        .chain(crate::commands::builtin::workspace_command_metas())
         .map(|meta| meta.id().as_str())
         .collect();
 
@@ -196,10 +207,11 @@ fn every_default_binding_names_a_command_the_kernel_or_a_host_owns() {
             let Some(id) = binding.command() else {
                 continue;
             };
-            if host_ids.contains(&id.as_str()) {
+            if unimplemented_by_design.contains(&id.as_str()) {
                 assert!(
                     action_for(id.as_str()).is_none(),
-                    "`{id}` is declared a host command but the kernel implements it"
+                    "`{id}` is declared a host or workspace command but the kernel \
+                     implements it as an editor action"
                 );
                 continue;
             }

@@ -404,15 +404,18 @@ impl Editor {
     /// Builds the command registry every editor starts with.
     ///
     /// [`default_registry`](crate::commands::builtin::default_registry) holds the
-    /// built-ins *and* the host commands the kernel names, such as
-    /// [`PALETTE_OPEN`](crate::commands::builtin::PALETTE_OPEN). Both belong here:
-    /// the default keymap binds the palette, so a registry without it would make
-    /// the editor's own keymap fail validation.
+    /// built-ins, the host commands the kernel names — such as
+    /// [`PALETTE_OPEN`](crate::commands::builtin::PALETTE_OPEN) — and the
+    /// workspace commands. All three belong here: the default keymap binds the
+    /// palette and the tab movements, so a registry without them would make the
+    /// editor's own keymap fail validation.
     ///
-    /// It is fallible only for a duplicated id *inside the two static tables*,
+    /// It is fallible only for a duplicated id *across the three static tables*,
     /// which the registry tests rule out by asserting the registry holds exactly
     /// [`BUILTIN_COMMAND_COUNT`](crate::commands::builtin::BUILTIN_COMMAND_COUNT)
     /// plus [`HOST_COMMAND_COUNT`](crate::commands::builtin::HOST_COMMAND_COUNT)
+    /// plus
+    /// [`WORKSPACE_COMMAND_COUNT`](crate::commands::builtin::WORKSPACE_COMMAND_COUNT)
     /// commands. Degrading to an empty registry rather than panicking keeps
     /// [`Editor::new`] infallible; the fallback is unreachable except through a
     /// kernel edit the tests reject.

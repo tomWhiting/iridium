@@ -9,6 +9,26 @@ use iridium_file::test_support::TempDir;
 use crate::file_tree::{ExplorerOutcome, FileExplorer};
 use crate::overlay::PanelFit;
 
+/// A project with two directories, each holding a `mod.rs` — the case a flat
+/// ranked list cannot tell apart, and the reason the hierarchy is kept.
+///
+/// Shared by [`super::filter`] and [`super::crawl`]: the same five files are
+/// what makes "the rows are drawn where they live" and "the query read a
+/// folder nobody opened" two views of one fixture rather than two fixtures
+/// that could drift.
+pub(super) fn project() -> TempDir {
+    let directory = TempDir::new("explorer-filter");
+    let root = directory.path();
+    for folder in ["engine", "widgets"] {
+        std::fs::create_dir(root.join(folder)).expect("the fixture directory was made");
+        std::fs::write(root.join(folder).join("mod.rs"), "m").expect("the fixture was written");
+    }
+    std::fs::write(root.join("engine/render.rs"), "r").expect("the fixture was written");
+    std::fs::write(root.join("widgets/button.rs"), "b").expect("the fixture was written");
+    std::fs::write(root.join("README.md"), "#").expect("the fixture was written");
+    directory
+}
+
 /// A key press with no modifiers.
 pub(super) fn press(key: KeyCode) -> KeyEvent {
     KeyEvent {
@@ -36,14 +56,24 @@ pub(super) const FIT: PanelFit = PanelFit {
 /// How long a test waits for a directory read before calling it hung.
 pub(super) const PATIENCE: Duration = Duration::from_secs(10);
 
-/// Opens a panel on `directory` and polls until its root has listed.
+/// Opens a panel on `directory`, crawling under a query, and polls until its
+/// root has listed.
 ///
 /// The reads are on a worker thread, so "the rows are there" is something
 /// to wait for rather than assume — which is the whole shape this panel
 /// exists to handle, and pretending otherwise in a test would hide it.
 pub(super) fn opened(directory: &TempDir) -> FileExplorer {
+    opened_with_crawl(directory, true)
+}
+
+/// The same, with the crawl decided by the caller.
+///
+/// `false` is the shape a home directory or a guessed working directory
+/// opens in: the tree is browsable and the filter still narrows what has
+/// been read, but a query posts no reads of its own.
+pub(super) fn opened_with_crawl(directory: &TempDir, crawl: bool) -> FileExplorer {
     let mut explorer =
-        FileExplorer::open(directory.path().to_path_buf()).expect("the reader thread ran");
+        FileExplorer::open(directory.path().to_path_buf(), crawl).expect("the reader thread ran");
     let deadline = Instant::now() + PATIENCE;
     while Instant::now() < deadline {
         if explorer.poll() && !explorer.is_waiting() {

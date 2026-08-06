@@ -105,6 +105,7 @@ pub mod latency;
 mod line;
 pub mod mouse;
 pub mod overlay;
+mod project;
 pub mod prompt;
 pub mod run;
 pub mod search;

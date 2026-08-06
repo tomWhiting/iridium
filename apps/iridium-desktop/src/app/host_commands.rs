@@ -11,11 +11,14 @@ use iridium_editor::commands::builtin::{
     EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB,
 };
 
-use std::path::{Path, PathBuf};
+use iridium_file::TextFile;
+
+use std::path::Path;
 
 use super::state::{DesktopApp, Flow};
 use crate::commands;
 use crate::file_tree::FileExplorer;
+use crate::project::{self, ExplorerRoot};
 use crate::prompt::Message;
 
 impl DesktopApp {
@@ -72,18 +75,18 @@ impl DesktopApp {
     /// directory that was expanded, and a hidden panel would keep both for
     /// the rest of the session.
     ///
-    /// The root is the workspace's own directory when there is one, and the
-    /// process's working directory otherwise — the same place `Ctrl+O` starts
-    /// from, so the two do not disagree about where "here" is. A failure to
-    /// start the reader is reported on the strip rather than swallowed; the
-    /// key was consumed, and silence would look like a dead key.
+    /// Where it starts, and whether a search there may read past what is
+    /// open, are [`crate::project`]'s decision — see there for why the two
+    /// are separate questions. A failure to start the reader is reported on
+    /// the strip rather than swallowed; the key was consumed, and silence
+    /// would look like a dead key.
     fn toggle_explorer(&mut self) -> Flow {
         if self.explorer.is_some() {
             self.explorer = None;
             return Flow::Running;
         }
         let root = self.explorer_root();
-        match FileExplorer::open(root) {
+        match FileExplorer::open(root.path, root.crawl) {
             Ok(explorer) => self.explorer = Some(explorer),
             Err(error) => {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));
@@ -92,17 +95,24 @@ impl DesktopApp {
         Flow::Running
     }
 
-    /// Where the explorer starts: the directory holding the active file, or
-    /// the working directory when nothing is open or the file has no parent.
-    fn explorer_root(&self) -> PathBuf {
-        self.workspace
+    /// Where the explorer starts, with the environment read here and the
+    /// choice made in [`crate::project`].
+    ///
+    /// The split is what makes the decision testable: the case that went
+    /// wrong — a bundle launched from Finder, which inherits `/` as its
+    /// working directory — cannot be reproduced from a terminal at all, so
+    /// nothing that reads the environment itself could have caught it.
+    ///
+    /// The **file's own path** goes in, not its parent: the chooser needs to
+    /// tell "a file with a real directory above it" from a bare name, and
+    /// `Path::parent` of a bare name is `Some("")`, which is neither.
+    fn explorer_root(&self) -> ExplorerRoot {
+        let active: Option<&Path> = self
+            .workspace
             .active_payload()
             .and_then(|document| document.file.as_ref())
-            .and_then(|file| file.path().parent())
-            .map_or_else(
-                || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-                Path::to_path_buf,
-            )
+            .map(TextFile::path);
+        project::explorer_root(active, std::env::current_dir().ok(), std::env::home_dir())
     }
 
     /// Forwards a `workspace.*` command to the kernel's own dispatcher.

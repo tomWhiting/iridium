@@ -98,6 +98,14 @@ pub struct FileExplorer {
     /// The selected row within [`Self::view`]. Meaningless when not
     /// filtering, where the selection lives in the tree.
     pub(super) filtered: usize,
+    /// Whether a query may read directories nobody opened.
+    ///
+    /// Decided once, by [`crate::project::explorer_root`], and never here:
+    /// the crawl is worth running where something bounds it — a project's
+    /// `.gitignore` does — and it is worth *not* running where nothing does.
+    /// A home directory has no ignore rules and its first twenty thousand
+    /// directories are application support files.
+    pub(super) crawl: bool,
 }
 
 impl FileExplorer {
@@ -108,11 +116,15 @@ impl FileExplorer {
     /// user nothing, but expanding before the children exist would mark the
     /// root a leaf permanently.
     ///
+    /// `crawl` says whether a query here may read past what is open. It is
+    /// the caller's judgment because only the caller knows what the root
+    /// *is*; see [`Self::crawl`].
+    ///
     /// # Errors
     ///
     /// Returns the operating system's message when the directory reader
     /// cannot be started.
-    pub fn open(root: PathBuf) -> Result<Self, String> {
+    pub fn open(root: PathBuf, crawl: bool) -> Result<Self, String> {
         let mut files = FileTree::open(root)?;
         let root_id = files.root();
         let mut tree = Tree::new(&mut files);
@@ -125,6 +137,7 @@ impl FileExplorer {
             query: Entry::new(),
             view: FilterView::default(),
             filtered: 0,
+            crawl,
         })
     }
 
@@ -142,9 +155,9 @@ impl FileExplorer {
     /// A query in the field also drives the crawl from here — a bounded batch
     /// of directory reads per frame, so a search reaches past what the user
     /// has opened without one keystroke queueing the whole disk. See
-    /// [`CRAWL_PER_FRAME`].
+    /// [`CRAWL_PER_FRAME`], and [`Self::crawl`] for when it runs at all.
     pub fn poll(&mut self) -> bool {
-        let crawling = self.is_filtering() && self.files.crawl(CRAWL_PER_FRAME) > 0;
+        let crawling = self.crawl && self.is_filtering() && self.files.crawl(CRAWL_PER_FRAME) > 0;
         if !self.files.drain() {
             // A posted read is a reason to come back even though nothing has
             // landed yet: `is_waiting` will now say so, and the host repaints
@@ -215,9 +228,16 @@ impl FileExplorer {
     /// The host asks for another frame while this is `true`: the reads land
     /// on a worker thread and nothing wakes winit when they do, so a window
     /// that stopped repainting would leave a directory permanently loading.
+    ///
+    /// The crawl half is gated on [`Self::crawl`] and must stay that way. A
+    /// panel that will never crawl still has a frontier — the root's own
+    /// subdirectories were queued when they were interned — so an ungated
+    /// `is_fully_crawled` would answer `false` forever, and the window would
+    /// repaint at full rate for as long as a query was in the field.
     #[must_use]
     pub fn is_waiting(&self) -> bool {
-        self.files.is_waiting() || (self.is_filtering() && !self.files.is_fully_crawled())
+        self.files.is_waiting()
+            || (self.crawl && self.is_filtering() && !self.files.is_fully_crawled())
     }
 
     /// The node under the selection, from whichever list is showing.

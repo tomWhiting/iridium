@@ -52,11 +52,10 @@
 //! grapheme clusters so a joined emoji recolours whole, never mid-cluster.
 
 use iridium_editor::commands::palette::{self, CommandMru, MatchField, PaletteEntry};
-use iridium_editor::theme::{Color, Theme};
+use iridium_editor::theme::Theme;
 use iridium_editor::{CommandId, Editor, KeyCode, KeyEvent, KeyLabelStyle, Modifiers};
-use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::line::{LineBuilder, skip_chars};
+use crate::line::{LineBuilder, highlighted_spans, match_color, skip_chars};
 use crate::overlay::{
     PANEL_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span,
     scroll_for,
@@ -401,45 +400,6 @@ fn result_row(
     } else {
         PanelRow::new(spans)
     }
-}
-
-/// `text` split into runs, the matched grapheme clusters recoloured.
-///
-/// `positions` are the kernel's **character** positions into `text`. Each is
-/// mapped to its byte offset and from there to the grapheme cluster that
-/// contains it, so a combining sequence or a joined emoji recolours whole —
-/// splitting a colour run mid-cluster would hand the shaper half a glyph.
-fn highlighted_spans(text: &str, positions: &[u32], base: Color, matched: Color) -> Vec<Span> {
-    if positions.is_empty() {
-        return vec![Span::new(text, base)];
-    }
-    let bytes: Vec<usize> = text.char_indices().map(|(byte, _)| byte).collect();
-    let matched_bytes: Vec<usize> = positions
-        .iter()
-        .filter_map(|&position| bytes.get(position as usize).copied())
-        .collect();
-
-    let mut spans: Vec<Span> = Vec::new();
-    for (start, cluster) in text.grapheme_indices(true) {
-        let end = start + cluster.len();
-        let is_match = matched_bytes
-            .iter()
-            .any(|&byte| byte >= start && byte < end);
-        let color = if is_match { matched } else { base };
-        match spans.last_mut() {
-            Some(last) if last.color == color => last.text.push_str(cluster),
-            _ => spans.push(Span::new(cluster, color)),
-        }
-    }
-    spans
-}
-
-/// The colour a matched character is recoloured with: the theme's current
-/// search-match colour at full strength, which is the same statement the
-/// terminal face makes with its match background.
-const fn match_color(theme: &Theme) -> Color {
-    let color = theme.editor.search_match_current;
-    Color::new(color.r, color.g, color.b, 1.0)
 }
 
 /// `value` as an `isize`, saturating on a page size no window can reach.

@@ -122,6 +122,38 @@ impl FileTree {
         self.by_path.get(path).copied()
     }
 
+    /// The node `node` was listed under, or `None` for the root and for an id
+    /// this tree never issued.
+    ///
+    /// The chain this walks is what lets a face reveal a node it found by
+    /// searching: every ancestor of a node that appears in a listing has itself
+    /// been listed, so a walk up from a search hit only ever meets nodes whose
+    /// children are known.
+    #[must_use]
+    pub fn parent(&self, node: NodeId) -> Option<NodeId> {
+        self.nodes.get(node.0).and_then(|entry| entry.parent)
+    }
+
+    /// `node`'s children as they are already known, **posting nothing**.
+    ///
+    /// [`TreeSource::children`] is the frame path and requests what it does not
+    /// have, which is right for a node someone opened. It is wrong for anything
+    /// that *walks*: a filter sweeping the arena would post a read for every
+    /// unlisted directory it touched, turning one keystroke into a crawl of the
+    /// whole disk. This is the accessor for walking — empty for a node that has
+    /// not been read, one whose read is outstanding, one whose read failed, and
+    /// an id this tree never issued.
+    ///
+    /// Borrowed rather than cloned, because a walk visits every node and the
+    /// clone in `children` exists only to satisfy that trait's signature.
+    #[must_use]
+    pub fn listed_children(&self, node: NodeId) -> &[NodeId] {
+        match self.nodes.get(node.0).map(|entry| &entry.listing) {
+            Some(Listing::Present(children)) => children,
+            _ => &[],
+        }
+    }
+
     /// Collects every directory read that has finished, and reports whether
     /// any did.
     ///

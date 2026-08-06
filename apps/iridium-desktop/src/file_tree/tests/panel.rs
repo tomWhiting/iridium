@@ -1,4 +1,4 @@
-//! The explorer panel's tests.
+//! The panel's behaviour with no query: opening, keys, scrolling.
 //!
 //! Real directories and the real reader thread throughout: the property that
 //! matters most here — that a node is not expanded before its listing has
@@ -8,69 +8,13 @@
 use std::time::{Duration, Instant};
 
 use iridium_editor::theme::Theme;
-use iridium_editor::{KeyCode, KeyEvent, Modifiers};
+use iridium_editor::{KeyCode, Modifiers};
 use iridium_file::test_support::TempDir;
 
-use super::panel::truncate;
-use super::{ExplorerOutcome, FileExplorer};
+use super::support::{all_lines, chord, lines, opened, press};
+use crate::file_tree::ExplorerOutcome;
+use crate::file_tree::rows::truncate;
 use crate::overlay::PanelFit;
-
-/// A key press with no modifiers.
-fn press(key: KeyCode) -> KeyEvent {
-    KeyEvent {
-        key,
-        modifiers: Modifiers::none(),
-        is_repeat: false,
-    }
-}
-
-/// A key press under the given modifiers.
-fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEvent {
-    KeyEvent {
-        key,
-        modifiers,
-        is_repeat: false,
-    }
-}
-
-/// A window big enough for everything these tests compose.
-const FIT: PanelFit = PanelFit {
-    content_columns: 40,
-    max_interior_rows: 20,
-};
-
-/// Opens a panel on `directory` and polls until its root has listed.
-///
-/// The reads are on a worker thread, so "the rows are there" is something
-/// to wait for rather than assume — which is the whole shape this panel
-/// exists to handle, and pretending otherwise in a test would hide it.
-fn opened(directory: &TempDir) -> FileExplorer {
-    let mut explorer =
-        FileExplorer::open(directory.path().to_path_buf()).expect("the reader thread ran");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        if explorer.poll() && !explorer.is_waiting() {
-            return explorer;
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    panic!("the root listing never arrived");
-}
-
-/// The panel's rows as plain text, in order.
-fn lines(explorer: &mut FileExplorer) -> Vec<String> {
-    explorer
-        .content(&Theme::dark(), FIT)
-        .rows
-        .iter()
-        .map(|row| {
-            row.spans
-                .iter()
-                .map(|span| span.text.clone())
-                .collect::<String>()
-        })
-        .collect()
-}
 
 #[test]
 fn the_panel_opens_with_the_root_expanded_and_its_children_indented() {
@@ -173,16 +117,34 @@ fn a_key_the_panel_does_not_bind_is_swallowed_rather_than_typed() {
     let directory = TempDir::new("panel-modal");
     let mut explorer = opened(&directory);
 
-    // Modal means modal: a character key while the panel is up must not
-    // reach the document. `Handled` is how this panel says "consumed",
-    // and there is deliberately no outcome that means "pass it on".
+    // Modal means modal: a chord the panel does not bind must not reach the
+    // document. `Handled` is how this panel says "consumed", and there is
+    // deliberately no outcome that means "pass it on".
+    assert_eq!(
+        explorer.handle_key(&chord(KeyCode::Char('s'), Modifiers::ctrl())),
+        ExplorerOutcome::Handled,
+        "Ctrl+S while the explorer is up must not save the document behind it"
+    );
+    let meta = Modifiers {
+        meta: true,
+        ..Modifiers::none()
+    };
+    assert_eq!(
+        explorer.handle_key(&chord(KeyCode::Char('a'), meta)),
+        ExplorerOutcome::Handled
+    );
+
+    // A plain printable key is consumed too, and goes to the query — which
+    // is the one thing in this panel that a bare character means.
     assert_eq!(
         explorer.handle_key(&press(KeyCode::Char('x'))),
         ExplorerOutcome::Handled
     );
+    let rows = all_lines(&mut explorer);
     assert_eq!(
-        explorer.handle_key(&chord(KeyCode::Char('s'), Modifiers::ctrl())),
-        ExplorerOutcome::Handled
+        rows.first().map(String::as_str),
+        Some("> x"),
+        "the character landed in the query row: {rows:?}"
     );
 }
 
@@ -204,9 +166,12 @@ fn the_window_follows_the_selection_past_the_bottom_and_back() {
         explorer.handle_key(&press(KeyCode::Down));
     }
     let rows = explorer.content(&Theme::dark(), narrow).rows;
+    // The query row plus the four list rows the fit leaves after it. The
+    // query row is never part of the scrolling window: a field that scrolled
+    // away would leave the caret pointing at a row that is not there.
     assert_eq!(rows.len(), 5, "the window is the size the fit allows");
     assert!(
-        rows.iter().any(|row| row.selected),
+        rows.iter().skip(1).any(|row| row.selected),
         "a selection that scrolled out of the window is a panel that looks like it \
              stopped responding"
     );
@@ -214,7 +179,7 @@ fn the_window_follows_the_selection_past_the_bottom_and_back() {
     explorer.handle_key(&press(KeyCode::Home));
     let rows = explorer.content(&Theme::dark(), narrow).rows;
     assert!(
-        rows.first().is_some_and(|row| row.selected),
+        rows.get(1).is_some_and(|row| row.selected),
         "Home brings the window back to the top with it"
     );
 }

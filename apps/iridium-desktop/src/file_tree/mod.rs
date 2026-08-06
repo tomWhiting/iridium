@@ -19,12 +19,21 @@
 //!
 //! # Where the pieces live
 //!
-//! - `panel` — [`FileExplorer`], [`ExplorerOutcome`], and everything that
-//!   answers a key or composes a row.
+//! - `panel` — [`FileExplorer`], [`ExplorerOutcome`], and the state both of
+//!   the modules below read.
+//! - `keys` — what a key press does.
+//! - `compose` — what reaches the screen.
+//! - `filter` — narrowing the rows to what a query matches, without losing
+//!   the hierarchy the matches live in.
+//! - `rows` — composing one row: indent, disclosure, name, error.
 //! - `tests` — the panel's own suite, against real directories and the real
 //!   reader thread.
 
+mod compose;
+mod filter;
+mod keys;
 mod panel;
+mod rows;
 
 #[cfg(test)]
 mod tests;

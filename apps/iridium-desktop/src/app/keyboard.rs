@@ -121,7 +121,22 @@ impl DesktopApp {
     /// path a drop and `Ctrl+O` take — so the explorer cannot grow its own
     /// idea of what opening means. The panel closes on the way, because the
     /// thing it was for has happened.
+    ///
+    /// The paste chord is intercepted first, for the reason it is intercepted
+    /// for the palette: the panel is modal and has a text field, so a paste
+    /// belongs to that field rather than to the document underneath it.
     fn drive_explorer(&mut self, event: &KeyEvent) -> Flow {
+        if is_paste_chord(event) {
+            match self.clipboard_text() {
+                Ok(text) => {
+                    if let Some(explorer) = self.explorer.as_mut() {
+                        explorer.paste(&text);
+                    }
+                },
+                Err(message) => self.message = Some(message),
+            }
+            return Flow::Running;
+        }
         let Some(explorer) = self.explorer.as_mut() else {
             return Flow::Running;
         };

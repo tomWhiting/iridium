@@ -1,5 +1,34 @@
 # Session state — 6 Aug 2026
 
+## 🛑 THE PLAN FILE IS STALE — DO NOT QUOTE IT AS FACT
+
+`~/.claude/plans/immutable-stargazing-moler.md` describes work that **has since
+landed**. I read it as current and told Tom, as a present-tense defect, that
+the syntax side owned two parsers and that the editor's tree went stale after
+every edit. **Both were fixed long ago.** Corrected to him on 6 Aug.
+
+What is actually true, verified in the code:
+
+- **One parser, one retained tree** — `iridium_syntax::SyntaxTree`, with
+  `edit`, `reparse` and `changed_ranges`.
+- `Highlighter::spans_in(&self, tree, source)` **borrows** it. There is no
+  `folding.rs`; folds run off the same tree.
+- `EditorState::syntax` is a `SyntaxState` with `note_edit` / `sync` /
+  `SyntaxDelta`. Typing does not parse. If an edit ever misses `note_edit`,
+  the revisions disagree and it parses whole rather than returning a wrong
+  tree.
+- The whole `ast.*` verb set exists — `expand`/`shrink` with a stack that
+  survives cursor merging, sibling and child walks, node-boundary motions,
+  text objects, multi-cursor from structure — with `navigate.rs` holding the
+  pure `Node → Node` walks.
+- The TypeScript `onHostCommand` / `onPendingKeySequence` bug is **also
+  fixed**; both are assigned in the constructor.
+
+**The rule this cost:** a planning document records what was true when it was
+written. Check the code before repeating any claim from one, especially a
+claim that something is broken.
+
+
 ## ✅ WHERE THINGS ARE — READ THIS FIRST
 
 **The tab strip is drawn and it works**, and **the compositor now reserves
@@ -105,7 +134,32 @@ a real observation, recorded as **#51**, not fixed.
 
 ---
 
-## ▶️ NEXT: the Oil popover — TOM CHANGED DIRECTION, 6 Aug
+## ⏭ WHAT I PUT TO TOM AND HE HAS NOT YET ANSWERED (6 Aug, ~07:20)
+
+He said: *"happy to do what you got to do… I want everything built on as
+stable a foundation as we can possibly get it built."* Since the syntax
+foundation turned out to be done already, I offered him three, **measured
+rather than remembered**:
+
+1. **Split the oversized files.** `app.rs` 3,270 · `wasm.rs` 3,154 ·
+   `core.rs` 2,807 · `compositor.rs` 2,289 · `overlay.rs` 1,768, against
+   CLAUDE.md's **500**. The argument that makes this foundation work rather
+   than tidying: *both* real bugs found this session were in
+   `compositor.rs`, and both were the same shape — two places computing one
+   number, agreeing by coincidence. A 2,300-line file is what stops anyone
+   seeing both copies at once. Recommended order: `compositor.rs` (proven
+   history of hiding exactly this), then `app.rs`, then `wasm.rs`.
+2. **Fix #51** — the quads drawn inside reserved chrome.
+3. **Back to the Oil popover.**
+
+**Absent a reply, start (1) on `compositor.rs`.** It matches his stated
+priority, it is low-risk because the tests already pin the behaviour, and it
+is wanted whichever of the three he picks. Candidate seams, from reading it:
+`compose()`; the retained-shaping gate (`ShapeKey`, `RetainedShape`,
+`rebuild_retained`); the four quad builders; the placement queries and the
+insets; the setters and accessors.
+
+## ▶️ THEN: the Oil popover — TOM CHANGED DIRECTION, 6 Aug
 
 **The drawn sidebar is no longer the next piece.** Tom asked for an
 **oil.nvim**-style file navigator instead, as a command-palette-style popover,

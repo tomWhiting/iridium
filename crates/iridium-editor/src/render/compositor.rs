@@ -66,6 +66,17 @@ const MAX_VIEWPORT_LINES: usize = 128;
 /// Typical: 1 quad per selected line, rarely more than viewport.
 const MAX_SELECTION_QUADS: usize = 128;
 
+/// The content column's inset from the gutter, in pixels.
+const HORIZONTAL_PADDING: f32 = 10.0;
+
+/// The document's default inset from the top of the window, in pixels — the
+/// text's own breathing room, with no chrome above it.
+const DEFAULT_TOP_INSET: f32 = 10.0;
+
+/// Pixels of empty window left below the last line when scrolled to the end,
+/// so it does not sit flush against the edge.
+const BOTTOM_SLACK: f32 = 10.0;
+
 /// The wgpu objects one frame is composed onto.
 ///
 /// A frame needs exactly these five values from a surface, whatever the
@@ -190,8 +201,8 @@ struct FrameMetrics {
     line_height: f32,
     /// Character advance width in pixels.
     char_width: f32,
-    /// The editor's fixed content padding (10px).
-    padding: f32,
+    /// The Y origin the document is drawn from: [`FrameCompositor::top_inset`].
+    top_inset: f32,
     /// Left edge of the content column: gutter width plus padding.
     content_offset_x: f32,
     /// Pixel offset of the viewport buffer's first line in document space.
@@ -369,6 +380,17 @@ pub struct FrameCompositor {
     syntax_enabled: bool,
     /// Whether the gutter (line numbers) is enabled.
     gutter_enabled: bool,
+    /// Pixels of window reserved above the document, and the Y origin every
+    /// layout query measures from.
+    ///
+    /// Ten by default — the content's own breathing room, which is all a
+    /// face with no chrome above the text needs. A face that draws a band
+    /// there, such as the desktop face's tab strip, adds its height here so
+    /// that painting, hit-testing, scroll-to-caret and the scroll clamp all
+    /// move together. **Held once and read by all four**, because an offset
+    /// applied in the painter but not in the hit test agrees with the truth
+    /// exactly at the top of the document and is a row out everywhere else.
+    top_inset: f32,
     /// Cached character width (measured from actual font metrics).
     cached_char_width: f32,
     /// Viewport configuration for the overscan buffer.
@@ -539,6 +561,7 @@ impl FrameCompositor {
             theme: Theme::dark(),
             syntax_enabled: true,
             gutter_enabled: true,
+            top_inset: DEFAULT_TOP_INSET,
             cached_char_width: 14.0 * 0.6, // Default until a font is loaded
             viewport_config: ViewportConfig::default(),
             cached_viewport_width: width,
@@ -639,7 +662,11 @@ impl FrameCompositor {
 
         // Calculate layout dimensions
         let char_width = self.cached_char_width;
-        let padding = 10.0_f32;
+        // `padding` is the *horizontal* inset; `top_inset` is the vertical
+        // one. They start life at the same number and are not the same
+        // concern — a tab strip moves one and must not move the other.
+        let padding = HORIZONTAL_PADDING;
+        let top_inset = self.top_inset;
 
         // Calculate gutter width (based on digit count or custom text width,
         // before shaping)
@@ -731,7 +758,7 @@ impl FrameCompositor {
             char_width,
         );
         // Absolute cursor Y in document space (for cursor_anchor_y)
-        let cursor_abs_y = padding + wrap_y + virtual_scroll_offset;
+        let cursor_abs_y = top_inset + wrap_y + virtual_scroll_offset;
         // Viewport-relative cursor Y for rendering
         let cursor_y = cursor_abs_y - scroll_y;
 
@@ -745,7 +772,7 @@ impl FrameCompositor {
         let metrics = FrameMetrics {
             line_height,
             char_width,
-            padding,
+            top_inset,
             content_offset_x,
             virtual_scroll_offset,
             viewport_start,
@@ -783,11 +810,14 @@ impl FrameCompositor {
         let main_text_area = TextRenderer::create_text_area(
             buffer,
             content_offset_x,
-            padding - adjusted_scroll_y,
+            top_inset - adjusted_scroll_y,
             1.0,
             TextBounds {
                 left: 0,
-                top: 0,
+                // Clipped at the reserved band rather than at the window
+                // edge: with chrome above the text, a glyph scrolled past
+                // the top would otherwise be shaped and drawn behind it.
+                top: pixel_to_bound(top_inset),
                 right: dimension_to_bound(width),
                 bottom: dimension_to_bound(height),
             },
@@ -1361,7 +1391,7 @@ impl FrameCompositor {
                         continue;
                     }
                     let row_y = index_to_f32(vline_idx) * m.line_height;
-                    let y = m.padding + row_y + m.virtual_scroll_offset - m.scroll_y;
+                    let y = m.top_inset + row_y + m.virtual_scroll_offset - m.scroll_y;
                     if y + m.line_height > 0.0 && y < m.surface_height {
                         self.cpu_line_bg_quads.push(Quad::new(
                             m.content_offset_x,
@@ -1377,7 +1407,7 @@ impl FrameCompositor {
                 // Fallback: if visual line map wasn't built yet, use simple position
                 if !emitted {
                     let row_y = index_to_f32(vi) * m.line_height;
-                    let y = m.padding + row_y + m.virtual_scroll_offset - m.scroll_y;
+                    let y = m.top_inset + row_y + m.virtual_scroll_offset - m.scroll_y;
                     if y + m.line_height > 0.0 && y < m.surface_height {
                         self.cpu_line_bg_quads.push(Quad::new(
                             m.content_offset_x,
@@ -1419,7 +1449,7 @@ impl FrameCompositor {
                         continue;
                     }
                     let row_y = index_to_f32(vline_idx) * m.line_height;
-                    let y = m.padding + row_y + m.virtual_scroll_offset - m.scroll_y;
+                    let y = m.top_inset + row_y + m.virtual_scroll_offset - m.scroll_y;
                     if y + m.line_height > 0.0 && y < m.surface_height {
                         // 3px wide bar at left gutter edge
                         self.cpu_gutter_change_quads.push(Quad::new(
@@ -1435,7 +1465,7 @@ impl FrameCompositor {
 
                 if !emitted {
                     let row_y = index_to_f32(vi) * m.line_height;
-                    let y = m.padding + row_y + m.virtual_scroll_offset - m.scroll_y;
+                    let y = m.top_inset + row_y + m.virtual_scroll_offset - m.scroll_y;
                     if y + m.line_height > 0.0 && y < m.surface_height {
                         self.cpu_gutter_change_quads.push(Quad::new(
                             2.0,
@@ -1539,7 +1569,7 @@ impl FrameCompositor {
                         let seg_x = index_to_f32(overlap_start - run_start_col) * m.char_width;
                         let x = m.content_offset_x + seg_x;
                         let row_y = index_to_f32(vi) * m.line_height;
-                        let y = m.padding + row_y + m.virtual_scroll_offset - m.scroll_y;
+                        let y = m.top_inset + row_y + m.virtual_scroll_offset - m.scroll_y;
                         let seg_width = index_to_f32(overlap_end - overlap_start) * m.char_width;
                         let width = seg_width + seg_extra;
 
@@ -1565,7 +1595,7 @@ impl FrameCompositor {
                         m.char_width,
                     );
                     let x = m.content_offset_x + sx;
-                    let y = m.padding + sy + m.virtual_scroll_offset - m.scroll_y;
+                    let y = m.top_inset + sy + m.virtual_scroll_offset - m.scroll_y;
                     let sel_width = index_to_f32(sel_col_end - sel_col_start) * m.char_width;
                     let width = sel_width + newline_extra;
 
@@ -1612,7 +1642,7 @@ impl FrameCompositor {
                 m.char_width,
             );
             let x = m.content_offset_x + head_x;
-            let y = m.padding + head_y + m.virtual_scroll_offset - m.scroll_y;
+            let y = m.top_inset + head_y + m.virtual_scroll_offset - m.scroll_y;
             // Off-screen carets are skipped, exactly as selection quads are.
             if y + m.line_height > 0.0 && y < m.surface_height {
                 self.cpu_cursor_quads
@@ -1695,7 +1725,12 @@ impl FrameCompositor {
             fold_state.visible_line_count(editor.state().document.line_count())
         };
         let content_height = index_to_f32(total_visual) * line_height;
-        (content_height - viewport_height + 20.0).max(0.0) // 20px padding
+        // The document starts at `top_inset`, so the last row's bottom sits
+        // that much further down; the extra slack below is what stops the
+        // final line hugging the window edge. The single `20.0` this
+        // replaces was those two tens added together, which agreed with the
+        // truth only while the inset stayed at its default.
+        (content_height + self.top_inset - viewport_height + BOTTOM_SLACK).max(0.0)
     }
 
     /// The primary caret's absolute Y position in document space, for
@@ -1706,7 +1741,7 @@ impl FrameCompositor {
     /// line); falls back to fold-only estimation when it has moved.
     pub fn cursor_anchor_y(&self, editor: &Editor, fold_state: &FoldState) -> f32 {
         let line_height = self.text_renderer.line_height();
-        let padding = 10.0;
+        let top_inset = self.top_inset;
         let cursor_line = editor.cursor().line;
         if cursor_line == self.cached_cursor_doc_line && self.cached_cursor_abs_y > 0.0 {
             // Cursor on the same line as last render — use cached position
@@ -1716,7 +1751,7 @@ impl FrameCompositor {
             // Cursor moved to a different line — approximate using fold mapping
             let visual_line = fold_state.document_to_visual_line(cursor_line).unwrap_or(0);
             let row_y = index_to_f32(visual_line) * line_height;
-            padding + row_y
+            top_inset + row_y
         }
     }
 
@@ -1737,14 +1772,15 @@ impl FrameCompositor {
     ) -> (usize, usize) {
         let line_height = self.text_renderer.line_height();
         let char_width = self.cached_char_width;
-        let padding = 10.0_f32;
+        let padding = HORIZONTAL_PADDING;
+        let top_inset = self.top_inset;
 
         let doc = &editor.state().document;
         let line_count = doc.line_count();
 
         if self.cached_visual_line_map.is_empty() {
             // Fallback: no cached map (before first render), use simple calculation
-            let visual_line = pixel_to_index(((y + scroll_y - padding) / line_height).max(0.0));
+            let visual_line = pixel_to_index(((y + scroll_y - top_inset) / line_height).max(0.0));
             let doc_line = fold_state
                 .visual_to_document_line(visual_line)
                 .min(line_count.saturating_sub(1));
@@ -1760,7 +1796,7 @@ impl FrameCompositor {
         // Calculate the text area top offset (must match compose positioning)
         let virtual_scroll_offset = index_to_f32(self.cached_map_viewport_start) * line_height;
         let adjusted_scroll_y = scroll_y - virtual_scroll_offset;
-        let text_area_top = padding - adjusted_scroll_y;
+        let text_area_top = top_inset - adjusted_scroll_y;
 
         // Calculate which visual line in the buffer was clicked
         let y_in_buffer = y - text_area_top;
@@ -1807,7 +1843,8 @@ impl FrameCompositor {
     ) -> Option<(f32, f32)> {
         let line_height = self.text_renderer.line_height();
         let char_width = self.cached_char_width;
-        let padding = 10.0_f32;
+        let padding = HORIZONTAL_PADDING;
+        let top_inset = self.top_inset;
 
         // Check if line is folded (hidden)
         if fold_state.is_line_hidden(doc_line) {
@@ -1821,7 +1858,7 @@ impl FrameCompositor {
             let column_x = index_to_f32(column) * char_width;
             let x = offset_x + column_x;
             let row_y = index_to_f32(visual_line) * line_height;
-            let y = padding + row_y - scroll_y;
+            let y = top_inset + row_y - scroll_y;
             return Some((x, y));
         }
 
@@ -1866,7 +1903,7 @@ impl FrameCompositor {
         let seg_x = index_to_f32(col_in_segment) * char_width;
         let x = self.cached_content_offset_x + seg_x;
         let row_y = index_to_f32(visual_idx) * line_height;
-        let y = padding + row_y + virtual_scroll_offset - scroll_y;
+        let y = top_inset + row_y + virtual_scroll_offset - scroll_y;
         Some((x, y))
     }
 
@@ -1881,6 +1918,31 @@ impl FrameCompositor {
                 .calculate_width(line_count, self.cached_char_width)
         } else {
             0.0
+        }
+    }
+
+    /// The pixels of window reserved above the document.
+    #[must_use]
+    pub const fn top_inset(&self) -> f32 {
+        self.top_inset
+    }
+
+    /// Reserves `pixels` of window above the document.
+    ///
+    /// The face passes the height of whatever chrome it draws there — a tab
+    /// strip, a breadcrumb bar — *plus* the text's own breathing room, and
+    /// every layout query follows: painting, hit-testing, scroll-to-caret
+    /// and the scroll clamp. That is the whole reason it is one value rather
+    /// than an argument to each: a face that remembered three of the four
+    /// would have a window where clicks land a row out from where they look.
+    ///
+    /// A negative or non-finite value is ignored rather than stored — it
+    /// would place the document above the top of the window, which is not a
+    /// layout anyone asked for, and rejecting it here keeps every consumer
+    /// from having to guard.
+    pub const fn set_top_inset(&mut self, pixels: f32) {
+        if pixels >= 0.0 && pixels.is_finite() {
+            self.top_inset = pixels;
         }
     }
 

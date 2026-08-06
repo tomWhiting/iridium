@@ -51,6 +51,7 @@ Everything below is committed, pushed, and green on all six gates.
 | `4c68943` | **`app.rs` split into nineteen files, none over 462** |
 | `225cd1a` | **the document is fenced out of the band a face reserved** |
 | `2ad81ab` | **`iridium-explorer` — the filesystem source, off the frame thread** |
+| `d914bd7` | **the file explorer panel, on `Ctrl+Alt+E`** |
 
 ---
 
@@ -350,9 +351,36 @@ actions on a filtered set of names are exactly what he wants. The resolution:
 
 ### Build order — step 1 is DONE, `2ad81ab`
 
-Filesystem `TreeSource` ✅ → **the popover showing it (NEXT)** → fuzzy
-filtering → regex → **the editable-buffer half last**, since it is the part
-that touches the disk.
+Filesystem `TreeSource` ✅ → the popover showing it ✅ (`d914bd7`) → **fuzzy
+filtering (NEXT)** → regex → **the editable-buffer half last**, since it is
+the part that touches the disk.
+
+#### Step 2 — what landed, and the defect it turned up
+
+`explorer.togglePanel` is a kernel host command beside `palette.open`, bound
+to **`Ctrl+Alt+E`** (the undo tree's chord shape — both are toggled panels).
+`DEFAULT_KEYMAP_BINDING_COUNT` went 65 → 66. The panel is
+`apps/iridium-desktop/src/file_tree/` (mod 32 · panel 423 · tests 232) and
+composes into the same `PanelContent` the palette and undo tree use.
+
+**The defect, caught by a test written first.** `iridium-tree`'s fourth
+`TreeSource` rule: a node that promised children and produced none is treated
+as a leaf *from then on*. Expanding a directory whose read is still in flight
+is exactly that — it never opens again. The first version did it to the root
+in `open` and to every directory on `Enter`. Now every expansion goes through
+`FileExplorer::open_row`, gated on the new `FileTree::is_listed`: listed
+expands now, unlisted posts the read and is remembered in `wanted`, and the
+poll that brings the listing opens it. **Anyone adding an expansion path must
+use `open_row`, never `Tree::expand` directly.**
+
+The panel is the only one that polls: `redraw` drains before composing panels
+and asks for another frame while — and only while — `is_waiting` is true.
+Closing *drops* it (it owns a reader thread and an arena), unlike the other
+two which are hidden.
+
+Still open for Tom, deliberately not guessed: whether `Enter` on a directory
+should descend and re-root rather than toggle, and whether this replaces
+`Ctrl+O`.
 
 #### What `iridium-explorer` gives you
 

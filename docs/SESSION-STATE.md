@@ -1,6 +1,66 @@
 # Session state — 2026-07-30
 
-## ✅ LIVE (6 Aug ~09:4x local) — READ THIS FIRST
+## ✅ LIVE AT COMPACTION #4 (6 Aug ~10:0x local) — READ THIS FIRST
+
+**Tree clean, HEAD pushed. NOTHING IN FLIGHT** except the persistent CI
+watch `byjsqprlt`. `/loop` is STOPPED. No agent, no other task.
+
+**TOM'S STEER, and it governs:** *"I wanted you working on iridium…
+I was hoping to keep you working on iridium here."* ⇒ **LIMINAL IS A
+NO for this seat** — Athena's and Cally's reading brief, band arithmetic,
+stop and hold-lift are theirs to run; I am out of that lane and told
+them so. **Do not pick it back up.**
+
+**DISK IS A NON-ISSUE NOW.** Tom ran his own auto-cleaning script;
+`target/` is gone, 143.4 GiB free at 85%. Declaration closed, **re-opened
+at anchor 0**. The next build of anything is **fully cold** — the warm
+draw series does not apply and the first full profile is a multi-GiB
+first-touch draw. Do not price the next lane off the old series.
+
+⚠️ **TOM'S EDITOR RUNS FROM A DELETED BUNDLE** — pid 71394, alive,
+executing a path that no longer exists. Editing/saving unaffected;
+**when he quits, the app is gone until rebuilt.** He knows.
+
+**THE OBVIOUS NEXT WORK, and it is unblocked:** tasks **#37 + #38** —
+one lane, identical invalidation set. #37 puts the pixel-ratio /
+line-height guard at the Rust boundary (today the only guard is
+`devicePixelRatio || 1` in TypeScript; a `??` refactor deletes it, no
+non-TS caller has it, and the same file already drops it at
+`index.ts:689-690`). #38 makes `pixel_to_index` reachable from
+`iridium-bindings` so `wasm.rs:2827` stops hand-rolling maths the kernel
+already tests to the bit. Both were recommended to Tom and neither needs
+a ruling. **#39** (kernel `clear_language`) shares that invalidation set
+and could ride the same lane.
+
+**🆕 TOM'S LIVE QUESTION, ARRIVED 23:59 AND UNANSWERED — ANSWER THIS
+FIRST:** *should the file-tree / sidebar be a **separate wasm library**
+that works alongside iridium, rather than part of it?* This is a real
+architectural fork and it is **S-5**, to be added to
+`docs/DESKTOP-SHAPE.md`. Ground already verified for it: the browser has
+no filesystem (File System Access API is Chromium-only, permission-
+gated), so a *file-tree* sidebar cannot be shared across faces whatever
+package it ships in — which means the packaging question and the
+"which of the three sidebars" question (S-2) are **entangled and must be
+answered together**, not in sequence. He is awake and waiting.
+
+**WAITING ON TOM — do not proceed:** **S-1..S-4** in
+`docs/DESKTOP-SHAPE.md` (he reopened tabs/sidebars and has "lots of
+thoughts on sidebars" — I asked for them); #31 theme variant;
+right-vs-left-press dismissal; accented characters; the older
+"switching" question.
+
+**OWED AT THE NEXT BUILD SWAP** (not the baton): one line naming **both
+halves** — *word-select is now ⌥⇧←/→; expand/shrink moved to ⌃⇧⌘←/→*.
+Proceeded on **silence, not a ruling**.
+
+**UNTESTED AND MUST BE SAID WHEN IT MATTERS:** `install.sh`'s happy path
+has never run. Only its refusal guard is proven (it correctly refused
+against live pid 71394). Tom must quit before build+install can run at
+all; offer to run it and report, never assume it worked.
+
+---
+
+## ✅ (SUPERSEDED) LIVE at 6 Aug ~09:4x local
 
 **HEAD `831f276`, pushed. Tree clean** apart from untracked
 `.claude/skills/`. CI watch `byjsqprlt` still armed; `/loop` stopped.

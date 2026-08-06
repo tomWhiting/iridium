@@ -80,6 +80,20 @@ fn truncated_magnitude(value: f32) -> u64 {
 /// cast's — the render path's output must not move by even a pixel — but
 /// spelled out.
 ///
+/// "Bit-for-bit" is exhaustive, not a figure of speech. On 2026-08-06 this
+/// function was compared against `value as usize` over **every one of the
+/// 2^32 `f32` bit patterns**, and disagreed on none of them. The check ran
+/// outside the workspace rather than as a test here because four billion
+/// iterations do not belong in `cargo test`; `pixel_to_index_matches_cast`
+/// below pins the boundaries that exhaustive run identified.
+///
+/// The same run measured what a *restatement* of this function costs. The
+/// copy that `apps/iridium-desktop` kept while this module was `pub(crate)`
+/// disagreed with the cast on **805,306,369** inputs — every positive value
+/// at or above 2^32 (biased exponents 159–254: 96 × 2^23 = 3/16 of the
+/// space), plus `+∞`. It saturated at `u32::MAX` instead of [`usize::MAX`].
+/// Unreachable at any real line count, and undetected for that reason.
+///
 /// Because the conversion truncates toward zero and floors everything below
 /// `1.0` to zero, it subsumes a `floor()` and a `max(0.0)` applied to its
 /// input: for every `f32`, `pixel_to_index(v)`, `pixel_to_index(v.floor())`

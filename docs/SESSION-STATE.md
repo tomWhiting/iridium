@@ -105,22 +105,55 @@ a real observation, recorded as **#51**, not fixed.
 
 ---
 
-## ▶️ NEXT: draw the sidebar (D-2)
+## ▶️ NEXT: the Oil popover — TOM CHANGED DIRECTION, 6 Aug
 
-The kernel is ready and the audit is done. What remains is entirely face-side:
+**The drawn sidebar is no longer the next piece.** Tom asked for an
+**oil.nvim**-style file navigator instead, as a command-palette-style popover,
+fused with fuzzy filtering and regex. Confirmed explicitly — he named
+oil.nvim.
 
-- **There is still no sidebar and no file tree in the desktop face.**
-- `Workspace` already carries the nesting it needs: `roots()`, `node()`,
-  `Node::Group { name, children }`, `parent_of`, `move_node`. Nothing draws it.
-- It wants the same shape the tab strip got: a **pure layout module**
-  (`sidebar.rs`) that takes window, grid and tree and returns rectangles, with
-  the painter and the hit test both reading what it decided.
-- The face then calls `compositor.set_left_inset(width)` wherever the width
-  becomes known — the analogue of `sync_top_inset()`, which is called from
-  `resumed`, `resized` and `rescaled`.
-- **Add a `chrome-sidebar.png` shot** to `tests/chrome_screenshots.rs` when
-  there is something to look at. Deliberately not added now: an empty band is
-  less informative than the pixel assertions already covering it.
+**This means `set_left_inset` has no caller yet.** It is correct, tested and
+still what any future drawn sidebar needs, and the audit that came with it
+caught a live bug — but do not expect to use it soon. Said plainly to Tom.
+
+### What already exists (verified, not assumed)
+
+- **`crates/iridium-tree`** — full face-agnostic tree behaviour: expansion
+  state, virtualised row projection, keyboard navigation, selection that
+  survives collapsing a parent. A face supplies a `TreeSource` and renders
+  `Row`s. **Nothing else needs writing for the tree half.**
+- **`crate::fuzzy`** — the matcher, extracted from the command palette this
+  session (`a6d28d6`) so files and commands rank through the same code.
+  `/` and `\` already count as word starts, which is what a path needs.
+- **regex** — a workspace dependency, wired into `search::find` with
+  `validate_regex` and `escape_regex` already public.
+- The command palette exists in kernel, bindings, desktop **and TUI**.
+
+### The design put to Tom, awaiting his ruling
+
+1. **No query → the Oil view**: full tree, **editable**, edits apply on save.
+   **Query typed → filtered and read-only.** The reason is not tidiness: in a
+   filtered view, deleting a line is ambiguous between "delete this file" and
+   "this is not in my filter", and getting that wrong loses someone's work.
+   Making the filtered view untypeable removes the mistake rather than
+   warning about it.
+2. **Filtering keeps the hierarchy** — hide non-matching rows but keep the
+   directories that lead to matches, still indented. Not a flat ranked list.
+   Offered him the flat alternative as a genuine fork.
+3. **A sigil, not a mode key**: plain text is fuzzy, a leading `/` is regex.
+
+### Build order proposed
+
+Filesystem `TreeSource` → the popover showing it → fuzzy filtering → regex →
+**the editable-buffer half last**, since it is the part that touches the disk.
+
+### Deliberately not decided
+
+- Whether Enter on a directory descends in the popover or opens an Oil buffer
+  in a tab.
+- Whether this replaces `⌘O` or sits beside it.
+
+Both wait until something is on screen to react to.
 
 ## ▶️ WHAT IS LEFT ON THE STRIP (small, none of it blocking)
 

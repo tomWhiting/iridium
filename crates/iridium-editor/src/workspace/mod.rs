@@ -32,6 +32,8 @@ mod node;
 mod tree_source;
 
 #[cfg(test)]
+mod face_setup_tests;
+#[cfg(test)]
 mod nav_tests;
 #[cfg(test)]
 mod payload_tests;
@@ -42,5 +44,5 @@ mod workspace_tests;
 
 pub use dispatch::WorkspaceCommandError;
 pub use ids::{DocumentId, NodeId};
-pub use model::Workspace;
+pub use model::{FaceSetupError, Workspace};
 pub use node::Node;

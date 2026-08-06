@@ -5,6 +5,7 @@ use core::fmt;
 use std::collections::{HashMap, HashSet};
 
 use super::{DocumentId, Node, NodeId};
+use crate::commands::{CommandMeta, Keymap, KeymapError, RegistryError};
 use crate::editor::{Editor, EditorConfig};
 use crate::theme::Theme;
 
@@ -66,6 +67,57 @@ pub struct Workspace<T = ()> {
     config: EditorConfig,
     /// The theme every editor is kept at.
     theme: Theme,
+    /// The commands this face registered, replayed onto every editor.
+    ///
+    /// Held for the same reason as [`theme`](Self::theme), and against a
+    /// quieter failure: a face registers its commands once at startup, sees
+    /// them work in the first tab, and would otherwise discover on the
+    /// second that its save chord does nothing.
+    face_commands: Vec<CommandMeta>,
+    /// The keymap layers this face pushed, replayed onto every editor in
+    /// the order they were pushed — which is the order that decides
+    /// precedence, so it must not be a set.
+    face_keymaps: Vec<Keymap>,
+}
+
+/// Why a face's command or keymap could not be applied to every tab.
+///
+/// A union of the two failures because
+/// [`Workspace::register_command`] and [`Workspace::push_keymap`] both
+/// validate by *building an editor*, and building one replays both. A type
+/// that named only the half the caller was adding would be claiming the
+/// other half cannot fail — which is true today and is not a property of
+/// the type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FaceSetupError {
+    /// A command could not be registered: a duplicate or empty id.
+    Registry(RegistryError),
+    /// A keymap layer was refused: most often a binding naming a command
+    /// that is not registered.
+    Keymap(KeymapError),
+}
+
+impl fmt::Display for FaceSetupError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Registry(error) => write!(formatter, "{error}"),
+            Self::Keymap(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl core::error::Error for FaceSetupError {}
+
+impl From<RegistryError> for FaceSetupError {
+    fn from(error: RegistryError) -> Self {
+        Self::Registry(error)
+    }
+}
+
+impl From<KeymapError> for FaceSetupError {
+    fn from(error: KeymapError) -> Self {
+        Self::Keymap(error)
+    }
 }
 
 /// One open buffer and the face state that belongs to it.
@@ -96,7 +148,100 @@ impl<T> Workspace<T> {
             next_node: 0,
             config,
             theme,
+            face_commands: Vec::new(),
+            face_keymaps: Vec::new(),
         }
+    }
+
+    /// Registers a face's command on every open tab, and on every future one.
+    ///
+    /// The same argument [`set_theme`](Self::set_theme) makes, for a quieter
+    /// failure. A face registers its commands once at startup; without this
+    /// the first tab would have them and every later tab would not, and the
+    /// symptom — a chord that works until you open a second file — reads as
+    /// a keyboard bug rather than a registration one.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`Editor::register_command`] reports: a duplicate id,
+    /// including one a kernel table already claims, or an empty id.
+    ///
+    /// **Validated by building an editor, not by consulting a second
+    /// record.** A parallel check would be a proxy for what [`Editor`]
+    /// actually accepts, and would diverge the first time the kernel's
+    /// tables changed under it. The tentative entry is removed again if the
+    /// build refuses it, so a rejected registration leaves no trace.
+    ///
+    /// The error is a union of both failures rather than
+    /// [`RegistryError`] alone, because building an editor replays the
+    /// keymaps too and the honest type says so.
+    pub fn register_command(&mut self, meta: CommandMeta) -> Result<(), FaceSetupError> {
+        self.face_commands.push(meta);
+        let accepted = self.build_editor("");
+        if let Err(error) = accepted {
+            self.face_commands.pop();
+            return Err(error);
+        }
+
+        // Cannot fail: the build above proved this exact sequence is
+        // accepted by an editor built the same way, and every open editor
+        // was built that way. Dropped rather than unwrapped for that reason.
+        if let Some(meta) = self.face_commands.last().cloned() {
+            for open in self.documents.values_mut() {
+                drop(open.editor.register_command(meta.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Pushes a keymap layer onto every open tab, and onto every future one.
+    ///
+    /// Layers are replayed in push order, because that order is what decides
+    /// precedence between two layers binding the same chord.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`Editor::push_keymap`] reports — most often a binding
+    /// naming a command that is not registered. A refused push leaves no
+    /// layer behind on any tab; see [`register_command`](Self::register_command)
+    /// for why validation is a build rather than a second check.
+    pub fn push_keymap(&mut self, keymap: Keymap) -> Result<(), FaceSetupError> {
+        self.face_keymaps.push(keymap);
+        let accepted = self.build_editor("");
+        if let Err(error) = accepted {
+            self.face_keymaps.pop();
+            return Err(error);
+        }
+
+        if let Some(keymap) = self.face_keymaps.last().cloned() {
+            for open in self.documents.values_mut() {
+                drop(open.editor.push_keymap(keymap.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Builds an editor exactly as every open tab's was built.
+    ///
+    /// The single construction path, used both to open a document and to
+    /// validate a registration. One path is the point: a validator that
+    /// built editors differently from the real thing would agree with it
+    /// right up until it mattered.
+    fn build_editor(&self, content: &str) -> Result<Editor, FaceSetupError> {
+        let mut editor = Editor::new(self.config.clone());
+        editor.set_theme(self.theme.clone());
+        for meta in &self.face_commands {
+            editor
+                .register_command(meta.clone())
+                .map_err(FaceSetupError::Registry)?;
+        }
+        for keymap in &self.face_keymaps {
+            editor
+                .push_keymap(keymap.clone())
+                .map_err(FaceSetupError::Keymap)?;
+        }
+        editor.set_content(content);
+        Ok(editor)
     }
 
     /// Opens `content` as a new document with a tab under `parent`.
@@ -445,13 +590,25 @@ impl<T> Workspace<T> {
     }
 
     /// Allocates the next document id, its editor, and its face payload.
+    ///
+    /// The editor comes from [`build_editor`](Self::build_editor), the same
+    /// path every registration is validated against — so a command or
+    /// keymap that was accepted at startup cannot be refused here. Were it
+    /// somehow refused, the new tab falls back to an editor with the
+    /// kernel's commands and the workspace's theme: a tab missing the
+    /// face's chords is recoverable and visible, whereas refusing to open
+    /// the file at all would lose the user's action over a setup fault they
+    /// did nothing to cause.
     fn allocate_document(&mut self, content: &str, payload: T) -> DocumentId {
         let id = DocumentId(self.next_document);
         self.next_document = self.next_document.saturating_add(1);
 
-        let mut editor = Editor::new(self.config.clone());
-        editor.set_theme(self.theme.clone());
-        editor.set_content(content);
+        let editor = self.build_editor(content).unwrap_or_else(|_| {
+            let mut fallback = Editor::new(self.config.clone());
+            fallback.set_theme(self.theme.clone());
+            fallback.set_content(content);
+            fallback
+        });
         self.documents.insert(id, Open { editor, payload });
         id
     }

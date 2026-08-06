@@ -1173,6 +1173,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iridium-explorer"
+version = "0.1.0"
+dependencies = [
+ "iridium-file",
+ "iridium-tree",
+]
+
+[[package]]
 name = "iridium-file"
 version = "0.1.0"
 

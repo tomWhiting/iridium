@@ -4,6 +4,7 @@ members = [
     "apps/iridium",
     "apps/iridium-desktop",
     "crates/iridium-editor",
+    "crates/iridium-explorer",
     "crates/iridium-file",
     "crates/iridium-syntax",
     "crates/iridium-bindings",
@@ -105,6 +106,7 @@ criterion = { version = "0.8.1", features = ["html_reports"] }
 
 # Internal crates
 iridium-editor = { path = "crates/iridium-editor", default-features = false }
+iridium-explorer = { path = "crates/iridium-explorer" }
 iridium-file = { path = "crates/iridium-file" }
 iridium-syntax = { path = "crates/iridium-syntax" }
 iridium-tree = { path = "crates/iridium-tree" }

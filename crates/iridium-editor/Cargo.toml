@@ -111,6 +111,13 @@ required-features = ["render", "syntax"]
 name = "top_inset"
 required-features = ["render"]
 
+# The same proof on the other axis: a face reserving chrome beside the
+# document moves the gutter, its numbers, the change bars and the content
+# column together, and nothing it draws reaches into the reserved band.
+[[test]]
+name = "left_inset"
+required-features = ["render"]
+
 [[bench]]
 name = "rendering"
 harness = false

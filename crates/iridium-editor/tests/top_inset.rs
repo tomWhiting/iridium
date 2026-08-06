@@ -381,6 +381,63 @@ fn the_gutter_moves_down_with_the_text_it_numbers() {
     }
 }
 
+/// **The inline blame ghost text is clipped at the band too.**
+///
+/// The third text area, and the one that kept the window's edge as its top
+/// bound after the content and the gutter were moved onto the inset. It was
+/// missed because blame is populated only from the web face, which draws no
+/// chrome above the document — so the two disagreed on every frame anyone
+/// had composed, and would have started disagreeing visibly the day a
+/// TypeScript tab strip landed.
+///
+/// Blame sits on the caret's line, and the caret can be scrolled up behind
+/// the reserved band; with the window edge as the bound, its ghost text is
+/// then drawn *inside* a face's chrome.
+///
+/// The claim is made against a second frame rather than against an empty
+/// band, because the band is not empty: the caret and the line-background
+/// quads are geometry, not text, and a text area's bounds do not clip them
+/// at all. Composing the same scroll with and without blame data isolates
+/// exactly the ink this test is about.
+#[test]
+fn the_blame_ghost_text_stays_out_of_the_reserved_band() {
+    /// A scroll that leaves the caret's line inside the band rather than
+    /// above the window: `top_inset` minus this is where its text lands.
+    const INTO_THE_BAND: f32 = 14.0;
+
+    let gpu = gpu();
+    let editor = editor();
+    let inset = 10.0 + STRIP_HEIGHT;
+
+    let mut bare = compositor(&gpu);
+    bare.set_top_inset(inset);
+    let bare_frame = compose_to_texture(&mut bare, &editor, INTO_THE_BAND, &gpu);
+    let bare_pixels = read_pixels(&gpu, &bare_frame);
+
+    let mut blamed = compositor(&gpu);
+    blamed.set_top_inset(inset);
+    blamed
+        .blame_data_mut()
+        .insert(0, "committed by someone, a while ago".to_owned());
+    let blamed_frame = compose_to_texture(&mut blamed, &editor, INTO_THE_BAND, &gpu);
+    let blamed_pixels = read_pixels(&gpu, &blamed_frame);
+
+    let band = pixel_to_index(inset).min(HEIGHT_USIZE);
+    assert!(band > 0, "there is no band; this test proves nothing");
+
+    for row in 0..band {
+        for column in 0..WIDTH_USIZE {
+            let at = (row * WIDTH_USIZE + column) * 4;
+            assert_eq!(
+                bare_pixels[at..at + 3],
+                blamed_pixels[at..at + 3],
+                "the blame ghost text drew at ({column}, {row}), inside the {inset}-pixel \
+                 band the face reserved"
+            );
+        }
+    }
+}
+
 /// The scroll clamp grows with the inset, so the last line can still be
 /// reached.
 ///

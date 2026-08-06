@@ -1,0 +1,24 @@
+[package]
+name = "iridium-tree"
+description = "Expansion state and a virtualised row projection for hierarchical views"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "iridium_tree"
+path = "src/lib.rs"
+
+# No dependencies, deliberately, and this is the point of the crate rather
+# than an accident of its size. A tree is a projection over someone else's
+# hierarchy; it must not know whether that hierarchy is a filesystem, a syntax
+# tree or a list of open documents. Depending on the kernel would let it find
+# out, and the file-tree source is native-only while the outline source is
+# not — a dependency here would drag that split into every face.
+[dependencies]

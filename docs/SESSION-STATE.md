@@ -36,6 +36,52 @@ GiB** — see row 28; the ceiling was ~6.6× high and Cally's 45.9 estimate
 Box delta over the window was 3.36 GiB, **not reported as my draw** —
 shared box, so it is an upper bound only.
 
+**🆕 `crates/iridium-tree` EXISTS — step 2 of the sidebar plan, built on
+Tom's go-ahead ("you got the go ahead for anything you need there").**
+34 tests, clippy `-D warnings` exit 0, fmt exit 0. **Zero dependencies,
+and that is the point rather than an accident of size** — a tree is a
+projection over someone else's hierarchy and must not be able to learn
+whose.
+
+Answering Tom's *"shared library / standalone / integrated"* question in
+code: **standalone as a CRATE (compile-time boundary, zero runtime cost,
+inlines through with LTO), never as a separate WASM MODULE** (two
+modules do not share linear memory, so every interaction serialises
+through JavaScript). That distinction is the whole answer to S-5 and it
+is now written into the crate's own module docs, not just a DM.
+
+Design decisions worth not re-litigating:
+- **`expanded: HashSet<Id>` is authoritative; `rows` is derived.** So
+  collapse → re-expand restores the subtree exactly. A rows-only model
+  forgets, and forgetting is the wrong default: a collapse is a glance
+  away, not a reset.
+- **`rows` is flat with a depth per row** ⇒ virtualisation is a slice
+  (`window(first, count)`, clamped both ends), so a frame costs the
+  viewport, not the repository.
+- **Expand/collapse splice, never rebuild.**
+- **`build` is iterative with an explicit stack, not recursive** — a
+  hierarchy deep enough to overflow the stack is exactly the input a
+  no-panic model must survive. Tested at 40,000 levels.
+- **Depth is `usize`, and this was a live correctness fix.** It was
+  `u16` with `saturating_add`. At the cap two nested levels compare
+  equal, `subtree_extent`'s `depth > row.depth` run ends early, and
+  **collapse would leave orphaned rows on screen.** ⇒ ★ *a saturating
+  narrow integer is safe only where nothing later compares two of them
+  for ordering.* Two bytes per row is not worth a silent projection bug.
+- **The source may lie optimistically** (`has_children` true, no
+  children) — permitted by contract, and the tree corrects the row to a
+  leaf rather than erroring, so the arrow stops inviting the click.
+- **`TreeSource::children` takes `&mut self`** so a filesystem source
+  can cache. The crate CANNOT enforce the real rule and says so: **a
+  source must not block on I/O**, because the tree runs on the frame
+  thread. `refresh` exists for the arrival of off-thread data.
+
+**Test-fixture lesson worth keeping:** the deep-chain test first ran in
+**13.30 s** because the fixture scanned all edges per call, making it
+quadratic. Indexed by parent ⇒ **0.04 s**. ⇒ ★ *a fixture slow enough to
+notice gets its depth reduced until it stops testing the thing it was
+written for* — fix the fixture, not the coverage.
+
 **✅ `install.sh` HAPPY PATH HAS NOW RUN, FIRST TIME EVER, exit 0.**
 `/Applications/iridium.app` installed from a cold release build of
 `482f986`. Verified at my hand, NOT taken from the script's own success

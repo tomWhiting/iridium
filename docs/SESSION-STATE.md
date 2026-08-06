@@ -1,130 +1,145 @@
-# Session state — 6 Aug 2026, 13:1xZ
+# Session state — 6 Aug 2026, 13:5xZ
 
 ## ✅ WHERE THINGS ARE — READ THIS FIRST
 
-**Tabs work in the desktop face.** Not visible yet — there is no strip —
-but the behaviour is live and bound. `⌘⇧]` / `⌘⇧[` walk the strip, `⌘W`
-closes with a confirmation over unsaved work, and **opening a file makes
-a tab instead of overwriting what is in front of you.**
+**The tab strip is drawn and it works.** A docked band along the top edge:
+the active tab a rounded card, unsaved tabs an amber dot, a close control
+on each, overflow scrolling to keep the tab in front on screen. Clicking a
+tab activates it; clicking its × closes it, with the unsaved-work question
+still asked. `⌘⇧]` / `⌘⇧[` / `⌘W` still work, and opening a file still adds
+a tab rather than replacing one.
 
-Everything below is committed and green on all six gates.
+Everything below is committed, pushed, and green on all six gates.
 
 | commit | what |
 |---|---|
 | `fd42466` | the window's size reaches every tab (kernel bug) |
 | `f75b6a9` | Desktop A — `DesktopApp` holds a `Workspace<DesktopDocument>` |
 | `19527a9` | Desktop B — the five workspace commands, additive open |
-
-**Installed**: `/Applications/iridium.app`, built 13:03, signature
-verified on the copy that landed. Tom quit everything at 03:03Z so the
-install could run; he has been told what is and is not in it.
-
----
-
-## ⏭ IN FLIGHT: Desktop C — draw the tab strip (task #48)
-
-### ✅ Half of it is done and pushed
-
-**`FrameCompositor::set_top_inset` landed.** The kernel half of the
-crux below is finished: one field, read by the painter, the hit test,
-`cursor_anchor_y` and `max_scroll_y`. Five headless tests in
-`crates/iridium-editor/tests/top_inset.rs`, gated on the `render`
-feature in `Cargo.toml` (`[[test]] name = "top_inset"`). All six gates
-green, pushed.
-
-The load-bearing test is a **round trip**: `position_to_pixel(line) → y`,
-click at `y + line_height/2`, assert `pixel_to_position` gives that line
-back — over four lines × three scroll offsets. Beside it a control that
-stops two wrongs agreeing (the inset must actually move line 0 down).
-
-### ▶️ WHAT IS LEFT
-
-1. **Desktop face calls it.** `app.rs` — when the strip is up, call
-   `shell.compositor.set_top_inset(10.0 + strip_height)`; when it is
-   not, leave it. Do this wherever the strip height becomes known
-   (`resumed`, `resized`, `rescaled`).
-2. **Draw the strip.** `apps/iridium-desktop/src/overlay.rs` paints
-   **floating panels** (`PanelAnchor` is Top/Bottom/Point, all
-   *floating* and centred). A strip is a full-width band flush to the
-   top edge — it needs its own placement, not a `PanelAnchor`.
-   The painter already draws rounded rects (`PanelRect` carries a
-   radius), so the vocabulary is there. **Tom's rule: rounded corners,
-   genuine arcs, never sharp.**
-3. **Strip content from the workspace.** `Workspace::tabs()` gives the
-   node ids in display order; `Node::label()` the title; `active()` the
-   one in front. A dirty marker per tab needs the same `is_dirty` test
-   `app.rs` does, but per document rather than per active tab.
-4. **Clicking a tab activates it**, and clicking its close box closes
-   it — through `close_active_tab` so the unsaved-work question still
-   gets asked. `pointer_pressed` must consult the strip *before* the
-   document, the way `dismiss_modal_panel` does.
-
-### The crux (kernel half now solved — kept for the reasoning)
-
-The document must start *below* the strip.
-
-`apps/iridium-desktop/src/overlay.rs` paints **floating panels** — the
-palette, the undo tree, search, the context menu. A tab strip is not that
-shape: it is a full-width band at the top that the document must be
-pushed down by. Painting it as a floating panel would cover the first two
-lines of text.
-
-`FrameCompositor` hardcodes `let padding = 10.0_f32;` in **four separate
-places** — `compositor.rs:642` (compose), `:1709` (`cursor_anchor_y`),
-`:1740` (`pixel_to_position`), `:1810` — plus a `padding` field on the
-metrics struct at `:194` that the closures read as `m.padding`.
-
-**The plan, and why:**
-
-1. Add `FrameCompositor::top_inset: f32`, default `10.0`, with
-   `set_top_inset`. **A separate field from `padding`, not a repurposing
-   of it** — `padding` is also the *horizontal* inset
-   (`content_offset_x = gutter_width + padding` at `:647`), and those are
-   two concerns that merely share a number today.
-2. Every Y-axis use becomes `top_inset`: `:734`, `:786`, `:844`, `:1364`,
-   `:1380`, `:1422`, `:1438`, `:1542`, `:1568`, `:1615`, `:1719`,
-   `:1747`, `:1763`, `:1824`. Add `top_inset` to the metrics struct
-   beside `padding`.
-3. `max_scroll_y` (`:1684`) must subtract the inset from the usable
-   height, or the last line cannot be scrolled to.
-4. The desktop face sets `top_inset = 10.0 + strip_height` when the strip
-   is up, `10.0` when it is not.
-
-**The test that earns it, and the reason to do it this way:** a click
-must land on the line under the pointer *with the strip up*. An offset
-applied in the painter but not in the hit test agrees with the truth
-exactly at the top of the document and diverges by one row everywhere
-else — the same proxy failure as everything else this week. Write that
-test first, against a composited frame, before drawing anything.
-
-The web face is unaffected: its `top_inset` stays 10 and its tab strip is
-DOM.
-
-### Then the strip itself
-
-Tom's rule: **rounded corners, genuine arcs, never sharp.** The overlay
-painter already draws rounded rects (`PanelRect` carries a radius), so
-the vocabulary exists; the strip needs its own placement rather than
-`PanelAnchor`, which only knows Top/Bottom/Point *floating*.
-
-Order after that: **B (done) → C (strip) → the sidebar**, which does not
-exist at all in the desktop face.
+| `8be2849` | one top inset the painter and the hit test both measure from |
+| `68ffca4` | **the gutter measures from the top inset too** (kernel bug) |
+| `80caf9b` | **Desktop C — the tab strip is drawn, and clicking it works** |
 
 ---
 
-## ⚠️ TWO THINGS I GOT WRONG TODAY — both told to Tom
+## ⚠️ THE SWAP IS ARMED AND WAITING ON TOM
 
-1. **I rebuilt a binary a live session was running from.** `cargo build
-   --release` at 13:01 rewrote `target/release/iridium-desktop` while
-   pid 89462 had been running it since 12:06. No damage — macOS keeps the
-   running process on its old inode — but the check belongs *before* the
-   build, not after. `pgrep -x iridium-desktop`, always, first.
+`target/release/bundle/iridium.app` is **built and codesigned** with the
+strip in it (13:50). It is **not installed**: `pgrep -x iridium-desktop`
+reports **pid 22591 running from `/Applications/iridium.app`** since 13:21.
+
+**When Tom quits, and only then**, as two separate commands:
+
+```
+pgrep -x iridium-desktop            # must report nothing
+rm -rf /Applications/iridium.app
+mv target/release/bundle/iridium.app /Applications/iridium.app
+codesign --verify --deep --strict /Applications/iridium.app
+```
+
+Check *before* the build as well as before the swap — that is the rule I
+broke on the 5th and it is written up below.
+
+---
+
+## 🧭 WHAT THE TAB STRIP IS MADE OF
+
+**`apps/iridium-desktop/src/tab_strip.rs`** (767 lines with tests) — pure.
+Window, grid and tabs in; rectangles out. No GPU, no theme, no workspace.
+
+- `tab_strip_layout(width, height, metrics, content) -> Option<TabStripLayout>`
+  is **the only thing that decides where a tab is**. The painter and the
+  hit test both read what it decided. A strip drawn from one placement and
+  clicked against another agrees on the first tab and nothing else.
+- `tab_strip_height(window_height, metrics)` is called by the painter *and*
+  by the face's reserve, so a window too short for the band is charged
+  nothing for one.
+- **Horizontal placement is in whole character cells.** The strip's text is
+  shaped as one buffer at one origin, so a pixel gap between tabs would put
+  the label of tab three half a cell left of its card.
+- Overflow **scrolls** by whole cells; it does not shrink tabs, which would
+  move the tab under the pointer when an unrelated file opened.
+
+**`overlay.rs`** gained `shape_tabs`, `painted_tab_strip()`,
+`tab_strip_height(height)`, `tab_card_color`, `tab_colors`, and a `tabs`
+argument on `paint`. `PanelRect` gained `contains`.
+
+**`app.rs`** gained `tab_strip_content()`, `document_is_dirty(DocumentId)`,
+`sync_top_inset()` (called from `resumed`, `resized`, `rescaled`),
+`tab_strip_press()`, `tab_at()`, `pointer_is_on_the_tab_strip()`.
+`pointer_pressed` consults the strip after the modal panels and before the
+document; `secondary_pressed` opens no menu on the strip.
+
+**`tests/chrome_screenshots.rs`** writes `chrome-tabs.png`, and `shoot`
+sets the top inset whenever the chrome has tabs — so no shot can show a
+band lying over the document.
+
+---
+
+## 🐛 THE BUG THIS FOUND — and how
+
+**The gutter did not move with the text.** `compositor.rs` wrote the line
+numbers' text area from `HORIZONTAL_PADDING` and the content's from
+`top_inset`. Both were `10.0`, so they agreed on every frame this editor
+had ever drawn. The moment the strip reserved 63 px, the code moved down
+and the numbers did not: **every line wore the number of the line above
+it.**
+
+**It was found by rendering the strip and looking at the PNG.** Every
+placement query the inset already covered — `position_to_pixel`,
+`pixel_to_position`, the round trip, `max_scroll_y` — passed clean. The
+gutter has no placement query, so nothing could have caught it but a pixel.
+
+The test now does: `the_gutter_moves_down_with_the_text_it_numbers` reads
+back the composed frame, finds the first inked row of the gutter column and
+of the content column in two frames an inset apart, and asserts both moved
+by the same amount. Against the unfixed compositor it says *"the gutter
+moved 0 pixels, not 34"*.
+
+**The lesson, restated:** *the proxy law is not satisfied by testing the
+queries. Render it and look at it.*
+
+---
+
+## ▶️ WHAT IS LEFT ON THE STRIP (small, and none of it blocking)
+
+- **The close control's alpha is 0.40** and it is nearly invisible on an
+  inactive tab. Deliberate — a control that stays quiet until sought — but
+  it is Tom's to rule on once he has seen `chrome-tabs.png`.
+- **The wheel over the strip scrolls the document.** VS Code scrolls the
+  strip. Not a defect; a choice nobody has made.
+- **No drag-to-reorder, no middle-click-to-close, no hover state.**
+- **No context menu on the strip.** `secondary_pressed` deliberately opens
+  nothing there: the document menu's verbs act on the document's selection.
+  A menu of *tab* verbs is a separate thing to design.
+
+## ⏭ NEXT: the sidebar
+
+**There is no sidebar and no file tree in the desktop face at all.** That
+is the agreed next piece, and it is a bigger one than the strip: it needs
+a horizontal inset the way the strip needed a vertical one — and, given
+what the gutter turned out to be, **every X-axis use of
+`HORIZONTAL_PADDING` in `compositor.rs` wants auditing before that starts**
+(`:668`, `:1775`, `:1846` at least, plus `content_offset_x`).
+
+`Workspace` already carries the nesting the sidebar needs: `roots()`,
+`node()`, `Node::Group { name, children }`, `parent_of`, `move_node`. The
+tree is there; nothing draws it.
+
+---
+
+## ⚠️ THINGS I GOT WRONG — both told to Tom
+
+1. **I rebuilt a binary a live session was running from.** `pgrep -x
+   iridium-desktop`, **before** the build, not after. Followed correctly
+   this session: pid 22591 was found before the bundle ran, and the bundle
+   writes to `target/release/`, which is not what he is running.
 
 2. **Never restore a file with `mv` from a backup.** `cp x backup` then
-   `mv backup x` gives the file the *backup's* mtime, which is older than
-   the artefact cargo built in between — so cargo sees "unchanged" and
-   silently reuses the stale build. I spent four tool calls convinced
-   correct code was broken. Use `cp backup x`, or `touch` after.
+   `mv backup x` gives the file the *backup's* mtime, older than whatever
+   cargo built in between — so cargo sees "unchanged" and reuses a stale
+   build. Use `cp backup x`, or `touch` after. (Followed correctly this
+   session when restoring `tab_strip.rs` from its deliberate breakage.)
 
 ---
 
@@ -168,6 +183,13 @@ cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
+The screenshot harness, when a frame needs judging by eye:
+
+```
+IRIDIUM_CHROME_SHOT_DIR=<dir> cargo test -p iridium-desktop \
+    --test chrome_screenshots -- --ignored
+```
+
 ---
 
 ## Open questions and known gaps
@@ -175,14 +197,14 @@ cargo fmt --all --check
 - **Awaiting Tom**: should a new file open into the current group or
   always at the top level? Defaulting to the current group — one line to
   change (`open_file` in `app.rs`, the `parent` binding).
-- **#49 `app.rs` is 3,010 lines** against a 500-line bar. Pre-existing
-  and now worse. Seams: the mouse block, scroll-and-viewport, painting,
-  and the ~1,000-line test module.
-  `workspace/model.rs` is 578 (down from 734) and wants its
-  attach/detach/subtree machinery moved to a `tree.rs`.
+- **#49 `app.rs` is now 3,270 lines** against a 500-line bar. Pre-existing
+  and worse again. Seams: the mouse block, scroll-and-viewport, painting,
+  the tab-strip block, and the ~1,100-line test module.
+  `overlay.rs` is 1,768 and wants its colour derivations in a `chrome.rs`.
+  `workspace/model.rs` is 578 and wants its attach/detach/subtree
+  machinery in a `tree.rs`.
 - **#39** kernel has no `clear_language` — an unknown-extension file
-  inherits the previous one's highlighting. Now *less* bad: a new tab
-  starts with no language at all, so this only bites `save_as`.
+  inherits the previous one's highlighting. Only bites `save_as` now.
 - **#42/#43/#44/#45** the whole web-face half of tabs, untouched.
 - **#40** five `f64 as usize` casts on JS line numbers in `wasm.rs`.
 - **#35** HiDPI font scale not re-applied across displays.

@@ -516,6 +516,52 @@ that gitignore semantics fail *invisibly* when subtly wrong — a file quietly
 missing from a search, which nobody reports. Told to Tom as a decision I made
 rather than asked about.
 
+### STEP 3C — THE ROOT, landed 6 Aug — the bug Tom found in two minutes
+
+He opened the reinstalled app from the Applications folder and reported that
+"what it's trying to index is like the whole system". **He was right, and it
+was mine.** `app/host_commands.rs::explorer_root` fell back to
+`std::env::current_dir()`, and a macOS bundle launched from Finder or
+Spotlight inherits **`/`** from LaunchServices. Harmless while the panel only
+listed what you opened; loud the moment `3c269fa` gave a query a crawl.
+
+**The fix separates two questions that had been one:** *where to start* and
+*whether a search may read past what is open*. A crawl is worth running only
+where something bounds it — inside a repository `.gitignore` does, and it
+finishes. A home directory has no ignore rules and its first twenty thousand
+directories are application support. **A crawl that cannot work is not worth
+starting.**
+
+- **`apps/iridium-desktop/src/project.rs`** — `explorer_root(active_file,
+  working_directory, home) -> ExplorerRoot { path, crawl }`. **Pure**: every
+  input injected, because the failing case *cannot be reproduced from a
+  terminal at all* — a shell always has a sensible `cwd`, so nothing that read
+  the environment itself could ever have caught this.
+- The `/` test is **`path.parent().is_none()`**, not a comparison against
+  `"/"` — right on every platform, and right for a Windows drive root without
+  knowing what one is.
+- `project_root` walks **up to the nearest** `.git`, so a file in a submodule
+  roots at the submodule.
+- **`FileExplorer::open(root, crawl)`**, and the flag gates three things —
+  `poll`'s crawl call, `is_waiting`, and the empty-list message. All three
+  were verified to fail the new test independently. `is_waiting` is the
+  non-obvious one: a panel that will never crawl **still has a frontier** (the
+  root's subdirectories were queued when interned), so an ungated
+  `is_fully_crawled` answers `false` forever and the window repaints at full
+  rate for as long as a query is in the field.
+- The empty row now says **four** things; the crawl-off answer is
+  `No matches in what is open`, and it comes **first**, which is what keeps
+  the other three safe to write in terms of the crawl's own state.
+
+**The cost, stated to Tom rather than left to be discovered:** open the app
+cold with no file and searching covers only what has been expanded, until a
+file or a project is opened.
+
+**Also split, because the fix pushed it over the bar:**
+`file_tree/tests/filter.rs` (551) → `filter.rs` (what a query does to the
+rows) + `crawl.rs` (what a query causes to be *read*), with the shared
+`project()` fixture hoisted into `support.rs`.
+
 ### The query field is deliberately caretless
 
 It takes printable characters, `Backspace` and paste — nothing else. `←`/`→`

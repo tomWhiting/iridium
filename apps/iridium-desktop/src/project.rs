@@ -3,7 +3,7 @@
 //! # The bug this module exists because of
 //!
 //! A macOS application launched from Finder or Spotlight inherits `/` as its
-//! working directory — LaunchServices does not give it anything better. The
+//! working directory — `LaunchServices` does not give it anything better. The
 //! explorer used `current_dir()` when no file was open, so opening the app
 //! from the Applications folder rooted it at the filesystem root, and the
 //! search crawl then set off across the entire disk. Reported by Tom on
@@ -61,7 +61,10 @@ pub fn explorer_root(
     working_directory: Option<PathBuf>,
     home: Option<PathBuf>,
 ) -> ExplorerRoot {
-    if let Some(directory) = active_file.and_then(Path::parent).filter(|path| !path.as_os_str().is_empty()) {
+    if let Some(directory) = active_file
+        .and_then(Path::parent)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         // A file the user has open. Its project if it is in one, and its own
         // folder otherwise — either way a scope they chose by opening it.
         return ExplorerRoot {
@@ -74,17 +77,13 @@ pub fn explorer_root(
     // it — a shell, in other words. `/` means the launcher picked it, and a
     // path with no parent is exactly that test.
     if let Some(directory) = working_directory.filter(|path| !is_filesystem_root(path)) {
-        return match project_root(&directory) {
-            Some(project) => ExplorerRoot {
-                path: project,
-                crawl: true,
-            },
-            // A directory that is not a project: show it, but do not go
-            // reading everything under it. Nothing here says how big it is.
-            None => ExplorerRoot {
-                path: directory,
-                crawl: false,
-            },
+        // Being in a project is what earns the crawl. A directory that is not
+        // one is shown, and left alone below what someone opens by hand:
+        // nothing here says how big it is.
+        let project = project_root(&directory);
+        return ExplorerRoot {
+            crawl: project.is_some(),
+            path: project.unwrap_or(directory),
         };
     }
 
@@ -178,7 +177,10 @@ mod tests {
             project.path(),
             "a file deep in a project shows the project, not the folder it happens to sit in"
         );
-        assert!(chosen.crawl, "a project bounds its own crawl through .gitignore");
+        assert!(
+            chosen.crawl,
+            "a project bounds its own crawl through .gitignore"
+        );
     }
 
     #[test]
@@ -233,7 +235,11 @@ mod tests {
     fn a_file_with_no_parent_falls_through_rather_than_rooting_on_nothing() {
         // `Path::parent` of a bare name is `Some("")`, which is not a
         // directory anyone meant. It must not become the root.
-        let chosen = explorer_root(Some(Path::new("orphan.txt")), None, Some(PathBuf::from("/h")));
+        let chosen = explorer_root(
+            Some(Path::new("orphan.txt")),
+            None,
+            Some(PathBuf::from("/h")),
+        );
         assert_eq!(chosen.path, PathBuf::from("/h"));
         assert!(!chosen.crawl);
     }

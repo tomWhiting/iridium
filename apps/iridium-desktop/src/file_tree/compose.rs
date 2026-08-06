@@ -88,15 +88,26 @@ impl FileExplorer {
 
     /// What an empty result list says.
     ///
-    /// **Three different statements, because they mean three different
+    /// **Four different statements, because they mean four different
     /// things.** A search still reading directories has not failed to find
     /// anything — it has not looked everywhere yet, and saying "no matching
     /// files" while the crawl is running is a lie that resolves itself a
     /// second later, which is exactly long enough for someone to have given
     /// up. A search that stopped at its limit has genuinely not looked
     /// everywhere and never will, and that is worth saying out loud rather
-    /// than passing off as an answer.
+    /// than passing off as an answer. A panel that will not crawl at all has
+    /// searched exactly what is open, and the honest answer names that scope
+    /// rather than implying the file is not on the disk.
+    ///
+    /// The crawl-off answer comes first and is what makes the other three
+    /// safe to write in terms of the crawl's own state: with the crawl off
+    /// the frontier never drains, so `is_fully_crawled` is permanently
+    /// `false` and "Searching…" would otherwise be the only thing this ever
+    /// said.
     fn nothing_found_yet(&self) -> &'static str {
+        if !self.crawl {
+            return "No matches in what is open";
+        }
         if !self.files.is_fully_crawled() {
             return "Searching…";
         }

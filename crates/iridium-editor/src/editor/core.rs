@@ -223,7 +223,10 @@ impl EditorState {
             .language()
             .map(|language| language.id().to_owned())
             .filter(|id| !id.is_empty());
-        self.document = Document::new(content);
+        // `continuing_from`, not `new`: a load is a text change, and restarting
+        // the counter would let a stale sticky column, addition stack or parse
+        // revision look current against text they never described.
+        self.document = Document::continuing_from(content, &self.document);
         self.document.set_language(language_id);
         self.cursor = CursorState::at(Position::zero());
         // Replacing the content replaces the history — the old tree describes
@@ -233,9 +236,11 @@ impl EditorState {
         self.history = UndoTree::with_timeout(self.config.undo_group_timeout_ms);
         self.scroll_line = 0;
         self.scroll_x = 0.0;
-        // The old tree describes a document that no longer exists, and the
-        // replacement's revision counter starts again — so say so outright
-        // rather than leaving `sync` to infer it from a number that repeats.
+        // The old tree describes a document that no longer exists. Said
+        // outright rather than left for `sync` to notice: the revision now
+        // advances across a replacement, so `sync` *would* catch this — but
+        // relying on that would make correctness here depend on a counter
+        // whose whole job is to be an optimisation.
         self.syntax.invalidate();
         self.refresh_syntax();
     }
@@ -2474,6 +2479,41 @@ line 5";
         // caret at (2, 8); the fix re-seeds from column 2.
         editor.handle_key(&KeyEvent::simple(KeyCode::Down));
         assert_eq!(editor.cursor(), Position::new(2, 2));
+    }
+
+    #[test]
+    fn replacing_the_content_does_not_replay_a_revision_the_old_text_already_used() {
+        // `Document::revision` states the guarantee outright: "two observations
+        // of the same value guarantee the text did not change between them."
+        // Replacing the whole document used to restart the counter at zero,
+        // which breaks it — load a file, edit it three times, load a *different*
+        // file, and the counter reads 0 again while the text is nothing like
+        // what the first 0 described.
+        //
+        // Everything that caches document-relative state compares revisions for
+        // inequality: the sticky column, the multi-cursor addition stack, the
+        // retained syntax tree's `parsed_revision`. A repeated value tells all
+        // three that nothing moved. It is the same family as the two staleness
+        // bugs already fixed in this file, reached by a different door.
+        let mut editor = Editor::with_defaults();
+        let start = editor.state().document.revision();
+
+        editor.set_content("first file");
+        let after_load = editor.state().document.revision();
+        assert!(after_load > start, "a load is a change");
+
+        editor.apply_command(Command::Insert {
+            position: Position::new(0, 0),
+            text: "Z".to_string(),
+        });
+        let after_edit = editor.state().document.revision();
+        assert!(after_edit > after_load);
+
+        editor.set_content("an entirely different file");
+        assert!(
+            editor.state().document.revision() > after_edit,
+            "replacing the content must advance the counter, not restart it"
+        );
     }
 
     #[test]

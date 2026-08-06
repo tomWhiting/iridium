@@ -118,12 +118,34 @@ impl Document {
         }
     }
 
+    /// Creates a document that continues `previous`'s revision counter.
+    ///
+    /// Replacing a buffer's whole content is a text change like any other,
+    /// and [`revision`](Self::revision) promises that a repeated value means
+    /// the text did not move. A fresh [`new`](Self::new) restarts at zero and
+    /// breaks that promise: load a file, edit it, load a different one, and
+    /// the counter reads a value the *old* text already used. Everything that
+    /// caches document-relative state — the sticky column, the multi-cursor
+    /// addition stack, the retained syntax tree's parsed revision — compares
+    /// revisions for inequality and would be told nothing had changed.
+    ///
+    /// Taking the previous document rather than a bare number is what makes
+    /// the counter monotonic by construction: there is no way to spell "go
+    /// backwards".
+    #[must_use]
+    pub fn continuing_from(content: &str, previous: &Self) -> Self {
+        let mut document = Self::new(content);
+        document.revision = previous.revision.wrapping_add(1);
+        document
+    }
+
     /// Returns the current content-revision counter.
     ///
     /// The value increases by at least one every time the document's text
     /// changes; it never decreases and is unaffected by pure cursor moves.
     /// Two observations of the same value guarantee the text did not change
-    /// between them.
+    /// between them — including across a whole-content replacement, which is
+    /// why [`continuing_from`](Self::continuing_from) exists.
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision

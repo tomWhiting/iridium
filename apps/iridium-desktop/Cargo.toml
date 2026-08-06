@@ -27,6 +27,12 @@ path = "src/main.rs"
 # FrameCompositor rather than growing a frame assembly of its own.
 iridium-editor = { workspace = true, features = ["syntax", "render"] }
 
+# The filesystem hierarchy the explorer panel shows, and the tree behaviour
+# it is projected through. Both native-only, both shared with the terminal
+# face when it grows the same panel.
+iridium-explorer.workspace = true
+iridium-tree.workspace = true
+
 # The file layer shared with the terminal face: atomic saves, staleness by
 # byte comparison, read-only refusal. One save path across every face.
 iridium-file.workspace = true

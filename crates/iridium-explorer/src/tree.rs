@@ -24,6 +24,13 @@ pub struct FileTree {
     /// The root's id, which is also `NodeId(0)`; named so nothing has to
     /// know that.
     root: NodeId,
+    /// How many directory reads have been posted and not yet collected.
+    ///
+    /// Kept as a counter rather than derived by scanning the arena, because
+    /// a face reads it every frame to decide whether another frame is owed:
+    /// an O(nodes) scan on a fully expanded repository, sixty times a
+    /// second, would cost more than the reads it is waiting for.
+    pending: usize,
     worker: Worker,
 }
 
@@ -50,6 +57,7 @@ impl FileTree {
             nodes: vec![node],
             by_path,
             root: NodeId(0),
+            pending: 0,
             worker,
         };
         tree.request(NodeId(0));
@@ -83,6 +91,31 @@ impl FileTree {
         })
     }
 
+    /// Whether any directory read is still outstanding.
+    ///
+    /// A face uses this to decide whether to ask for another frame: the reads
+    /// land on a worker thread and nothing wakes an event loop when they do,
+    /// so a window that stopped repainting while one was in flight would show
+    /// a directory that is permanently loading.
+    #[must_use]
+    pub const fn is_waiting(&self) -> bool {
+        self.pending > 0
+    }
+
+    /// Whether `node`'s children are known.
+    ///
+    /// The question a face must ask before expanding a node: expanding one
+    /// whose listing has not landed makes the tree record it as a leaf —
+    /// [`TreeSource`]'s fourth rule — and it never opens again. `false` for a
+    /// node that has not been asked for, one whose read is outstanding, one
+    /// whose read failed, and an id this tree never issued.
+    #[must_use]
+    pub fn is_listed(&self, node: NodeId) -> bool {
+        self.nodes
+            .get(node.0)
+            .is_some_and(|entry| matches!(entry.listing, Listing::Present(_)))
+    }
+
     /// The id already issued for `path`, if there is one.
     #[must_use]
     pub fn node_at(&self, path: &Path) -> Option<NodeId> {
@@ -107,6 +140,7 @@ impl FileTree {
             return false;
         }
         for response in responses {
+            self.pending = self.pending.saturating_sub(1);
             // A response for a node this tree never issued cannot happen —
             // ids come from here and are never removed — so this is not a
             // guard so much as a refusal to be able to panic about it.
@@ -179,6 +213,9 @@ impl FileTree {
             return;
         };
         let posted = self.worker.request(node.0, path);
+        if posted {
+            self.pending = self.pending.saturating_add(1);
+        }
         if let Some(entry) = self.nodes.get_mut(node.0) {
             entry.listing = if posted {
                 Listing::Requested

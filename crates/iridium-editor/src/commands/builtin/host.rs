@@ -53,6 +53,20 @@ pub const PALETTE_OPEN: CommandId = CommandId::from_static("palette.open");
 /// tree through [`Editor::history_snapshot`](crate::Editor::history_snapshot).
 pub const HISTORY_TOGGLE_PANEL: CommandId = CommandId::from_static("history.togglePanel");
 
+/// Show or hide the file explorer.
+///
+/// Bound to `Ctrl+Alt+E` by the default keymap, joining the undo tree on the
+/// `Ctrl+Alt` shape the panel toggles share.
+///
+/// A *toggle*, for the same reason the undo tree is one: there is nothing to
+/// abandon, so the chord that opened it is how it is put away, and a face that
+/// could only open it would need a second id to close it.
+///
+/// The kernel names it and reports it; the face owns the drawing and the
+/// filesystem, which is why nothing here reads a directory — the kernel has no
+/// business knowing whether the host has one.
+pub const EXPLORER_TOGGLE_PANEL: CommandId = CommandId::from_static("explorer.togglePanel");
+
 /// Every host command the kernel names, in declaration order.
 pub static HOST: &[CommandMeta] = &[
     CommandMeta::described(
@@ -69,6 +83,13 @@ pub static HOST: &[CommandMeta] = &[
         CommandCategory::HISTORY,
     )
     .with_aliases(&["undo tree", "history panel", "branches"]),
+    CommandMeta::described(
+        EXPLORER_TOGGLE_PANEL,
+        "Toggle File Explorer",
+        "Shows or hides the file explorer, where any file in the project can be reached.",
+        CommandCategory::GENERAL,
+    )
+    .with_aliases(&["files", "file tree", "explorer", "open file"]),
 ];
 
 /// The number of host commands the kernel names.

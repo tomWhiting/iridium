@@ -235,6 +235,7 @@ impl DesktopApp {
             palette_open: false,
             mru: CommandMru::default(),
             menu: None,
+            explorer: None,
             history: HistoryPanel::new(),
             history_open: false,
             prompt: None,

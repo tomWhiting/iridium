@@ -7,10 +7,15 @@
 //! and silence would look like a dead key.
 
 use iridium_editor::CommandId;
-use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB};
+use iridium_editor::commands::builtin::{
+    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB,
+};
+
+use std::path::{Path, PathBuf};
 
 use super::state::{DesktopApp, Flow};
 use crate::commands;
+use crate::file_tree::FileExplorer;
 use crate::prompt::Message;
 
 impl DesktopApp {
@@ -50,12 +55,54 @@ impl DesktopApp {
                 self.history.open();
             }
             Flow::Running
+        } else if command == &EXPLORER_TOGGLE_PANEL {
+            self.toggle_explorer()
         } else if self.workspace.handles_command(command) {
             self.run_workspace_command(command)
         } else {
             return None;
         };
         Some(flow)
+    }
+
+    /// Opens the file explorer, or closes it if it is already open.
+    ///
+    /// A toggle, exactly as the kernel names it. Closing **drops** the panel
+    /// rather than hiding it: it owns a reader thread and an arena of every
+    /// directory that was expanded, and a hidden panel would keep both for
+    /// the rest of the session.
+    ///
+    /// The root is the workspace's own directory when there is one, and the
+    /// process's working directory otherwise — the same place `Ctrl+O` starts
+    /// from, so the two do not disagree about where "here" is. A failure to
+    /// start the reader is reported on the strip rather than swallowed; the
+    /// key was consumed, and silence would look like a dead key.
+    fn toggle_explorer(&mut self) -> Flow {
+        if self.explorer.is_some() {
+            self.explorer = None;
+            return Flow::Running;
+        }
+        let root = self.explorer_root();
+        match FileExplorer::open(root) {
+            Ok(explorer) => self.explorer = Some(explorer),
+            Err(error) => {
+                self.message = Some(Message::error(format!("the file explorer: {error}")));
+            },
+        }
+        Flow::Running
+    }
+
+    /// Where the explorer starts: the directory holding the active file, or
+    /// the working directory when nothing is open or the file has no parent.
+    fn explorer_root(&self) -> PathBuf {
+        self.workspace
+            .active_payload()
+            .and_then(|document| document.file.as_ref())
+            .and_then(|file| file.path().parent())
+            .map_or_else(
+                || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+                Path::to_path_buf,
+            )
     }
 
     /// Forwards a `workspace.*` command to the kernel's own dispatcher.

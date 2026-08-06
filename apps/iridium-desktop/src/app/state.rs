@@ -23,6 +23,7 @@ use winit::keyboard::ModifiersState;
 use super::startup::Shell;
 use crate::command_palette::CommandPalette;
 use crate::context_menu::ContextMenu;
+use crate::file_tree::FileExplorer;
 use crate::highlight::HighlightCache;
 use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
@@ -109,6 +110,14 @@ pub struct DesktopApp {
     /// The right-click context menu, while one is up. Modal while it is:
     /// it holds key focus, and the click that leaves it is spent leaving it.
     pub(super) menu: Option<ContextMenu>,
+    /// The file explorer, while one is open. Modal while it is.
+    ///
+    /// `Option` rather than a panel plus a flag, because unlike the other
+    /// panels this one owns a reader thread: closing it must *drop* it, not
+    /// hide it, or an editor that had the explorer open once keeps a thread
+    /// and an arena of every directory ever expanded for the rest of the
+    /// session.
+    pub(super) explorer: Option<FileExplorer>,
     /// The undo-tree panel.
     pub(super) history: HistoryPanel,
     /// Whether the undo-tree panel is on screen. Modal while it is.

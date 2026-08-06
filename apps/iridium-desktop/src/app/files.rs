@@ -110,7 +110,7 @@ impl DesktopApp {
     /// over from it — cannot arise. The new tab's editor is built by the
     /// workspace with this face's commands, keymaps, theme and viewport
     /// already on it.
-    fn open_file(&mut self, path: &Path) {
+    pub(super) fn open_file(&mut self, path: &Path) {
         match TextFile::open(path) {
             Ok((file, text)) => {
                 let name = file.display_name();

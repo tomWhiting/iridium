@@ -6120,3 +6120,68 @@ the first two are over the 500-line cap already and step 3 is what brings them
 back under it, by making them borrow one retained tree instead of each owning a
 parser. Do not "fix" the cap by splitting them before step 3 — the split falls
 out of the refactor.
+
+---
+
+## 🔴 IN FLIGHT AT COMPACTION #6 (6 Aug ~01:4xZ) — workspace COMMANDS, uncommitted
+
+**Committed and pushed already:** `d2e78b8` (workspace model, 1990 tests),
+`0469ad3`, `6050896`. Everything below is **dirty and NOT committed**.
+
+**What is done, uncommitted:**
+
+1. `crates/iridium-editor/src/commands/builtin/workspace.rs` — NEW. A
+   **third command category**: named *and implemented* by the kernel, but
+   by `Workspace` rather than `Editor`. Ids `workspace.nextTab`,
+   `previousTab`, `firstTab`, `lastTab`, `closeTab`; `WORKSPACE` table;
+   `WORKSPACE_COMMAND_COUNT`; `register_workspace_commands`.
+   *Why not host commands:* if each face decided what "next tab" meant
+   across a nested group, they would disagree silently — both answers
+   look right when there are no groups.
+2. `commands/builtin/mod.rs` — `mod workspace;`, re-exports, and
+   `default_registry` now registers all three tables.
+3. `workspace/dispatch.rs` — NEW. `Workspace::run_command(&CommandId)
+   -> Result<bool, WorkspaceCommandError>` and `handles_command`.
+   `Ok(false)` = understood and correctly did nothing (at the last tab);
+   that is not an error. 6 tests.
+4. **`workspace/mod.rs` split**, on Cally's line-count flag (it was 563,
+   over the 500 standard, and a `mod.rs` carrying logic while `nav.rs`
+   sat beside it). Now: `mod.rs` 44 (declarations only), `ids.rs` 26,
+   `node.rs` 62, `model.rs` 469, `nav.rs` 138, `dispatch.rs` 171,
+   `tree_source.rs` 53, plus `workspace_tests.rs` 471, `nav_tests.rs` 60,
+   `tree_source_tests.rs` 67. **All under 500.**
+   Visibility this forced: `DocumentId`/`NodeId` inner field is
+   `pub(super)`, and `Workspace::subtree_of` is `pub(super)` — siblings
+   cannot see a sibling's private items, only descendants can.
+5. `default_keymap.rs` — bound `Ctrl+Shift+]` → nextTab,
+   `Ctrl+Shift+[` → previousTab, `Ctrl+W` (shift forbidden) → closeTab.
+   `DEFAULT_KEYMAP_BINDING_COUNT` 62 → **65**.
+   ⚠️ **`Ctrl+PageDown` is NOT available** — the paging bindings take
+   `Any` for control, so it already resolves to page-down.
+   `firstTab`/`lastTab` deliberately unbound, palette-only.
+
+**🔴 TWO TESTS FAILING — this is exactly where to resume:**
+
+- `editor::command_api_tests` line 87: `left: 106, right: 101`. The
+  registry now holds 5 more commands; that assertion still reads
+  `BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT`. **Add
+  `+ WORKSPACE_COMMAND_COUNT`** there and at `command_api_tests.rs:111`.
+- `input::keyboard::dispatch_tests` line 206: *"default keymap binds
+  `ctrl+shift+~altgraph+]` to `workspace.nextTab`, which has no
+  implementation"*. That test treats "implemented" as *built-in or
+  host*. **It must learn the third category** — a workspace command is
+  owned, just not by `Editor`. Widen the predicate to accept ids in
+  `WORKSPACE`, and say in the test why.
+
+**THEN:** full six-gate battery, `cargo fmt --all` first, and commit.
+
+**AFTER THAT, in order:** wasm/napi surface for the workspace → the tab
+strip in the faces. Tom asked one open question back (see below); I told
+him I'd default to opening into the current group.
+
+**Asked Tom, awaiting answer:** should a new file open into the group you
+are currently in, or always at the top level? I said I'd default to the
+current group and that it is a one-line change.
+
+**Owed at the next build swap:** *word-select is now ⌥⇧←/→; expand/shrink
+moved to ⌃⇧⌘←/→*.

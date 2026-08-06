@@ -482,30 +482,39 @@ the drift this codebase keeps warning about.
    selection fall back to the best match. A background read is not a reason
    to open a different file.
 
-### ⚠️ THE HONEST GAP — step 3b, NOT YET BUILT
+### STEP 3B — THE CRAWL, landed 6 Aug, `3c269fa`
 
-**The filter reaches only what has been read.** A file in a folder nobody has
-opened is not found. This is deliberate — walking with the frame-path
-accessor would post a directory read for every unlisted folder, so one
-keystroke on a large project queues thousands — and it is pinned by
-`a_filter_reaches_only_what_has_been_read_and_never_starts_a_crawl`.
+3a's filter could match only what was in the arena, and only what someone had
+opened was there. A query now drives a crawl, so searching reaches the whole
+project.
 
-**What 3b needs, and why it was not folded into 3a:** a query-driven crawl
-needs an *ignore policy* or it walks `target/` (20 GB in this checkout) and
-`node_modules`. Doing it without one would be the lazy version. The shape I
-had settled on before stopping:
+- **`FileTree::crawl(budget) -> usize`**, called from `FileExplorer::poll`
+  with `CRAWL_PER_FRAME = 64` while the query is non-empty. Frontier is a
+  `VecDeque`, so **breadth-first** — depth first disappears into the first
+  deep branch and finds `src/main.rs` after ten thousand generated ones.
+- **`CRAWL_LIMIT = 20_000` directories**, with `crawl_hit_its_limit()` so a
+  face can *say* the search was truncated.
+- **`FileExplorer::is_waiting()` now covers the crawl too.** It had to: the
+  frame that drains the last outstanding read still has a queue, and if only
+  `pending > 0` asked for another frame the crawl would stall there. One
+  concept — "more is coming".
+- **`crates/iridium-explorer/src/ignores.rs`** — nested `.gitignore`,
+  deepest-first, each directory's rules compiled against **their own base**
+  (an anchored `/build` means "in this directory"; one root-anchored matcher
+  gets that wrong *silently*). Plus `.git/info/exclude` and `.git` itself.
+- **The rules bind the crawl and nothing else.** A folder opened by hand is
+  read and shown whatever git thinks of it. Tested on both sides.
+- The empty row says **three** things: `Searching…` while directories are
+  outstanding, the limit notice, then `No matching files`. Saying the last
+  one early is a lie that resolves itself a second later — long enough for
+  someone to have given up.
 
-- **Breadth-first** from the root, so shallow files are found first — that
-  alone makes the useful hits arrive before the generated ones.
-- **A bounded node budget**, and `log`-equivalent honesty about hitting it: a
-  silent cap reads as "searched everything" when it did not.
-- **Ignore rules.** `.gitignore` is the rule a code project actually means.
-  Neither `ignore` nor `globset` is in the lock file today — that is a real
-  decision (take the dependency vs. own ~300 lines of gitignore semantics)
-  and it should be made explicitly, not by default.
-- **The crawl respects ignore rules; the manual tree does not.** You can
-  still expand `target/` by hand; typing will not dredge it up. State that
-  plainly wherever it lands.
+**Dependency taken, deliberately:** `ignore` 0.4.30 (ripgrep's matcher), in
+`[workspace.dependencies]` with the reasoning written in the manifest. Only
+`gitignore::{Gitignore, GitignoreBuilder}`, never its walker. The argument is
+that gitignore semantics fail *invisibly* when subtly wrong — a file quietly
+missing from a search, which nobody reports. Told to Tom as a decision I made
+rather than asked about.
 
 ### The query field is deliberately caretless
 

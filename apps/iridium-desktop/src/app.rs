@@ -70,7 +70,7 @@ use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::render::{FrameCompositor, FrameTarget};
 use iridium_editor::theme::Theme;
-use iridium_editor::workspace::{FaceSetupError, Workspace};
+use iridium_editor::workspace::{DocumentId, FaceSetupError, NodeId, Workspace};
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorConfig, EditorKeyResult, KeyCode,
     KeyEvent, Language, MouseResult, Position,
@@ -94,6 +94,7 @@ use crate::overlay::{OverlayPainter, PanelContent, PanelGeometry, StripContent};
 use crate::prompt::{Answer, Deed, Message, Prompt};
 use crate::search::{SearchOutcome, SearchOverlay};
 use crate::surface::NativeSurface;
+use crate::tab_strip::{TabHit, TabItem, TabStripContent};
 use crate::units::{index_to_f32, pixel_from_f64, pixel_to_index, scale_to_f32, u32_to_f32};
 
 /// The window title before a session has a file to name.
@@ -465,13 +466,26 @@ impl DesktopApp {
     /// a spurious "unsaved changes" prompt on the way out.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        let Some(document) = self.workspace.active_payload() else {
+        self.workspace
+            .active_document()
+            .is_some_and(|document| self.document_is_dirty(document))
+    }
+
+    /// Whether one document differs from what is on disk.
+    ///
+    /// The same comparison [`Self::is_dirty`] makes, asked of a named buffer
+    /// rather than of whichever one is in front — the tab strip marks every
+    /// tab, not just the active one, and marking them by a different test
+    /// than the one that guards closing would show a dot on a tab that closes
+    /// without a question, or no dot on one that stops to ask.
+    fn document_is_dirty(&self, document: DocumentId) -> bool {
+        let Some(payload) = self.workspace.payload(document) else {
             return false;
         };
-        let Some(editor) = self.workspace.active_editor() else {
+        let Some(editor) = self.workspace.editor(document) else {
             return false;
         };
-        let saved = document
+        let saved = payload
             .file
             .as_ref()
             .and_then(TextFile::saved_text)
@@ -1185,9 +1199,11 @@ impl DesktopApp {
     /// Modal like the keyboard, and in the same order: while a prompt is open
     /// a click answers nothing and edits nothing, so it is swallowed; an open
     /// context menu owns the click ([`Self::menu_click`]); an open modal panel
-    /// spends it being dismissed ([`Self::dismiss_modal_panel`]); only then
-    /// does the document see it. The wheel stays live throughout — reading the
-    /// document can inform the answer.
+    /// spends it being dismissed ([`Self::dismiss_modal_panel`]); the tab
+    /// strip, which is chrome the document does not extend under, owns any
+    /// click that lands on it ([`Self::tab_strip_press`]); only then does the
+    /// document see it. The wheel stays live throughout — reading the document
+    /// can inform the answer.
     fn pointer_pressed(&mut self) -> Flow {
         if self.prompt.is_some() {
             return Flow::Running;
@@ -1196,6 +1212,9 @@ impl DesktopApp {
             return self.menu_click();
         }
         if self.dismiss_modal_panel() {
+            return Flow::Running;
+        }
+        if self.tab_strip_press() {
             return Flow::Running;
         }
         self.message = None;
@@ -1249,6 +1268,18 @@ impl DesktopApp {
         true
     }
 
+    /// Whether the pointer is on the tab strip the last frame actually
+    /// painted.
+    fn pointer_is_on_the_tab_strip(&self) -> bool {
+        let (x, y) = self.pointer.position();
+        self.shell.as_ref().is_some_and(|shell| {
+            shell
+                .overlay
+                .painted_tab_strip()
+                .is_some_and(|layout| layout.contains(x, y))
+        })
+    }
+
     /// Whether the pointer is on any panel the last frame actually painted.
     fn pointer_is_on_a_panel(&self) -> bool {
         let Some(shell) = &self.shell else {
@@ -1268,9 +1299,15 @@ impl DesktopApp {
     /// Only the secondary button opens it (D-3); Ctrl+click keeps the
     /// add-cursor meaning it shipped with. A press while a prompt or a modal
     /// panel is up is spent on that panel and opens nothing — modal means
-    /// modal.
+    /// modal — and a press on the tab strip opens nothing either: the menu's
+    /// verbs act on the document's selection, and the strip is not the
+    /// document. (A menu of tab verbs is a separate thing to design, not a
+    /// document menu hung from a place it does not belong.)
     fn secondary_pressed(&mut self) {
         if self.prompt.is_some() || self.palette_open || self.history_open {
+            return;
+        }
+        if self.pointer_is_on_the_tab_strip() {
             return;
         }
         // A message describes the input before this one.
@@ -1642,6 +1679,7 @@ impl DesktopApp {
                 .resize(shell.surface.queue(), width, height);
             shell.overlay.resize(shell.surface.queue(), width, height);
         }
+        self.sync_top_inset();
         self.sync_kernel_viewport();
         self.clamp_scroll();
         if let Some(shell) = &self.shell {
@@ -1669,6 +1707,10 @@ impl DesktopApp {
             shell.overlay.set_font(font_size, FONT.to_vec());
             shell.overlay.set_scale(scale_to_f32(scale_factor));
         }
+        // After the reload, not before: the strip's height is the overlay's
+        // *measured* line height, and `load_font` is the only path that
+        // remeasures it.
+        self.sync_top_inset();
         self.sync_kernel_viewport();
         if let Some(shell) = &self.shell {
             shell.window.request_redraw();
@@ -1698,6 +1740,105 @@ impl DesktopApp {
         })
     }
 
+    /// The tabs the strip should show this frame, in the workspace's own
+    /// display order.
+    ///
+    /// `None` with nothing open — a state the session should never be in, but
+    /// a band with no tabs in it is chrome that says nothing, so it is not
+    /// drawn and nothing is reserved for it.
+    fn tab_strip_content(&self) -> Option<TabStripContent> {
+        let active = self.workspace.active();
+        let tabs: Vec<TabItem> = self
+            .workspace
+            .tabs()
+            .into_iter()
+            .filter_map(|id| {
+                let node = self.workspace.node(id)?;
+                Some(TabItem {
+                    label: node.label().to_owned(),
+                    is_active: Some(id) == active,
+                    is_dirty: node
+                        .document()
+                        .is_some_and(|document| self.document_is_dirty(document)),
+                })
+            })
+            .collect();
+        (!tabs.is_empty()).then_some(TabStripContent { tabs })
+    }
+
+    /// Reserves the tab strip's height above the document.
+    ///
+    /// Called wherever the strip's height can have changed — when the window
+    /// opens, when it resizes, and when it moves to a display of a different
+    /// scale — because the height is the overlay's measured line height plus
+    /// scaled padding, and both of those move with the scale factor.
+    ///
+    /// The reserve is the strip *plus* the document's own breathing room, and
+    /// it is what the painter, the hit test, the scroll-to-caret anchor and
+    /// the scroll clamp all measure from. See
+    /// [`FrameCompositor::set_top_inset`].
+    fn sync_top_inset(&mut self) {
+        let Some(shell) = &mut self.shell else {
+            return;
+        };
+        let height = u32_to_f32(shell.surface.height());
+        let strip = shell.overlay.tab_strip_height(height);
+        shell
+            .compositor
+            .set_top_inset(FrameCompositor::DOCUMENT_TOP_PADDING + strip);
+    }
+
+    /// Spends a press on the tab strip, reporting whether it was spent.
+    ///
+    /// The whole band is spent, not only the tabs on it: a press on the empty
+    /// stretch to the right of the last tab is a press on chrome, and letting
+    /// it through would move the caret to line zero of the document
+    /// underneath — which is exactly the click-through defect the modal
+    /// panels already had fixed.
+    ///
+    /// The placement is the one the last frame *painted*, so a press is
+    /// resolved against the strip on screen rather than against one
+    /// recomputed from a workspace that may have changed since.
+    fn tab_strip_press(&mut self) -> bool {
+        let (x, y) = self.pointer.position();
+        let Some(shell) = &self.shell else {
+            return false;
+        };
+        let Some(layout) = shell.overlay.painted_tab_strip() else {
+            return false;
+        };
+        if !layout.contains(x, y) {
+            return false;
+        }
+        let hit = layout.hit(x, y);
+        self.message = None;
+        // The index is into the strip's content, which was built from
+        // `tabs()` in the same order, so asking for it again names the same
+        // node. `None` for a press on the band between two tabs.
+        let Some(node) = self.tab_at(hit) else {
+            return true;
+        };
+        // Activated before any question is asked, so the unsaved-work prompt
+        // is about the tab the user can see — and answering "no" leaves them
+        // looking at the file they nearly discarded.
+        if self.workspace.activate(node) {
+            self.after_tab_change();
+        }
+        if matches!(hit, Some(TabHit::Close(_))) {
+            self.close_active_tab(false);
+        }
+        true
+    }
+
+    /// The node a press on the strip named, or `None` for a press that named
+    /// no tab.
+    fn tab_at(&self, hit: Option<TabHit>) -> Option<NodeId> {
+        let index = match hit? {
+            TabHit::Activate(index) | TabHit::Close(index) => index,
+        };
+        self.workspace.tabs().get(index).copied()
+    }
+
     /// Composes and presents one frame: the document through the compositor,
     /// then — when a prompt, a message or any panel is up — the overlays as a
     /// second pass on the same texture view. See [`crate::overlay`] for the
@@ -1723,6 +1864,7 @@ impl DesktopApp {
                 None => document.syntax.refresh(editor),
             }
         }
+        let tabs = self.tab_strip_content();
         let strip = self.strip_content();
         let panels = self.panel_contents();
         let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() else {
@@ -1761,7 +1903,7 @@ impl DesktopApp {
                     height,
                 },
             )?;
-            if strip.is_some() || !panel_refs.is_empty() {
+            if tabs.is_some() || strip.is_some() || !panel_refs.is_empty() {
                 overlay.paint(
                     FrameTarget {
                         view,
@@ -1770,6 +1912,7 @@ impl DesktopApp {
                         width,
                         height,
                     },
+                    tabs.as_ref(),
                     strip.as_ref(),
                     &panel_refs,
                     theme,
@@ -1931,6 +2074,7 @@ impl ApplicationHandler for DesktopApp {
             Ok(shell) => {
                 shell.window.request_redraw();
                 self.shell = Some(shell);
+                self.sync_top_inset();
                 self.sync_kernel_viewport();
                 self.refresh_title();
             },
@@ -2038,6 +2182,8 @@ mod tests {
 
     use super::{DesktopApp, Flow, Options, title_for};
     use crate::prompt::Prompt;
+    use crate::tab_strip::TabHit;
+    use iridium_editor::workspace::Node;
 
     /// A key press under the given modifiers.
     fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEvent {
@@ -3006,5 +3152,119 @@ mod tests {
         assert_eq!(app.press(&ctrl_w()), Flow::Running);
         assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
         assert_eq!(app.test_editor().content(), "");
+    }
+
+    // =========================================================================
+    // The tab strip
+    // =========================================================================
+
+    /// The strip shows every open tab, in the workspace's order, with exactly
+    /// one in front.
+    #[test]
+    fn the_strip_shows_every_tab_in_order_with_one_in_front() {
+        let directory = TempDir::new("desktop-strip-order");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+        app.dropped(&fixture(&directory, "c.txt", "third"));
+
+        let content = app.tab_strip_content().expect("three tabs make a strip");
+        let labels: Vec<&str> = content.tabs.iter().map(|tab| tab.label.as_str()).collect();
+        assert_eq!(labels, ["a.txt", "b.txt", "c.txt"]);
+        assert_eq!(
+            content.tabs.iter().filter(|tab| tab.is_active).count(),
+            1,
+            "exactly one tab is in front"
+        );
+        assert!(
+            content.tabs[2].is_active,
+            "the last file opened is in front"
+        );
+    }
+
+    /// **The strip's index is the workspace's node.**
+    ///
+    /// The content is built by walking `tabs()` and a press is resolved by
+    /// indexing `tabs()` again. Nothing forces those two walks to agree — they
+    /// are separate calls in separate methods — and if they ever stopped
+    /// agreeing, clicking a tab would bring a different file forward, which is
+    /// the exact failure the strip's own round-trip test cannot see because it
+    /// never touches a workspace.
+    #[test]
+    fn the_strips_index_names_the_node_a_press_on_it_activates() {
+        let directory = TempDir::new("desktop-strip-index");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+        app.dropped(&fixture(&directory, "c.txt", "third"));
+
+        let content = app.tab_strip_content().expect("three tabs make a strip");
+        for (index, item) in content.tabs.iter().enumerate() {
+            let node = app
+                .tab_at(Some(TabHit::Activate(index)))
+                .expect("every strip entry names a node");
+            assert_eq!(
+                app.workspace.node(node).map(Node::label),
+                Some(item.label.as_str()),
+                "strip entry {index} and the node a press on it names disagree"
+            );
+        }
+        assert_eq!(
+            app.tab_at(Some(TabHit::Activate(content.tabs.len()))),
+            None,
+            "an index past the last tab names nothing"
+        );
+        assert_eq!(app.tab_at(None), None);
+    }
+
+    /// **The dot and the question are one test.**
+    ///
+    /// The strip marks a tab dirty with [`DesktopApp::document_is_dirty`], and
+    /// `⌘W` decides whether to ask with [`DesktopApp::is_dirty`]. They must be
+    /// the same comparison asked of different tabs: a strip that marked by a
+    /// revision counter would show a dot on a tab that closes without a word,
+    /// and — worse — leave a tab undotted that stops to ask.
+    #[test]
+    fn the_strips_dirty_marker_is_the_test_that_guards_closing() {
+        let directory = TempDir::new("desktop-strip-dirty");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+        type_into(&mut app, "x");
+
+        let content = app.tab_strip_content().expect("two tabs make a strip");
+        assert!(!content.tabs[0].is_dirty, "the untouched tab shows no dot");
+        assert!(content.tabs[1].is_dirty, "the edited tab shows a dot");
+
+        // The dotted tab is the one that stops to ask.
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+        assert!(app.prompt.is_some(), "the dotted tab asked");
+        assert_eq!(app.press(&press(KeyCode::Char('n'))), Flow::Running);
+
+        // The undotted one closes without a word.
+        let clean = app.workspace.tabs()[0];
+        assert!(app.workspace.activate(clean));
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+        assert!(app.prompt.is_none(), "the undotted tab did not ask");
+        assert_eq!(app.workspace.tab_count(), 1);
+    }
+
+    /// Undoing back to the saved bytes clears the dot, because the comparison
+    /// is against the file rather than against a counter that only goes up.
+    #[test]
+    fn undoing_back_to_the_saved_text_clears_the_dot() {
+        let directory = TempDir::new("desktop-strip-undo");
+        let (mut app, _path) = open(&directory, "a.txt", "first");
+        type_into(&mut app, "x");
+        assert!(
+            app.tab_strip_content().expect("a strip").tabs[0].is_dirty,
+            "the edited tab is dotted"
+        );
+
+        assert_eq!(
+            app.press(&chord(KeyCode::Char('z'), Modifiers::ctrl())),
+            Flow::Running
+        );
+        assert!(
+            !app.tab_strip_content().expect("a strip").tabs[0].is_dirty,
+            "a document undone back to what is on disk is not modified"
+        );
     }
 }

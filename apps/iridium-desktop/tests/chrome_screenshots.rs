@@ -14,8 +14,9 @@
 //! unset). What it writes:
 //!
 //! - **the dark control**: `chrome-palette.png`, `chrome-search.png`,
-//!   `chrome-history.png`, plus the context menu as `chrome-menu.png` and
-//!   `chrome-menu-read-only.png` (the frame that shows the greyed verbs);
+//!   `chrome-history.png`, `chrome-tabs.png`, plus the context menu as
+//!   `chrome-menu.png` and `chrome-menu-read-only.png` (the frame that shows
+//!   the greyed verbs);
 //! - **six frames per candidate light variant** of
 //!   `docs/design/LIGHT-THEME-MAP.md` §2.3, named `light-<variant>-<state>.png`
 //!   — `editor`, `selection`, `palette`, `search`, `history`, `bridge`.
@@ -96,6 +97,7 @@ use iridium_desktop::highlight::HighlightCache;
 use iridium_desktop::history_overlay::HistoryPanel;
 use iridium_desktop::overlay::{OverlayPainter, PanelContent, PanelFit, StripContent};
 use iridium_desktop::search::SearchOverlay;
+use iridium_desktop::tab_strip::{TabItem, TabStripContent};
 use iridium_desktop::units::u32_to_f32;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
@@ -300,10 +302,12 @@ fn shot_compositor(gpu: &Gpu, theme: &Theme) -> Result<FrameCompositor, String> 
     Ok(compositor)
 }
 
-/// What one shot paints over the composed document — the docked strip and the
-/// floating panels, together, because no caller ever varies one alone.
+/// What one shot paints over the composed document — the two docked strips
+/// and the floating panels, together, because no caller ever varies one alone.
 #[derive(Debug, Clone, Copy)]
 struct Chrome<'a> {
+    /// The tab strip along the top edge, when the state has one.
+    tabs: Option<&'a TabStripContent>,
     /// The docked strip, when the state has one.
     strip: Option<&'a StripContent>,
     /// The floating panels, back to front.
@@ -313,6 +317,7 @@ struct Chrome<'a> {
 impl Chrome<'_> {
     /// No overlay at all: the bare document.
     const NONE: Self = Self {
+        tabs: None,
         strip: None,
         panels: &[],
     };
@@ -351,6 +356,7 @@ fn render_shot(
                 width: WIDTH,
                 height: HEIGHT,
             },
+            chrome.tabs,
             chrome.strip,
             chrome.panels,
             &editor.state().theme,
@@ -558,6 +564,15 @@ fn shoot(
     path: &Path,
 ) -> Result<Vec<u8>, String> {
     let mut compositor = shot_compositor(gpu, theme)?;
+    // What the face does wherever the strip's height becomes known: a frame
+    // that painted the band without reserving room for it would show the tab
+    // strip lying over the document's first two lines, and the shot would be
+    // a picture of a layout nothing ships.
+    if chrome.tabs.is_some() {
+        compositor.set_top_inset(
+            FrameCompositor::DOCUMENT_TOP_PADDING + overlay.tab_strip_height(u32_to_f32(HEIGHT)),
+        );
+    }
     match palette {
         Palette::ThemeSyntax => {
             let mut cache = HighlightCache::new();
@@ -698,6 +713,7 @@ fn palette_shot(
     let _ = command_palette.handle_key(&press(KeyCode::Down), &editor, &mru);
     let content = command_palette.content(&editor, &mru, &editor.state().theme, fit);
     let chrome = Chrome {
+        tabs: None,
         strip: None,
         panels: &[&content],
     };
@@ -727,6 +743,7 @@ fn menu_shot(
     let menu = ContextMenu::open(&editor, 0.34 * u32_to_f32(WIDTH), 0.30 * u32_to_f32(HEIGHT));
     let content = menu.content(&editor.state().theme, fit);
     let chrome = Chrome {
+        tabs: None,
         strip: None,
         panels: &[&content],
     };
@@ -757,6 +774,7 @@ fn search_shot(
     };
     let content = search.content(&editor, &editor.state().theme, fit);
     let chrome = Chrome {
+        tabs: None,
         strip: Some(&strip),
         panels: &[&content],
     };
@@ -786,8 +804,50 @@ fn history_shot(
     history.open();
     let content = history.content(&editor, &editor.state().theme, fit);
     let chrome = Chrome {
+        tabs: None,
         strip: None,
         panels: &[&content],
+    };
+    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
+    Ok(())
+}
+
+/// The tab strip along the top edge, with the document pushed down under it.
+///
+/// The frame that answers what no CPU test can about the strip: whether the
+/// active tab's card reads against the band, whether an inactive label is
+/// legible at its alpha, whether the dirty dot is findable, and — the thing
+/// the round-trip test proves arithmetically and nobody has yet *seen* —
+/// whether the document really does start below the band rather than under
+/// it.
+fn tab_strip_shot(
+    gpu: &Gpu,
+    overlay: &mut OverlayPainter,
+    theme: &Theme,
+    palette: Palette,
+    path: &Path,
+) -> Result<(), String> {
+    let editor = editor_with_document(theme, palette)?;
+    let tab = |label: &str, is_active: bool, is_dirty: bool| TabItem {
+        label: label.to_owned(),
+        is_active,
+        is_dirty,
+    };
+    let tabs = TabStripContent {
+        tabs: vec![
+            tab("main.rs", false, false),
+            tab("compositor.rs", true, true),
+            tab("Cargo.toml", false, false),
+            // Longer than the budget: the frame that shows where the cut
+            // falls and what the ellipsis looks like beside a real name.
+            tab("a-rather-long-file-name.json", false, true),
+            tab("untitled", false, false),
+        ],
+    };
+    let chrome = Chrome {
+        tabs: Some(&tabs),
+        strip: None,
+        panels: &[],
     };
     shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
     Ok(())
@@ -944,6 +1004,16 @@ fn run() -> Result<Vec<PathBuf>, String> {
     )?;
     written.push(history_path);
 
+    let tabs_path = out_dir.join("chrome-tabs.png");
+    tab_strip_shot(
+        &gpu,
+        &mut overlay,
+        &dark,
+        Palette::KeywordBridge,
+        &tabs_path,
+    )?;
+    written.push(tabs_path);
+
     // The three candidates.
     for variant in ClassicVariant::ALL {
         written.extend(variant_shots(&gpu, &mut overlay, fit, variant, &out_dir)?);
@@ -953,13 +1023,13 @@ fn run() -> Result<Vec<PathBuf>, String> {
 }
 
 /// How many frames the dark control contributes: the palette, the search
-/// panel, the context menu in both its editable and read-only states, and the
-/// history tree.
+/// panel, the context menu in both its editable and read-only states, the
+/// history tree, and the tab strip.
 ///
 /// Named rather than written into the assertion as a literal because it was a
 /// literal, it said three, and it stayed saying three when the two menu shots
 /// landed — so the harness failed its own count on every run.
-const DARK_CONTROL_SHOTS: usize = 5;
+const DARK_CONTROL_SHOTS: usize = 6;
 
 /// How many frames each candidate light variant contributes, per the
 /// light-theme map §4.1.

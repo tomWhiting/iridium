@@ -101,6 +101,14 @@ pub struct Node {
     pub parent: Option<NodeId>,
     /// This node's own children, once they are known.
     pub listing: Listing,
+    /// Whether the crawl should leave this node alone.
+    ///
+    /// Advice for the crawl and nothing else — see [`crate::ignores`]. An
+    /// ignored directory is still listed, still drawn and still openable by
+    /// hand; it is only never walked into on the tree's own initiative.
+    ///
+    /// The root is never ignored: it is the thing the user asked to look at.
+    pub ignored: bool,
 }
 
 impl Node {
@@ -110,7 +118,7 @@ impl Node {
     /// does one ending in `..`. Showing the whole path is the only honest
     /// answer for those, and it is the case a naive `file_name()` unwrap
     /// would panic on.
-    pub fn new(path: PathBuf, kind: EntryKind, parent: Option<NodeId>) -> Self {
+    pub fn new(path: PathBuf, kind: EntryKind, parent: Option<NodeId>, ignored: bool) -> Self {
         let name = path.file_name().map_or_else(
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
@@ -121,6 +129,7 @@ impl Node {
             kind,
             parent,
             listing: Listing::Absent,
+            ignored,
         }
     }
 }

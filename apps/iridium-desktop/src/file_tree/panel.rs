@@ -18,6 +18,16 @@ use crate::prompt::Entry;
 /// read as the same kind of thing.
 pub(super) const PROMPT: &str = "> ";
 
+/// How many directory reads the crawl posts per frame while a query is up.
+///
+/// A rate, not a total. The reads happen on the worker, so the number that
+/// matters is not what this thread can afford but how many requests are worth
+/// having in flight at once: enough that a project fills in over a second or
+/// two of frames, few enough that the disk is not asked for a thousand
+/// directories before the first answer comes back. At sixty frames a second
+/// this reaches a thousand directories in about a third of a second.
+const CRAWL_PER_FRAME: usize = 64;
+
 /// What a key press did to the panel.
 ///
 /// There is no `Ignored`: the panel is modal, and a key it does not bind is
@@ -128,9 +138,18 @@ impl FileExplorer {
     ///
     /// Call once per frame while the panel is open, and repaint on `true`.
     /// The common answer is `false` and costs one non-blocking channel poll.
+    ///
+    /// A query in the field also drives the crawl from here — a bounded batch
+    /// of directory reads per frame, so a search reaches past what the user
+    /// has opened without one keystroke queueing the whole disk. See
+    /// [`CRAWL_PER_FRAME`].
     pub fn poll(&mut self) -> bool {
+        let crawling = self.is_filtering() && self.files.crawl(CRAWL_PER_FRAME) > 0;
         if !self.files.drain() {
-            return false;
+            // A posted read is a reason to come back even though nothing has
+            // landed yet: `is_waiting` will now say so, and the host repaints
+            // while it does.
+            return crawling;
         }
         self.tree.refresh(&mut self.files);
         self.open_what_was_wanted();
@@ -185,14 +204,20 @@ impl FileExplorer {
         self.wanted = Some(id);
     }
 
-    /// Whether a directory read is still outstanding.
+    /// Whether more rows are still on their way.
+    ///
+    /// Two sources, and the host needs one answer covering both: a directory
+    /// read in flight, or a query whose crawl has directories left to ask
+    /// for. Reporting only the first would stall the crawl — the frame that
+    /// drained the last outstanding read still has a queue, and if nothing
+    /// asks for another frame there is nobody left to empty it.
     ///
     /// The host asks for another frame while this is `true`: the reads land
     /// on a worker thread and nothing wakes winit when they do, so a window
     /// that stopped repainting would leave a directory permanently loading.
     #[must_use]
-    pub const fn is_waiting(&self) -> bool {
-        self.files.is_waiting()
+    pub fn is_waiting(&self) -> bool {
+        self.files.is_waiting() || (self.is_filtering() && !self.files.is_fully_crawled())
     }
 
     /// The node under the selection, from whichever list is showing.

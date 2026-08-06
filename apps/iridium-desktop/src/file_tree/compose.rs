@@ -86,12 +86,32 @@ impl FileExplorer {
         )
     }
 
+    /// What an empty result list says.
+    ///
+    /// **Three different statements, because they mean three different
+    /// things.** A search still reading directories has not failed to find
+    /// anything — it has not looked everywhere yet, and saying "no matching
+    /// files" while the crawl is running is a lie that resolves itself a
+    /// second later, which is exactly long enough for someone to have given
+    /// up. A search that stopped at its limit has genuinely not looked
+    /// everywhere and never will, and that is worth saying out loud rather
+    /// than passing off as an answer.
+    fn nothing_found_yet(&self) -> &'static str {
+        if !self.files.is_fully_crawled() {
+            return "Searching…";
+        }
+        if self.files.crawl_hit_its_limit() {
+            return "No matches — the search stopped at its limit";
+        }
+        "No matching files"
+    }
+
     /// One row of whichever list is showing.
     fn list_row(&self, index: usize, theme: &Theme, width: usize) -> PanelRow {
         if self.is_filtering() {
             let Some(row) = self.view.rows.get(index) else {
                 return PanelRow::new(vec![Span::new(
-                    "No matching files",
+                    self.nothing_found_yet(),
                     theme.editor.line_number,
                 )]);
             };

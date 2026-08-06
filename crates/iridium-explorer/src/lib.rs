@@ -65,6 +65,21 @@
 //! one of its own ancestors is exactly that cycle, and not following one is
 //! how this source keeps the rule.
 //!
+//! # The crawl
+//!
+//! [`FileTree::crawl`] is the second way a directory gets read, and it is the
+//! one that makes *searching* possible: a filter can only match what is in the
+//! arena, and only what somebody opened is there. Call it with a per-frame
+//! budget while a search is up and the tree fills itself in breadth-first,
+//! shallow before deep, bounded by [`CRAWL_LIMIT`] and by the project's own
+//! `.gitignore`.
+//!
+//! **The ignore rules apply to the crawl and to nothing else.** A directory
+//! somebody opens by hand is read and shown whatever git thinks of it — a file
+//! tree that hid `target/` would be lying about the disk. What the rules
+//! prevent is the tree wandering into ten thousand object files on its own
+//! initiative.
+//!
 //! # Panics
 //!
 //! None. Every id is bounds-checked against the arena and an unknown one is
@@ -72,6 +87,7 @@
 //! across mutations, and a tree source is not a place to discover that a
 //! click raced a refresh.
 
+mod ignores;
 mod node;
 mod tree;
 mod worker;
@@ -80,4 +96,4 @@ mod worker;
 mod tests;
 
 pub use node::{EntryKind, ListingError, NodeId, NodeInfo};
-pub use tree::FileTree;
+pub use tree::{CRAWL_LIMIT, FileTree};

@@ -21,21 +21,81 @@ first-touch draw. Do not price the next lane off the old series.
 executing a path that no longer exists. Editing/saving unaffected;
 **when he quits, the app is gone until rebuilt.** He knows.
 
-**🔴 IN FLIGHT RIGHT NOW — #38, and the battery is COLD.** Background
-job `bgosw8l7r` is `cargo test --workspace --all-features` writing to
-`scratchpad/gate1.txt`. **This is the first post-clean build: the whole
-graph including wgpu, glyphon and tree-sitter compiles from scratch.**
-Lane anchor **150,354,208 KiB** available / 85% (`df -k
-/System/Volumes/Data`, taken 6 Aug before any cargo command).
-Invalidation set **`iridium-editor`, `iridium-desktop`,
-`iridium-bindings`**. Ceiling declared at **30 GiB** — deliberately a
-ceiling, not a prediction, because no cold figure for this workspace has
-ever been measured. **Report the actual draw against it.** Five gates
-still to run after this one. Source edits are complete and uncommitted:
-`render/mod.rs` (units widened to `pub`), `apps/iridium-desktop/src/
-units.rs` (three restated fns deleted, re-exported instead, one test
-assertion corrected), `crates/iridium-bindings/src/wasm.rs` (four bare
-casts replaced, one import added).
+**✅ #38 IS DONE AND PUSHED — `482f986`.** All six gates green on the
+committed tree: workspace **1906/0/20**; GPU-free kernel **891/0**, zero
+warnings; syntax-no-GPU **1003/0**, zero warnings; wasm32 check, clippy
+`-D warnings`, and `fmt --check` all exit 0. (Gates 2 and 3 stand from
+their first run — both are `iridium-editor`-only and every edit after
+them touched `wasm.rs` alone.)
+
+**LANE ACCOUNTING, CLOSED.** Anchor **150,354,208 KiB** / 85%, taken
+before any cargo command. Ceiling declared **30 GiB**. Actual cold
+`cargo test --workspace --all-features` tree: **3,184,524 KiB = 3.04
+GiB** — see row 28; the ceiling was ~6.6× high and Cally's 45.9 estimate
+~10× high, both from sizing a build off an accumulated `target/`.
+Box delta over the window was 3.36 GiB, **not reported as my draw** —
+shared box, so it is an upper bound only.
+
+**✅ `install.sh` HAPPY PATH HAS NOW RUN, FIRST TIME EVER, exit 0.**
+`/Applications/iridium.app` installed from a cold release build of
+`482f986`. Verified at my hand, NOT taken from the script's own success
+line: binary 19,498,608 bytes stamped 6 Aug 10:29; `codesign --verify
+--strict` exit 0, *"valid on disk"* / *"satisfies its Designated
+Requirement"*; `xattr` shows **only `com.apple.provenance` — no
+`com.apple.quarantine`.**
+
+⇒ ★ **THE AD-HOC-SIGNING ARGUMENT IS NOW MEASURED, NOT REASONED.**
+`install.sh`'s header claimed a locally built bundle never acquires the
+quarantine xattr, so Gatekeeper never refuses it and a Developer ID buys
+nothing for build-from-source. That was an argument from how Gatekeeper
+works; the `xattr` read is the first instance confirming it. **The
+`ditto`-not-`cp -R` choice is also now exercised** — the ad-hoc
+signature survived the copy, which was the specific failure the comment
+predicted.
+
+**★★ THE ORACLE RESULT — row 26 upgraded from measured-difference to
+PROVEN-CORRECT.** Cally's challenge was exactly right in general: *a
+measured divergence between two implementations establishes that at most
+one is right, and never which.* My 80,749/430,660 was a sample of a
+*difference*, and a difference cannot name a winner. Settled with a
+third, independent oracle — **Rust's own `value as usize`** — run
+**exhaustively over all 2^32 `f32` bit patterns, not sampled**:
+
+```
+kernel vs ORACLE  disagree : 0
+desktop vs ORACLE disagree : 805306369
+kernel vs desktop disagree : 805306369
+3/16 of 2^32               : 805306368
+```
+
+⇒ **the surviving `pixel_to_index` is exactly `value as usize` on every
+one of the 4,294,967,296 inputs that exist. The deleted copy was wrong
+on 805,306,369 of them.** The commit did not in fact rest on the
+divergence count — it rested on the documented bit-for-bit contract —
+but that distinction was not *demonstrated* until now.
+
+**The divergent class, fully characterised** (Cally spotted the count
+sat on a clean 3/16 and inferred a structural cause): positive `f32`
+with biased exponent 159–254, i.e. every value ≥ 2^32 — 96 exponents ×
+2^23 mantissas = **805,306,368 = 3/16 of 2^32** — **plus exactly one
+more pattern, `+∞`**. That +1 is the whole of the excess over 18.75%.
+NaN and all negatives agree at 0 in both. ⇒ ★ **a count landing on a
+clean fraction of the input space is evidence that a closed-form
+characterisation is available; take it, because it converts "they
+differ" into "here is precisely who is affected".**
+
+**NEGATIVE TEST — PREMISE CONFIRMED, VERDICT NOT AVAILABLE.**
+`~/.cargo/registry` **4,789,868 → 4,789,868 (+0)**, `~/.cargo/git`
+**3,950,488 → 3,950,488 (+0)** across the release build. So the release
+build genuinely downloaded nothing and **registry growth is excluded as
+the mechanism for any gap in this window.** ⚠️ **But I cannot report
+(i) vs (ii): I never took a `df` pair bracketing the release build
+alone.** The df readings I hold straddle two rerun batteries and, per
+Cally, a concurrent cold aion lane. Post-build target `du`
+**5,562,852 KiB**; avail **140,139,808 / 86%**. ⇒ **an experiment whose
+premise is confirmed can still be unable to return a verdict, if the
+bracketing measurements were not taken at the time.** Pre-register the
+brackets, not just the outcomes.
 
 **WHAT #38 TURNED OUT TO BE — bigger than the task title.** The title
 says "so the web face stops hand-rolling it". There were **three**

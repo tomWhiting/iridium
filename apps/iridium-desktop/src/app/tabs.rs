@@ -164,7 +164,7 @@ impl DesktopApp {
 
     /// The node a press on the strip named, or `None` for a press that named
     /// no tab.
-    fn tab_at(&self, hit: Option<TabHit>) -> Option<NodeId> {
+    pub(super) fn tab_at(&self, hit: Option<TabHit>) -> Option<NodeId> {
         let index = match hit? {
             TabHit::Activate(index) | TabHit::Close(index) => index,
         };

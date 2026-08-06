@@ -7,9 +7,7 @@
 //! and silence would look like a dead key.
 
 use iridium_editor::CommandId;
-use iridium_editor::commands::builtin::{
-    HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB,
-};
+use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB};
 
 use super::state::{DesktopApp, Flow};
 use crate::commands;

@@ -184,7 +184,7 @@ pub struct WorkspaceSnapshot {
 /// nowhere near a hot path — and a partial-update protocol would be a second
 /// source of truth about the tree.
 #[must_use]
-pub fn snapshot(workspace: &Workspace) -> WorkspaceSnapshot {
+pub fn snapshot<T>(workspace: &Workspace<T>) -> WorkspaceSnapshot {
     let mut nodes = Vec::new();
     let active = workspace.active();
     for root in workspace.roots() {
@@ -207,8 +207,8 @@ pub fn snapshot(workspace: &Workspace) -> WorkspaceSnapshot {
 /// deeply nested workspace must not be able to overflow the stack of
 /// whichever thread a face happens to serialize on. The explicit stack
 /// carries the parent and depth that recursion would have carried in frames.
-fn push_subtree(
-    workspace: &Workspace,
+fn push_subtree<T>(
+    workspace: &Workspace<T>,
     id: NodeId,
     parent: Option<NodeId>,
     depth: u32,
@@ -313,7 +313,7 @@ impl core::error::Error for WorkspaceActionError {}
 /// names nothing. The two are distinguished because they call for different
 /// responses: the first is a bug in the host, the second is an ordinary race
 /// between a drawn snapshot and a click.
-pub fn resolve_node(workspace: &Workspace, id: &str) -> Result<NodeId, WorkspaceActionError> {
+pub fn resolve_node<T>(workspace: &Workspace<T>, id: &str) -> Result<NodeId, WorkspaceActionError> {
     let node =
         decode_node(id).ok_or_else(|| WorkspaceActionError::MalformedNodeId(id.to_owned()))?;
     if workspace.node(node).is_none() {
@@ -332,8 +332,8 @@ pub fn resolve_node(workspace: &Workspace, id: &str) -> Result<NodeId, Workspace
 /// See [`resolve_node`], plus [`WorkspaceActionError::NotAGroup`] when the
 /// id names a tab. Checked here rather than left to the kernel's bare
 /// `None` so that a host is told *which* of the three things went wrong.
-fn resolve_parent(
-    workspace: &Workspace,
+fn resolve_parent<T>(
+    workspace: &Workspace<T>,
     parent: Option<&str>,
 ) -> Result<Option<NodeId>, WorkspaceActionError> {
     let Some(parent) = parent else {
@@ -367,7 +367,7 @@ fn resolve_parent(
 /// # Errors
 ///
 /// See [`resolve_node`].
-pub fn activate(workspace: &mut Workspace, id: &str) -> Result<bool, WorkspaceActionError> {
+pub fn activate<T>(workspace: &mut Workspace<T>, id: &str) -> Result<bool, WorkspaceActionError> {
     let node = resolve_node(workspace, id)?;
     if workspace.active() == Some(node) {
         return Ok(false);
@@ -380,7 +380,7 @@ pub fn activate(workspace: &mut Workspace, id: &str) -> Result<bool, WorkspaceAc
 /// # Errors
 ///
 /// See [`resolve_node`].
-pub fn close(workspace: &mut Workspace, id: &str) -> Result<bool, WorkspaceActionError> {
+pub fn close<T>(workspace: &mut Workspace<T>, id: &str) -> Result<bool, WorkspaceActionError> {
     let node = resolve_node(workspace, id)?;
     Ok(workspace.close(node))
 }
@@ -390,8 +390,8 @@ pub fn close(workspace: &mut Workspace, id: &str) -> Result<bool, WorkspaceActio
 /// # Errors
 ///
 /// See [`resolve_node`].
-pub fn rename(
-    workspace: &mut Workspace,
+pub fn rename<T>(
+    workspace: &mut Workspace<T>,
     id: &str,
     label: &str,
 ) -> Result<bool, WorkspaceActionError> {
@@ -408,8 +408,8 @@ pub fn rename(
 /// # Errors
 ///
 /// See [`resolve_node`] for `id` and [`resolve_parent`] for `parent`.
-pub fn move_node(
-    workspace: &mut Workspace,
+pub fn move_node<T>(
+    workspace: &mut Workspace<T>,
     id: &str,
     parent: Option<&str>,
     index: u32,
@@ -434,8 +434,8 @@ pub fn move_node(
 /// See [`resolve_parent`], and
 /// [`WorkspaceActionError::Refused`] in the disagreement case documented
 /// there.
-pub fn create_group(
-    workspace: &mut Workspace,
+pub fn create_group<T>(
+    workspace: &mut Workspace<T>,
     name: &str,
     parent: Option<&str>,
 ) -> Result<String, WorkspaceActionError> {
@@ -451,8 +451,8 @@ pub fn create_group(
 /// # Errors
 ///
 /// See [`create_group`].
-pub fn open(
-    workspace: &mut Workspace,
+pub fn open<T: Default>(
+    workspace: &mut Workspace<T>,
     content: &str,
     title: &str,
     parent: Option<&str>,
@@ -460,6 +460,31 @@ pub fn open(
     let parent_id = resolve_parent(workspace, parent)?;
     workspace
         .open(content, title, parent_id)
+        .map(encode_node)
+        .ok_or_else(|| WorkspaceActionError::Refused("open a tab".to_owned()))
+}
+
+/// Opens `content` with a per-document payload the face constructs.
+///
+/// The counterpart to [`open`] for a face whose per-document state cannot
+/// be defaulted — one holding a GPU resource, or an index built against the
+/// content it is being opened with. Without this, such a face would have to
+/// keep its own `HashMap<DocumentId, _>` after all, which is the exact
+/// thing the payload exists to avoid.
+///
+/// # Errors
+///
+/// See [`create_group`].
+pub fn open_with<T>(
+    workspace: &mut Workspace<T>,
+    content: &str,
+    title: &str,
+    parent: Option<&str>,
+    payload: T,
+) -> Result<String, WorkspaceActionError> {
+    let parent_id = resolve_parent(workspace, parent)?;
+    workspace
+        .open_with(content, title, parent_id, payload)
         .map(encode_node)
         .ok_or_else(|| WorkspaceActionError::Refused("open a tab".to_owned()))
 }
@@ -478,7 +503,10 @@ pub fn open(
 /// another table. Reported rather than ignored: a face forwarding an unknown
 /// id has a routing bug, and a silent `false` would make it look identical
 /// to a command that correctly declined.
-pub fn run_command(workspace: &mut Workspace, id: &str) -> Result<bool, WorkspaceActionError> {
+pub fn run_command<T>(
+    workspace: &mut Workspace<T>,
+    id: &str,
+) -> Result<bool, WorkspaceActionError> {
     let command = iridium_editor::CommandId::new(id.to_owned());
     workspace
         .run_command(&command)
@@ -494,7 +522,7 @@ pub fn run_command(workspace: &mut Workspace, id: &str) -> Result<bool, Workspac
 /// For a face deciding where to route a host command: here, or to its own
 /// palette-and-panel handling.
 #[must_use]
-pub fn handles_command(workspace: &Workspace, id: &str) -> bool {
+pub fn handles_command<T>(workspace: &Workspace<T>, id: &str) -> bool {
     workspace.handles_command(&iridium_editor::CommandId::new(id.to_owned()))
 }
 
@@ -503,7 +531,7 @@ pub fn handles_command(workspace: &Workspace, id: &str) -> bool {
 /// A convenience for a face that has one id and wants one string — a window
 /// title, say — rather than the tree.
 #[must_use]
-pub fn label_of(workspace: &Workspace, id: &str) -> Option<String> {
+pub fn label_of<T>(workspace: &Workspace<T>, id: &str) -> Option<String> {
     let node = decode_node(id)?;
     workspace.node(node).map(Node::label).map(str::to_owned)
 }

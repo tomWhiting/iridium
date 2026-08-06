@@ -70,9 +70,10 @@ use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::render::{FrameCompositor, FrameTarget};
 use iridium_editor::theme::Theme;
+use iridium_editor::workspace::{FaceSetupError, Workspace};
 use iridium_editor::{
-    ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyCode, KeyEvent,
-    KeymapError, Language, MouseResult, Position, RegistryError,
+    ClipboardOperation, CommandArgs, CommandId, Editor, EditorConfig, EditorKeyResult, KeyCode,
+    KeyEvent, Language, MouseResult, Position,
 };
 use iridium_file::{FileError, TextFile};
 use winit::application::ApplicationHandler;
@@ -98,6 +99,9 @@ use crate::units::{index_to_f32, pixel_from_f64, pixel_to_index, scale_to_f32, u
 /// The window title before a session has a file to name.
 const TITLE: &str = "iridium";
 
+/// The tab label for a buffer that has no file yet.
+const UNTITLED: &str = "untitled";
+
 /// Base font size in logical pixels; multiplied by the window's scale factor
 /// before it reaches the compositor, matching the web face's formula
 /// (`14.0 * devicePixelRatio`).
@@ -117,12 +121,21 @@ pub enum StartupError {
     /// The file named on the command line could not be opened.
     #[error(transparent)]
     File(#[from] FileError),
-    /// A command this face contributes could not be registered.
+    /// A command or keymap layer this face contributes was refused.
+    ///
+    /// One variant rather than two because the workspace validates both by
+    /// building an editor, and reports which half failed inside the error
+    /// it returns.
     #[error(transparent)]
-    Command(#[from] RegistryError),
-    /// The keymap layer this face pushes was refused.
-    #[error(transparent)]
-    Keymap(#[from] KeymapError),
+    Setup(#[from] FaceSetupError),
+    /// The session could not open its first tab.
+    ///
+    /// Unreachable through this code path — the only refusal is a parent
+    /// that is not a group, and startup passes none — but a session with
+    /// no tab has nothing to type into, so it is named rather than
+    /// papered over.
+    #[error("could not open the initial tab")]
+    NoInitialTab,
 }
 
 /// What the command line asked for.
@@ -228,14 +241,44 @@ impl Shell {
     }
 }
 
-/// One editing session in one window.
-pub struct DesktopApp {
-    /// The kernel.
-    editor: Editor,
-    /// The window-bound state, absent until the event loop resumes.
-    shell: Option<Shell>,
+/// What this face keeps per open document.
+///
+/// Three fields, none of which duplicate anything the kernel holds: the
+/// scroll offset is in physical pixels and the kernel's is in lines, the
+/// file is this face's business because the kernel does no I/O, and the
+/// highlight cache is keyed to the compositor's seam.
+///
+/// It rides in the [`Workspace`] rather than in a map this face keeps,
+/// because the rule for when it goes away — *when the last tab onto its
+/// document closes* — is already implemented and tested there. Two tabs
+/// onto one file share a buffer and an undo history, and must therefore
+/// share exactly one of these.
+#[derive(Debug, Default)]
+struct DesktopDocument {
     /// The face's vertical scroll offset, in physical pixels.
     scroll_y: f32,
+    /// The file this document came from, if it has one yet.
+    file: Option<TextFile>,
+    /// The kernel's tree-sitter spans, cached per parse generation and
+    /// resolved through the compositor's highlight seam each frame. See
+    /// [`crate::highlight`].
+    syntax: HighlightCache,
+}
+
+/// One editing session in one window.
+pub struct DesktopApp {
+    /// Every open document, its organisation, and this face's per-document
+    /// state.
+    ///
+    /// **Never empty while a session is running.** `new` opens either the
+    /// named file or an untitled buffer, and closing the last tab opens a
+    /// fresh untitled one — a window with no tab has nothing to type into
+    /// and no honest thing to draw. Nothing here relies on that invariant
+    /// being *provable*: every read still handles the empty case by
+    /// returning early rather than by asserting it away.
+    workspace: Workspace<DesktopDocument>,
+    /// The window-bound state, absent until the event loop resumes.
+    shell: Option<Shell>,
     /// The modifier state winit last reported, applied to every key press
     /// and mouse press.
     modifiers: ModifiersState,
@@ -246,12 +289,6 @@ pub struct DesktopApp {
     /// reached fails on the keystroke that needed it — visibly — rather than
     /// at startup.
     clipboard: Option<arboard::Clipboard>,
-    /// The file being edited, if the session named one.
-    file: Option<TextFile>,
-    /// The kernel's tree-sitter spans, cached per parse generation and
-    /// resolved through the compositor's highlight seam each frame. See
-    /// [`crate::highlight`].
-    syntax: HighlightCache,
     /// The search panel. Kept across closes so re-opening offers the last
     /// query back, which is what [`SearchOverlay`] is built for.
     search: SearchOverlay,
@@ -293,7 +330,11 @@ pub struct DesktopApp {
 impl std::fmt::Debug for DesktopApp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DesktopApp")
-            .field("scroll_y", &self.scroll_y)
+            .field(
+                "scroll_y",
+                &self.workspace.active_payload().map(|it| it.scroll_y),
+            )
+            .field("tabs", &self.workspace.tab_count())
             .field("prompt", &self.prompt)
             .field("message", &self.message)
             .field("failure", &self.failure)
@@ -314,37 +355,62 @@ impl DesktopApp {
     /// registry, and are reported rather than ignored so they cannot become
     /// silent if those tables change.
     pub fn new(options: Options) -> Result<Self, StartupError> {
-        let mut editor = Editor::with_defaults();
+        let mut workspace =
+            Workspace::<DesktopDocument>::new(EditorConfig::default(), Theme::default());
 
+        // Registered on the workspace, not on one editor: it applies the
+        // whole set to every tab, present and future. Registering on a
+        // single `Editor` would give the first tab this face's chords and
+        // every later tab none of them.
         for meta in commands::command_metas() {
-            editor.register_command(meta)?;
+            workspace.register_command(meta)?;
         }
-        editor.push_keymap(commands::keymap())?;
+        workspace.push_keymap(commands::keymap())?;
 
-        let file = match options.path {
+        let (content, file) = match options.path {
             Some(path) => {
                 let (file, text) = TextFile::open(&path)?;
-                editor.set_content(&text);
-                Some(file)
+                (text, Some(file))
             },
-            None => None,
+            None => (String::new(), None),
         };
+        let title = file
+            .as_ref()
+            .map_or_else(|| UNTITLED.to_owned(), TextFile::display_name);
+        let language = file.as_ref().and_then(|file| language_of(file.path()));
+
+        // A session always has a tab. An untitled empty buffer is what a
+        // window with no file has always shown; it is now a *tab* showing
+        // it, which is the same thing with a name.
+        let tab = workspace.open_with(
+            &content,
+            title,
+            None,
+            DesktopDocument {
+                scroll_y: 0.0,
+                file,
+                syntax: HighlightCache::new(),
+            },
+        );
+        // Unreachable: `open_with` refuses only a parent that is not a
+        // group, and this passes none. Reported rather than ignored, since
+        // a session with no tab is not a session.
+        if tab.is_none() {
+            return Err(StartupError::NoInitialTab);
+        }
 
         // After the content: setting a language parses the document, and
         // doing it first would parse an empty one and then parse again.
-        if let Some(language) = file.as_ref().and_then(|file| language_of(file.path())) {
+        if let (Some(language), Some(editor)) = (language, workspace.active_editor_mut()) {
             editor.set_language(language);
         }
 
         Ok(Self {
-            editor,
+            workspace,
             shell: None,
-            scroll_y: 0.0,
             modifiers: ModifiersState::empty(),
             pointer: Pointer::new(),
             clipboard: None,
-            file,
-            syntax: HighlightCache::new(),
             search: SearchOverlay::new(),
             search_open: false,
             palette: CommandPalette::new(),
@@ -392,14 +458,25 @@ impl DesktopApp {
     /// saved state is clean, and a counter would call it modified for the
     /// rest of the session. The comparison is a rope against a `&str`, which
     /// returns on a length mismatch without reading a byte.
+    ///
+    /// Answers `false` when no tab is open: there is no document, so nothing
+    /// can differ from anything. That is the honest answer for a state the
+    /// session should never be in, and a truthful `false` here is what stops
+    /// a spurious "unsaved changes" prompt on the way out.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        let saved = self
+        let Some(document) = self.workspace.active_payload() else {
+            return false;
+        };
+        let Some(editor) = self.workspace.active_editor() else {
+            return false;
+        };
+        let saved = document
             .file
             .as_ref()
             .and_then(TextFile::saved_text)
             .unwrap_or("");
-        *self.editor.state().document.rope() != saved
+        *editor.state().document.rope() != saved
     }
 
     /// Handles one translated key press, in the terminal face's order: the
@@ -439,8 +516,15 @@ impl DesktopApp {
     /// not dead while a search is open — the exact rule the terminal face
     /// applies.
     fn search_or_document_key(&mut self, event: &KeyEvent) -> Flow {
+        // Bound from the workspace rather than through a `&mut self` method:
+        // an accessor taking `&mut self` would borrow the whole struct and
+        // make `self.search` unreachable in the same expression. Disjoint
+        // field borrows are what let these two coexist.
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return Flow::Running;
+        };
         if self.search_open {
-            match self.search.handle_key(event, &mut self.editor) {
+            match self.search.handle_key(event, editor) {
                 SearchOutcome::Ignored => {},
                 SearchOutcome::Handled | SearchOutcome::Replaced(_) => {
                     self.ensure_caret_visible();
@@ -453,7 +537,10 @@ impl DesktopApp {
                 },
             }
         }
-        let result = self.editor.handle_key(event);
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return Flow::Running;
+        };
+        let result = editor.handle_key(event);
         let flow = self.consume(result);
         self.ensure_caret_visible();
         flow
@@ -472,7 +559,10 @@ impl DesktopApp {
             }
             return Flow::Running;
         }
-        match self.palette.handle_key(event, &self.editor, &self.mru) {
+        let Some(editor) = self.workspace.active_editor() else {
+            return Flow::Running;
+        };
+        match self.palette.handle_key(event, editor, &self.mru) {
             PaletteOutcome::Handled => Flow::Running,
             PaletteOutcome::Closed => {
                 self.palette_open = false;
@@ -487,7 +577,10 @@ impl DesktopApp {
 
     /// Hands a key to the open undo-tree panel and acts on the outcome.
     fn drive_history(&mut self, event: &KeyEvent) -> Flow {
-        match self.history.handle_key(event, &self.editor) {
+        let Some(editor) = self.workspace.active_editor() else {
+            return Flow::Running;
+        };
+        match self.history.handle_key(event, editor) {
             HistoryOutcome::Handled => Flow::Running,
             HistoryOutcome::Closed => {
                 self.history_open = false;
@@ -496,7 +589,11 @@ impl DesktopApp {
             HistoryOutcome::Jump(node) => {
                 // The panel stays open: hopping between states and watching
                 // the document change underneath is what the tree is for.
-                if !self.editor.jump_to_history_node(node) {
+                let jumped = self
+                    .workspace
+                    .active_editor_mut()
+                    .is_some_and(|editor| editor.jump_to_history_node(node));
+                if !jumped {
                     self.message = Some(Message::error(
                         "that history state no longer exists".to_owned(),
                     ));
@@ -520,7 +617,10 @@ impl DesktopApp {
     /// entry nothing runs cannot become a ranked favourite — and a verb run
     /// from the menu trains the same ranking a palette run does.
     fn run_chosen_command(&mut self, command: &CommandId) -> Flow {
-        match self.editor.run_command(command.as_str(), CommandArgs::NONE) {
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return Flow::Running;
+        };
+        match editor.run_command(command.as_str(), CommandArgs::NONE) {
             Ok(result) => {
                 self.mru.record(command);
                 let flow = self.consume(result);
@@ -649,21 +749,28 @@ impl DesktopApp {
     /// the chord that overwrites, because a refusal that does not say the way
     /// out is a dead end with better manners.
     fn save(&mut self, force: bool) -> Flow {
-        if self.editor.state().read_only {
+        let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() else {
+            // The session keeps a tab open, so this is unreachable — reported
+            // rather than ignored, because a save that silently wrote nothing
+            // is the one failure a user would not notice until it mattered.
+            self.message = Some(Message::error("there is no document to save"));
+            return Flow::Running;
+        };
+        if editor.state().read_only {
             // Nothing could have changed, so a save here can only write a
             // stale buffer over a file that something else may have moved on.
             self.message = Some(Message::error("the document is read-only"));
             return Flow::Running;
         }
-        if self.file.is_none() {
+        if document.file.is_none() {
             self.prompt = Some(Prompt::save_as());
             return Flow::Running;
         }
 
-        let text = self.editor.content();
+        let text = editor.content();
         // Unreachable: the check above returned. Reported rather than ignored
         // so that a later edit cannot make it silent.
-        let Some(file) = self.file.as_mut() else {
+        let Some(file) = document.file.as_mut() else {
             self.message = Some(Message::error("there is no file to write"));
             return Flow::Running;
         };
@@ -686,15 +793,19 @@ impl DesktopApp {
     /// leaves it unnamed, which is what it still is.
     fn save_as(&mut self, path: &Path) -> Flow {
         let mut file = TextFile::new(path);
-        let text = self.editor.content();
+        let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() else {
+            self.message = Some(Message::error("there is no document to save"));
+            return Flow::Running;
+        };
+        let text = editor.content();
         match file.save(&text, false) {
             Ok(()) => {
                 self.message = Some(Message::notice(format!("wrote {}", file.display_name())));
-                self.file = Some(file);
+                document.file = Some(file);
                 // The name is what says what the document is written in, and
                 // until now there was no name.
                 if let Some(language) = language_of(path) {
-                    self.editor.set_language(language);
+                    editor.set_language(language);
                 }
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),
@@ -750,13 +861,18 @@ impl DesktopApp {
     fn open_file(&mut self, path: &Path) {
         match TextFile::open(path) {
             Ok((file, text)) => {
-                self.editor.set_content(&text);
-                if let Some(language) = language_of(file.path()) {
-                    self.editor.set_language(language);
+                let name = file.display_name();
+                if let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() {
+                    editor.set_content(&text);
+                    if let Some(language) = language_of(file.path()) {
+                        editor.set_language(language);
+                    }
+                    document.file = Some(file);
+                    document.scroll_y = 0.0;
+                    self.message = Some(Message::notice(format!("opened {name}")));
+                } else {
+                    self.message = Some(Message::error("there is no tab to open into"));
                 }
-                self.message = Some(Message::notice(format!("opened {}", file.display_name())));
-                self.file = Some(file);
-                self.scroll_y = 0.0;
                 self.refresh_title();
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),
@@ -794,7 +910,15 @@ impl DesktopApp {
                 }
             },
             ClipboardOperation::Cut { text, command } => match self.clipboard_store(text) {
-                Ok(()) => self.editor.apply_command(command),
+                // The text is on the pasteboard by now, so a missing tab loses
+                // nothing — but the delete half did not run, and a cut that
+                // silently left the text behind would read as a broken chord.
+                Ok(()) => match self.workspace.active_editor_mut() {
+                    Some(editor) => editor.apply_command(command),
+                    None => {
+                        self.message = Some(Message::error("there is no document to cut from"));
+                    },
+                },
                 Err(error) => {
                     self.message = Some(Message::error(format!(
                         "{error} — the cut left the document untouched"
@@ -802,7 +926,12 @@ impl DesktopApp {
                 },
             },
             ClipboardOperation::Paste => match self.clipboard_text() {
-                Ok(text) => self.editor.paste(&text),
+                Ok(text) => match self.workspace.active_editor_mut() {
+                    Some(editor) => editor.paste(&text),
+                    None => {
+                        self.message = Some(Message::error("there is no document to paste into"));
+                    },
+                },
                 Err(message) => self.message = Some(message),
             },
         }
@@ -859,15 +988,18 @@ impl DesktopApp {
     /// Only the two panel actions need anything here: the kernel has already
     /// moved to the next or previous match by the time it reports one.
     fn search_action(&mut self, action: &SearchAction) {
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return;
+        };
         match action {
             SearchAction::OpenSearch => {
                 self.search_open = true;
-                self.search.open(&mut self.editor);
+                self.search.open(editor);
             },
             SearchAction::CloseSearch => {
                 if self.search_open {
                     self.search_open = false;
-                    self.search.close(&mut self.editor);
+                    self.search.close(editor);
                 }
             },
             SearchAction::NextMatch | SearchAction::PreviousMatch => {},
@@ -877,7 +1009,11 @@ impl DesktopApp {
     /// Sets the window title to the document's name and dirty state, when it
     /// changed.
     fn refresh_title(&mut self) {
-        let name = self.file.as_ref().map(TextFile::display_name);
+        let name = self
+            .workspace
+            .active_payload()
+            .and_then(|document| document.file.as_ref())
+            .map(TextFile::display_name);
         let title = title_for(name.as_deref(), self.is_dirty());
         if title != self.title {
             if let Some(shell) = &self.shell {
@@ -908,7 +1044,9 @@ impl DesktopApp {
         };
         let modifiers = keys::kernel_modifiers(self.modifiers);
         let result = {
-            let state = self.editor.state();
+            let Some(state) = self.workspace.active_editor().map(Editor::state) else {
+                return;
+            };
             self.pointer.drag(
                 line,
                 column,
@@ -945,7 +1083,9 @@ impl DesktopApp {
         };
         let modifiers = keys::kernel_modifiers(self.modifiers);
         let result = {
-            let state = self.editor.state();
+            let Some(state) = self.workspace.active_editor().map(Editor::state) else {
+                return Flow::Running;
+            };
             self.pointer.press(
                 line,
                 column,
@@ -1016,7 +1156,10 @@ impl DesktopApp {
         self.message = None;
         self.place_caret_under_pointer();
         let (x, y) = self.pointer.position();
-        self.menu = Some(ContextMenu::open(&self.editor, x, y));
+        let Some(editor) = self.workspace.active_editor() else {
+            return;
+        };
+        self.menu = Some(ContextMenu::open(editor, x, y));
         if let Some(shell) = &mut self.shell {
             shell.compositor.reset_blink();
             shell.window.request_redraw();
@@ -1035,7 +1178,9 @@ impl DesktopApp {
             return;
         };
         let position = Position::new(line, column);
-        let state = self.editor.state();
+        let Some(state) = self.workspace.active_editor().map(Editor::state) else {
+            return;
+        };
         if mouse::selection_covers(&state.cursor, position) {
             return;
         }
@@ -1138,7 +1283,9 @@ impl DesktopApp {
     fn blurred(&mut self) {
         // A chord left pending across a blur would eat the first keystroke
         // after the user came back; the kernel names this path explicitly.
-        self.editor.abort_pending_key_sequence();
+        if let Some(editor) = self.workspace.active_editor_mut() {
+            editor.abort_pending_key_sequence();
+        }
         // A menu is aimed at a click that is no longer being made.
         self.menu = None;
     }
@@ -1149,7 +1296,9 @@ impl DesktopApp {
             return;
         };
         let result = {
-            let state = self.editor.state();
+            let Some(state) = self.workspace.active_editor().map(Editor::state) else {
+                return;
+            };
             self.pointer.release(grid, &state.document, &state.cursor)
         };
         self.apply_mouse(result);
@@ -1159,14 +1308,13 @@ impl DesktopApp {
     /// compositor — the honest, wrap- and fold-aware mapping.
     fn hit_test(&self) -> Option<(Grid, usize, usize)> {
         let shell = self.shell.as_ref()?;
+        let editor = self.workspace.active_editor()?;
+        let scroll_y = self.workspace.active_payload()?.scroll_y;
         let (x, y) = self.pointer.position();
-        let (line, column) = shell.compositor.pixel_to_position(
-            &self.editor,
-            self.editor.fold_state(),
-            self.scroll_y,
-            x,
-            y,
-        );
+        let (line, column) =
+            shell
+                .compositor
+                .pixel_to_position(editor, editor.fold_state(), scroll_y, x, y);
         let grid = Grid {
             line_height: shell.compositor.line_height(),
             width: u32_to_f32(shell.surface.width()),
@@ -1180,7 +1328,9 @@ impl DesktopApp {
     fn apply_mouse(&mut self, result: MouseResult) {
         match result {
             MouseResult::Command(command) => {
-                self.editor.apply_command(command);
+                if let Some(editor) = self.workspace.active_editor_mut() {
+                    editor.apply_command(command);
+                }
                 if let Some(shell) = &mut self.shell {
                     shell.compositor.reset_blink();
                     shell.window.request_redraw();
@@ -1191,7 +1341,9 @@ impl DesktopApp {
             // handled honestly in case the seam widens: the kernel named an
             // effect and the face must not drop it.
             MouseResult::ToggleFold { line } => {
-                self.editor.toggle_fold_at(line);
+                if let Some(editor) = self.workspace.active_editor_mut() {
+                    editor.toggle_fold_at(line);
+                }
                 if let Some(shell) = &self.shell {
                     shell.window.request_redraw();
                 }
@@ -1201,7 +1353,9 @@ impl DesktopApp {
                     .shell
                     .as_ref()
                     .map_or(0.0, |shell| shell.compositor.line_height());
-                self.scroll_y = index_to_f32(target_line) * line_height;
+                if let Some(document) = self.workspace.active_payload_mut() {
+                    document.scroll_y = index_to_f32(target_line) * line_height;
+                }
                 self.clamp_scroll();
                 if let Some(shell) = &self.shell {
                     shell.window.request_redraw();
@@ -1223,10 +1377,20 @@ impl DesktopApp {
     /// Moves the scroll offset under the usual clamp, repainting only when it
     /// actually moved.
     fn scroll_by(&mut self, delta_y: f32) {
-        let before = self.scroll_y;
-        self.scroll_y += delta_y;
+        let Some(document) = self.workspace.active_payload_mut() else {
+            return;
+        };
+        let before = document.scroll_y;
+        document.scroll_y += delta_y;
+        // Re-read rather than predict: the clamp is what decides where the
+        // scroll actually landed, and a repaint keyed off the unclamped value
+        // would fire on every wheel tick at the end of a document.
         self.clamp_scroll();
-        if (self.scroll_y - before).abs() > f32::EPSILON
+        let after = self
+            .workspace
+            .active_payload()
+            .map_or(before, |document| document.scroll_y);
+        if (after - before).abs() > f32::EPSILON
             && let Some(shell) = &self.shell
         {
             shell.window.request_redraw();
@@ -1252,6 +1416,9 @@ impl DesktopApp {
         let Some(shell) = &self.shell else {
             return;
         };
+        let Some(editor) = self.workspace.active_editor() else {
+            return;
+        };
         let line_height = shell.compositor.line_height();
         let bottom_inset = if search_open {
             shell.overlay.panel_height(2)
@@ -1261,14 +1428,17 @@ impl DesktopApp {
         let viewport_height = (u32_to_f32(shell.surface.height()) - bottom_inset).max(line_height);
         let caret_y = shell
             .compositor
-            .cursor_anchor_y(&self.editor, self.editor.fold_state());
+            .cursor_anchor_y(editor, editor.fold_state());
 
-        if caret_y < self.scroll_y + SCROLL_PADDING {
+        let Some(document) = self.workspace.active_payload_mut() else {
+            return;
+        };
+        if caret_y < document.scroll_y + SCROLL_PADDING {
             // Caret above the viewport: bring its line to the top.
-            self.scroll_y = (caret_y - SCROLL_PADDING).max(0.0);
-        } else if caret_y + line_height > self.scroll_y + viewport_height - SCROLL_PADDING {
+            document.scroll_y = (caret_y - SCROLL_PADDING).max(0.0);
+        } else if caret_y + line_height > document.scroll_y + viewport_height - SCROLL_PADDING {
             // Caret below the viewport: bring its line to the bottom.
-            self.scroll_y = caret_y + line_height - viewport_height + SCROLL_PADDING;
+            document.scroll_y = caret_y + line_height - viewport_height + SCROLL_PADDING;
         }
         self.clamp_scroll();
     }
@@ -1279,12 +1449,17 @@ impl DesktopApp {
         let Some(shell) = &self.shell else {
             return;
         };
+        let Some(editor) = self.workspace.active_editor() else {
+            return;
+        };
         let max = shell.compositor.max_scroll_y(
-            &self.editor,
-            self.editor.fold_state(),
+            editor,
+            editor.fold_state(),
             u32_to_f32(shell.surface.height()),
         );
-        self.scroll_y = self.scroll_y.clamp(0.0, max);
+        if let Some(document) = self.workspace.active_payload_mut() {
+            document.scroll_y = document.scroll_y.clamp(0.0, max);
+        }
     }
 
     /// The document lines (half-open) the next frame will show — the window
@@ -1305,13 +1480,13 @@ impl DesktopApp {
         if line_height <= 0.0 {
             return None;
         }
-        let first_visual = pixel_to_index(self.scroll_y / line_height);
+        let scroll_y = self.workspace.active_payload()?.scroll_y;
+        let editor = self.workspace.active_editor()?;
+        let first_visual = pixel_to_index(scroll_y / line_height);
         let rows =
             pixel_to_index(u32_to_f32(shell.surface.height()) / line_height).saturating_add(2);
-        let first_line = self.editor.visual_to_document_line(first_visual);
-        let last_line = self
-            .editor
-            .visual_to_document_line(first_visual.saturating_add(rows));
+        let first_line = editor.visual_to_document_line(first_visual);
+        let last_line = editor.visual_to_document_line(first_visual.saturating_add(rows));
         Some(first_line..last_line.saturating_add(1))
     }
 
@@ -1330,9 +1505,7 @@ impl DesktopApp {
         let line_height = shell.compositor.line_height();
         let width = u32_to_f32(shell.surface.width());
         let height = u32_to_f32(shell.surface.height());
-        let state = self.editor.state_mut();
-        state.viewport.line_height = line_height;
-        state.viewport.resize(width, height);
+        self.workspace.set_viewport(line_height, width, height);
     }
 
     /// Handles a new surface size, in physical pixels.
@@ -1422,14 +1595,20 @@ impl DesktopApp {
         // rebuilt — over the frame's viewport plus overscan, never the whole
         // document — only when the kernel actually reparsed or the viewport
         // escaped the covered window.
-        match self.viewport_window() {
-            Some(window) => self.syntax.refresh_windowed(&self.editor, window),
-            None => self.syntax.refresh(&self.editor),
+        let window = self.viewport_window();
+        if let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() {
+            match window {
+                Some(window) => document.syntax.refresh_windowed(editor, window),
+                None => document.syntax.refresh(editor),
+            }
         }
         let strip = self.strip_content();
         let panels = self.panel_contents();
-        let editor = &self.editor;
-        let scroll_y = self.scroll_y;
+        let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() else {
+            return;
+        };
+        let editor: &Editor = editor;
+        let scroll_y = document.scroll_y;
         let Some(shell) = &mut self.shell else {
             return;
         };
@@ -1444,7 +1623,7 @@ impl DesktopApp {
         let height = surface.height();
         let fold_state = editor.fold_state();
         let theme = &editor.state().theme;
-        let mut highlights = self.syntax.resolver(&theme.syntax);
+        let mut highlights = document.syntax.resolver(&theme.syntax);
         let panel_refs: Vec<&PanelContent> = panels.iter().collect();
 
         let outcome = surface.render_frame(|view, device, queue| {
@@ -1514,16 +1693,19 @@ impl DesktopApp {
         else {
             return Vec::new();
         };
-        let theme = &self.editor.state().theme;
+        let Some(editor) = self.workspace.active_editor() else {
+            return Vec::new();
+        };
+        let theme = &editor.state().theme;
         let mut panels = Vec::new();
         if self.search_open {
-            panels.push(self.search.content(&self.editor, theme, fit));
+            panels.push(self.search.content(editor, theme, fit));
         }
         if self.history_open {
-            panels.push(self.history.content(&self.editor, theme, fit));
+            panels.push(self.history.content(editor, theme, fit));
         }
         if self.palette_open {
-            panels.push(self.palette.content(&self.editor, &self.mru, theme, fit));
+            panels.push(self.palette.content(editor, &self.mru, theme, fit));
         }
         // Last, and so on top and last in the painter's placement record —
         // which is how `painted_menu` finds it again for the pointer.
@@ -1531,6 +1713,49 @@ impl DesktopApp {
             panels.push(menu.content(theme, fit));
         }
         panels
+    }
+}
+
+/// Whole-`self` accessors for the tests, and **only** for the tests.
+///
+/// The production code deliberately has none of these. `active_editor_mut`
+/// is reached through the `workspace` *field* at every call site because a
+/// method on `DesktopApp` borrows all of `self`, which would break
+/// `self.search.handle_key(event, editor)` — that call is legal only because
+/// `search` and `workspace` are disjoint fields. A test is straight-line
+/// code that never holds two borrows at once, so it pays nothing for the
+/// convenience; the `cfg(test)` gate is what stops the convenience leaking
+/// back into the paths that cannot afford it.
+#[cfg(test)]
+impl DesktopApp {
+    /// The active tab's editor. Panics if no tab is open — every test opens
+    /// one, and a test that silently asserted nothing would be worse.
+    fn test_editor(&self) -> &Editor {
+        self.workspace.active_editor().expect("a tab is open")
+    }
+
+    /// The active tab's editor, mutably.
+    fn test_editor_mut(&mut self) -> &mut Editor {
+        self.workspace.active_editor_mut().expect("a tab is open")
+    }
+
+    /// The active tab's face state.
+    fn test_document(&self) -> &DesktopDocument {
+        self.workspace.active_payload().expect("a tab is open")
+    }
+
+    /// The active tab's face state, mutably.
+    fn test_document_mut(&mut self) -> &mut DesktopDocument {
+        self.workspace.active_payload_mut().expect("a tab is open")
+    }
+
+    /// Rebuilds the active tab's highlight cache, as a frame would.
+    fn test_refresh_syntax(&mut self) {
+        let (editor, document) = self
+            .workspace
+            .active_editor_and_payload_mut()
+            .expect("a tab is open");
+        document.syntax.refresh(editor);
     }
 }
 
@@ -1578,7 +1803,10 @@ impl ApplicationHandler for DesktopApp {
         if self.shell.is_some() {
             return;
         }
-        match Shell::open(event_loop, self.editor.state().theme.clone()) {
+        // The workspace's theme, not the active tab's: the window is painted
+        // once for every tab, and the workspace is where that one answer
+        // lives.
+        match Shell::open(event_loop, self.workspace.theme().clone()) {
             Ok(shell) => {
                 shell.window.request_redraw();
                 self.shell = Some(shell);
@@ -1831,7 +2059,10 @@ mod tests {
         );
         assert!(!app.is_dirty());
         assert_eq!(
-            app.file.as_ref().map(super::TextFile::display_name),
+            app.test_document()
+                .file
+                .as_ref()
+                .map(super::TextFile::display_name),
             Some("notes.txt".to_owned())
         );
     }
@@ -1866,7 +2097,7 @@ mod tests {
     fn a_read_only_document_refuses_to_save() {
         let directory = TempDir::new("desktop-read-only");
         let (mut app, path) = open(&directory, "a.txt", "one");
-        app.editor.state_mut().read_only = true;
+        app.test_editor_mut().state_mut().read_only = true;
 
         assert_eq!(app.press(&ctrl_s()), Flow::Running);
         let message = app.message.as_ref().expect("the refusal was reported");
@@ -1912,13 +2143,17 @@ mod tests {
 
         // Modal: typing goes to the query, not the document.
         assert_eq!(app.press(&press(KeyCode::Char('x'))), Flow::Running);
-        assert_eq!(app.editor.content(), "", "the keystroke fed the query");
+        assert_eq!(
+            app.test_editor().content(),
+            "",
+            "the keystroke fed the query"
+        );
         assert_eq!(app.palette.query(), "x");
 
         assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
         assert!(!app.palette_open);
         assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
-        assert_eq!(app.editor.content(), "y", "the document is back");
+        assert_eq!(app.test_editor().content(), "y", "the document is back");
     }
 
     #[test]
@@ -1959,7 +2194,7 @@ mod tests {
 
         // The whole document is selected, so typing replaces it.
         type_into(&mut app, "z");
-        assert_eq!(app.editor.content(), "z");
+        assert_eq!(app.test_editor().content(), "z");
         assert!(
             !app.mru.is_empty(),
             "the dispatched command was recorded for recency"
@@ -2011,7 +2246,7 @@ mod tests {
             "the menu hangs from the click"
         );
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().content(),
             "hello",
             "opening the menu edits nothing"
         );
@@ -2037,7 +2272,7 @@ mod tests {
 
         assert_eq!(app.press(&press(KeyCode::Char('x'))), Flow::Running);
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().content(),
             "",
             "the keystroke was swallowed by the menu"
         );
@@ -2045,7 +2280,7 @@ mod tests {
         assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
         assert!(app.menu.is_none(), "Escape closes the menu");
         assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
-        assert_eq!(app.editor.content(), "y", "the document is back");
+        assert_eq!(app.test_editor().content(), "y", "the document is back");
     }
 
     #[test]
@@ -2068,7 +2303,7 @@ mod tests {
 
         // The whole document is selected, so typing replaces it.
         type_into(&mut app, "z");
-        assert_eq!(app.editor.content(), "z");
+        assert_eq!(app.test_editor().content(), "z");
     }
 
     #[test]
@@ -2110,7 +2345,7 @@ mod tests {
         assert_eq!(app.pointer_pressed(), Flow::Running);
         assert!(app.menu.is_none(), "the click outside dismissed the menu");
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().content(),
             "hello",
             "the dismissing click never reached the document"
         );
@@ -2134,7 +2369,7 @@ mod tests {
             "a click outside the palette dismisses it"
         );
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().content(),
             "hello",
             "the dismissing click never reached the document"
         );
@@ -2179,7 +2414,7 @@ mod tests {
 
         // Modal: typing must not reach the document while history is open.
         assert_eq!(app.press(&press(KeyCode::Char('x'))), Flow::Running);
-        assert_eq!(app.editor.content(), "a");
+        assert_eq!(app.test_editor().content(), "a");
 
         assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
         assert!(!app.history_open, "the toggle chord closes it");
@@ -2189,15 +2424,22 @@ mod tests {
     fn jumping_from_the_history_panel_walks_states_and_keeps_the_panel_open() {
         let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
         // One node per edit, so the rows are predictable.
-        app.editor.state_mut().history.set_group_timeout_ms(0);
+        app.test_editor_mut()
+            .state_mut()
+            .history
+            .set_group_timeout_ms(0);
         type_into(&mut app, "a");
         type_into(&mut app, "b");
-        assert_eq!(app.editor.content(), "ab");
+        assert_eq!(app.test_editor().content(), "ab");
 
         assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
         assert_eq!(app.press(&press(KeyCode::Up)), Flow::Running);
         assert_eq!(app.press(&press(KeyCode::Enter)), Flow::Running);
-        assert_eq!(app.editor.content(), "a", "one row up is one edit back");
+        assert_eq!(
+            app.test_editor().content(),
+            "a",
+            "one row up is one edit back"
+        );
         assert!(
             app.history_open,
             "the panel stays open so the * can be watched moving"
@@ -2216,9 +2458,13 @@ mod tests {
         assert!(app.search_open, "Ctrl+F opens the search panel");
 
         type_into(&mut app, "alpha");
-        assert_eq!(app.editor.search_match_count(), 2, "typing searches live");
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().search_match_count(),
+            2,
+            "typing searches live"
+        );
+        assert_eq!(
+            app.test_editor().content(),
             "alpha beta alpha",
             "the query went to the field, not the document"
         );
@@ -2226,11 +2472,11 @@ mod tests {
         assert_eq!(app.press(&press(KeyCode::Escape)), Flow::Running);
         assert!(!app.search_open);
         assert_eq!(
-            app.editor.search_match_count(),
+            app.test_editor().search_match_count(),
             0,
             "closing the panel closes the kernel's search"
         );
-        assert_eq!(app.editor.content(), "alpha beta alpha");
+        assert_eq!(app.test_editor().content(), "alpha beta alpha");
     }
 
     #[test]
@@ -2284,23 +2530,27 @@ mod tests {
         let directory = TempDir::new("desktop-syntax");
         let (mut app, _path) = open(&directory, "a.rs", "fn main() {}\n");
         assert_eq!(
-            app.editor.language(),
+            app.test_editor().language(),
             Some(iridium_editor::Language::Rust),
             "the session set the language from the name"
         );
-        app.syntax.refresh(&app.editor);
+        app.test_refresh_syntax();
         assert_eq!(
-            app.syntax.rebuilds(),
+            app.test_document().syntax.rebuilds(),
             1,
             "the parsed document yields spans on the first refresh"
         );
-        app.syntax.refresh(&app.editor);
-        assert_eq!(app.syntax.rebuilds(), 1, "an idle frame rebuilds nothing");
+        app.test_refresh_syntax();
+        assert_eq!(
+            app.test_document().syntax.rebuilds(),
+            1,
+            "an idle frame rebuilds nothing"
+        );
 
         type_into(&mut app, "x");
-        app.syntax.refresh(&app.editor);
+        app.test_refresh_syntax();
         assert_eq!(
-            app.syntax.rebuilds(),
+            app.test_document().syntax.rebuilds(),
             2,
             "a keystroke's reparse rebuilds once"
         );
@@ -2349,18 +2599,21 @@ mod tests {
         let directory = TempDir::new("desktop-drop-clean");
         let (mut app, _first) = open(&directory, "a.txt", "first");
         let second = fixture(&directory, "b.txt", "second");
-        app.scroll_y = 40.0;
+        app.test_document_mut().scroll_y = 40.0;
 
         app.dropped(second);
 
         assert!(app.prompt.is_none(), "a clean buffer has nothing to ask");
-        assert_eq!(app.editor.content(), "second");
+        assert_eq!(app.test_editor().content(), "second");
         assert_eq!(
-            app.file.as_ref().map(super::TextFile::display_name),
+            app.test_document()
+                .file
+                .as_ref()
+                .map(super::TextFile::display_name),
             Some("b.txt".to_owned())
         );
         assert!(
-            app.scroll_y.abs() < f32::EPSILON,
+            app.test_document().scroll_y.abs() < f32::EPSILON,
             "the new file opens at the top, not at the old file's offset"
         );
     }
@@ -2373,7 +2626,7 @@ mod tests {
         let (mut app, _first) = open(&directory, "a.txt", "first");
         let second = fixture(&directory, "b.txt", "second");
         type_into(&mut app, "x");
-        let before = app.editor.content();
+        let before = app.test_editor().content();
 
         app.dropped(second);
 
@@ -2382,14 +2635,18 @@ mod tests {
             "a dirty buffer asks before discarding"
         );
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().content(),
             before,
             "the question alone must not open anything"
         );
 
         assert_eq!(app.press(&press(KeyCode::Char('n'))), Flow::Running);
         assert!(app.prompt.is_none());
-        assert_eq!(app.editor.content(), before, "answering no keeps the work");
+        assert_eq!(
+            app.test_editor().content(),
+            before,
+            "answering no keeps the work"
+        );
         assert!(app.is_dirty(), "and keeps it unsaved");
     }
 
@@ -2405,7 +2662,7 @@ mod tests {
         assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
 
         assert!(app.prompt.is_none());
-        assert_eq!(app.editor.content(), "second");
+        assert_eq!(app.test_editor().content(), "second");
         assert!(!app.is_dirty(), "a freshly opened file is not dirty");
     }
 
@@ -2424,7 +2681,7 @@ mod tests {
         let (mut app, _first) = open(&directory, "a.txt", "first");
         let second = fixture(&directory, "b.txt", "second");
         type_into(&mut app, "x");
-        let discarded = app.editor.content();
+        let discarded = app.test_editor().content();
 
         app.dropped(second);
         assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
@@ -2434,11 +2691,11 @@ mod tests {
             Flow::Running
         );
         assert_eq!(
-            app.editor.content(),
+            app.test_editor().content(),
             "second",
             "undo reached across into the replaced document"
         );
-        assert_ne!(app.editor.content(), discarded);
+        assert_ne!(app.test_editor().content(), discarded);
         assert!(!app.is_dirty(), "and left the new file clean");
     }
 
@@ -2464,9 +2721,12 @@ mod tests {
 
         app.dropped(directory.path().join("does-not-exist.txt"));
 
-        assert_eq!(app.editor.content(), "");
+        assert_eq!(app.test_editor().content(), "");
         assert_eq!(
-            app.file.as_ref().map(super::TextFile::display_name),
+            app.test_document()
+                .file
+                .as_ref()
+                .map(super::TextFile::display_name),
             Some("does-not-exist.txt".to_owned()),
             "the buffer is named for the file it will create"
         );

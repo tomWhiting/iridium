@@ -1,0 +1,33 @@
+[package]
+name = "iridium-explorer"
+description = "A non-blocking filesystem hierarchy for Iridium's tree views"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "iridium_explorer"
+path = "src/lib.rs"
+
+# `iridium-tree` and nothing else. This crate is the filesystem's answer to
+# that crate's `TreeSource`, so the dependency is the whole point of it
+# existing separately: `iridium-tree` must stay ignorant of where a hierarchy
+# came from, and `iridium-file` must stay ignorant of trees. Neither could
+# hold this code without learning something it is documented not to know.
+#
+# Native-only by nature — a browser has no directory to read — which is the
+# second reason it is not folded into either neighbour.
+[dependencies]
+iridium-tree.workspace = true
+
+# The temporary-directory fixture, so these tests build real directories and
+# read them with the real worker. A dev-dependency only: nothing in this
+# crate's own surface knows about `iridium-file`.
+[dev-dependencies]
+iridium-file = { workspace = true, features = ["test-support"] }

@@ -500,3 +500,167 @@ fn a_nonsense_inset_leaves_the_previous_one_in_place() {
     compositor.set_top_inset(f32::INFINITY);
     assert!((compositor.top_inset() - 44.0).abs() < f32::EPSILON);
 }
+
+/// The page colour, sampled past the end of every line at the bottom right.
+///
+/// **Not** the top-left, which is the corner this test is about: under a top
+/// inset it is the first pixel of the reserved band, and a compositor that
+/// wrongly painted there would make the band's own colour the reference and
+/// hide the very defect being tested. Every line in [`editor`] is far shorter
+/// than the frame is wide, so the bottom-right pixel is page on every frame
+/// here.
+fn page_colour(pixels: &[u8]) -> [u8; 3] {
+    let offset = ((HEIGHT_USIZE - 1) * WIDTH_USIZE + (WIDTH_USIZE - 1)) * 4;
+    [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
+}
+
+/// The stock dark theme paints the gutter the same colour as the page, so a
+/// gutter background quad drawn inside the band would be *invisible* to a
+/// pixel test. This makes it vivid, so the quad has to be where it claims.
+fn loud_gutter_theme() -> iridium_editor::theme::Theme {
+    let mut theme = iridium_editor::theme::Theme::dark();
+    theme.editor.gutter = Color::new(0.85, 0.20, 0.65, 1.0);
+    theme
+}
+
+/// Nothing the document draws reaches into the reserved band — **at a
+/// scroll**, which is the case the X axis has no analogue for.
+///
+/// `left_inset.rs` already asserts the same sentence for the left band, and
+/// it holds there because nothing scrolls sideways: every X coordinate is
+/// computed once, from the inset, and either uses it or does not. The Y axis
+/// is different. A row's Y is `top_inset + row - scroll`, so a row that
+/// started below the band *moves into it* as the document scrolls, and the
+/// question stops being "was the inset applied?" and becomes "is the band
+/// clipped?".
+///
+/// Those are different questions with different answers. The text is clipped
+/// — `TextBounds` carries `top: top_inset` on the content, the gutter and the
+/// blame ghost. **`TextBounds` clips text, not geometry**, and every quad the
+/// compositor emits is geometry: the gutter's background, its change bars,
+/// the diff line backgrounds, the selection highlights and the caret. Each
+/// one tests its own visibility against `0.0` — the window's top edge — which
+/// is the same number as the band's bottom edge for exactly as long as no
+/// face reserves anything.
+///
+/// The frame below is arranged so that all five would show: a vivid gutter
+/// colour, change bars, a line background, a multi-line selection, and a
+/// caret, all on lines the scroll has carried up into the band.
+///
+/// On the desktop face this is masked today, because the overlay paints the
+/// tab strip opaquely over the band in a second pass. It is masked only for
+/// as long as that chrome stays opaque and full-width — and rounded corners
+/// alone would expose it.
+#[test]
+fn nothing_the_document_draws_reaches_into_the_reserved_band_at_a_scroll() {
+    let gpu = gpu();
+    let inset = 10.0 + STRIP_HEIGHT;
+
+    let mut compositor = compositor(&gpu);
+    compositor.set_theme(loud_gutter_theme());
+    compositor.set_top_inset(inset);
+
+    // A scroll of six rows puts row five one row above the band's bottom
+    // edge — inside it, not above the window, which is the only placement
+    // that distinguishes a clip from the cull the builders already do.
+    let line_height = compositor.line_height();
+    assert!(
+        line_height > 0.0 && line_height < inset,
+        "the band must be more than one row deep or a row cannot sit inside it"
+    );
+    let scroll = 6.0 * line_height;
+
+    let mut editor = editor();
+    // Anchor above, head inside the band: the selection spans the band's
+    // rows, and the caret is drawn on the head's row.
+    editor.set_selection(
+        iridium_editor::Position::new(3, 0),
+        iridium_editor::Position::new(5, 8),
+    );
+
+    for line in 0..12 {
+        compositor
+            .gutter_changes_mut()
+            .insert(line, Color::new(0.20, 0.85, 0.45, 1.0));
+        compositor
+            .line_backgrounds_mut()
+            .insert(line, Color::new(0.95, 0.75, 0.10, 1.0));
+    }
+
+    let frame = compose_to_texture(&mut compositor, &editor, scroll, &gpu);
+    let pixels = read_pixels(&gpu, &frame);
+    let page = page_colour(&pixels);
+
+    let band = pixel_to_index(inset).min(HEIGHT_USIZE);
+    assert!(band > 0, "there is no band; this test proves nothing");
+
+    for row in 0..band {
+        for column in 0..WIDTH_USIZE {
+            let offset = (row * WIDTH_USIZE + column) * 4;
+            let inked = (0..3).any(|channel| {
+                (i32::from(pixels[offset + channel]) - i32::from(page[channel])).abs() > 24
+            });
+            assert!(
+                !inked,
+                "the document drew at ({column}, {row}), inside the {inset}-pixel band the \
+                 face reserved"
+            );
+        }
+    }
+}
+
+/// The same claim with the gutter turned off, so the document's *own* quads
+/// have to answer for themselves.
+///
+/// The test above fails on the first offending pixel, and the gutter's
+/// background quad — which spans the full frame height from zero — is at
+/// column zero, row zero. It would therefore report a leak while the
+/// selection, the line backgrounds and the caret were all clipped correctly,
+/// and it would keep reporting one after they were fixed. This one removes
+/// the gutter entirely: anything left in the band is content.
+#[test]
+fn the_documents_own_quads_stay_out_of_the_reserved_band_at_a_scroll() {
+    let gpu = gpu();
+    let inset = 10.0 + STRIP_HEIGHT;
+
+    let mut compositor = compositor(&gpu);
+    compositor.set_top_inset(inset);
+    compositor.set_gutter_enabled(false);
+
+    let line_height = compositor.line_height();
+    assert!(
+        line_height > 0.0 && line_height < inset,
+        "the band must be more than one row deep or a row cannot sit inside it"
+    );
+    let scroll = 6.0 * line_height;
+
+    let mut editor = editor();
+    editor.set_selection(
+        iridium_editor::Position::new(3, 0),
+        iridium_editor::Position::new(5, 8),
+    );
+    for line in 0..12 {
+        compositor
+            .line_backgrounds_mut()
+            .insert(line, Color::new(0.95, 0.75, 0.10, 1.0));
+    }
+
+    let frame = compose_to_texture(&mut compositor, &editor, scroll, &gpu);
+    let pixels = read_pixels(&gpu, &frame);
+    let page = page_colour(&pixels);
+
+    let band = pixel_to_index(inset).min(HEIGHT_USIZE);
+    for row in 0..band {
+        for column in 0..WIDTH_USIZE {
+            let offset = (row * WIDTH_USIZE + column) * 4;
+            let inked = (0..3).any(|channel| {
+                (i32::from(pixels[offset + channel]) - i32::from(page[channel])).abs() > 24
+            });
+            assert!(
+                !inked,
+                "the document drew at ({column}, {row}), inside the {inset}-pixel band the \
+                 face reserved"
+            );
+        }
+    }
+}

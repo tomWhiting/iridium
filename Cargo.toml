@@ -7,6 +7,7 @@ members = [
     "crates/iridium-file",
     "crates/iridium-syntax",
     "crates/iridium-bindings",
+    "crates/iridium-tree",
     "crates/iridium-tui",
 ]
 

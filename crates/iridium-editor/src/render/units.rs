@@ -94,6 +94,20 @@ fn truncated_magnitude(value: f32) -> u64 {
 /// space), plus `+∞`. It saturated at `u32::MAX` instead of [`usize::MAX`].
 /// Unreachable at any real line count, and undetected for that reason.
 ///
+/// The `+∞` element deserves its own sentence, because "no real line count
+/// reaches 2^32" does **not** cover it: an infinity needs a degenerate
+/// division, not a large input, and every caller here divides a pixel
+/// quantity by a line height. Checked rather than assumed — both call sites
+/// that could produce one already refuse a non-positive denominator before
+/// calling (`iridium-desktop`'s `app.rs` viewport window and `overlay.rs`
+/// `row_at`), so `x / 0.0` cannot reach this function from either. The
+/// residue is a denominator positive but small enough to overflow the
+/// quotient to infinity, which needs a line height near `f32`'s denormal
+/// floor and therefore a font size no display scale factor can produce.
+/// **If a new caller divides by a line height, it inherits that guard's
+/// job** — a `<= 0.0` check is what makes the reachability argument here
+/// true, not an accident of the arithmetic.
+///
 /// Because the conversion truncates toward zero and floors everything below
 /// `1.0` to zero, it subsumes a `floor()` and a `max(0.0)` applied to its
 /// input: for every `f32`, `pixel_to_index(v)`, `pixel_to_index(v.floor())`

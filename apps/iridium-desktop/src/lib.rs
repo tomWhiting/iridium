@@ -108,6 +108,7 @@ pub mod prompt;
 pub mod run;
 pub mod search;
 pub mod surface;
+pub mod tab_strip;
 pub mod units;
 
 pub use run::{ExitStatus, main};

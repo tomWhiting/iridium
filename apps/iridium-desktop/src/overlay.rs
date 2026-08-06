@@ -81,6 +81,9 @@ use wgpu::{
     RenderPassDescriptor, StoreOp, TextureFormat,
 };
 
+use crate::tab_strip::{
+    TabColors, TabStripContent, TabStripLayout, tab_strip_height, tab_strip_layout, tab_strip_spans,
+};
 use crate::units::{
     dimension_to_bound, index_to_f32, pixel_to_bound, pixel_to_index, pixels_to_cells, u32_to_f32,
 };
@@ -158,6 +161,14 @@ const STRIP_PAD_Y: f32 = 6.0;
 
 /// The caret bar's width in physical pixels.
 const CARET_WIDTH: f32 = 2.0;
+
+/// The opacity an inactive tab's label is drawn at, composited over the tab
+/// strip's background: legible, and plainly behind the tab in front.
+const TAB_INACTIVE_ALPHA: f32 = 0.55;
+
+/// The opacity a tab's close control is drawn at — quieter still than an
+/// inactive label, since it is a control rather than a name.
+const TAB_CLOSE_ALPHA: f32 = 0.40;
 
 /// The widest a floating panel gets in exterior character columns — the
 /// terminal face's own cap, so the two faces' furniture reads the same
@@ -333,7 +344,10 @@ pub struct GridMetrics {
 impl GridMetrics {
     /// Whether the grid can place anything at all: a font that has not
     /// measured yet, or a scale no display can report, places nothing.
-    fn is_degenerate(&self) -> bool {
+    ///
+    /// Reachable from [`crate::tab_strip`], which places against the same
+    /// grid and must decline on the same inputs.
+    pub(crate) fn is_degenerate(&self) -> bool {
         self.char_width <= 0.0
             || self.line_height <= 0.0
             || self.scale <= 0.0
@@ -356,6 +370,20 @@ pub struct PanelRect {
     pub height: f32,
     /// The corner radius; zero is a sharp rectangle.
     pub radius: f32,
+}
+
+impl PanelRect {
+    /// Whether a physical pixel lies on the rectangle.
+    ///
+    /// Half-open on both axes — the right and bottom edges belong to
+    /// whatever is next — so two rectangles that share an edge never both
+    /// claim the same pixel. The corners are treated as square for the same
+    /// reason [`PanelGeometry::contains`] treats them so: half an arc of
+    /// slack at four corners cannot change which control a press meant.
+    #[must_use]
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
 }
 
 /// Where a composed panel lands on the window, in physical pixels.
@@ -604,6 +632,9 @@ pub struct OverlayPainter {
     /// Where each panel of the last painted frame landed, in the order the
     /// caller handed them in. See [`Self::painted_panels`].
     painted: Vec<Option<PanelGeometry>>,
+    /// Where the tab strip of the last painted frame landed. See
+    /// [`Self::painted_tab_strip`].
+    painted_tabs: Option<TabStripLayout>,
 }
 
 impl std::fmt::Debug for OverlayPainter {
@@ -647,6 +678,7 @@ impl OverlayPainter {
             chrome,
             scale: 1.0,
             painted: Vec::new(),
+            painted_tabs: None,
         };
         painter.resize(queue, width, height);
         Ok(painter)
@@ -689,6 +721,28 @@ impl OverlayPainter {
         2.0_f32.mul_add(STRIP_PAD_Y * self.scale, self.text.line_height())
     }
 
+    /// The height in pixels the tab strip occupies along the top edge of a
+    /// window `height` pixels tall, and so the height the document must be
+    /// pushed down by.
+    ///
+    /// Zero before a font has measured, and zero on a window too short to
+    /// hold the band — the same condition [`Self::paint`] declines to draw
+    /// on, so the reserve and the band appear and disappear together.
+    pub fn tab_strip_height(&mut self, height: f32) -> f32 {
+        tab_strip_height(height, self.metrics())
+    }
+
+    /// Where the tab strip of the last painted frame landed, or `None` when
+    /// the frame drew none.
+    ///
+    /// This is what a press is hit-tested against, for the same reason
+    /// [`Self::painted_panels`] is: the placement on screen, not one
+    /// recomputed from state that may have moved since.
+    #[must_use]
+    pub const fn painted_tab_strip(&self) -> Option<&TabStripLayout> {
+        self.painted_tabs.as_ref()
+    }
+
     /// The height in pixels a panel with `interior_rows` content rows takes,
     /// padding included.
     pub fn panel_height(&self, interior_rows: usize) -> f32 {
@@ -726,12 +780,13 @@ impl OverlayPainter {
         }
     }
 
-    /// Paints the overlays over an already-composed frame: the strip, then
-    /// every open panel in the order given, later panels on top.
+    /// Paints the overlays over an already-composed frame: the tab strip,
+    /// then the prompt strip, then every open panel in the order given, later
+    /// panels on top.
     ///
     /// Runs the second render pass described in the module documentation.
-    /// A window shorter than the strip paints no strip; a panel that no
-    /// longer fits paints nothing rather than a sliver.
+    /// A window shorter than a strip paints that strip not at all; a panel
+    /// that no longer fits paints nothing rather than a sliver.
     ///
     /// # Errors
     ///
@@ -739,6 +794,7 @@ impl OverlayPainter {
     pub fn paint(
         &mut self,
         target: FrameTarget<'_>,
+        tabs: Option<&TabStripContent>,
         strip: Option<&StripContent>,
         panels: &[&PanelContent],
         theme: &Theme,
@@ -754,6 +810,12 @@ impl OverlayPainter {
         let width_f = u32_to_f32(width);
         let height_f = u32_to_f32(height);
         let mut chrome: Vec<RoundedQuad> = Vec::new();
+
+        // First, so a modal panel's backdrop dims the tab strip's chrome the
+        // same way it dims the prompt strip's.
+        let tab_buffer = tabs
+            .and_then(|content| self.shape_tabs(content, theme, width_f, height_f, &mut chrome));
+        self.painted_tabs = tab_buffer.as_ref().map(|(_, layout)| layout.clone());
 
         let strip_buffer = strip
             .and_then(|content| self.shape_strip(content, theme, width_f, height_f, &mut chrome));
@@ -784,6 +846,23 @@ impl OverlayPainter {
 
         let strip_pad_x = STRIP_PAD_X * self.scale;
         let mut areas = Vec::new();
+        if let Some((buffer, layout)) = &tab_buffer {
+            areas.push(TextRenderer::create_text_area(
+                buffer,
+                layout.text_x,
+                layout.text_y,
+                1.0,
+                TextBounds {
+                    // Clipped to the band, so a scrolled strip's cut glyphs
+                    // vanish at the window edge instead of bleeding past it.
+                    left: pixel_to_bound(layout.band.x),
+                    top: pixel_to_bound(layout.band.y),
+                    right: dimension_to_bound(width),
+                    bottom: pixel_to_bound(layout.band.y + layout.band.height),
+                },
+                tab_colors(theme).inactive,
+            ));
+        }
         if let Some((buffer, scroll_x, top, color)) = &strip_buffer {
             areas.push(TextRenderer::create_text_area(
                 buffer,
@@ -852,6 +931,66 @@ impl OverlayPainter {
 
         self.text.trim_cache();
         Ok(())
+    }
+
+    /// Shapes the tab strip and pushes its chrome, or `None` when there are
+    /// no tabs or no honest room for the band. Returns the buffer with the
+    /// placement the caller records for hit-testing.
+    ///
+    /// Instance order is paint order: the band, the active tab's card, then
+    /// the hairline along the band's lower edge — the hairline last so a card
+    /// that reaches the band's bottom edge cannot cover the seam between the
+    /// strip and the document.
+    fn shape_tabs(
+        &mut self,
+        content: &TabStripContent,
+        theme: &Theme,
+        width_f: f32,
+        height_f: f32,
+        chrome: &mut Vec<RoundedQuad>,
+    ) -> Option<(Buffer, TabStripLayout)> {
+        let metrics = self.metrics();
+        let layout = tab_strip_layout(width_f, height_f, metrics, content)?;
+        let band = layout.band;
+
+        chrome.push(RoundedQuad::new(
+            band.x,
+            band.y,
+            band.width,
+            band.height,
+            strip_background(theme),
+            band.radius,
+        ));
+        for (placement, tab) in layout.tabs.iter().zip(&content.tabs) {
+            if tab.is_active {
+                let card = placement.card;
+                chrome.push(RoundedQuad::new(
+                    card.x,
+                    card.y,
+                    card.width,
+                    card.height,
+                    tab_card_color(theme),
+                    card.radius,
+                ));
+            }
+        }
+        chrome.push(RoundedQuad::new(
+            band.x,
+            band.y + band.height - HAIRLINE,
+            band.width,
+            HAIRLINE,
+            hairline_color(theme),
+            0.0,
+        ));
+
+        let spans = tab_strip_spans(content, tab_colors(theme));
+        let mut buffer = self.text.create_buffer(None);
+        self.text.set_rich_text(
+            &mut buffer,
+            spans.iter().map(|span| (span.text.as_str(), span.color)),
+        );
+        self.text.shape_buffer(&mut buffer);
+        Some((buffer, layout))
     }
 
     /// Shapes the strip and pushes its chrome, or `None` on a window too
@@ -1115,6 +1254,47 @@ fn strip_background(theme: &Theme) -> Color {
     panel_background(theme)
 }
 
+/// The colour of the active tab's card: the document's own background, made
+/// opaque.
+///
+/// The tab in front is a window onto the document, so it is drawn in the
+/// document's colour, sitting on a band that is a shade off it — the same
+/// relationship a browser tab has to its page. A theme that leaves the
+/// background transparent falls back to black, as the panels do, so the card
+/// never shows the text it is meant to be covering.
+fn tab_card_color(theme: &Theme) -> Color {
+    let background = theme.editor.background;
+    if background.a > 0.0 {
+        Color::new(background.r, background.g, background.b, 1.0)
+    } else {
+        Color::new(0.0, 0.0, 0.0, 1.0)
+    }
+}
+
+/// The four colours the tab strip's text is drawn in.
+///
+/// Each is composited opaque over the band it sits on, so a theme whose
+/// foreground carries alpha cannot leave a label showing document text
+/// through itself. The dirty dot takes the theme's "modified" colour — the
+/// one colour whose whole meaning is *this differs from what was saved* —
+/// rather than a fifth derivation.
+fn tab_colors(theme: &Theme) -> TabColors {
+    let band = strip_background(theme);
+    let foreground = theme.editor.foreground;
+    let at = |alpha: f32| {
+        composite(
+            Color::new(foreground.r, foreground.g, foreground.b, alpha),
+            band,
+        )
+    };
+    TabColors {
+        active: composite(foreground, band),
+        inactive: at(TAB_INACTIVE_ALPHA),
+        close: at(TAB_CLOSE_ALPHA),
+        dirty: composite(theme.editor.change_modified, band),
+    }
+}
+
 /// The hairline border colour: the theme's foreground at [`HAIRLINE_ALPHA`],
 /// composited opaque over the panel background — a derivation rather than a
 /// new theme field, so existing theme files keep deserializing untouched.
@@ -1152,7 +1332,7 @@ pub(crate) const fn scroll_for(caret: usize, cells: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use iridium_editor::theme::Theme;
+    use iridium_editor::theme::{ClassicVariant, Theme};
 
     use super::{
         Color, GridMetrics, PAD_X, PAD_Y, PANEL_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret,
@@ -1513,6 +1693,68 @@ mod tests {
                 (background.a - 1.0).abs() < f32::EPSILON,
                 "a translucent strip would sit its text on document text"
             );
+        }
+    }
+
+    /// The active tab has to be findable, and it is findable only because its
+    /// card is a different colour from the band it sits on.
+    ///
+    /// Both are derived — the band from the theme's current-line band over the
+    /// background, the card from the background itself — so a theme whose
+    /// current-line colour is transparent, or a future edit that pointed both
+    /// derivations at the same field, would leave a strip on which the tab in
+    /// front is indistinguishable from every other. Nothing else in the face
+    /// would fail; the strip would simply stop saying which file you are in.
+    #[test]
+    fn the_active_tab_is_distinguishable_from_the_band_in_every_preset() {
+        let themes = [Theme::dark(), Theme::light()]
+            .into_iter()
+            .chain(ClassicVariant::ALL.into_iter().map(ClassicVariant::theme));
+        for theme in themes {
+            let band = strip_background(&theme);
+            let card = super::tab_card_color(&theme);
+            let distance =
+                (band.r - card.r).abs() + (band.g - card.g).abs() + (band.b - card.b).abs();
+            assert!(
+                distance > 0.01,
+                "{}: the active tab's card is the same colour as the band under it",
+                theme.name
+            );
+            assert!(
+                (card.a - 1.0).abs() < f32::EPSILON,
+                "{}: a translucent card would show document text through the tab",
+                theme.name
+            );
+        }
+    }
+
+    /// Every colour the strip's text is drawn in stands on the band opaquely,
+    /// so no label can be washed out by a theme carrying alpha on its
+    /// foreground.
+    #[test]
+    fn every_tab_text_colour_is_opaque_and_distinct_from_the_band() {
+        for theme in [Theme::dark(), Theme::light()] {
+            let band = strip_background(&theme);
+            let colors = super::tab_colors(&theme);
+            for (name, color) in [
+                ("active", colors.active),
+                ("inactive", colors.inactive),
+                ("close", colors.close),
+                ("dirty", colors.dirty),
+            ] {
+                assert!(
+                    (color.a - 1.0).abs() < f32::EPSILON,
+                    "{}: the {name} colour is translucent",
+                    theme.name
+                );
+                let distance =
+                    (band.r - color.r).abs() + (band.g - color.g).abs() + (band.b - color.b).abs();
+                assert!(
+                    distance > 0.01,
+                    "{}: the {name} colour is invisible against the band",
+                    theme.name
+                );
+            }
         }
     }
 

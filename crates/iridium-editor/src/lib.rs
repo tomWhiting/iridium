@@ -49,6 +49,7 @@ pub mod brace_folds;
 pub mod commands;
 pub mod document;
 pub mod editor;
+pub mod fuzzy;
 pub mod history;
 pub mod input;
 pub mod render;

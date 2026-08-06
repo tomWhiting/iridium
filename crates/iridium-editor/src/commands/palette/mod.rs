@@ -38,7 +38,9 @@ mod mru_tests;
 mod search_tests;
 
 pub use entry::{MatchField, PaletteEntry, compare_ranked};
-pub use matcher::{MAX_QUERY_CHARS, Query};
+// Re-exported rather than owned: the matcher moved to `crate::fuzzy` so a file
+// finder ranks with the same code, and every existing caller keeps its path.
+pub use crate::fuzzy::{MAX_QUERY_CHARS, Query};
 pub use mru::{CommandMru, MRU_CAPACITY};
 
 use crate::commands::CommandRegistry;

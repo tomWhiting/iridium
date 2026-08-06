@@ -26,6 +26,12 @@ path = "src/lib.rs"
 [dependencies]
 iridium-tree.workspace = true
 
+# The crawl's ignore rules. See the workspace manifest for why this is a
+# dependency rather than three hundred lines of glob semantics. It is
+# consulted *only* by the crawl: a directory someone opens by hand is shown
+# whether git ignores it or not.
+ignore.workspace = true
+
 # The temporary-directory fixture, so these tests build real directories and
 # read them with the real worker. A dev-dependency only: nothing in this
 # crate's own surface knows about `iridium-file`.

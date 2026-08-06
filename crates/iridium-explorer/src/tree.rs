@@ -1,6 +1,6 @@
 //! The arena, and the [`TreeSource`] it presents.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use iridium_tree::TreeSource;
@@ -31,8 +31,34 @@ pub struct FileTree {
     /// an O(nodes) scan on a fully expanded repository, sixty times a
     /// second, would cost more than the reads it is waiting for.
     pending: usize,
+    /// Directories seen but never read, oldest first — the crawl's frontier.
+    ///
+    /// A queue rather than a stack, so the crawl is **breadth-first**. Depth
+    /// first would disappear into the first deep branch it met and find
+    /// `src/main.rs` after ten thousand generated files; breadth first finds
+    /// everything shallow before anything deep, which is the order a person
+    /// would have looked in.
+    ///
+    /// Holds ignored nodes never: they are filtered on the way in, so the
+    /// queue's length is the work actually outstanding.
+    frontier: VecDeque<NodeId>,
+    /// How many directories the crawl has asked for, against
+    /// [`CRAWL_LIMIT`].
+    crawled: usize,
     worker: Worker,
 }
+
+/// The most directories one tree's crawl will ever read.
+///
+/// A bound, not a tuning knob. Without one, a root pointed at `/` walks the
+/// whole disk, and the failure is a machine that gets slower for reasons
+/// nobody can see. Twenty thousand directories is far more than any project
+/// has once its ignore rules are honoured, and
+/// [`crawl_hit_its_limit`](FileTree::crawl_hit_its_limit) exists so hitting
+/// it can be *said* rather than silently pretended past — a truncated search
+/// that claims to have searched everything is worse than one that admits it
+/// stopped.
+pub const CRAWL_LIMIT: usize = 20_000;
 
 impl FileTree {
     /// Opens a hierarchy rooted at `root`.
@@ -49,8 +75,11 @@ impl FileTree {
     /// be spawned. Nothing is read on the calling thread as a fallback —
     /// see [`crate::FileTree`] on why a stall is worse than a refusal.
     pub fn open(root: PathBuf) -> Result<Self, String> {
-        let worker = Worker::start()?;
-        let node = Node::new(root.clone(), EntryKind::Directory, None);
+        let worker = Worker::start(root.clone())?;
+        // The root is never ignored. It is the thing the user asked to look
+        // at, and a rule elsewhere that happens to name it does not change
+        // that.
+        let node = Node::new(root.clone(), EntryKind::Directory, None, false);
         let mut by_path = HashMap::new();
         by_path.insert(root, NodeId(0));
         let mut tree = Self {
@@ -58,6 +87,8 @@ impl FileTree {
             by_path,
             root: NodeId(0),
             pending: 0,
+            frontier: VecDeque::new(),
+            crawled: 0,
             worker,
         };
         tree.request(NodeId(0));
@@ -184,7 +215,12 @@ impl FileTree {
                 Ok(entries) => {
                     let mut children = Vec::with_capacity(entries.len());
                     for entry in entries {
-                        children.push(self.intern(entry.path, entry.kind, NodeId(response.node)));
+                        children.push(self.intern(
+                            entry.path,
+                            entry.kind,
+                            NodeId(response.node),
+                            entry.ignored,
+                        ));
                     }
                     Listing::Present(children)
                 },
@@ -224,18 +260,81 @@ impl FileTree {
     /// The reuse is what makes [`reload`](Self::reload) non-destructive, and
     /// it also updates the kind: a path that was a file and is now a
     /// directory is the same node with a new shape, not a second node.
-    fn intern(&mut self, path: PathBuf, kind: EntryKind, parent: NodeId) -> NodeId {
+    fn intern(&mut self, path: PathBuf, kind: EntryKind, parent: NodeId, ignored: bool) -> NodeId {
         if let Some(&existing) = self.by_path.get(&path) {
             if let Some(node) = self.nodes.get_mut(existing.0) {
                 node.kind = kind;
                 node.parent = Some(parent);
+                node.ignored = ignored;
             }
+            // Not re-queued. A node that already exists has either been read,
+            // been asked for, or is still waiting its turn in the frontier —
+            // and a reload that queued every child again would grow the queue
+            // by the size of the tree on every refresh.
             return existing;
         }
         let id = NodeId(self.nodes.len());
-        self.nodes.push(Node::new(path.clone(), kind, Some(parent)));
+        self.nodes
+            .push(Node::new(path.clone(), kind, Some(parent), ignored));
         self.by_path.insert(path, id);
+        if kind.is_expandable() && !ignored {
+            self.frontier.push_back(id);
+        }
         id
+    }
+
+    /// Asks for up to `budget` unread directories, and reports how many it
+    /// asked for.
+    ///
+    /// **This is what makes a search reach past what someone has opened.**
+    /// Call it once per frame while a query is up; the reads land on the
+    /// worker as usual and appear through [`drain`](Self::drain). `budget`
+    /// bounds how many go out per frame, so a project with ten thousand
+    /// directories fills in over a second or two of frames rather than
+    /// posting ten thousand requests into one.
+    ///
+    /// Stops at [`CRAWL_LIMIT`] and does not resume. Nothing is read on this
+    /// thread, so calling it every frame forever costs a queue check.
+    pub fn crawl(&mut self, budget: usize) -> usize {
+        let mut posted = 0;
+        while posted < budget && self.crawled < CRAWL_LIMIT {
+            let Some(node) = self.frontier.pop_front() else {
+                break;
+            };
+            // Asked for in the meantime, by a hand opening it or by a reload.
+            // Skipping is right and cheap; re-reading would double the work
+            // for a directory somebody is already looking at.
+            let absent = self
+                .nodes
+                .get(node.0)
+                .is_some_and(|entry| matches!(entry.listing, Listing::Absent));
+            if !absent {
+                continue;
+            }
+            self.crawled += 1;
+            posted += 1;
+            self.request(node);
+        }
+        posted
+    }
+
+    /// Whether every directory the crawl is allowed to reach has been read.
+    ///
+    /// `true` is the answer a search needs before it can say "no matches"
+    /// rather than "no matches yet".
+    #[must_use]
+    pub fn is_fully_crawled(&self) -> bool {
+        self.frontier.is_empty() && self.pending == 0
+    }
+
+    /// Whether the crawl stopped at [`CRAWL_LIMIT`] with work still queued.
+    ///
+    /// Exposed so a face can *say* that a search is incomplete. A silent cap
+    /// reads as "searched everything" when it did not, which is the failure
+    /// mode a bound like this exists to avoid rather than to create.
+    #[must_use]
+    pub fn crawl_hit_its_limit(&self) -> bool {
+        self.crawled >= CRAWL_LIMIT && !self.frontier.is_empty()
     }
 
     /// Posts a read for `node`, marking it pending — or failed, if the

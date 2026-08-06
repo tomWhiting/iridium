@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvError, Sender, channel};
 use std::thread::{Builder, JoinHandle};
 
+use crate::ignores::Ignores;
 use crate::node::{EntryKind, ListingError};
 
 /// One directory to read, identified by the arena index that asked for it.
@@ -30,6 +31,13 @@ pub struct Request {
 pub struct Entry {
     pub path: PathBuf,
     pub kind: EntryKind,
+    /// Whether the crawl should leave this entry alone.
+    ///
+    /// Decided here because deciding it needs to read `.gitignore` files, and
+    /// this is the thread where reading happens. It is advice for the crawl
+    /// and nothing else: the entry is still listed, still drawn, and still
+    /// openable by hand.
+    pub ignored: bool,
 }
 
 /// A directory read, finished.
@@ -53,19 +61,22 @@ pub struct Worker {
 impl Worker {
     /// Starts the reader thread.
     ///
+    /// `root` bounds the walk the ignore rules do: a `.gitignore` above it
+    /// belongs to a project this tree is not part of.
+    ///
     /// # Errors
     ///
     /// Returns the operating system's message when the thread cannot be
     /// spawned. There is no silent fallback to reading on the calling
     /// thread: that would trade a failure someone can see for a stall
     /// nobody can explain.
-    pub fn start() -> Result<Self, String> {
+    pub fn start(root: PathBuf) -> Result<Self, String> {
         let (request_tx, request_rx) = channel::<Request>();
         let (response_tx, response_rx) = channel::<Response>();
 
         let handle = Builder::new()
             .name("iridium-explorer".to_owned())
-            .spawn(move || run(&request_rx, &response_tx))
+            .spawn(move || run(&request_rx, &response_tx, &mut Ignores::new(root)))
             .map_err(|error| error.to_string())?;
 
         Ok(Self {
@@ -117,11 +128,11 @@ impl std::fmt::Debug for Worker {
 }
 
 /// The reader loop: one directory per request, until the sender is dropped.
-fn run(requests: &Receiver<Request>, responses: &Sender<Response>) {
+fn run(requests: &Receiver<Request>, responses: &Sender<Response>, ignores: &mut Ignores) {
     loop {
         match requests.recv() {
             Ok(request) => {
-                let outcome = read_directory(&request.path);
+                let outcome = read_directory(&request.path, ignores);
                 // A closed response channel means the tree is gone; there is
                 // nobody left to read for.
                 if responses
@@ -150,7 +161,10 @@ fn run(requests: &Receiver<Request>, responses: &Sender<Response>) {
 /// An entry whose type cannot be determined is kept, as
 /// [`EntryKind::Other`](crate::EntryKind::Other). Dropping it would make a
 /// file invisible for a reason that has nothing to do with the file.
-fn read_directory(path: &std::path::Path) -> Result<Vec<Entry>, ListingError> {
+fn read_directory(
+    path: &std::path::Path,
+    ignores: &mut Ignores,
+) -> Result<Vec<Entry>, ListingError> {
     let reader = std::fs::read_dir(path).map_err(|error| ListingError {
         message: error.to_string(),
     })?;
@@ -174,9 +188,12 @@ fn read_directory(path: &std::path::Path) -> Result<Vec<Entry>, ListingError> {
                 EntryKind::Other
             }
         });
+        let path = entry.path();
+        let skip = ignores.is_ignored(&path, kind.is_expandable());
         entries.push(Entry {
-            path: entry.path(),
+            path,
             kind,
+            ignored: skip,
         });
     }
 

@@ -263,3 +263,108 @@ fn a_root_with_no_final_component_shows_its_whole_path() {
     assert_eq!(tree.info(root).expect("the root exists").name, "/");
     assert!(settle(&mut tree), "the root listing never arrived");
 }
+
+#[test]
+fn the_crawl_reaches_a_directory_nobody_asked_for() {
+    let directory = TempDir::new("explorer-crawl");
+    let deep = directory.path().join("a/b/c");
+    std::fs::create_dir_all(&deep).expect("the fixture directories were made");
+    std::fs::write(deep.join("buried.txt"), "b").expect("the fixture was written");
+
+    let mut tree = opened(&directory);
+    // Nothing below the root is known: `children` was never called on `a`.
+    assert!(tree.node_at(&deep).is_none());
+    assert!(
+        !tree.is_fully_crawled(),
+        "there is a frontier to work through"
+    );
+
+    // Each pass posts what it can and collects what landed. Bounded, so a
+    // caller doing this once per frame is what fills the tree in.
+    let deadline = Instant::now() + PATIENCE;
+    while !tree.is_fully_crawled() && Instant::now() < deadline {
+        tree.crawl(8);
+        tree.drain();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    assert!(tree.is_fully_crawled(), "the crawl never finished");
+    assert!(
+        tree.node_at(&deep.join("buried.txt")).is_some(),
+        "a file three levels below anything anyone opened"
+    );
+    assert!(!tree.crawl_hit_its_limit());
+}
+
+#[test]
+fn the_crawl_posts_nothing_it_was_not_given_budget_for() {
+    let directory = TempDir::new("explorer-crawl-budget");
+    for name in ["one", "two", "three"] {
+        std::fs::create_dir(directory.path().join(name)).expect("the fixture directory was made");
+    }
+
+    let mut tree = opened(&directory);
+    // The rate is the caller's to set: a frame that posted every directory it
+    // could see would put a thousand requests behind the first answer.
+    assert_eq!(tree.crawl(2), 2);
+    assert_eq!(tree.crawl(2), 1, "only one directory was left to ask for");
+    assert_eq!(tree.crawl(2), 0, "and then there is nothing to do");
+}
+
+#[test]
+fn a_directory_already_being_read_is_not_read_a_second_time_by_the_crawl() {
+    let directory = TempDir::new("explorer-crawl-overlap");
+    std::fs::create_dir(directory.path().join("sub")).expect("the fixture directory was made");
+    std::fs::write(directory.path().join("sub/a.txt"), "a").expect("the fixture was written");
+
+    let mut tree = opened(&directory);
+    let sub = tree
+        .node_at(&directory.path().join("sub"))
+        .expect("the directory was listed");
+
+    // A hand opens it, which posts the read. The crawl then reaches the same
+    // node in its queue and must leave it alone — asking again would double
+    // the work for the one directory somebody is actually looking at.
+    drop(tree.children(Some(&sub)));
+    assert_eq!(
+        tree.crawl(8),
+        0,
+        "the crawl re-requested a directory that was already outstanding"
+    );
+}
+
+#[test]
+fn an_ignored_directory_is_listed_but_never_crawled_into() {
+    let directory = TempDir::new("explorer-crawl-ignored");
+    let root = directory.path();
+    std::fs::write(root.join(".gitignore"), "build/\n").expect("the fixture was written");
+    std::fs::create_dir(root.join("build")).expect("the fixture directory was made");
+    std::fs::write(root.join("build/artefact.txt"), "a").expect("the fixture was written");
+
+    let mut tree = opened(&directory);
+    // Listed like anything else — the rule is about the crawl, not the tree.
+    let root_id = tree.root();
+    assert!(
+        names(&mut tree, root_id).contains(&"build".to_owned()),
+        "an ignored directory is still shown"
+    );
+
+    let deadline = Instant::now() + PATIENCE;
+    while !tree.is_fully_crawled() && Instant::now() < deadline {
+        tree.crawl(8);
+        tree.drain();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        tree.node_at(&root.join("build/artefact.txt")).is_none(),
+        "the crawl walked into a directory the project said to ignore"
+    );
+
+    // And a hand still opens it.
+    let build = tree
+        .node_at(&root.join("build"))
+        .expect("the directory was listed");
+    drop(tree.children(Some(&build)));
+    assert!(settle(&mut tree), "the manual read never landed");
+    assert!(tree.node_at(&root.join("build/artefact.txt")).is_some());
+}

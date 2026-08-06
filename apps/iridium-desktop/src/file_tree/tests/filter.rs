@@ -253,6 +253,11 @@ fn a_query_that_matches_nothing_says_so_rather_than_showing_the_tree() {
     let mut explorer = opened_project(&directory);
 
     type_query(&mut explorer, "zzzz");
+    // The crawl has to finish before "nothing matched" is a true statement
+    // rather than a premature one — which is the distinction
+    // `an_empty_list_says_it_is_still_looking_before_it_says_there_is_nothing`
+    // pins.
+    settle(&mut explorer);
     let rows = lines(&mut explorer);
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert!(rows[0].contains("No matching files"), "{:?}", rows[0]);
@@ -296,34 +301,179 @@ fn the_characters_the_query_matched_are_drawn_in_the_match_colour() {
 }
 
 #[test]
-fn a_filter_reaches_only_what_has_been_read_and_never_starts_a_crawl() {
-    // **The load-bearing property of this step.** The filter walks with an
-    // accessor that posts nothing, so typing cannot turn one keystroke into a
-    // read of every directory on the disk. The cost, stated honestly: a file
-    // in a folder nobody has opened is not found yet — widening that reach is
-    // a separate, bounded mechanism and not a side effect of typing.
+fn a_query_reaches_into_folders_nobody_opened() {
+    // **The point of the crawl.** The filter itself walks only what has been
+    // read; the query is what makes more of it get read. Nothing here is
+    // opened by hand.
     let directory = project();
     let mut explorer = opened(&directory);
-    assert!(
-        !explorer.is_waiting(),
-        "the fixture starts with nothing outstanding"
+    assert_eq!(
+        lines(&mut explorer).len(),
+        4,
+        "the root's own listing and nothing below it"
     );
 
     type_query(&mut explorer, "button");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
     assert!(
-        !explorer.is_waiting(),
-        "typing posted a directory read, which is the crawl this must not be"
+        rows.iter().any(|row| row.contains("button.rs")),
+        "a file two levels down, in a folder never expanded: {rows:?}"
     );
+    assert!(
+        rows.iter().any(|row| row.contains("widgets/")),
+        "and its folder above it, as context: {rows:?}"
+    );
+}
+
+#[test]
+fn the_crawl_skips_what_the_project_says_to_ignore() {
+    let directory = TempDir::new("explorer-ignored");
+    let root = directory.path();
+    std::fs::write(root.join(".gitignore"), "build/\n").expect("the fixture was written");
+    std::fs::create_dir(root.join("build")).expect("the fixture directory was made");
+    std::fs::write(root.join("build/artefact.rs"), "a").expect("the fixture was written");
+    std::fs::create_dir(root.join("src")).expect("the fixture directory was made");
+    std::fs::write(root.join("src/artefact.rs"), "a").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    type_query(&mut explorer, "artefact");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("src/")),
+        "the source copy is found: {rows:?}"
+    );
+    assert!(
+        rows.iter().all(|row| !row.contains("build/")),
+        "the ignored copy is not, and neither is the folder holding it: {rows:?}"
+    );
+}
+
+#[test]
+fn an_ignored_folder_still_opens_when_someone_asks_for_it_by_hand() {
+    // The rule is about the *crawl*, not about the tree. A file tree that hid
+    // a build directory would be lying about the disk, and opening a
+    // generated file is a legitimate thing to want.
+    let directory = TempDir::new("explorer-ignored-manual");
+    let root = directory.path();
+    std::fs::write(root.join(".gitignore"), "build/\n").expect("the fixture was written");
+    std::fs::create_dir(root.join("build")).expect("the fixture directory was made");
+    std::fs::write(root.join("build/artefact.rs"), "a").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("build/")),
+        "the folder is listed like any other: {rows:?}"
+    );
+
+    open_directory(&mut explorer, "build/");
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("artefact.rs")),
+        "and opens like any other: {rows:?}"
+    );
+}
+
+#[test]
+fn a_deeper_ignore_file_overrides_the_one_above_it() {
+    // The reason each directory's rules are compiled against their own base
+    // rather than all thrown into one matcher. A single root-anchored matcher
+    // gets this wrong, and gets it wrong silently.
+    let directory = TempDir::new("explorer-ignore-nested");
+    let root = directory.path();
+    std::fs::write(root.join(".gitignore"), "logs/\n").expect("the fixture was written");
+    std::fs::create_dir(root.join("pkg")).expect("the fixture directory was made");
+    std::fs::write(root.join("pkg/.gitignore"), "!logs/\n").expect("the fixture was written");
+    std::fs::create_dir(root.join("pkg/logs")).expect("the fixture directory was made");
+    std::fs::write(root.join("pkg/logs/kept.rs"), "k").expect("the fixture was written");
+    std::fs::create_dir(root.join("logs")).expect("the fixture directory was made");
+    std::fs::write(root.join("logs/dropped.rs"), "d").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    type_query(&mut explorer, "rs");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("kept.rs")),
+        "the nested negation re-included its folder: {rows:?}"
+    );
+    assert!(
+        rows.iter().all(|row| !row.contains("dropped.rs")),
+        "and the root rule still holds where nothing overrode it: {rows:?}"
+    );
+}
+
+#[test]
+fn the_crawl_never_walks_into_dot_git() {
+    // No `.gitignore` names `.git`, because git does not need telling. A
+    // crawl that took that literally would read every object directory in the
+    // repository.
+    let directory = TempDir::new("explorer-dot-git");
+    let root = directory.path();
+    std::fs::create_dir(root.join(".git")).expect("the fixture directory was made");
+    std::fs::create_dir(root.join(".git/objects")).expect("the fixture directory was made");
+    std::fs::write(root.join(".git/objects/marker.rs"), "m").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    type_query(&mut explorer, "marker");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().all(|row| !row.contains("marker.rs")),
+        "{rows:?}"
+    );
+}
+
+#[test]
+fn an_empty_list_says_it_is_still_looking_before_it_says_there_is_nothing() {
+    // Three statements, three meanings. "No matching files" while the crawl
+    // is still reading is a lie that resolves itself a second later — which
+    // is exactly long enough for someone to have given up.
+    let directory = project();
+    let mut explorer = opened(&directory);
+
+    type_query(&mut explorer, "zzzz");
     let rows = lines(&mut explorer);
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert!(rows[0].contains("No matching files"));
-
-    // Nothing arrives to change that, either — a read posted late would show
-    // up here.
-    settle(&mut explorer);
     assert!(
-        lines(&mut explorer)[0].contains("No matching files"),
-        "no read was posted, so nothing landed"
+        rows[0].contains("Searching…"),
+        "the crawl has folders left to read: {:?}",
+        rows[0]
+    );
+
+    settle(&mut explorer);
+    let rows = lines(&mut explorer);
+    assert!(
+        rows[0].contains("No matching files"),
+        "everything has been read, so there really is nothing: {:?}",
+        rows[0]
+    );
+}
+
+#[test]
+fn nothing_is_crawled_until_something_is_typed() {
+    // The crawl is the query's, not the panel's. Opening the explorer to look
+    // at one folder must not read the project.
+    let directory = project();
+    let mut explorer = opened(&directory);
+
+    for _ in 0..8 {
+        explorer.poll();
+    }
+    assert!(
+        !explorer.is_waiting(),
+        "an idle panel posted a read it was never asked for"
+    );
+    assert_eq!(
+        lines(&mut explorer).len(),
+        4,
+        "and the rows are still only what the root listing brought"
     );
 }
 

@@ -101,6 +101,19 @@ web-time = "1.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
+# Ignore rules, for the file explorer's crawl only.
+#
+# Taken rather than hand-rolled because `.gitignore` semantics are subtle in
+# ways whose failure is *invisible*: anchoring, negation, directory-only
+# patterns, and a deeper file overriding a shallower one. Getting any of them
+# subtly wrong means a file quietly missing from a search, which nobody
+# reports because there is nothing to see. This is ripgrep's own matcher.
+#
+# Only `gitignore::{Gitignore, GitignoreBuilder}` is used — never the walker,
+# which brings its own threads and would duplicate the reader this crate
+# already owns.
+ignore = "0.4.30"
+
 # Testing
 criterion = { version = "0.8.1", features = ["html_reports"] }
 

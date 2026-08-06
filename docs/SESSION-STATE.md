@@ -48,6 +48,7 @@ Everything below is committed, pushed, and green on all six gates.
 | `710cf7f` | **the compositor reserves space beside the document** |
 | `a6d28d6` | the fuzzy matcher leaves the command palette for `crate::fuzzy` |
 | `cd033b6` | **`compositor.rs` split into thirteen files, none over 450** |
+| `4c68943` | **`app.rs` split into nineteen files, none over 462** |
 
 ---
 
@@ -104,6 +105,52 @@ state whose *methods* split by phase; it is not a type with a boundary
 through its middle. Anyone tempted to "tighten" this should note that
 narrowing the fields means re-introducing accessors that exist only to let
 the painter read what it already owns.
+
+---
+
+## 🧱 THE APP SPLIT — landed 6 Aug, `4c68943`
+
+`apps/iridium-desktop/src/app.rs` was 3,270 lines. It is now
+`apps/iridium-desktop/src/app/` — **nineteen files, largest 462**.
+
+**The seam is *which input a method answers*.** That is how a defect in this
+file presents itself: "the right-click menu does the wrong thing", "the wheel
+scrolls past the end", "the title says the wrong file". Each of those
+sentences now names one file.
+
+| file | lines | what |
+|---|---|---|
+| `mod.rs` | 103 | declarations and the map of where the pieces live |
+| `state.rs` | 258 | `DesktopApp`, `DesktopDocument`, `Flow`, the small readers |
+| `startup.rs` | 247 | `Options`, `StartupError`, the `Shell`, `new` |
+| `handler.rs` | 135 | the winit seam — routing only, no decisions |
+| `keyboard.rs` | 272 | a key press and the modal ladder it descends |
+| `pointer.rs` | 270 | motion, press, release, wheel, hit test |
+| `menu.rs` | 130 | the context menu: open, steer, spend a click |
+| `host_commands.rs` | 96 | the verbs the kernel hands back for the face to run |
+| `tabs.rs` | 173 | opening, closing, walking tabs; the strip's content |
+| `files.rs` | 187 | save, save-as, drop, open, quit |
+| `clipboard.rs` | 99 | the system clipboard, and what to say when it refuses |
+| `viewport.rs` | 223 | scroll, its clamp, and the window geometry both need |
+| `paint.rs` | 177 | composing and presenting one frame |
+| `title.rs` | 40 | what the window is called |
+| `tests/` | 1,141 | `support` · `saving` 168 · `panels` 462 · `tabs` 402 |
+
+`app` is a **public** module (unlike `compositor`), so the nine-item public
+surface is what `run.rs` and `lib.rs` already used. It is unchanged.
+
+**Proved pure the same two ways as the compositor**, plus a third specific to
+moving tests:
+
+1. Order-independent non-comment, non-import line diff. Every difference is a
+   `pub(super)` prefix with an exact unprefixed counterpart, one of eleven
+   added `impl DesktopApp {` headers with its brace, a wrapped-import
+   continuation line, or the `FONT` path going one directory deeper.
+2. Public item names, old against new: identical, nine for nine.
+3. **Every comment line in the old `mod tests` block, diffed against the new
+   files.** The line-level diff strips comments, so it cannot see a lost doc
+   comment — and three *had* been dropped by an off-by-one in the extracted
+   ranges. This check found them. **Do this on any split that moves tests.**
 
 ## 🧭 THE LEFT INSET — WHAT LANDED AND WHY
 
@@ -197,8 +244,9 @@ stable a foundation as we can possibly get it built."* Since the syntax
 foundation turned out to be done already, I offered him three, **measured
 rather than remembered**:
 
-1. **Split the oversized files.** `app.rs` 3,270 · `wasm.rs` 3,154 ·
-   `core.rs` 2,807 · `compositor.rs` 2,289 · `overlay.rs` 1,768, against
+1. **Split the oversized files.** ~~`app.rs` 3,270~~ *(done, `4c68943`)* ·
+   `wasm.rs` 3,154 · `core.rs` 2,807 · ~~`compositor.rs` 2,289~~ *(done,
+   `cd033b6`)* · `overlay.rs` 1,768, against
    CLAUDE.md's **500**. The argument that makes this foundation work rather
    than tidying: *both* real bugs found this session were in
    `compositor.rs`, and both were the same shape — two places computing one
@@ -380,15 +428,13 @@ looked at was the thing you meant.
   band when the caret's line scrolls behind chrome. `TextBounds` does not clip
   geometry. Masked today only because the desktop overlay paints the strip
   opaquely afterwards.
-- **#49 `app.rs` is 3,270 lines** against a 500-line bar, and is now the
-  worst of them — `compositor.rs` was split on 6 Aug (`cd033b6`). Seams: the
-  mouse block, scroll-and-viewport, painting, the tab-strip block, and the
-  ~1,100-line test module. Then `wasm.rs` (3,154), `core.rs` (2,807),
-  `overlay.rs` (1,768, wants its colour derivations in a `chrome.rs`) and
-  `workspace/model.rs` (578, wants attach/detach/subtree in a `tree.rs`).
-  **The compositor split is the worked example to copy**: seam by *when the
-  code runs*, `pub(super)` fields, and prove purity with the two diffs
-  described above rather than trusting the suite alone.
+- **Oversized files still to split**, worst first: `wasm.rs` (3,154),
+  `core.rs` (2,807), `overlay.rs` (1,768, wants its colour derivations in a
+  `chrome.rs`) and `workspace/model.rs` (578, wants attach/detach/subtree in
+  a `tree.rs`). `compositor.rs` (`cd033b6`) and `app.rs` (`4c68943`) are
+  done. **Those two are the worked examples to copy**: pick the seam by the
+  axis defects appear along, keep fields `pub(super)`, and prove purity with
+  the diffs described above rather than trusting the suite alone.
 - **#39** kernel has no `clear_language` — an unknown-extension file inherits
   the previous one's highlighting. Only bites `save_as` now.
 - **#42/#43/#44/#45** the whole web-face half of tabs, untouched.

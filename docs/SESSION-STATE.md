@@ -6288,3 +6288,65 @@ Tasks #46/#47/#48.
 
 **Still awaiting Tom:** new file into the current group or top level?
 Defaulting to the current group.
+
+---
+
+## 🔴 MID-REFACTOR — `apps/iridium-desktop/src/app.rs` DOES NOT COMPILE
+
+Everything in `crates/` is committed and pushed (`fe167e1`). **Only
+`app.rs` is dirty**, and it is part-way through Desktop step A.
+
+### Done in `app.rs` already
+
+- `DesktopDocument { scroll_y, file, syntax }` added as the payload struct.
+- `DesktopApp` field `editor`/`scroll_y`/`file`/`syntax` **removed**,
+  replaced by `workspace: Workspace<DesktopDocument>`.
+- `DesktopApp::new` rewritten: registers commands and pushes the keymap on
+  the **workspace** (not one editor), then `open_with` an initial tab
+  titled from the file or `UNTITLED`.
+- `StartupError`: `Command`/`Keymap` variants replaced by
+  `Setup(#[from] FaceSetupError)` plus a new `NoInitialTab`.
+- Imports updated; `const UNTITLED: &str = "untitled";` added.
+- Converted so far: `Debug` impl, `is_dirty`, `search_or_document_key`,
+  `drive_palette`, `drive_history`, `run_chosen_command`.
+
+### The conversion pattern — keep using exactly this
+
+```rust
+let Some(editor) = self.workspace.active_editor_mut() else {
+    return Flow::Running;
+};
+```
+
+**Never** add `fn editor_mut(&mut self)` to `DesktopApp`. It would borrow
+all of `self` and break `self.search.handle_key(event, editor)` — that
+works only because `workspace` and `search` are disjoint *fields*.
+
+Payload reads: `self.workspace.active_payload()` /
+`active_payload_mut()`; both at once:
+`self.workspace.active_editor_and_payload_mut()`.
+
+### Remaining sites — run `cargo check -p iridium-desktop` for the live list
+
+Around **20 left**, at roughly these lines (they shift as edits land):
+749, 755, 760, 763, 786, 790, 794 (`save`, `save_as`), 850–856
+(`open_file` — sets content, language, file, `scroll_y = 0.0`), 894, 902,
+962, 967, 977 (`refresh_title`), 1008, 1045, 1116, 1135, and the render
+path around 1250–1500 (`scroll_y`, `syntax.refresh*`, `cursor_anchor_y`,
+`clamp_scroll`, panel content).
+
+`self.file` → the payload's `file`. `self.scroll_y` → the payload's
+`scroll_y`. `self.syntax` → the payload's `syntax`.
+
+### After it compiles
+
+1. Six gates. `cargo build --release -p iridium-desktop`, checking
+   **cargo's own exit**, not a compound's.
+2. Commit step A (no visible change, still one tab).
+3. **Tom is waiting on two things**, told to him at 02:35Z:
+   - the installed app — `apps/iridium-desktop/bundle/bundle.sh` builds
+     `iridium.app`, `install.sh` beside it installs. Run both, tell him
+     where it landed.
+   - **there is no sidebar and no file tree in the desktop face at all.**
+     Told him plainly. Order agreed: installed app → tab strip → sidebar.
+4. Then step B (task #47), then the strip (task #48).

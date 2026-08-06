@@ -29,6 +29,7 @@ mod ids;
 mod model;
 mod nav;
 mod node;
+mod settings;
 mod tree_source;
 
 #[cfg(test)]
@@ -38,11 +39,14 @@ mod nav_tests;
 #[cfg(test)]
 mod payload_tests;
 #[cfg(test)]
+mod settings_tests;
+#[cfg(test)]
 mod tree_source_tests;
 #[cfg(test)]
 mod workspace_tests;
 
 pub use dispatch::WorkspaceCommandError;
 pub use ids::{DocumentId, NodeId};
-pub use model::{FaceSetupError, Workspace};
+pub use model::Workspace;
 pub use node::Node;
+pub use settings::{FaceSetupError, ViewportGeometry};

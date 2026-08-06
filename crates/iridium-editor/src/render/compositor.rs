@@ -69,10 +69,6 @@ const MAX_SELECTION_QUADS: usize = 128;
 /// The content column's inset from the gutter, in pixels.
 const HORIZONTAL_PADDING: f32 = 10.0;
 
-/// The document's default inset from the top of the window, in pixels — the
-/// text's own breathing room, with no chrome above it.
-const DEFAULT_TOP_INSET: f32 = 10.0;
-
 /// Pixels of empty window left below the last line when scrolled to the end,
 /// so it does not sit flush against the edge.
 const BOTTOM_SLACK: f32 = 10.0;
@@ -561,7 +557,7 @@ impl FrameCompositor {
             theme: Theme::dark(),
             syntax_enabled: true,
             gutter_enabled: true,
-            top_inset: DEFAULT_TOP_INSET,
+            top_inset: Self::DOCUMENT_TOP_PADDING,
             cached_char_width: 14.0 * 0.6, // Default until a font is loaded
             viewport_config: ViewportConfig::default(),
             cached_viewport_width: width,
@@ -871,11 +867,19 @@ impl FrameCompositor {
             text_areas.push(TextRenderer::create_text_area(
                 gutter_buf,
                 8.0, // Small padding from left edge
-                padding - adjusted_scroll_y,
+                // `top_inset`, not `padding`: the numbers have to start where
+                // the lines they number start. The two were the same value
+                // until a face reserved chrome above the document, at which
+                // point the code moved down and the numbers did not, and
+                // every line wore the number of the line above it.
+                top_inset - adjusted_scroll_y,
                 1.0,
                 TextBounds {
                     left: 0,
-                    top: 0,
+                    // Clipped at the inset like the content is, so a scrolled
+                    // gutter's rows vanish into the reserved band rather than
+                    // drawing inside it.
+                    top: pixel_to_bound(top_inset),
                     right: pixel_to_bound(gutter_width),
                     bottom: dimension_to_bound(height),
                 },
@@ -1920,6 +1924,16 @@ impl FrameCompositor {
             0.0
         }
     }
+
+    /// The document's own breathing room above its first line, in pixels —
+    /// the inset a compositor starts at, and what a face drawing no chrome
+    /// above the text leaves it at.
+    ///
+    /// A face that *does* draw chrome there adds its height to this and
+    /// passes the sum to [`Self::set_top_inset`]; it is public so that sum is
+    /// arithmetic on one named value rather than on a ten repeated in the
+    /// face.
+    pub const DOCUMENT_TOP_PADDING: f32 = 10.0;
 
     /// The pixels of window reserved above the document.
     #[must_use]

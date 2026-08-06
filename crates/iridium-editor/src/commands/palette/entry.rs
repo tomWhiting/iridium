@@ -2,8 +2,8 @@
 
 use std::cmp::Ordering;
 
-use super::matcher::MAX_QUERY_CHARS;
 use crate::commands::{CommandId, CommandMeta};
+use crate::fuzzy::MAX_QUERY_CHARS;
 
 /// Which of a command's texts the query matched.
 ///

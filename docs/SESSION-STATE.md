@@ -21,7 +21,44 @@ first-touch draw. Do not price the next lane off the old series.
 executing a path that no longer exists. Editing/saving unaffected;
 **when he quits, the app is gone until rebuilt.** He knows.
 
-**THE OBVIOUS NEXT WORK, and it is unblocked:** tasks **#37 + #38** —
+**🔴 IN FLIGHT RIGHT NOW — #38, and the battery is COLD.** Background
+job `bgosw8l7r` is `cargo test --workspace --all-features` writing to
+`scratchpad/gate1.txt`. **This is the first post-clean build: the whole
+graph including wgpu, glyphon and tree-sitter compiles from scratch.**
+Lane anchor **150,354,208 KiB** available / 85% (`df -k
+/System/Volumes/Data`, taken 6 Aug before any cargo command).
+Invalidation set **`iridium-editor`, `iridium-desktop`,
+`iridium-bindings`**. Ceiling declared at **30 GiB** — deliberately a
+ceiling, not a prediction, because no cold figure for this workspace has
+ever been measured. **Report the actual draw against it.** Five gates
+still to run after this one. Source edits are complete and uncommitted:
+`render/mod.rs` (units widened to `pub`), `apps/iridium-desktop/src/
+units.rs` (three restated fns deleted, re-exported instead, one test
+assertion corrected), `crates/iridium-bindings/src/wasm.rs` (four bare
+casts replaced, one import added).
+
+**WHAT #38 TURNED OUT TO BE — bigger than the task title.** The title
+says "so the web face stops hand-rolling it". There were **three**
+copies, not two, and the root cause was one line: `pub(crate) mod units`
+in `render/mod.rs`. `apps/iridium-desktop/src/units.rs` had *also*
+restated it, and said so in its own module doc — *"that module is
+private to the kernel, so the two conversions this face needs are
+restated here"*. **A face cannot adopt a discipline it cannot reach.**
+
+**AND THE COPY HAD ALREADY DRIFTED (row 26, below).** Desktop's
+`pixel_to_index` saturated at `u32::MAX`; the kernel's saturates at
+`usize::MAX`. Verified by standalone probe, not by reasoning:
+80,749 of 430,660 swept `f32` patterns disagree, first at v≈4.295e9.
+Unreachable at real line counts — which is the finding, not an excuse.
+
+**S-5 IS ANSWERED AND SENT** (Meridian, 6 Aug). Recorded in full in
+`docs/DESKTOP-SHAPE.md` under "S-5 in full". Short form: packaging does
+not change what the browser can do, so S-5 cannot be priced before S-2;
+split by behaviour-vs-pixels, not crate boundary; a tree *widget* is
+separable, a sidebar *model* is not; and two wasm modules do not share
+linear memory, so everything between them crosses as JSON.
+
+**THE REST OF THE LANE, still unblocked:** tasks **#37** —
 one lane, identical invalidation set. #37 puts the pixel-ratio /
 line-height guard at the Rust boundary (today the only guard is
 `devicePixelRatio || 1` in TypeScript; a `??` refactor deletes it, no
@@ -32,16 +69,13 @@ already tests to the bit. Both were recommended to Tom and neither needs
 a ruling. **#39** (kernel `clear_language`) shares that invalidation set
 and could ride the same lane.
 
-**🆕 TOM'S LIVE QUESTION, ARRIVED 23:59 AND UNANSWERED — ANSWER THIS
-FIRST:** *should the file-tree / sidebar be a **separate wasm library**
-that works alongside iridium, rather than part of it?* This is a real
-architectural fork and it is **S-5**, to be added to
-`docs/DESKTOP-SHAPE.md`. Ground already verified for it: the browser has
-no filesystem (File System Access API is Chromium-only, permission-
-gated), so a *file-tree* sidebar cannot be shared across faces whatever
-package it ships in — which means the packaging question and the
-"which of the three sidebars" question (S-2) are **entangled and must be
-answered together**, not in sequence. He is awake and waiting.
+**⚠️ THE DELIVERY LESSON FROM S-5, and it cost Tom ten hours.** S-5 was
+answered *into the session transcript* at compaction #4 and **Tom never
+received it** — he reads Meridian, not this session. The deleted-bundle
+warning went the same way. Both were re-sent properly on 6 Aug.
+**Anything meant for Tom leaves this seat through the Meridian `send`
+tool or it did not happen.** Session text is a note to the next seat,
+never a reply to him.
 
 **WAITING ON TOM — do not proceed:** **S-1..S-4** in
 `docs/DESKTOP-SHAPE.md` (he reopened tabs/sidebars and has "lots of
@@ -998,6 +1032,7 @@ agrees with its target on the examined set**.
 | a digest beside the artifact | preservation | successor overwrites both |
 | a live citation | a reproducible claim | the 8-of-8 dead scratchpad artifacts |
 | a pid | a process | reboot, or pid reuse |
+| a restated conversion | the conversion it restates | any input ≥ 2^32 (added 6 Aug — see below) |
 
 Eight, four seats, one shape. **Every one was correct on every case
 anyone had checked** — which is exactly why none was caught by being
@@ -1016,6 +1051,103 @@ measurement.
 Same instrument as *enumerate, don't assume*, aimed one level up:
 enumeration checks the cases you have; divergence-naming checks
 whether the **category** is the right one.
+
+**Row 26 (6 Aug) — A RESTATED CONVERSION PROXIES THE ONE IT RESTATES,
+and this one is the cleanest specimen the law has.** `render/units.rs`
+was `pub(crate)`, on the stated reasoning that the conversions were *"an
+internal discipline, not part of the crate's published surface"*.
+`apps/iridium-desktop/src/units.rs` therefore **restated three of them**
+and said so in its own module doc. The restatement agreed with the
+kernel on every input any caller has ever produced — and diverged on
+every input at or above **2^32**, because it saturated at `u32::MAX`
+where the kernel saturates at `usize::MAX`.
+
+**The divergence case, named:** `pixel_to_index(f32::INFINITY)` —
+kernel `18446744073709551615`, desktop `4294967295`. Verified by
+standalone probe, both bodies compiled side by side outside the
+workspace: **80,749 of 430,660 swept `f32` bit patterns disagree**,
+first at v≈4.295e9. Not reasoned — measured, because a claim about two
+functions agreeing is exactly the claim that should not be reasoned.
+
+Three things this specimen adds that the other rows do not:
+
+1. ⇒ ★★ **A FACE CANNOT ADOPT A DISCIPLINE IT CANNOT REACH.** The
+   `pub(crate)` was defended as *keeping the surface small*. Its actual
+   effect was three implementations instead of one. **Visibility that
+   forces a restatement has not kept the surface small; it has made it
+   unaccountable** — the same code exists, minus the single point of
+   truth. Before narrowing visibility, ask who outside needs the
+   behaviour, not who outside needs the symbol.
+2. ⇒ ★ **THE DUPLICATE'S OWN TEST PINNED THE DRIFT.**
+   `pixel_indices_truncate_and_clamp` asserted the `u32::MAX`
+   saturation. A passing test recorded the divergence as intended
+   behaviour for two months. **A test written against a copy proves the
+   copy self-consistent, never that it matches its original.**
+3. ⇒ ★ **BENIGN IS A PROPERTY OF THE PRESENT MAGNITUDE, NOT OF THE
+   CODE.** Nothing reaches four billion lines, so nothing caught it.
+   **A duplicate is found when its drift stops being benign — which is
+   the worst moment to find it and the only one it offers.** That, not
+   the tidiness, is the argument for de-duplicating while it is boring.
+
+Third copy note: the web face did not restate it at all — it fell back
+to the bare `as usize` the module exists to replace. **Unreachable
+discipline degrades differently in different faces**, so counting
+restatements undercounts the damage.
+
+**Row 27 (6 Aug) — A PRIVATE RE-ANCHOR PROXIES COORDINATION.** I
+re-took the anchor before opening #38 — correctly, before any cargo
+command — and recorded it in this file. I did **not** announce the lane.
+The protocol I was given said *re-anchor before your next lane*, and I
+satisfied it exactly; the *purpose* was that other seats' boards show
+what is open. **Divergence case: any moment another seat is deciding
+against the board.** Cally was holding a 15 GiB clearance behind a Σ
+that showed neither her wire nor my build; had she lifted it, both would
+have opened invisibly to each other. ⇒ ★ **a measurement satisfies my
+protocol and does nothing for anyone else's — publication is the part
+that was load-bearing, and it is the part with no local symptom.**
+Nothing bad happened, and the reason is that Tom deleted 112 GiB, not
+that the accounting worked.
+
+**Row 28 (6 Aug) — AN ACCUMULATED TOTAL PROXIES A PER-LANE COST.** Both
+Cally and I priced the first post-clean build off iridium's 45.9 GiB
+`target`. Measured cold `cargo test --workspace --all-features`:
+**3,184,524 KiB = 3.04 GiB.** An order of magnitude out, in the
+expensive direction. 45.9 was never a build cost — it was many profiles,
+targets and months of incremental rebuilds summed. My own 30 GiB ceiling
+was wrong the same way, and was *declared as a ceiling rather than a
+prediction precisely because no cold figure existed* — which is the
+right handling of an unknown and still produced a number ten times high.
+⇒ ★ **the honest label on an unmeasured quantity does not make it a
+measurement; the only fix for a missing figure is to take it.**
+Corollary, measured the same hour: the volume delta over my window was
+3.36 GiB against a 3.04 GiB tree — **on a shared box the df delta is an
+upper bound on your draw, never your draw.**
+
+**Row 29 (6 Aug) — A FILENAME PROXIES A RESULT, and this one nearly
+shipped.** Gates 2–6 were written to `scratchpad/gateN.txt`. I polled
+them with a `for` loop that tested `[ -f ]` and printed `tail -1`.
+`gate4.txt` showed `error: could not compile iridium-bindings (lib test)
+due to 2 previous errors` and I was one message from reporting a failing
+wasm gate. **`ls -la` showed gate3–gate6 dated 5 Aug 19:44 — artifacts
+of a pre-compaction run.** The script had not reached gate 3. The
+content was not even gate 4's command: it was yesterday's clippy,
+carrying `-D clippy::doc-markdown`, which `cargo check` cannot emit.
+
+**Divergence case: any rerun that writes the same paths.** The existence
+check and the content were both true; only the *time* was wrong, and
+nothing in the loop looked at time. ⇒ ★ **`[ -f ]` answers "was this
+path ever written", never "was it written by the run I am watching".**
+
+Two properties made it dangerous rather than merely wrong: the stale
+content was a **plausible failure** — a real error, in a real file in
+this workspace, that I would have believed and chased — and it had
+survived a compaction, so nothing in context contradicted it. Same
+family as the CI monitor replaying 35-hour-old reds as news, on a
+third instrument. That is now three, so it is the pattern and not the
+incident: **an output directory reused across runs is a stale-read
+generator unless the reader checks mtime or the writer clears first.**
+Fix applied both ways — stale files deleted, and freshness read from
+`ls -la` rather than assumed.
 
 **Row 9 — `-D warnings` by invocation ⇒ build inputs unchanged.**
 Athena's sentence, from her 09:12Z ruling, held by me *because the

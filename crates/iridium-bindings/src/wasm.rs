@@ -29,6 +29,7 @@ use iridium_editor::{
     },
     render::{
         FrameCompositor, FrameTarget, HighlightContext, HighlightSource, Viewport, WebSurface,
+        units::{pixel_to_index, u32_to_f32},
     },
     syntax_stubs::Language,
     theme::Color,
@@ -1514,8 +1515,11 @@ impl WebEditor {
     /// visual rows.
     #[wasm_bindgen(js_name = getMaxScrollY)]
     pub fn max_scroll_y(&self) -> f32 {
-        self.compositor
-            .max_scroll_y(&self.editor, &self.fold_state, self.surface.height() as f32)
+        self.compositor.max_scroll_y(
+            &self.editor,
+            &self.fold_state,
+            u32_to_f32(self.surface.height()),
+        )
     }
 
     /// Ensures the cursor is visible by scrolling if needed.
@@ -1528,7 +1532,7 @@ impl WebEditor {
     pub fn ensure_cursor_visible(&mut self) {
         let line_height = self.compositor.line_height();
         let padding = 10.0;
-        let viewport_height = self.surface.height() as f32;
+        let viewport_height = u32_to_f32(self.surface.height());
 
         let cursor_y = self
             .compositor
@@ -1591,7 +1595,7 @@ impl WebEditor {
             document: &self.editor.state().document,
             fold_state: &self.fold_state,
             scroll_y: self.scroll_y,
-            surface_height: height as f32,
+            surface_height: u32_to_f32(height),
             generation: self.highlight_generation,
         };
 
@@ -2824,8 +2828,24 @@ impl HighlightSource for WebHighlightSource<'_> {
         if self.use_ts_highlights && !self.span_index.is_empty() {
             // Calculate viewport for efficient span query (T020)
             // Only query spans in the visible range instead of iterating all spans
-            let first_line = (self.scroll_y / context.line_height).floor() as usize;
-            let visible_lines = (self.surface_height / context.line_height).ceil() as usize + 1;
+            //
+            // `pixel_to_index` rather than `as usize`. This changes NO
+            // behaviour: the kernel's conversion is bit-for-bit the cast's,
+            // and asserted so by `pixel_to_index_matches_cast`. What it buys
+            // is a single definition — this face previously reached for the
+            // bare cast because `render::units` was `pub(crate)`, which is
+            // how the desktop face ended up with a copy that had silently
+            // drifted. It also subsumes the `.floor()` on the first line.
+            //
+            // NOT a guard, and must not be read as one: a degenerate
+            // `line_height` (zero, or a `NaN` from an unvalidated
+            // device-pixel-ratio) still yields `0` or a `usize::MAX`
+            // visible-line count fed straight to `query_byte_range`, exactly
+            // as the cast did. Validating `line_height` at this boundary is
+            // task #37 and is deliberately not done here.
+            let first_line = pixel_to_index(self.scroll_y / context.line_height);
+            let visible_lines = pixel_to_index((self.surface_height / context.line_height).ceil())
+                .saturating_add(1);
 
             let viewport = Viewport {
                 first_line,

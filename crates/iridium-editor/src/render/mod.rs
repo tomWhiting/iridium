@@ -22,11 +22,29 @@ mod gutter;
 mod highlight;
 mod minimap;
 mod simple_highlight;
-/// Crate-visible, deliberately: the conversions serve every subsystem that
-/// moves between integer indices and `f32` pixels, and `input::mouse` is a
-/// consumer outside this module. Widened no further — these are an internal
-/// discipline, not part of the crate's published surface.
-pub(crate) mod units;
+/// Public, and it took two restatements to earn that.
+///
+/// This was `pub(crate)` until 2026-08-06, on the reasoning that the
+/// conversions were "an internal discipline, not part of the crate's
+/// published surface". That reasoning was wrong in a way only visible from
+/// outside the crate: a face cannot adopt a discipline it cannot reach, so
+/// both faces restated it instead.
+///
+/// - `apps/iridium-desktop/src/units.rs` said so outright — *"the kernel
+///   solved this once ... but that module is private to the kernel, so the
+///   two conversions this face needs are restated here"*.
+/// - `iridium-bindings`' web face did not restate it; it fell back to the
+///   bare `as usize` casts this module exists to replace.
+///
+/// The desktop restatement then diverged: its `pixel_to_index` saturated at
+/// `u32::MAX` where this one saturates at `usize::MAX`, so the two disagreed
+/// on every input at or above 2^32. Unreachable at real line counts, and
+/// that is the point — a duplicate drifts silently while the drift is still
+/// benign, and is only ever discovered once it is not.
+///
+/// Widening the module, not re-exporting item-by-item at the crate root:
+/// the `render::` path states where the discipline comes from.
+pub mod units;
 mod viewport;
 
 #[cfg(feature = "render")]

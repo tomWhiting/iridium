@@ -129,18 +129,32 @@ caught a live bug — but do not expect to use it soon. Said plainly to Tom.
   `validate_regex` and `escape_regex` already public.
 - The command palette exists in kernel, bindings, desktop **and TUI**.
 
-### The design put to Tom, awaiting his ruling
+### The design — as corrected by Tom, 6 Aug
 
-1. **No query → the Oil view**: full tree, **editable**, edits apply on save.
-   **Query typed → filtered and read-only.** The reason is not tidiness: in a
-   filtered view, deleting a line is ambiguous between "delete this file" and
-   "this is not in my filter", and getting that wrong loses someone's work.
-   Making the filtered view untypeable removes the mistake rather than
-   warning about it.
-2. **Filtering keeps the hierarchy** — hide non-matching rows but keep the
-   directories that lead to matches, still indented. Not a flat ranked list.
-   Offered him the flat alternative as a genuine fork.
-3. **A sigil, not a mode key**: plain text is fuzzy, a leading `/` is regex.
+**I proposed read-only-while-filtered and Tom overruled it**, correctly: bulk
+actions on a filtered set of names are exactly what he wants. The resolution:
+
+1. **Editable always, filtered or not.** The buffer applies changes by diffing
+   its current text against **what it showed when it loaded**. With a filter
+   active that "before" state is *the filtered set*, so anything the filter
+   hid was never in the comparison and cannot be touched. The ambiguity I
+   worried about is removed by scoping the diff, not by disabling editing.
+2. **Rows must carry stable ids, not be matched by name.** THE trap. Diffing
+   by filename makes a rename read as delete-plus-create — which for a large
+   file destroys the contents and rewrites them instead of moving it. A
+   rename must resolve to a rename.
+3. **Changing the filter while dirty is a decision point** — the one case
+   where the scoping argument breaks, since the "before" set shifts under the
+   pending edit. Treat the filter as part of the buffer's identity: changing
+   it prompts apply-or-discard, as switching files would.
+4. **A confirmation listing the actual operations** before anything touches
+   disk (`4 renames, 2 deletes, 1 create`, by name). This is what makes bulk
+   editing feel safe, and it makes the filtered case self-evidently correct —
+   nothing hidden appears in the list.
+5. **Filtering keeps the hierarchy** — hide non-matching rows but keep the
+   directories leading to matches, still indented. Not a flat ranked list.
+   The flat alternative was offered as a genuine fork; no ruling yet.
+6. **A sigil, not a mode key**: plain text is fuzzy, a leading `/` is regex.
 
 ### Build order proposed
 
@@ -205,6 +219,14 @@ rather than what was staged.
   `dbg!()` outside `#[cfg(test)]`. All public items documented. **Red test
   first for every bug fix**, proven to fail against the unfixed code.
 - Files under 500 lines; `mod.rs` carries declarations only.
+- ⚠️ **Never justify a design by citing Tom's examples.** He told me on 6 Aug
+  to drop JSON/JSONL from design talk entirely — he mentioned that work once,
+  I kept quoting it back as rationale, and it read as hyper-specialising the
+  editor around one case. Describe what a feature does *structurally*, never
+  who it is for or what format prompted it. Second instance of this
+  correction; the first was framing syntax navigation around expand/shrink
+  because he had named it. Treat any urge to write "perfect for your X work"
+  as the tell.
 - ⚠️ **Anything meant for Tom leaves through the Meridian `send` tool, or it
   did not happen.** Tom `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`. This seat
   is "Doug".

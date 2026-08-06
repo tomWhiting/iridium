@@ -46,8 +46,64 @@ Everything below is committed, pushed, and green on all six gates.
 | `68ffca4` | the gutter measures from the top inset too (kernel bug) |
 | `80caf9b` | Desktop C — the tab strip is drawn, and clicking it works |
 | `710cf7f` | **the compositor reserves space beside the document** |
+| `a6d28d6` | the fuzzy matcher leaves the command palette for `crate::fuzzy` |
+| `cd033b6` | **`compositor.rs` split into thirteen files, none over 450** |
 
 ---
+
+## 🧱 THE COMPOSITOR SPLIT — landed 6 Aug, `cd033b6`
+
+`compositor.rs` was 2,289 lines against this project's own 500-line bar. It
+is now `render/compositor/` — thirteen files, largest 450, `mod.rs`
+declarations only.
+
+**The seam is *when the code runs*, not what it touches.** That choice is
+the whole point: both real bugs of the strip and inset work were in this
+file and both were the same shape — a per-frame painter and a
+between-frames query each computing one number, agreeing by coincidence.
+Neither was visible while both copies sat two thousand lines apart.
+
+| file | lines | what |
+|---|---|---|
+| `state.rs` | 290 | the fields, documented once, and `new` |
+| `target.rs` / `highlight.rs` | 33 / 91 | the two seams a face plugs into |
+| `metrics.rs` / `shape.rs` | 61 / 138 | per-frame value types; the cache key |
+| `frame.rs` | 450 | `compose`, the uniform sync, the render pass |
+| `shaping.rs` | 328 | content extraction, fills, rebuild, wrap readback |
+| `gutter_column.rs` | 187 | gutter width ×2, its text, its change bars |
+| `quads.rs` | 258 | line backgrounds, selection, carets |
+| `placement.rs` | 311 | between-frames queries + the readback accessors |
+| `insets.rs` / `settings.rs` | 80 / 168 | what a face pushes in between frames |
+
+**`gutter_column.rs` is the exercise paying off.** `gutter_width` (what a
+between-frames query measures from) and `frame_gutter_width` (what the
+painter measures from) now sit eight lines apart. They *differ on purpose* —
+only the painter consults custom gutter text — and that difference is now
+reviewable in one screen instead of inferable across 900 lines.
+`placement.rs` does the same for `content_left_edge_past_gutter`, the one
+place the inset and the padding are summed.
+
+**How it was proved to be a pure refactor**, because "the tests pass" is not
+enough for a move this large:
+
+1. Every non-comment, non-import line diffed against the original,
+   order-independent (`grep -vE '^\s*(//|$|use |mod |pub use )' | sort`).
+   The *only* differences: the `pub(super)` prefixes siblings need, seven
+   `impl FrameCompositor` headers and their braces, and two rustfmt reflows.
+   **No statement added, dropped or altered.**
+2. The forty public item names extracted from both and diffed — identical.
+   This is the check that catches a `pub` quietly becoming private, which
+   compiles fine inside the crate and breaks a face.
+3. All six gates: 2,088 tests, zero failures — including the eight
+   left-inset and seven top-inset pixel readbacks, and the whole
+   retained-shaping suite, which is what actually pins the cache logic that
+   moved between files.
+
+**Fields are `pub(super)`, not private.** `FrameCompositor` is one unit of
+state whose *methods* split by phase; it is not a type with a boundary
+through its middle. Anyone tempted to "tighten" this should note that
+narrowing the fields means re-introducing accessors that exist only to let
+the painter read what it already owns.
 
 ## 🧭 THE LEFT INSET — WHAT LANDED AND WHY
 
@@ -324,12 +380,15 @@ looked at was the thing you meant.
   band when the caret's line scrolls behind chrome. `TextBounds` does not clip
   geometry. Masked today only because the desktop overlay paints the strip
   opaquely afterwards.
-- **#49 `app.rs` is 3,270 lines** against a 500-line bar. Seams: the mouse
-  block, scroll-and-viewport, painting, the tab-strip block, and the
-  ~1,100-line test module. `overlay.rs` is 1,768 and wants its colour
-  derivations in a `chrome.rs`. `workspace/model.rs` is 578 and wants its
-  attach/detach/subtree machinery in a `tree.rs`. **`compositor.rs` is now
-  2,220** and is the worst of them.
+- **#49 `app.rs` is 3,270 lines** against a 500-line bar, and is now the
+  worst of them — `compositor.rs` was split on 6 Aug (`cd033b6`). Seams: the
+  mouse block, scroll-and-viewport, painting, the tab-strip block, and the
+  ~1,100-line test module. Then `wasm.rs` (3,154), `core.rs` (2,807),
+  `overlay.rs` (1,768, wants its colour derivations in a `chrome.rs`) and
+  `workspace/model.rs` (578, wants attach/detach/subtree in a `tree.rs`).
+  **The compositor split is the worked example to copy**: seam by *when the
+  code runs*, `pub(super)` fields, and prove purity with the two diffs
+  described above rather than trusting the suite alone.
 - **#39** kernel has no `clear_language` — an unknown-extension file inherits
   the previous one's highlighting. Only bites `save_as` now.
 - **#42/#43/#44/#45** the whole web-face half of tabs, untouched.

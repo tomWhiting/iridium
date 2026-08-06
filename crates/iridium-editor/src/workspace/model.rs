@@ -4,8 +4,9 @@
 use core::fmt;
 use std::collections::{HashMap, HashSet};
 
+use super::settings::ViewportGeometry;
 use super::{DocumentId, Node, NodeId};
-use crate::commands::{CommandMeta, Keymap, KeymapError, RegistryError};
+use crate::commands::{CommandMeta, Keymap};
 use crate::editor::{Editor, EditorConfig};
 use crate::theme::Theme;
 
@@ -15,9 +16,9 @@ use crate::theme::Theme;
 ///
 /// Because each open document owns a whole [`Editor`], the settings that
 /// are conceptually *per window* — theme, configuration, viewport size —
-/// exist once per document and must be kept in step. That is done in
-/// [`set_theme`](Self::set_theme) and [`set_config`](Self::set_config),
-/// which apply to every open editor and not merely the active one.
+/// exist once per document and must be kept in step. Every setter that does
+/// so lives in [`settings`](super::settings) and applies to every open
+/// editor, not merely the active one.
 ///
 /// **The failure this prevents**, stated so the tests can pin it: reading
 /// the *active* editor's theme as if it were the workspace's theme agrees
@@ -44,7 +45,7 @@ use crate::theme::Theme;
 pub struct Workspace<T = ()> {
     /// The buffers and their per-face payloads, by id. Dropped together
     /// when the last node referencing one goes.
-    documents: HashMap<DocumentId, Open<T>>,
+    pub(super) documents: HashMap<DocumentId, Open<T>>,
     /// The organisation, by id.
     nodes: HashMap<NodeId, Node>,
     /// Child to parent, so `parent_of` is O(1) rather than a search over
@@ -64,60 +65,27 @@ pub struct Workspace<T = ()> {
     /// Monotonic; see the module docs on id reuse.
     next_node: u64,
     /// The configuration every editor is created with and kept at.
-    config: EditorConfig,
+    pub(super) config: EditorConfig,
     /// The theme every editor is kept at.
-    theme: Theme,
+    pub(super) theme: Theme,
+    /// The window geometry every editor's viewport is sized to, once the
+    /// face has reported one.
+    ///
+    /// `Option` rather than a default pair of dimensions: "the face has not
+    /// told us how big the window is" and "the window is 800x600" are
+    /// different facts, and a headless session only ever has the first.
+    pub(super) viewport: Option<ViewportGeometry>,
     /// The commands this face registered, replayed onto every editor.
     ///
     /// Held for the same reason as [`theme`](Self::theme), and against a
     /// quieter failure: a face registers its commands once at startup, sees
     /// them work in the first tab, and would otherwise discover on the
     /// second that its save chord does nothing.
-    face_commands: Vec<CommandMeta>,
+    pub(super) face_commands: Vec<CommandMeta>,
     /// The keymap layers this face pushed, replayed onto every editor in
     /// the order they were pushed — which is the order that decides
     /// precedence, so it must not be a set.
-    face_keymaps: Vec<Keymap>,
-}
-
-/// Why a face's command or keymap could not be applied to every tab.
-///
-/// A union of the two failures because
-/// [`Workspace::register_command`] and [`Workspace::push_keymap`] both
-/// validate by *building an editor*, and building one replays both. A type
-/// that named only the half the caller was adding would be claiming the
-/// other half cannot fail — which is true today and is not a property of
-/// the type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FaceSetupError {
-    /// A command could not be registered: a duplicate or empty id.
-    Registry(RegistryError),
-    /// A keymap layer was refused: most often a binding naming a command
-    /// that is not registered.
-    Keymap(KeymapError),
-}
-
-impl fmt::Display for FaceSetupError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Registry(error) => write!(formatter, "{error}"),
-            Self::Keymap(error) => write!(formatter, "{error}"),
-        }
-    }
-}
-
-impl core::error::Error for FaceSetupError {}
-
-impl From<RegistryError> for FaceSetupError {
-    fn from(error: RegistryError) -> Self {
-        Self::Registry(error)
-    }
-}
-
-impl From<KeymapError> for FaceSetupError {
-    fn from(error: KeymapError) -> Self {
-        Self::Keymap(error)
-    }
+    pub(super) face_keymaps: Vec<Keymap>,
 }
 
 /// One open buffer and the face state that belongs to it.
@@ -125,9 +93,9 @@ impl From<KeymapError> for FaceSetupError {
 /// Private, and stored by value rather than as a tuple, so that the two
 /// halves cannot be swapped at a call site and so the field names say which
 /// is which.
-struct Open<T> {
-    editor: Editor,
-    payload: T,
+pub(super) struct Open<T> {
+    pub(super) editor: Editor,
+    pub(super) payload: T,
 }
 
 impl<T> Workspace<T> {
@@ -148,100 +116,10 @@ impl<T> Workspace<T> {
             next_node: 0,
             config,
             theme,
+            viewport: None,
             face_commands: Vec::new(),
             face_keymaps: Vec::new(),
         }
-    }
-
-    /// Registers a face's command on every open tab, and on every future one.
-    ///
-    /// The same argument [`set_theme`](Self::set_theme) makes, for a quieter
-    /// failure. A face registers its commands once at startup; without this
-    /// the first tab would have them and every later tab would not, and the
-    /// symptom — a chord that works until you open a second file — reads as
-    /// a keyboard bug rather than a registration one.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`Editor::register_command`] reports: a duplicate id,
-    /// including one a kernel table already claims, or an empty id.
-    ///
-    /// **Validated by building an editor, not by consulting a second
-    /// record.** A parallel check would be a proxy for what [`Editor`]
-    /// actually accepts, and would diverge the first time the kernel's
-    /// tables changed under it. The tentative entry is removed again if the
-    /// build refuses it, so a rejected registration leaves no trace.
-    ///
-    /// The error is a union of both failures rather than
-    /// [`RegistryError`] alone, because building an editor replays the
-    /// keymaps too and the honest type says so.
-    pub fn register_command(&mut self, meta: CommandMeta) -> Result<(), FaceSetupError> {
-        self.face_commands.push(meta);
-        let accepted = self.build_editor("");
-        if let Err(error) = accepted {
-            self.face_commands.pop();
-            return Err(error);
-        }
-
-        // Cannot fail: the build above proved this exact sequence is
-        // accepted by an editor built the same way, and every open editor
-        // was built that way. Dropped rather than unwrapped for that reason.
-        if let Some(meta) = self.face_commands.last().cloned() {
-            for open in self.documents.values_mut() {
-                drop(open.editor.register_command(meta.clone()));
-            }
-        }
-        Ok(())
-    }
-
-    /// Pushes a keymap layer onto every open tab, and onto every future one.
-    ///
-    /// Layers are replayed in push order, because that order is what decides
-    /// precedence between two layers binding the same chord.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`Editor::push_keymap`] reports — most often a binding
-    /// naming a command that is not registered. A refused push leaves no
-    /// layer behind on any tab; see [`register_command`](Self::register_command)
-    /// for why validation is a build rather than a second check.
-    pub fn push_keymap(&mut self, keymap: Keymap) -> Result<(), FaceSetupError> {
-        self.face_keymaps.push(keymap);
-        let accepted = self.build_editor("");
-        if let Err(error) = accepted {
-            self.face_keymaps.pop();
-            return Err(error);
-        }
-
-        if let Some(keymap) = self.face_keymaps.last().cloned() {
-            for open in self.documents.values_mut() {
-                drop(open.editor.push_keymap(keymap.clone()));
-            }
-        }
-        Ok(())
-    }
-
-    /// Builds an editor exactly as every open tab's was built.
-    ///
-    /// The single construction path, used both to open a document and to
-    /// validate a registration. One path is the point: a validator that
-    /// built editors differently from the real thing would agree with it
-    /// right up until it mattered.
-    fn build_editor(&self, content: &str) -> Result<Editor, FaceSetupError> {
-        let mut editor = Editor::new(self.config.clone());
-        editor.set_theme(self.theme.clone());
-        for meta in &self.face_commands {
-            editor
-                .register_command(meta.clone())
-                .map_err(FaceSetupError::Registry)?;
-        }
-        for keymap in &self.face_keymaps {
-            editor
-                .push_keymap(keymap.clone())
-                .map_err(FaceSetupError::Keymap)?;
-        }
-        editor.set_content(content);
-        Ok(editor)
     }
 
     /// Opens `content` as a new document with a tab under `parent`.
@@ -548,40 +426,6 @@ impl<T> Workspace<T> {
         self.detach(id);
         self.attach(id, parent, Some(index));
         true
-    }
-
-    /// The theme every open editor is using.
-    #[must_use]
-    pub const fn theme(&self) -> &Theme {
-        &self.theme
-    }
-
-    /// Sets the theme on the workspace **and on every open editor**.
-    ///
-    /// Applying it to only the active editor would leave every background
-    /// tab on the old theme, and a document opened afterwards would inherit
-    /// the workspace's — so the two would disagree in opposite directions
-    /// depending on which tab you looked at.
-    pub fn set_theme(&mut self, theme: Theme) {
-        for open in self.documents.values_mut() {
-            open.editor.set_theme(theme.clone());
-        }
-        self.theme = theme;
-    }
-
-    /// The configuration every open editor is using.
-    #[must_use]
-    pub const fn config(&self) -> &EditorConfig {
-        &self.config
-    }
-
-    /// Sets the configuration on the workspace **and on every open editor**,
-    /// for the reason given on [`set_theme`](Self::set_theme).
-    pub fn set_config(&mut self, config: EditorConfig) {
-        for open in self.documents.values_mut() {
-            open.editor.set_config(config.clone());
-        }
-        self.config = config;
     }
 
     /// Whether `parent` may receive a child: absent, or a known group.

@@ -69,6 +69,16 @@ const MAX_SELECTION_QUADS: usize = 128;
 /// The content column's inset from the gutter, in pixels.
 const HORIZONTAL_PADDING: f32 = 10.0;
 
+/// The line numbers' own breathing room inside the gutter, measured from the
+/// gutter's left edge rather than the window's.
+const GUTTER_TEXT_PADDING: f32 = 8.0;
+
+/// How far a change indicator bar sits from the gutter's left edge.
+const CHANGE_BAR_INSET: f32 = 2.0;
+
+/// How wide a change indicator bar is drawn.
+const CHANGE_BAR_WIDTH: f32 = 3.0;
+
 /// Pixels of empty window left below the last line when scrolled to the end,
 /// so it does not sit flush against the edge.
 const BOTTOM_SLACK: f32 = 10.0;
@@ -199,8 +209,12 @@ struct FrameMetrics {
     char_width: f32,
     /// The Y origin the document is drawn from: [`FrameCompositor::top_inset`].
     top_inset: f32,
-    /// Left edge of the content column: gutter width plus padding.
+    /// Left edge of the content column: the reserved inset, the gutter's
+    /// width, then padding.
     content_offset_x: f32,
+    /// The X origin the gutter is drawn from:
+    /// [`FrameCompositor::left_inset`].
+    left_inset: f32,
     /// Pixel offset of the viewport buffer's first line in document space.
     virtual_scroll_offset: f32,
     /// First document line included in the viewport buffer.
@@ -387,6 +401,18 @@ pub struct FrameCompositor {
     /// applied in the painter but not in the hit test agrees with the truth
     /// exactly at the top of the document and is a row out everywhere else.
     top_inset: f32,
+    /// The X origin the gutter is drawn from, and the left edge every
+    /// horizontal layout query measures from.
+    ///
+    /// Zero by default — a face with no chrome beside the text reserves
+    /// nothing, and the content's own breathing room is the gutter's width
+    /// plus [`HORIZONTAL_PADDING`], which sits to the *right* of this. A face
+    /// that draws a band there, such as a sidebar or a file tree, puts its
+    /// width here so that the gutter background, the line numbers, the change
+    /// bars, the content column and both hit-test directions all move
+    /// together. Held once and read by all of them, for the same reason
+    /// [`Self::top_inset`] is.
+    left_inset: f32,
     /// Cached character width (measured from actual font metrics).
     cached_char_width: f32,
     /// Viewport configuration for the overscan buffer.
@@ -558,6 +584,7 @@ impl FrameCompositor {
             syntax_enabled: true,
             gutter_enabled: true,
             top_inset: Self::DOCUMENT_TOP_PADDING,
+            left_inset: 0.0,
             cached_char_width: 14.0 * 0.6, // Default until a font is loaded
             viewport_config: ViewportConfig::default(),
             cached_viewport_width: width,
@@ -658,16 +685,19 @@ impl FrameCompositor {
 
         // Calculate layout dimensions
         let char_width = self.cached_char_width;
-        // `padding` is the *horizontal* inset; `top_inset` is the vertical
-        // one. They start life at the same number and are not the same
-        // concern — a tab strip moves one and must not move the other.
-        let padding = HORIZONTAL_PADDING;
+        // `left_inset` is the chrome a face reserved beside the document;
+        // `top_inset` is the chrome it reserved above. They start life at or
+        // near the same number as each other and as the document's own
+        // horizontal padding, and none of the three is the same concern — a
+        // tab strip moves one and must not move the others.
         let top_inset = self.top_inset;
+        let left_inset = self.left_inset;
 
         // Calculate gutter width (based on digit count or custom text width,
         // before shaping)
         let gutter_width = self.frame_gutter_width(line_count);
-        let content_offset_x = gutter_width + padding;
+        let gutter_right = left_inset + gutter_width;
+        let content_offset_x = self.content_left_edge_past_gutter(gutter_width);
         let content_width = u32_to_f32(width) - content_offset_x;
 
         // The retained-shaping gate: every input the shaped buffers depend
@@ -770,6 +800,7 @@ impl FrameCompositor {
             char_width,
             top_inset,
             content_offset_x,
+            left_inset,
             virtual_scroll_offset,
             viewport_start,
             viewport_start_visual,
@@ -784,7 +815,7 @@ impl FrameCompositor {
         if self.gutter_enabled {
             let gutter_bg_color = self.theme.editor.gutter;
             self.cpu_gutter_quads.push(Quad::new(
-                0.0,
+                left_inset,
                 0.0,
                 gutter_width,
                 metrics.surface_height,
@@ -809,7 +840,15 @@ impl FrameCompositor {
             top_inset - adjusted_scroll_y,
             1.0,
             TextBounds {
-                left: 0,
+                // Clipped at the gutter's right edge rather than at the
+                // window's, for the same reason the top is clipped at the
+                // inset: chrome beside the text must not be drawn over.
+                //
+                // The gutter's edge, not the content's own origin, so the
+                // padding stays as slack for a glyph with negative left
+                // bearing — an italic `f` at column zero has ink left of its
+                // origin, and clipping at the origin would shave it.
+                left: pixel_to_bound(gutter_right),
                 // Clipped at the reserved band rather than at the window
                 // edge: with chrome above the text, a glyph scrolled past
                 // the top would otherwise be shaped and drawn behind it.
@@ -866,7 +905,9 @@ impl FrameCompositor {
         if let Some(gutter_buf) = gutter_buffer {
             text_areas.push(TextRenderer::create_text_area(
                 gutter_buf,
-                8.0, // Small padding from left edge
+                // Measured from the gutter's own left edge, which is the
+                // window's only until a face reserves chrome beside the text.
+                left_inset + GUTTER_TEXT_PADDING,
                 // `top_inset`, not `padding`: the numbers have to start where
                 // the lines they number start. The two were the same value
                 // until a face reserved chrome above the document, at which
@@ -875,12 +916,12 @@ impl FrameCompositor {
                 top_inset - adjusted_scroll_y,
                 1.0,
                 TextBounds {
-                    left: 0,
+                    left: pixel_to_bound(left_inset),
                     // Clipped at the inset like the content is, so a scrolled
                     // gutter's rows vanish into the reserved band rather than
                     // drawing inside it.
                     top: pixel_to_bound(top_inset),
-                    right: pixel_to_bound(gutter_width),
+                    right: pixel_to_bound(gutter_right),
                     bottom: dimension_to_bound(height),
                 },
                 line_number_color,
@@ -895,7 +936,14 @@ impl FrameCompositor {
                 1.0,
                 TextBounds {
                     left: pixel_to_bound(blame_left),
-                    top: 0,
+                    // Clipped at the inset like the content and the gutter
+                    // are. Blame sits on the caret's line, and the caret can
+                    // be scrolled above the reserved band — with the window
+                    // edge as the bound, the ghost text would then be drawn
+                    // *inside* a face's chrome. Missed when the other two
+                    // were fixed because blame is set only from the web face,
+                    // which draws nothing above the document yet.
+                    top: pixel_to_bound(top_inset),
                     right: dimension_to_bound(width),
                     bottom: dimension_to_bound(height),
                 },
@@ -1457,9 +1505,9 @@ impl FrameCompositor {
                     if y + m.line_height > 0.0 && y < m.surface_height {
                         // 3px wide bar at left gutter edge
                         self.cpu_gutter_change_quads.push(Quad::new(
-                            2.0,
+                            m.left_inset + CHANGE_BAR_INSET,
                             y,
-                            3.0,
+                            CHANGE_BAR_WIDTH,
                             m.line_height,
                             bar_color,
                         ));
@@ -1472,9 +1520,9 @@ impl FrameCompositor {
                     let y = m.top_inset + row_y + m.virtual_scroll_offset - m.scroll_y;
                     if y + m.line_height > 0.0 && y < m.surface_height {
                         self.cpu_gutter_change_quads.push(Quad::new(
-                            2.0,
+                            m.left_inset + CHANGE_BAR_INSET,
                             y,
-                            3.0,
+                            CHANGE_BAR_WIDTH,
                             m.line_height,
                             bar_color,
                         ));
@@ -1776,7 +1824,6 @@ impl FrameCompositor {
     ) -> (usize, usize) {
         let line_height = self.text_renderer.line_height();
         let char_width = self.cached_char_width;
-        let padding = HORIZONTAL_PADDING;
         let top_inset = self.top_inset;
 
         let doc = &editor.state().document;
@@ -1789,7 +1836,7 @@ impl FrameCompositor {
                 .visual_to_document_line(visual_line)
                 .min(line_count.saturating_sub(1));
 
-            let offset_x = self.gutter_width(line_count) + padding;
+            let offset_x = self.content_left_edge(line_count);
             let line_len = doc.line(doc_line).map_or(0, |l| l.chars().count());
             let column = pixel_to_index(((x - offset_x) / char_width + 0.5).max(0.0));
             let clamped_column = column.min(line_len);
@@ -1847,7 +1894,6 @@ impl FrameCompositor {
     ) -> Option<(f32, f32)> {
         let line_height = self.text_renderer.line_height();
         let char_width = self.cached_char_width;
-        let padding = HORIZONTAL_PADDING;
         let top_inset = self.top_inset;
 
         // Check if line is folded (hidden)
@@ -1858,7 +1904,7 @@ impl FrameCompositor {
         if self.cached_visual_line_map.is_empty() {
             // Fallback: before first render, use simple calculation (no word wrap)
             let visual_line = fold_state.document_to_visual_line(doc_line)?;
-            let offset_x = self.gutter_width(editor.state().document.line_count()) + padding;
+            let offset_x = self.content_left_edge(editor.state().document.line_count());
             let column_x = index_to_f32(column) * char_width;
             let x = offset_x + column_x;
             let row_y = index_to_f32(visual_line) * line_height;
@@ -1925,6 +1971,31 @@ impl FrameCompositor {
         }
     }
 
+    /// The content column's left edge for a document of `line_count` lines:
+    /// the reserved inset, the gutter's width, then the document's own
+    /// horizontal breathing room.
+    ///
+    /// Computed rather than read back from the last frame, so it answers
+    /// before one has been composed — which is why it exists alongside
+    /// [`Self::content_offset_x`], and why the faces call it instead of
+    /// rebuilding the sum. A face that rebuilds it hardcodes the padding and
+    /// forgets the inset, and then agrees with the painter exactly until
+    /// something is reserved.
+    #[must_use]
+    pub fn content_left_edge(&self, line_count: usize) -> f32 {
+        self.content_left_edge_past_gutter(self.gutter_width(line_count))
+    }
+
+    /// The content column's left edge given the gutter's width.
+    ///
+    /// The one place the inset and the padding are added, so the only thing
+    /// that can differ between the painter and a between-frames query is the
+    /// gutter width itself — which they measure deliberately differently, and
+    /// which is documented where they do.
+    const fn content_left_edge_past_gutter(&self, gutter_width: f32) -> f32 {
+        self.left_inset + gutter_width + HORIZONTAL_PADDING
+    }
+
     /// The document's own breathing room above its first line, in pixels —
     /// the inset a compositor starts at, and what a face drawing no chrome
     /// above the text leaves it at.
@@ -1939,6 +2010,34 @@ impl FrameCompositor {
     #[must_use]
     pub const fn top_inset(&self) -> f32 {
         self.top_inset
+    }
+
+    /// The pixels of window reserved to the left of the gutter.
+    #[must_use]
+    pub const fn left_inset(&self) -> f32 {
+        self.left_inset
+    }
+
+    /// Reserves `pixels` of window to the left of the gutter.
+    ///
+    /// The face passes the width of whatever chrome it draws there — a
+    /// sidebar, a file tree — and every horizontal measure follows: the
+    /// gutter's background and its numbers, the change bars, the content
+    /// column, and both directions of hit-testing.
+    ///
+    /// Unlike [`Self::set_top_inset`] the face adds nothing to its own width.
+    /// The document's horizontal breathing room lives on the *far* side of the
+    /// gutter, so it is not the face's to account for; the whole sum on this
+    /// side is the chrome's width.
+    ///
+    /// A negative or non-finite value is ignored rather than stored, for the
+    /// same reason it is on the vertical axis: it would place the gutter off
+    /// the left of the window, and rejecting it here keeps every consumer from
+    /// having to guard.
+    pub const fn set_left_inset(&mut self, pixels: f32) {
+        if pixels >= 0.0 && pixels.is_finite() {
+            self.left_inset = pixels;
+        }
     }
 
     /// Reserves `pixels` of window above the document.

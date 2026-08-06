@@ -2634,22 +2634,27 @@ impl WebEditor {
         self.compositor.char_width()
     }
 
-    /// Calculates the current gutter width.
-    fn current_gutter_width(&self) -> f32 {
-        self.compositor
-            .gutter_width(self.editor.state().document.line_count())
-    }
-
     /// Gets the text padding/offset from left edge (including gutter).
+    ///
+    /// Asked of the compositor rather than rebuilt here. The sum used to be
+    /// written out — gutter width plus a hardcoded ten — which agreed with
+    /// the painter only while nothing was reserved beside the document, and
+    /// is the horizontal twin of the defect that once put every line number
+    /// one row out from the line it named.
     #[wasm_bindgen(js_name = getTextOffsetX)]
     pub fn get_text_offset_x(&self) -> f32 {
-        self.current_gutter_width() + 10.0
+        self.compositor
+            .content_left_edge(self.editor.state().document.line_count())
     }
 
     /// Gets the text padding/offset from top edge.
+    ///
+    /// The compositor's inset, not a hardcoded ten: a face that reserves a
+    /// band above the document moves the text, and this is what the face
+    /// measures its own overlays against.
     #[wasm_bindgen(js_name = getTextOffsetY)]
     pub fn get_text_offset_y(&self) -> f32 {
-        10.0
+        self.compositor.top_inset()
     }
 
     /// Returns whether the gutter is enabled.

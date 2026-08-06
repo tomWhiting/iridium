@@ -1,6 +1,84 @@
 # Session state — 2026-07-30
 
-## ✅ LIVE AT COMPACTION #4 (6 Aug ~10:0x local) — READ THIS FIRST
+## ✅ LIVE AT COMPACTION #5 (6 Aug ~10:5x local) — READ THIS FIRST
+
+**PUSHED AND GREEN:** `482f986` (one `pixel_to_index`), the exhaustive
+oracle doc commit, the uninformative-control correction, and **`f5b91b5`
+`crates/iridium-tree`**. Workspace **1940 passed / 0 failed / 20
+ignored**, clippy `-D warnings` and `fmt --check` both exit 0.
+**Tom's app is installed at `/Applications/iridium.app` and verified**
+(19,498,608 bytes, `codesign --verify --strict` exit 0, **no
+`com.apple.quarantine`**). `install.sh`'s happy path has now run.
+
+**🔴 IN FLIGHT — #37, UNCOMMITTED, PROBABLY NOT YET COMPILING.** Only
+`crates/iridium-editor/src/render/text.rs` is modified (plus
+`Cargo.lock`). Nothing else is dirty. What is done there:
+
+- Added `MAX_FONT_SIZE = 1_024.0` and `MAX_LINE_HEIGHT_MULTIPLIER = 64.0`
+  near the other consts. **The multiplier constant is deliberately NOT
+  named `MAX_LINE_HEIGHT`** — `crate::render` already re-exports one of
+  that name for the minimap's row height in pixels, a different
+  quantity. Do not "simplify" that away.
+- `TextRenderer::set_font_size(&mut self, size: f32) -> bool` and
+  `set_line_height(&mut self, height: f32) -> bool` now **reject**
+  non-finite / `<= 0` / above-max and keep the previous value.
+  **Bounded ABOVE as well as below on purpose**: two separately finite
+  factors can still multiply to `+∞`, and `line_height()` is
+  `font_size * line_height`.
+
+**STILL TO DO for #37, in order:**
+1. `FrameCompositor::set_font_size` (`compositor.rs:1980`) must forward
+   the `bool`.
+2. **`create_web_editor` (`wasm.rs:253`) is the actual boundary and is
+   still unguarded** — it takes `pixel_ratio: f32` straight from JS and
+   computes `14.0 * pixel_ratio` into `set_font_size`. Sanitise there
+   (non-finite or `<= 0` ⇒ `1.0`) and log it.
+3. Tests: reject 0 / NaN / negative / huge; confirm the previous value
+   survives; confirm `line_height()` stays finite and positive.
+4. ~10 existing call sites ignore the new return — that compiles fine
+   (no `#[must_use]`), but check clippy doesn't object.
+5. Full six-gate battery, then commit.
+
+**WHY #37 MATTERS AND IT IS NOT COSMETIC.** `devicePixelRatio` is `0` in
+some headless/synthetic environments. `0` ⇒ font size `0` ⇒
+`line_height` `0` ⇒ `scroll_y / 0.0 = +∞` ⇒ `pixel_to_index(+∞) =
+usize::MAX` as a first-line index. **That is the exact `+∞` case Cally
+identified as the one input the 2^32 reachability argument does not
+cover.** Today the only thing preventing it is `window.devicePixelRatio
+|| 1` in TypeScript — present at `controller/index.ts` 524, 662, 1163
+and **absent at 689–690** — and a `??`-for-`||` refactor deletes it
+silently, because `??` admits `0` and `NaN` where `||` does not.
+
+**TASKS:** #38 done. #40 NEW (five `f64 as usize` casts on JS-supplied
+line numbers in `wasm.rs` ~1207/1247/1330/1678/1683 — needs an error
+policy: reject / clamp / skip). #39 and #35 still open.
+
+**WAITING ON TOM — and it is the only thing blocking the sidebar
+plan:** **tabs, yes or no.** Step 1 is `Workspace` (N documents in the
+kernel), which reopens the v1 no-tabs decision. Asked twice; he gave a
+broad *"go ahead for anything you need there"* but has not ruled on
+tabs specifically. Steps 3 and 4 (outline source, file source) sit on
+`iridium-tree`, which has landed.
+
+**ALSO FROM TOM, NOT YET STARTED:** a **modal editor as the default in
+the terminal face**, leaning on syntax selection and transformations.
+Verified for him: the kernel already has a keymap **layer stack**
+(`push_keymap`/`pop_keymap`/`push_validated_keymap` on both `Editor` and
+`KeyboardHandler`), so **modes are layers** — the machinery exists. And
+the verbs exist: **22 `ast.*`** and **15 `transform.*`**. The real prize
+is that a normal-mode layer makes single letters free, which is where
+those 37 verbs finally get cheap keys. Recommended modes live in the
+kernel, not the terminal face.
+
+⚠️ **DELIVERY RULE, LEARNED THE HARD WAY THIS SESSION:** anything meant
+for Tom leaves through the Meridian `send` tool or **it did not
+happen**. S-5 and the deleted-bundle warning were both written as
+session text at compaction #4 and he never saw them; he waited ten
+hours. The trap is answering *while summarising*.
+
+---
+
+## ✅ (SUPERSEDED) LIVE AT COMPACTION #4 (6 Aug ~10:0x local)
 
 **Tree clean, HEAD pushed. NOTHING IN FLIGHT** except the persistent CI
 watch `byjsqprlt`. `/loop` is STOPPED. No agent, no other task.

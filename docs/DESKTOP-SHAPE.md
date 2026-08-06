@@ -87,6 +87,41 @@ So "sidebar" is **three different features** wearing one word:
   single-editor-component embed it is today? The `Workspace` split above
   costs nothing extra if the answer is "later"; it costs a rewrite if the
   answer is "never, so we hard-coded one document".
+- **S-5** — *Asked by Tom, 5 Aug 23:59:* should the tree/sidebar be a
+  **separate wasm library** that works alongside iridium rather than part
+  of it? **This is entangled with S-2, not sequential** — see below.
+
+## S-5 in full: why packaging cannot be decided before S-2
+
+Answered to Tom 6 Aug; recorded here because a DM is not durable ground.
+
+**Packaging does not change what the browser can do.** The wall in the
+★ section above is a *capability* wall, not a distribution one: shipping
+the tree as its own wasm library does not give the browser a filesystem.
+So the answer to "separate library?" depends entirely on which of (a),
+(b), (c) is meant — which is S-2. Answering them in sequence would mean
+pricing a package for a feature whose cost is not yet fixed.
+
+**The split that does hold, whatever S-2 says: behaviour vs pixels, not
+crate boundary.** A generic tree *widget* — expand/collapse, keyboard
+walk, selection, virtualised rows, no knowledge of files or documents —
+is genuinely separable and low risk. The *model* is not: which documents
+exist, which are dirty, which is active, and what happens on close are
+**behaviour**, and behaviour that lives outside the kernel forks per
+face. That is the identical argument §"The proposed split" makes for
+tabs and that `THE-CORE-LOOP` §1.4 already settled for the palette.
+
+**Evidence, not prediction.** The live `pixel_to_index` divergence
+recorded above is what a separately-packaged model looks like after a
+few months. The disagreements it would produce here — *which document
+becomes active when you close the current one* — are invisible in
+review and unattributable when they differ between browser and desktop.
+
+**One cost specific to the separate-wasm-library route.** Two wasm
+modules do not share linear memory. They cannot pass a rope or a
+document handle; everything crosses as JSON through JavaScript. That is
+acceptable for a widget's own view state and wrong for anything that
+must stay in step with the document.
 
 ## What is NOT blocked by any of this
 

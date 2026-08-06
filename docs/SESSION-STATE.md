@@ -6224,3 +6224,67 @@ tab strip. Nothing about tabs is visible to Tom until that lands.
 
 **Still awaiting Tom:** new file into the current group, or always top
 level? Defaulting to the current group; one-line change either way.
+
+---
+
+## 2026-08-06 — tabs, and the three bugs found by trying to use them
+
+**Pushed:** `04ba052` tab commands · `88fad3e` revision fix · `6cbae2e`
+wire format · `a1cdc0a` payload · `fe167e1` face setup · docs.
+
+**Tom is back and wants to SEE it.** He asked for the desktop app. Told
+him plainly that tabs are not on screen yet and gave him
+`target/release/iridium-desktop` (rebuilt 02:08Z — the earlier "build"
+I reported had actually failed; I had read the exit status of a compound
+command, which was the `echo`'s. Corrected to him directly).
+**He steered: desktop face first, not the browser.**
+
+### Three defects, each found by *using* the thing rather than reviewing it
+
+1. **`Editor::set_content` restarted the revision counter** (`88fad3e`).
+   `Document::revision` promises "two observations of the same value
+   guarantee the text did not change". Replacing the document broke it —
+   load, edit, load a different file, and the counter reads a value the
+   old text used. Sticky column, addition stack and `parsed_revision` all
+   compare it for inequality. Fixed with `Document::continuing_from`.
+2. **`Workspace::activate` answers "could it" not "did it move"** — right
+   inside the kernel, wrong at a boundary. The bindings' `activate`
+   reports movement so every action there answers one question.
+3. **`Workspace` never synchronised face commands or keymaps** (`fe167e1`).
+   Theme and config yes; the two things a face actually installs, no.
+   Second tab would have had neither.
+
+### Where the desktop refactor stands — RESUME HERE
+
+`docs/WORKSPACE-IN-THE-FACES.md` has the full map. Ground counted by hand:
+
+**`DesktopApp` has 19 fields; exactly 4 are per-document** —
+`editor` (234), `scroll_y` (238), `file: Option<TextFile>` (250),
+`syntax: HighlightCache` (254). Nothing else moves. **No duplicated
+kernel state at all** (unlike the web face's `read_only` and
+`fold_state`), so that whole collapse is a web-only problem.
+
+**The friction is the `Option`, not the fields.** `self.editor` appears at
+58 sites in `app.rs`. Plan: keep at least one tab open always (startup
+opens the file or an untitled buffer; closing the last opens a fresh one),
+so `None` is unreachable in practice — **still written as an early
+return, never an `expect`** — and bind once per event handler rather than
+matching 58 times.
+
+⚠️ **The borrow that will bite:** `self.search.handle_key(event, &mut
+self.editor)` needs two `&mut` into `self`. It works today only because
+they are disjoint *fields*, and keeps working as
+`self.workspace.active_editor_mut()` for the same reason — **so there must
+be no convenience `fn editor_mut(&mut self)` on `DesktopApp`.** One would
+borrow all of `self` and break every such site.
+
+⚠️ **`DesktopApp::new` will need `From<FaceSetupError>` for
+`StartupError`** — `Workspace::register_command`/`push_keymap` no longer
+return `RegistryError`/`KeymapError` directly.
+
+**Steps:** A = the refactor above (no visible change, still one tab).
+B = route `workspace.*` commands + open-into-a-tab. C = draw the strip.
+Tasks #46/#47/#48.
+
+**Still awaiting Tom:** new file into the current group or top level?
+Defaulting to the current group.

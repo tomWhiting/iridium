@@ -50,6 +50,7 @@ Everything below is committed, pushed, and green on all six gates.
 | `cd033b6` | **`compositor.rs` split into thirteen files, none over 450** |
 | `4c68943` | **`app.rs` split into nineteen files, none over 462** |
 | `225cd1a` | **the document is fenced out of the band a face reserved** |
+| `2ad81ab` | **`iridium-explorer` — the filesystem source, off the frame thread** |
 
 ---
 
@@ -347,10 +348,49 @@ actions on a filtered set of names are exactly what he wants. The resolution:
    The flat alternative was offered as a genuine fork; no ruling yet.
 6. **A sigil, not a mode key**: plain text is fuzzy, a leading `/` is regex.
 
-### Build order proposed
+### Build order — step 1 is DONE, `2ad81ab`
 
-Filesystem `TreeSource` → the popover showing it → fuzzy filtering → regex →
-**the editable-buffer half last**, since it is the part that touches the disk.
+Filesystem `TreeSource` ✅ → **the popover showing it (NEXT)** → fuzzy
+filtering → regex → **the editable-buffer half last**, since it is the part
+that touches the disk.
+
+#### What `iridium-explorer` gives you
+
+A new crate, `crates/iridium-explorer` — five files, largest 265. Its own
+crate because both neighbours are *documented* not to know this: `iridium-tree`
+has no dependencies so a tree cannot learn whether it shows files or syntax
+nodes, and `iridium-file` has none so the file layer cannot learn what a face
+does with the bytes. Native-only besides — a browser has no directory.
+
+**`FileTree` implements `iridium_tree::TreeSource` and never blocks.**
+`iridium-tree`'s own docs state the rule and say they cannot enforce it. A
+listing that is not already known is posted to a reader thread; the face's
+loop is three lines:
+
+```rust
+if files.drain() { tree.refresh(&mut files); }
+```
+
+`drain` returns `true` exactly when `Tree::refresh` is owed a call. The price
+is a cold expand showing an empty directory for one frame — `NodeInfo::is_loading`
+tells that apart from a directory that is genuinely empty, and a failed
+listing carries the OS's own message rather than looking empty too.
+
+**`NodeId` is an arena index and is never reused.** This is the thing the
+editable half depends on: rows diff *by id*, and matching by name makes a
+rename read as delete-plus-create — destroying a large file's contents and
+writing them back rather than moving it. `reload` re-reads a directory while
+every file that did not move keeps its id, and a test pins that.
+
+Symlinks are `EntryKind::Symlink`, never `Directory`, so they are leaves and
+never followed — which is how the acyclicity rule `iridium-tree` cannot check
+is kept. A test builds a link to its own parent.
+
+Ordering policy lives on the worker thread: directories first, then name
+lowercased, then name exactly — the third key is what makes the order *total*,
+and a non-total order would let two names differing only in case swap between
+reads and break the stability the tree splices on.
+
 
 ### Deliberately not decided
 

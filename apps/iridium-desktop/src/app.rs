@@ -65,7 +65,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
+use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB};
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::render::{FrameCompositor, FrameTarget};
@@ -674,10 +674,9 @@ impl DesktopApp {
             Answer::Pending | Answer::Cancelled => Flow::Running,
             Answer::SaveAs(path) => self.save_as(&path),
             Answer::Do(Deed::Quit) => Flow::Exit,
-            Answer::Do(Deed::Open(path)) => {
-                self.open_file(&path);
-                Flow::Running
-            },
+            // Forced: the question that got here *was* the guard, and asking
+            // it again from inside the answer would never terminate.
+            Answer::Do(Deed::CloseTab) => self.close_active_tab(true),
         }
     }
 
@@ -736,10 +735,126 @@ impl DesktopApp {
                 self.history.open();
             }
             Flow::Running
+        } else if self.workspace.handles_command(command) {
+            self.run_workspace_command(command)
         } else {
             return None;
         };
         Some(flow)
+    }
+
+    /// Forwards a `workspace.*` command to the kernel's own dispatcher.
+    ///
+    /// This face does not decide what "next tab" means across a nested
+    /// group; the workspace does, so the terminal and the browser cannot
+    /// drift apart on it while both answers still look right in a workspace
+    /// with no groups. What this end owns is the *consequence*: after the
+    /// active tab moves, the title names a different file, the caret is in a
+    /// different document, and the frame on screen describes neither.
+    ///
+    /// Closing is intercepted before it reaches the kernel, because the
+    /// kernel has no idea which buffers have unsaved changes — see
+    /// [`close_active_tab`](Self::close_active_tab).
+    fn run_workspace_command(&mut self, command: &CommandId) -> Flow {
+        if command == &WORKSPACE_CLOSE_TAB {
+            return self.close_active_tab(false);
+        }
+        match self.workspace.run_command(command) {
+            // Understood, and correctly did nothing: next-tab at the last
+            // tab, first-tab when already there. An outcome, not a failure —
+            // flashing an error at someone who reached the end of the strip
+            // is how a face becomes noise.
+            Ok(false) => Flow::Running,
+            Ok(true) => {
+                self.after_tab_change();
+                Flow::Running
+            },
+            // Unreachable: `handles_command` gated the call. Reported rather
+            // than dropped so that widening one and not the other cannot
+            // become a silently inert chord.
+            Err(error) => {
+                self.message = Some(Message::error(format!("`{command}`: {error}")));
+                Flow::Running
+            },
+        }
+    }
+
+    /// Closes the active tab, asking first when it holds unsaved changes.
+    ///
+    /// The kernel's `close` is about *structure* — it drops a node and, if
+    /// that was the last tab onto a buffer, the buffer with it. It knows
+    /// nothing about files, so left to itself it would discard an unsaved
+    /// edit without a word. The question is asked here, on the same prompt
+    /// strip and in the same shape as the one that guards quitting: a second
+    /// confirmation shape for the same stake would be a second thing to keep
+    /// right.
+    ///
+    /// `forced` is the answer coming back from that prompt.
+    fn close_active_tab(&mut self, forced: bool) -> Flow {
+        if !forced && self.is_dirty() {
+            self.prompt = Some(Prompt::confirm(
+                "Unsaved changes. Close this tab without saving? (y/n)",
+                Deed::CloseTab,
+            ));
+            self.request_redraw();
+            return Flow::Running;
+        }
+        let Some(tab) = self.workspace.active() else {
+            return Flow::Running;
+        };
+        if !self.workspace.close(tab) {
+            return Flow::Running;
+        }
+        self.ensure_a_tab_is_open();
+        self.after_tab_change();
+        Flow::Running
+    }
+
+    /// Restores the invariant every other method here relies on: **the
+    /// session always has a tab.**
+    ///
+    /// Closing the last one would otherwise leave a window with no document
+    /// — every accessor answering `None`, every handler returning early, and
+    /// a frame that paints nothing. A fresh untitled buffer is what a window
+    /// with no file has always shown, so this is the state the session
+    /// started in rather than a new one invented for the occasion.
+    fn ensure_a_tab_is_open(&mut self) {
+        if self.workspace.tab_count() > 0 {
+            return;
+        }
+        if self
+            .workspace
+            .open_with(
+                "",
+                UNTITLED,
+                None,
+                DesktopDocument {
+                    scroll_y: 0.0,
+                    file: None,
+                    syntax: HighlightCache::new(),
+                },
+            )
+            .is_none()
+        {
+            // Unreachable: `open_with` refuses only a parent that is not a
+            // group, and none is passed. A window with no tab cannot be
+            // typed into, so it is said out loud rather than left blank.
+            self.message = Some(Message::error(
+                "the last tab closed and none could be opened",
+            ));
+        }
+    }
+
+    /// Everything that must follow the active tab changing.
+    ///
+    /// Three separate facts go stale at once, which is why they are named in
+    /// one place: the window title is the old file's, the caret may be off
+    /// screen in a document that was last scrolled somewhere else, and the
+    /// frame on screen is of the tab that just left.
+    fn after_tab_change(&mut self) {
+        self.refresh_title();
+        self.ensure_caret_visible();
+        self.request_redraw();
     }
 
     /// Writes the document to its file.
@@ -813,67 +928,73 @@ impl DesktopApp {
         Flow::Running
     }
 
-    /// Opens a file dropped onto the window, asking first when the buffer
-    /// holds unsaved changes.
+    /// Opens a file dropped onto the window.
     ///
-    /// One file per window is the shell's current model, so a drop replaces
-    /// what is open rather than adding to it. That makes a drop exactly as
-    /// destructive as a quit, and it asks the same question through the same
-    /// prompt — a second confirmation shape for the same stake would be a
-    /// second thing to keep right.
-    ///
-    /// If the tabs decision in `docs/DESKTOP-SHAPE.md` (S-1) lands, a drop
-    /// becomes additive and this prompt disappears rather than changing.
-    fn dropped(&mut self, path: PathBuf) {
-        if self.is_dirty() {
-            let name = path.file_name().map_or_else(
-                || path.display().to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
-            self.prompt = Some(Prompt::confirm(
-                format!("Unsaved changes. Open {name} without saving? (y/n)"),
-                Deed::Open(path),
-            ));
-            if let Some(shell) = &self.shell {
-                shell.window.request_redraw();
-            }
-            return;
-        }
-        self.open_file(&path);
+    /// It asks nothing, and that is the change tabs bought: a drop used to
+    /// replace the open buffer, which made it exactly as destructive as a
+    /// quit and so had to be confirmed. It now makes a tab beside what is
+    /// there and destroys nothing, so there is no question left to ask.
+    fn dropped(&mut self, path: &Path) {
+        self.open_file(path);
     }
 
-    /// Replaces the buffer with a file from disk.
+    /// Opens a file from disk **in a new tab**, and activates it.
     ///
-    /// [`Editor::set_content`] already discards the undo history, the cursor
-    /// and the kernel's own scroll — the old tree describes a document that
-    /// no longer exists. The shell's pixel scroll is **not** kernel state, so
-    /// it is reset here; leaving it would open the new file already scrolled
-    /// to an offset that meant something in the previous one.
+    /// The new tab joins the group the active one is in, rather than always
+    /// landing at the top level: a file opened while working inside a group
+    /// belongs with the work it was opened from. `None` — the active tab is
+    /// already at the top level — puts it at the top level, which is the
+    /// same rule stated for the root.
     ///
-    /// KNOWN LIMIT, deliberately not fixed in this change: when the new path
-    /// has no recognised extension, `language_of` yields `None` and the
-    /// previous file's language stays in force, because `set_language` takes
-    /// a [`Language`] and the kernel exposes no way to clear one. Opening a
-    /// `.log` after a `.rs` therefore highlights it as Rust. Cosmetic, no
-    /// data risk. The fix is a kernel `clear_language`, which would relink
-    /// the whole workspace — a wider invalidation set than this lane
-    /// declared, so it is filed rather than smuggled in.
+    /// Nothing about the current tab is touched, so the whole class of
+    /// carry-over bug the single-buffer version had to guard — a scroll
+    /// offset that meant something in the previous file, a language left
+    /// over from it — cannot arise. The new tab's editor is built by the
+    /// workspace with this face's commands, keymaps, theme and viewport
+    /// already on it.
     fn open_file(&mut self, path: &Path) {
         match TextFile::open(path) {
             Ok((file, text)) => {
                 let name = file.display_name();
-                if let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() {
-                    editor.set_content(&text);
-                    if let Some(language) = language_of(file.path()) {
-                        editor.set_language(language);
-                    }
-                    document.file = Some(file);
-                    document.scroll_y = 0.0;
-                    self.message = Some(Message::notice(format!("opened {name}")));
-                } else {
-                    self.message = Some(Message::error("there is no tab to open into"));
+                let language = language_of(file.path());
+                let parent = self.workspace.active().and_then(|tab| {
+                    // The *group* the tab is in. A tab is never a parent —
+                    // it holds a document, not children — so this is the
+                    // enclosing group or nothing.
+                    self.workspace.parent_of(tab)
+                });
+                let opened = self.workspace.open_with(
+                    &text,
+                    name.clone(),
+                    parent,
+                    DesktopDocument {
+                        scroll_y: 0.0,
+                        file: Some(file),
+                        syntax: HighlightCache::new(),
+                    },
+                );
+                match opened {
+                    Some(tab) => {
+                        self.workspace.activate(tab);
+                        // After the content, and on the tab that is now
+                        // active: setting a language parses the document,
+                        // and doing it first would parse an empty one.
+                        if let (Some(language), Some(editor)) =
+                            (language, self.workspace.active_editor_mut())
+                        {
+                            editor.set_language(language);
+                        }
+                        self.message = Some(Message::notice(format!("opened {name}")));
+                    },
+                    // Unreachable: the only refusal is a parent that is not
+                    // a group, and `parent_of` yields exactly that or none.
+                    None => {
+                        self.message = Some(Message::error(format!(
+                            "{name} could not be opened as a tab"
+                        )));
+                    },
                 }
-                self.refresh_title();
+                self.after_tab_change();
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),
         }
@@ -1841,7 +1962,7 @@ impl ApplicationHandler for DesktopApp {
                     event_loop.exit();
                 }
             },
-            WindowEvent::DroppedFile(path) => self.dropped(path),
+            WindowEvent::DroppedFile(path) => self.dropped(&path),
             WindowEvent::Resized(size) => self.resized(size.width, size.height),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => self.rescaled(scale_factor),
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
@@ -2587,120 +2708,139 @@ mod tests {
         path
     }
 
-    /// A drop onto a clean buffer opens the file with nothing to ask, and the
-    /// shell's own pixel scroll returns to the top with it.
-    ///
-    /// The scroll assertion is the one that would otherwise rot silently:
-    /// `set_content` resets the *kernel's* scroll, and the shell keeps its
-    /// own, so a new file could open already scrolled to an offset that meant
-    /// something in the previous one.
-    #[test]
-    fn a_drop_onto_a_clean_buffer_opens_the_file() {
-        let directory = TempDir::new("desktop-drop-clean");
-        let (mut app, _first) = open(&directory, "a.txt", "first");
-        let second = fixture(&directory, "b.txt", "second");
-        app.test_document_mut().scroll_y = 40.0;
-
-        app.dropped(second);
-
-        assert!(app.prompt.is_none(), "a clean buffer has nothing to ask");
-        assert_eq!(app.test_editor().content(), "second");
-        assert_eq!(
-            app.test_document()
-                .file
-                .as_ref()
-                .map(super::TextFile::display_name),
-            Some("b.txt".to_owned())
-        );
-        assert!(
-            app.test_document().scroll_y.abs() < f32::EPSILON,
-            "the new file opens at the top, not at the old file's offset"
-        );
+    /// `Ctrl+Shift+<key>` — the tab-walking chords.
+    fn ctrl_shift(key: KeyCode) -> KeyEvent {
+        chord(
+            key,
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Modifiers::none()
+            },
+        )
     }
 
-    /// A drop over unsaved work asks first and changes nothing until it is
-    /// answered — the same stake as quitting, through the same prompt.
+    /// The `Ctrl+W` close-tab chord. Shift is forbidden on this binding, so
+    /// it must not be set.
+    fn ctrl_w() -> KeyEvent {
+        chord(KeyCode::Char('w'), Modifiers::ctrl())
+    }
+
+    /// The label of the tab in front.
+    fn front(app: &DesktopApp) -> Option<String> {
+        app.test_document()
+            .file
+            .as_ref()
+            .map(super::TextFile::display_name)
+    }
+
+    // =========================================================================
+    // Tabs
+    // =========================================================================
+
+    /// A drop opens a *second* tab and leaves the first one alone.
+    ///
+    /// This is the assertion the whole workspace conversion exists for. Under
+    /// the single-buffer shell the dropped file overwrote what was open; the
+    /// old test asserted the replacement, which is the behaviour that is now
+    /// wrong.
     #[test]
-    fn a_drop_over_unsaved_changes_asks_first_and_no_answer_changes_nothing() {
+    fn a_drop_adds_a_tab_rather_than_replacing_the_one_in_front() {
+        let directory = TempDir::new("desktop-drop-adds");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        let second = fixture(&directory, "b.txt", "second");
+
+        app.dropped(&second);
+
+        assert!(app.prompt.is_none(), "an additive open asks nothing");
+        assert_eq!(app.workspace.tab_count(), 2);
+        assert_eq!(app.test_editor().content(), "second");
+        assert_eq!(front(&app), Some("b.txt".to_owned()));
+
+        // And the first is still there, unchanged, one chord away.
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert_eq!(app.test_editor().content(), "first");
+        assert_eq!(front(&app), Some("a.txt".to_owned()));
+    }
+
+    /// A drop over unsaved work asks nothing, because it discards nothing.
+    ///
+    /// The prompt that used to guard this is gone rather than changed: the
+    /// stake it protected against — losing the edit — cannot arise when the
+    /// edit stays in its own tab.
+    #[test]
+    fn a_drop_over_unsaved_changes_keeps_the_work_in_its_own_tab() {
         let directory = TempDir::new("desktop-drop-dirty");
         let (mut app, _first) = open(&directory, "a.txt", "first");
         let second = fixture(&directory, "b.txt", "second");
         type_into(&mut app, "x");
-        let before = app.test_editor().content();
+        let unsaved = app.test_editor().content();
 
-        app.dropped(second);
+        app.dropped(&second);
+
+        assert!(app.prompt.is_none(), "there is nothing left to ask about");
+        assert!(
+            !app.is_dirty(),
+            "the tab in front is the freshly opened file"
+        );
+
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert_eq!(app.test_editor().content(), unsaved, "the edit survived");
+        assert!(app.is_dirty(), "and is still unsaved, in its own tab");
+    }
+
+    /// Each tab keeps its own scroll offset across a switch.
+    ///
+    /// `scroll_y` is face state, not kernel state, and it was a single field
+    /// on the window until this change. Two tabs sharing one would open the
+    /// second file already scrolled to an offset that meant something in the
+    /// first, and scroll the first back to the top on the way home.
+    #[test]
+    fn each_tab_keeps_its_own_scroll_offset() {
+        let directory = TempDir::new("desktop-tab-scroll");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.test_document_mut().scroll_y = 40.0;
+
+        app.dropped(&fixture(&directory, "b.txt", "second"));
 
         assert!(
-            app.prompt.is_some(),
-            "a dirty buffer asks before discarding"
-        );
-        assert_eq!(
-            app.test_editor().content(),
-            before,
-            "the question alone must not open anything"
+            app.test_document().scroll_y.abs() < f32::EPSILON,
+            "a new tab opens at the top"
         );
 
-        assert_eq!(app.press(&press(KeyCode::Char('n'))), Flow::Running);
-        assert!(app.prompt.is_none());
-        assert_eq!(
-            app.test_editor().content(),
-            before,
-            "answering no keeps the work"
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert!(
+            (app.test_document().scroll_y - 40.0).abs() < f32::EPSILON,
+            "and the first tab is where it was left"
         );
-        assert!(app.is_dirty(), "and keeps it unsaved");
     }
 
-    /// Answering yes performs the open that was asked about.
-    #[test]
-    fn answering_yes_to_a_drop_prompt_opens_that_file() {
-        let directory = TempDir::new("desktop-drop-yes");
-        let (mut app, _first) = open(&directory, "a.txt", "first");
-        let second = fixture(&directory, "b.txt", "second");
-        type_into(&mut app, "x");
-
-        app.dropped(second);
-        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
-
-        assert!(app.prompt.is_none());
-        assert_eq!(app.test_editor().content(), "second");
-        assert!(!app.is_dirty(), "a freshly opened file is not dirty");
-    }
-
-    /// Undo after a drop cannot reach back into the document that was
-    /// replaced.
+    /// Undo in one tab cannot reach into another's document.
     ///
-    /// This is the assertion that earns the feature: the buffer carried an
-    /// unsaved edit, so if opening left the history in place, one `Ctrl+Z`
-    /// would restore text belonging to a *different file* over the top of
-    /// this one and mark it dirty. `Editor::set_content` replaces the tree
-    /// for exactly this reason, and this pins it from the shell, where the
-    /// mistake would actually be made.
+    /// Under the single-buffer shell this was a claim about
+    /// `Editor::set_content` replacing the undo tree. It is now a claim about
+    /// there being two trees — one per buffer — which is the stronger form of
+    /// the same guarantee, and the one that has to hold once tabs exist.
     #[test]
-    fn undo_after_a_drop_cannot_restore_the_replaced_document() {
-        let directory = TempDir::new("desktop-drop-undo");
+    fn undo_in_one_tab_cannot_restore_another_tabs_document() {
+        let directory = TempDir::new("desktop-tab-undo");
         let (mut app, _first) = open(&directory, "a.txt", "first");
-        let second = fixture(&directory, "b.txt", "second");
         type_into(&mut app, "x");
-        let discarded = app.test_editor().content();
+        let other = app.test_editor().content();
 
-        app.dropped(second);
-        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
-
+        app.dropped(&fixture(&directory, "b.txt", "second"));
         assert_eq!(
             app.press(&chord(KeyCode::Char('z'), Modifiers::ctrl())),
             Flow::Running
         );
-        assert_eq!(
-            app.test_editor().content(),
-            "second",
-            "undo reached across into the replaced document"
-        );
-        assert_ne!(app.test_editor().content(), discarded);
-        assert!(!app.is_dirty(), "and left the new file clean");
+
+        assert_eq!(app.test_editor().content(), "second");
+        assert_ne!(app.test_editor().content(), other);
+        assert!(!app.is_dirty());
     }
 
-    /// A drop of a path that does not exist opens an empty buffer named for
-    /// it — the same thing the command line does, deliberately.
+    /// A drop of a path that does not exist opens an empty tab named for it —
+    /// the same thing the command line does, deliberately.
     ///
     /// `TextFile::open` maps `NotFound` to a new empty file at that path
     /// (`iridium-file`), which is what makes `iridium newfile.txt` work. The
@@ -2708,27 +2848,163 @@ mod tests {
     /// different answers to "what does opening a missing file mean" is the
     /// per-caller divergence this estate keeps paying for elsewhere. One
     /// rule, one place.
-    ///
-    /// Reachable only as a race — Finder cannot drop a file that is not
-    /// there — so the cost of the shared rule here is a window that empties
-    /// if the file is deleted between the drop and the read. A genuine
-    /// unreadable file (permissions, not-text) still takes the error path
-    /// and leaves the buffer alone.
     #[test]
     fn a_drop_of_a_missing_path_follows_the_shared_open_rule() {
         let directory = TempDir::new("desktop-drop-missing");
         let (mut app, _first) = open(&directory, "a.txt", "first");
 
-        app.dropped(directory.path().join("does-not-exist.txt"));
+        app.dropped(&directory.path().join("does-not-exist.txt"));
 
         assert_eq!(app.test_editor().content(), "");
         assert_eq!(
-            app.test_document()
-                .file
-                .as_ref()
-                .map(super::TextFile::display_name),
+            front(&app),
             Some("does-not-exist.txt".to_owned()),
             "the buffer is named for the file it will create"
         );
+    }
+
+    /// The bracket chords walk the strip, and stop at its ends rather than
+    /// wrapping.
+    #[test]
+    fn the_bracket_chords_walk_the_strip_and_clamp_at_its_ends() {
+        let directory = TempDir::new("desktop-tab-walk");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+        app.dropped(&fixture(&directory, "c.txt", "third"));
+        assert_eq!(app.workspace.tab_count(), 3);
+        assert_eq!(front(&app), Some("c.txt".to_owned()));
+
+        // Already at the last: next does nothing, and says nothing.
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char(']'))), Flow::Running);
+        assert_eq!(front(&app), Some("c.txt".to_owned()));
+        assert!(
+            app.message.is_none(),
+            "reaching the end of the strip is an outcome, not an error"
+        );
+
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert_eq!(front(&app), Some("b.txt".to_owned()));
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert_eq!(front(&app), Some("a.txt".to_owned()));
+
+        // And clamps at the first.
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert_eq!(front(&app), Some("a.txt".to_owned()));
+        assert!(app.message.is_none());
+    }
+
+    /// The window title follows the tab in front.
+    #[test]
+    fn the_title_follows_the_tab_in_front() {
+        let directory = TempDir::new("desktop-tab-title");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+
+        assert_eq!(app.title, title_for(Some("b.txt"), false));
+
+        assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+        assert_eq!(app.title, title_for(Some("a.txt"), false));
+    }
+
+    /// Closing a clean tab asks nothing and leaves the neighbour in front.
+    #[test]
+    fn closing_a_clean_tab_just_closes_it() {
+        let directory = TempDir::new("desktop-close-clean");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+
+        assert!(app.prompt.is_none(), "a clean tab has nothing to ask");
+        assert_eq!(app.workspace.tab_count(), 1);
+        assert_eq!(front(&app), Some("a.txt".to_owned()));
+        assert_eq!(app.title, title_for(Some("a.txt"), false));
+    }
+
+    /// Closing a tab holding unsaved work asks first, and no answer changes
+    /// nothing.
+    ///
+    /// The kernel's `close` is about structure and knows nothing about files,
+    /// so left to itself it would drop the buffer — and the edit with it —
+    /// without a word. This is the guard, and it is the same question, on the
+    /// same strip, as the one that protects quitting.
+    #[test]
+    fn closing_a_tab_over_unsaved_changes_asks_first() {
+        let directory = TempDir::new("desktop-close-dirty");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+        type_into(&mut app, "x");
+        let unsaved = app.test_editor().content();
+
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+
+        assert!(app.prompt.is_some(), "a dirty tab asks before discarding");
+        assert_eq!(app.workspace.tab_count(), 2, "the question closed nothing");
+
+        assert_eq!(app.press(&press(KeyCode::Char('n'))), Flow::Running);
+        assert!(app.prompt.is_none());
+        assert_eq!(app.workspace.tab_count(), 2);
+        assert_eq!(
+            app.test_editor().content(),
+            unsaved,
+            "the work is still here"
+        );
+    }
+
+    /// Answering yes performs the close that was asked about.
+    #[test]
+    fn answering_yes_closes_the_tab_that_was_asked_about() {
+        let directory = TempDir::new("desktop-close-yes");
+        let (mut app, _first) = open(&directory, "a.txt", "first");
+        app.dropped(&fixture(&directory, "b.txt", "second"));
+        type_into(&mut app, "x");
+
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+
+        assert!(app.prompt.is_none());
+        assert_eq!(app.workspace.tab_count(), 1);
+        assert_eq!(app.test_editor().content(), "first");
+    }
+
+    /// Closing the only tab leaves a fresh untitled one, not a void.
+    ///
+    /// Every accessor in this face answers `Option`, and every handler early
+    /// returns on `None`. A window with no tab would therefore not crash — it
+    /// would sit there absorbing keystrokes and painting nothing, which is a
+    /// worse failure than a crash because it looks like a hang.
+    #[test]
+    fn closing_the_only_tab_leaves_a_fresh_untitled_one() {
+        let directory = TempDir::new("desktop-close-last");
+        let (mut app, _path) = open(&directory, "a.txt", "first");
+        assert_eq!(app.workspace.tab_count(), 1);
+
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+
+        assert_eq!(app.workspace.tab_count(), 1, "the session still has a tab");
+        assert_eq!(app.test_editor().content(), "");
+        assert_eq!(front(&app), None, "and it is unnamed");
+        assert_eq!(app.title, title_for(None, false));
+        assert!(!app.is_dirty());
+    }
+
+    /// A session that has typed into the last tab is still asked before it is
+    /// replaced by an untitled one.
+    #[test]
+    fn closing_a_dirty_last_tab_asks_before_replacing_it() {
+        let directory = TempDir::new("desktop-close-last-dirty");
+        let (mut app, _path) = open(&directory, "a.txt", "first");
+        type_into(&mut app, "x");
+
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+        assert!(app.prompt.is_some());
+        assert_eq!(app.press(&press(KeyCode::Char('n'))), Flow::Running);
+        // The caret opens at the start of the buffer, so the typed `x` is
+        // in front of the file's text, not after it.
+        assert_eq!(app.test_editor().content(), "xfirst");
+
+        assert_eq!(app.press(&ctrl_w()), Flow::Running);
+        assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+        assert_eq!(app.test_editor().content(), "");
     }
 }

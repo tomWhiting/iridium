@@ -21,6 +21,71 @@ const DEFAULT_FONT_SIZE: f32 = 14.0;
 /// Default line height multiplier.
 const DEFAULT_LINE_HEIGHT: f32 = 1.4;
 
+/// The largest font size [`TextRenderer::set_font_size`] will accept, in
+/// pixels.
+///
+/// Not a rendering limit — a display could ask for more and glyphon would
+/// draw it. It is an upper bound chosen so that `font_size * line_height`
+/// stays finite whatever the two factors are, which is the property
+/// [`TextRenderer::line_height`] promises its callers. Two separately finite
+/// factors can still multiply to infinity, so bounding only below is not
+/// enough.
+const MAX_FONT_SIZE: f32 = 1_024.0;
+
+/// The smallest font size [`TextRenderer::set_font_size`] will accept, in
+/// pixels.
+///
+/// One physical pixel. Bounding *below* by a positive number rather than
+/// just excluding zero is load-bearing and was not obvious: `f32`
+/// multiplication underflows, so two separately-positive factors can produce
+/// a zero product. The smallest positive `f32` times [`f32::MIN_POSITIVE`]
+/// is exactly `0.0` — which is the degenerate line height this whole guard
+/// exists to make unreachable. A floor of one pixel against a floor of
+/// [`MIN_LINE_HEIGHT_MULTIPLIER`] keeps the product at or above `0.1`, so
+/// underflow is impossible rather than merely unlikely.
+const MIN_FONT_SIZE: f32 = 1.0;
+
+/// The largest line height multiplier
+/// [`TextRenderer::set_line_height`] will accept.
+///
+/// Deliberately **not** the `MAX_LINE_HEIGHT` re-exported from
+/// [`crate::render`], which is the minimap's row height in pixels. These are
+/// different quantities that would share a name, and this module's is a
+/// unitless multiplier.
+const MAX_LINE_HEIGHT_MULTIPLIER: f32 = 64.0;
+
+/// The smallest line height multiplier
+/// [`TextRenderer::set_line_height`] will accept.
+///
+/// A tenth: a line box a tenth the height of its glyphs is already far past
+/// unusable, so nothing legitimate lives below it, and it is the other half
+/// of the underflow floor described on [`MIN_FONT_SIZE`].
+const MIN_LINE_HEIGHT_MULTIPLIER: f32 = 0.1;
+
+/// Whether `size` is a font size [`TextRenderer::set_font_size`] will accept.
+///
+/// A free function rather than an inline condition so it can be tested
+/// without a GPU: constructing a [`TextRenderer`] needs a device, and a
+/// predicate that can only be exercised through one is a predicate that goes
+/// untested on every machine without an adapter.
+///
+/// The `is_finite` check is not redundant against the range comparisons.
+/// `NaN` compares `false` to everything, so `NaN >= MIN` already fails —
+/// but only by accident of IEEE semantics, and a later rewrite to
+/// `!(size < MIN)` would flip that silently. It is stated so the intent
+/// survives a refactor.
+const fn font_size_is_usable(size: f32) -> bool {
+    size.is_finite() && size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE
+}
+
+/// Whether `height` is a multiplier [`TextRenderer::set_line_height`] will
+/// accept. Separated for the same reason as [`font_size_is_usable`].
+const fn line_height_is_usable(height: f32) -> bool {
+    height.is_finite()
+        && height >= MIN_LINE_HEIGHT_MULTIPLIER
+        && height <= MAX_LINE_HEIGHT_MULTIPLIER
+}
+
 /// Configuration for text rendering.
 #[derive(Debug, Clone)]
 pub struct TextRenderConfig {
@@ -688,24 +753,63 @@ impl TextRenderer {
     /// This invalidates all existing text buffers, which should be
     /// recreated with the new size. Also invalidates the cached char width.
     ///
-    /// # Arguments
+    /// Rejects a size outside `[MIN_FONT_SIZE, MAX_FONT_SIZE]` or a
+    /// non-finite one, keeping the previous size and returning `false`.
     ///
-    /// * `size` - New font size in pixels
-    pub fn set_font_size(&mut self, size: f32) {
+    /// This is the guard for the whole estate, and it is here rather than in
+    /// a face because of where the bad values come from: a font size is
+    /// derived from a display scale factor, and both faces get that from
+    /// outside. The web face multiplies a base size by `devicePixelRatio`,
+    /// which is `0` in some headless and synthetic environments and
+    /// `undefined` before layout; the desktop face multiplies by winit's
+    /// scale factor. **A face-side guard protects only that face**, and the
+    /// web face's has been one `??`-for-`||` refactor away from deleting
+    /// itself, since `??` admits `0` and `NaN` where `||` does not.
+    ///
+    /// The consequence of accepting one is not a bad-looking frame. A zero
+    /// font size makes [`Self::line_height`] zero, and viewport arithmetic
+    /// divides by it — `scroll_y / 0.0` is `+∞`, which converts to a
+    /// `usize::MAX` first-line index. See `render::units::pixel_to_index`,
+    /// where that case is the one input the reachability argument does not
+    /// otherwise cover.
+    ///
+    /// Bounded at both ends, and both ends are load-bearing. Above, because
+    /// two separately-finite factors can multiply to infinity. Below by a
+    /// *positive* floor rather than by zero, because two separately-positive
+    /// factors can multiply to zero — `f32` underflows. Excluding zero alone
+    /// would have left the degenerate line height reachable through the back
+    /// door.
+    pub fn set_font_size(&mut self, size: f32) -> bool {
+        if !font_size_is_usable(size) {
+            return false;
+        }
         self.config.font_size = size;
         // Invalidate cached char width since it depends on font size
         self.cached_char_width = None;
         // Clear the glyph cache since glyphs will be at a different size
         self.atlas.trim();
+        true
     }
 
-    /// Updates the line height at runtime (T149).
+    /// Updates the line height multiplier at runtime (T149).
+    ///
+    /// Rejects a multiplier outside
+    /// `[MIN_LINE_HEIGHT_MULTIPLIER, MAX_LINE_HEIGHT_MULTIPLIER]` or a
+    /// non-finite one, keeping the previous value and returning `false`.
+    /// Guarded for the same reason as [`Self::set_font_size`], and it has to
+    /// be: the quantity that matters downstream is the *product* of the two,
+    /// so guarding only one of them leaves the degenerate case reachable
+    /// through the other.
     ///
     /// # Arguments
     ///
     /// * `height` - New line height multiplier
-    pub const fn set_line_height(&mut self, height: f32) {
+    pub const fn set_line_height(&mut self, height: f32) -> bool {
+        if !line_height_is_usable(height) {
+            return false;
+        }
         self.config.line_height = height;
+        true
     }
 
     /// Updates the font family at runtime (T149).
@@ -834,6 +938,140 @@ mod tests {
         // Verify color was converted (glyphon::Color doesn't expose fields directly)
         // Just verify it doesn't panic
         let _ = glyphon_color;
+    }
+
+    /// The values a hostile or broken host can put into a scale factor.
+    const DEGENERATE: [f32; 8] = [
+        0.0,
+        -0.0,
+        -1.0,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::MAX,
+        f32::MIN,
+    ];
+
+    #[test]
+    fn every_degenerate_font_size_is_refused() {
+        for size in DEGENERATE {
+            assert!(
+                !font_size_is_usable(size),
+                "{size} must not be accepted as a font size"
+            );
+        }
+    }
+
+    #[test]
+    fn every_degenerate_line_height_is_refused() {
+        for height in DEGENERATE {
+            assert!(
+                !line_height_is_usable(height),
+                "{height} must not be accepted as a line height multiplier"
+            );
+        }
+    }
+
+    #[test]
+    fn the_defaults_pass_their_own_guards() {
+        // Otherwise a fresh renderer would be holding values it would refuse
+        // to be set to, which is the sort of inconsistency that only shows up
+        // the first time someone round-trips the config.
+        assert!(font_size_is_usable(DEFAULT_FONT_SIZE));
+        assert!(line_height_is_usable(DEFAULT_LINE_HEIGHT));
+    }
+
+    #[test]
+    fn both_bounds_are_inclusive_and_the_next_float_beyond_each_is_not() {
+        for (accepted, rejected) in [
+            (MIN_FONT_SIZE, f32::from_bits(MIN_FONT_SIZE.to_bits() - 1)),
+            (MAX_FONT_SIZE, f32::from_bits(MAX_FONT_SIZE.to_bits() + 1)),
+        ] {
+            assert!(font_size_is_usable(accepted), "{accepted} is the bound");
+            assert!(
+                !font_size_is_usable(rejected),
+                "{rejected} is one float past the bound"
+            );
+        }
+        for (accepted, rejected) in [
+            (
+                MIN_LINE_HEIGHT_MULTIPLIER,
+                f32::from_bits(MIN_LINE_HEIGHT_MULTIPLIER.to_bits() - 1),
+            ),
+            (
+                MAX_LINE_HEIGHT_MULTIPLIER,
+                f32::from_bits(MAX_LINE_HEIGHT_MULTIPLIER.to_bits() + 1),
+            ),
+        ] {
+            assert!(line_height_is_usable(accepted), "{accepted} is the bound");
+            assert!(
+                !line_height_is_usable(rejected),
+                "{rejected} is one float past the bound"
+            );
+        }
+    }
+
+    /// The reason the lower bounds are positive numbers rather than zero.
+    ///
+    /// Both of these are finite and strictly positive, so a guard that only
+    /// excluded zero would accept them — and their product is exactly `0.0`,
+    /// reintroducing the degenerate line height through the back door.
+    #[test]
+    // Exact comparison against zero is the assertion, not an approximation
+    // of one: the claim is that the product is *precisely* `0.0`, which is
+    // what makes the division downstream infinite.
+    #[allow(clippy::float_cmp)]
+    fn two_positive_values_that_multiply_to_zero_are_both_refused() {
+        // `f32::MIN_POSITIVE` is positive by definition; only the subnormal
+        // needs stating.
+        let smallest = f32::from_bits(1);
+        assert!(smallest > 0.0 && smallest.is_finite());
+        assert_eq!(
+            smallest * f32::MIN_POSITIVE,
+            0.0,
+            "the premise of this test is that f32 multiplication underflows"
+        );
+
+        assert!(!font_size_is_usable(smallest));
+        assert!(!line_height_is_usable(f32::MIN_POSITIVE));
+        assert!(!font_size_is_usable(f32::MIN_POSITIVE));
+        assert!(!line_height_is_usable(smallest));
+    }
+
+    /// The property every caller downstream actually depends on: viewport
+    /// arithmetic divides by `line_height()`, so it must never be zero,
+    /// negative, or infinite. This is the assertion that would have caught
+    /// the `usize::MAX` first-line index at its source.
+    ///
+    /// Sweeps the extremes of both accepted ranges together, which is where
+    /// overflow and underflow live — the interior cannot fail if the corners
+    /// do not.
+    #[test]
+    fn any_accepted_pair_yields_a_finite_positive_line_height() {
+        let sizes = [MIN_FONT_SIZE, 8.0, 14.0, MAX_FONT_SIZE];
+        let multipliers = [
+            MIN_LINE_HEIGHT_MULTIPLIER,
+            1.0,
+            DEFAULT_LINE_HEIGHT,
+            MAX_LINE_HEIGHT_MULTIPLIER,
+        ];
+        for size in sizes {
+            for multiplier in multipliers {
+                assert!(
+                    font_size_is_usable(size) && line_height_is_usable(multiplier),
+                    "the fixture must only hold values the guards accept"
+                );
+                let line_height = size * multiplier;
+                assert!(
+                    line_height.is_finite(),
+                    "{size} * {multiplier} overflowed to {line_height}"
+                );
+                assert!(
+                    line_height > 0.0,
+                    "{size} * {multiplier} underflowed to {line_height}"
+                );
+            }
+        }
     }
 
     // Note: Actual rendering tests require GPU and are run as integration tests

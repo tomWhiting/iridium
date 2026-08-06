@@ -431,14 +431,40 @@ export class IridiumEditor {
    */
   private readonly isMacPlatform: boolean =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  /**
+   * The kernel's display-scale sanitiser, held so every reader of
+   * `window.devicePixelRatio` goes through the same one.
+   *
+   * `devicePixelRatio` is `0` in some headless environments and `undefined`
+   * before first layout, and it is read in four places here: canvas sizing
+   * at creation, canvas sizing on resize, mouse coordinates, and the
+   * viewport height used to pick visible lines. Each used to guard itself,
+   * or not — `|| 1` at three sites and nothing at the fourth. Two guards
+   * that disagree are worse than one, because the canvas and the text then
+   * disagree about how big a pixel is; so there is exactly one, it lives in
+   * Rust, and this is the handle to it.
+   */
+  private readonly sanitizePixelRatio: (ratio: number) => number;
+
+  /**
+   * The sanitised `window.devicePixelRatio`, read fresh.
+   *
+   * Read rather than cached because it changes when the window moves
+   * between displays.
+   */
+  private get pixelRatio(): number {
+    return this.sanitizePixelRatio(window.devicePixelRatio);
+  }
 
   private constructor(
     canvas: HTMLCanvasElement,
     editor: WebEditor,
-    options: IridiumEditorOptions
+    options: IridiumEditorOptions,
+    sanitizePixelRatio: (ratio: number) => number
   ) {
     this.canvas = canvas;
     this.editor = editor;
+    this.sanitizePixelRatio = sanitizePixelRatio;
     this.options = {
       content: options.content ?? "",
       language: options.language ?? "rust",
@@ -520,8 +546,11 @@ export class IridiumEditor {
     const wasm = await import(/* @vite-ignore */ wasmUrl);
     await wasm.default();
 
-    // Set canvas size
-    const pixelRatio = window.devicePixelRatio || 1;
+    // Set canvas size. The ratio is sanitised by the kernel rather than by
+    // `|| 1` here, so that the canvas dimensions and the font scale below
+    // are derived from the identical number — see `sanitizePixelRatio`.
+    const sanitizePixelRatio = wasm.sanitizePixelRatio as (ratio: number) => number;
+    const pixelRatio = sanitizePixelRatio(window.devicePixelRatio);
     canvas.width = rect.width * pixelRatio;
     canvas.height = rect.height * pixelRatio;
 
@@ -529,7 +558,7 @@ export class IridiumEditor {
     const editor = await wasm.createWebEditor(canvas, pixelRatio);
 
     // Create the controller
-    const instance = new IridiumEditor(canvas, editor, options);
+    const instance = new IridiumEditor(canvas, editor, options, sanitizePixelRatio);
 
     // Initialize
     await instance.initialize();
@@ -659,7 +688,7 @@ export class IridiumEditor {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width === 0 || height === 0) continue;
-        const pixelRatio = window.devicePixelRatio || 1;
+        const { pixelRatio } = this;
         this.canvas.width = width * pixelRatio;
         this.canvas.height = height * pixelRatio;
         this.editor.resize(this.canvas.width, this.canvas.height);
@@ -686,8 +715,12 @@ export class IridiumEditor {
 
   private getMousePosition(e: MouseEvent): [number, number] {
     const rect = this.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * window.devicePixelRatio;
-    const y = (e.clientY - rect.top) * window.devicePixelRatio;
+    // Was the one site with no guard at all: a `devicePixelRatio` of `0`
+    // put every click at the origin and `NaN` sent `NaN` into
+    // `pixelToPosition`.
+    const { pixelRatio } = this;
+    const x = (e.clientX - rect.left) * pixelRatio;
+    const y = (e.clientY - rect.top) * pixelRatio;
     const pos = this.editor.pixelToPosition(x, y);
     return [pos[0], pos[1]];
   }
@@ -1160,7 +1193,7 @@ export class IridiumEditor {
     // Calculate actual visible range from scroll position
     const scrollY = this.editor.getScrollY();
     const lineHeight = this.editor.getLineHeight();
-    const viewportHeight = this.canvas.height / (window.devicePixelRatio || 1);
+    const viewportHeight = this.canvas.height / this.pixelRatio;
 
     // Calculate visible line range
     const firstVisibleLine = Math.floor(scrollY / lineHeight);

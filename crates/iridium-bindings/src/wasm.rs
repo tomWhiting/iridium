@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+use crate::display_scale::sanitize_pixel_ratio;
 use crate::edit_tracking::{
     EditSpan, EditSpanError, PendingEdit, byte_point, compose_pending, compute_edit_span,
 };
@@ -241,6 +242,45 @@ extern "C" {
     fn log(s: &str);
 }
 
+/// Returns a usable display scale factor for a value from
+/// `window.devicePixelRatio`, substituting a fallback for an unusable one.
+///
+/// Exported so that **one** answer is used everywhere rather than two that
+/// happen to agree. TypeScript sizes the canvas by the ratio while
+/// [`create_web_editor`] scales the font by it, and if the two sanitise
+/// differently the canvas and the text disagree about how big a pixel is.
+/// The old `window.devicePixelRatio || 1` was a second sanitiser with
+/// different behaviour at the edges; calling this instead makes the two
+/// sides the same code.
+///
+/// Takes and returns `f64` because that is JavaScript's only number type;
+/// the narrowing to `f32` happens here, where a value too large to be an
+/// `f32` becomes an infinity and is caught by the same check that catches
+/// every other non-finite input.
+///
+/// # Arguments
+///
+/// * `ratio` - The raw `window.devicePixelRatio`
+#[wasm_bindgen(js_name = sanitizePixelRatio)]
+#[must_use]
+pub fn sanitize_pixel_ratio_js(ratio: f64) -> f32 {
+    #[allow(clippy::cast_possible_truncation)]
+    let narrowed = ratio as f32;
+    match sanitize_pixel_ratio(narrowed) {
+        Ok(ratio) => ratio,
+        Err((fallback, fault)) => {
+            // Scientific notation, because `Display` for a subnormal writes
+            // its full decimal expansion — over three hundred digits for
+            // `5e-324`, which is a console line nobody can read.
+            log(&format!(
+                "[Iridium] Refusing pixel ratio {ratio:e} ({}); using {fallback}",
+                fault.reason()
+            ));
+            fallback
+        },
+    }
+}
+
 /// Creates a new WebEditor attached to a canvas element.
 ///
 /// Use this instead of `new WebEditor()` since async constructors are deprecated.
@@ -249,12 +289,33 @@ extern "C" {
 ///
 /// * `canvas` - The HTML canvas element to render to
 /// * `pixel_ratio` - The device pixel ratio (window.devicePixelRatio) for HiDPI scaling
+///
+/// `pixel_ratio` is sanitised rather than trusted; see
+/// [`crate::display_scale`] for why a zero or `NaN` one is a real input and
+/// what it would otherwise do to the viewport.
 #[wasm_bindgen(js_name = createWebEditor)]
 pub async fn create_web_editor(
     canvas: HtmlCanvasElement,
     pixel_ratio: f32,
 ) -> Result<WebEditor, JsValue> {
     log("[Iridium] Creating WebEditor...");
+
+    // Sanitise before anything is derived from it. `window.devicePixelRatio`
+    // is `0` in some headless environments and `undefined` before first
+    // layout, and both reach here as values that make the line height zero
+    // and the first visible line `usize::MAX`.
+    let pixel_ratio = match sanitize_pixel_ratio(pixel_ratio) {
+        Ok(ratio) => ratio,
+        Err((fallback, fault)) => {
+            // Scientific notation for the reason given on
+            // `sanitize_pixel_ratio_js`.
+            log(&format!(
+                "[Iridium] Refusing pixel ratio {pixel_ratio:e} ({}); using {fallback}",
+                fault.reason()
+            ));
+            fallback
+        },
+    };
 
     // Get canvas dimensions
     let width = canvas.width();
@@ -294,11 +355,22 @@ pub async fn create_web_editor(
     // Scale font size for HiDPI displays
     let base_font_size = 14.0;
     let scaled_font_size = base_font_size * pixel_ratio;
-    compositor.set_font_size(scaled_font_size);
-    log(&format!(
-        "[Iridium] Font size: {} (base {} * ratio {})",
-        scaled_font_size, base_font_size, pixel_ratio
-    ));
+    // The ratio is already sanitised, so this cannot fail today: the product
+    // of a positive base and a ratio in `(0, MAX_PIXEL_RATIO]` is inside the
+    // renderer's bounds. Checked anyway, because "cannot fail today" is a
+    // property of two constants that live in different crates, and the
+    // renderer keeping its previous size while the face believed it had
+    // changed is exactly the silent mismatch worth a line in the console.
+    if compositor.set_font_size(scaled_font_size) {
+        log(&format!(
+            "[Iridium] Font size: {} (base {} * ratio {})",
+            scaled_font_size, base_font_size, pixel_ratio
+        ));
+    } else {
+        log(&format!(
+            "[Iridium] Renderer refused font size {scaled_font_size}; keeping its default"
+        ));
+    }
     log("[Iridium] FrameCompositor created");
 
     // Create editor with default config

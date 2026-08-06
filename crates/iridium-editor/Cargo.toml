@@ -19,6 +19,10 @@ glyphon = { workspace = true, optional = true }
 # Text buffer
 ropey.workspace = true
 
+# The generic tree model the workspace projects through. A compile-time
+# edge with no runtime cost, and zero dependencies of its own.
+iridium-tree.workspace = true
+
 # Syntax (internal, optional for WASM builds without tree-sitter)
 iridium-syntax = { workspace = true, optional = true }
 

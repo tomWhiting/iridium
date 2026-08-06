@@ -107,6 +107,7 @@ criterion = { version = "0.8.1", features = ["html_reports"] }
 iridium-editor = { path = "crates/iridium-editor", default-features = false }
 iridium-file = { path = "crates/iridium-file" }
 iridium-syntax = { path = "crates/iridium-syntax" }
+iridium-tree = { path = "crates/iridium-tree" }
 iridium-bindings = { path = "crates/iridium-bindings" }
 iridium-tui = { path = "crates/iridium-tui" }
 

@@ -1154,6 +1154,7 @@ dependencies = [
  "criterion",
  "glyphon",
  "iridium-syntax",
+ "iridium-tree",
  "js-sys",
  "pollster",
  "regex",

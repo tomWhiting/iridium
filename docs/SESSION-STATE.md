@@ -6185,3 +6185,42 @@ current group and that it is a one-line change.
 
 **Owed at the next build swap:** *word-select is now ⌥⇧←/→; expand/shrink
 moved to ⌃⇧⌘←/→*.
+
+---
+
+## `04ba052` — the tab commands landed (2026-08-06)
+
+Both named failures fixed, six gates green, **1996 tests**, pushed.
+
+**How each was fixed — the reasoning matters more than the diff:**
+
+- `command_api_tests` now counts host and workspace reports **separately**
+  rather than adding one number to the other. Lumping them together as
+  "not built-in" would let a workspace command quietly acquire an
+  editor-level implementation without the count moving. Counted apart,
+  the failing assertion names its own category.
+- `dispatch_tests` learned the third category. The predicate is now
+  "host **or** workspace", with the reason written in the test: both
+  resolve to `KeyResult::HostCommand`, so *no action* alone cannot
+  distinguish either from a typo — and a typo surfaces as a key that
+  does nothing at all. The check was widened by one declared case, not
+  loosened to "unimplemented is fine".
+
+**Also in the commit:** the `workspace/mod.rs` split (Cally's line-count
+flag), and nine copies of the
+`active().and_then(node).map(label)` chain collapsed into one shared
+`active_label` helper in `workspace_tests`. A chain repeated at nine
+sites is a chain that can be got subtly wrong at one of them while the
+other eight stay right, and the difference reads as a test that merely
+checks something slightly different.
+
+**Kernel half of Tom's tabs request is therefore complete.** Tabs,
+self-nesting groups, movement, close, keys, palette entries, and a
+`TreeSource` impl so a sidebar inherits the tree crate's expansion,
+selection, keyboard movement and virtualisation.
+
+**NEXT:** the bindings surface — wasm + napi — so a face can draw the
+tab strip. Nothing about tabs is visible to Tom until that lands.
+
+**Still awaiting Tom:** new file into the current group, or always top
+level? Defaulting to the current group; one-line change either way.

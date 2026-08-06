@@ -104,6 +104,13 @@ required-features = ["render"]
 name = "retained_shaping"
 required-features = ["render", "syntax"]
 
+# The reserved-band proof: painting, hit-testing, scroll-to-caret and the
+# scroll clamp must all measure from the same top inset. Needs a real
+# compositor, so it needs `render`.
+[[test]]
+name = "top_inset"
+required-features = ["render"]
+
 [[bench]]
 name = "rendering"
 harness = false

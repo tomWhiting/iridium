@@ -52,6 +52,7 @@ pub mod remote_edit;
 pub mod text_range;
 #[cfg(feature = "web")]
 pub mod web_folds;
+pub mod workspace;
 
 // Napi modules (Node.js bindings)
 #[cfg(feature = "napi")]

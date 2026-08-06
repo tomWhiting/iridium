@@ -26,6 +26,16 @@ pub enum WorkspaceCommandError {
     NotAWorkspaceCommand,
 }
 
+impl core::fmt::Display for WorkspaceCommandError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotAWorkspaceCommand => formatter.write_str("not a workspace command"),
+        }
+    }
+}
+
+impl core::error::Error for WorkspaceCommandError {}
+
 impl<T> Workspace<T> {
     /// Runs a `workspace.*` command, reporting whether it changed anything.
     ///

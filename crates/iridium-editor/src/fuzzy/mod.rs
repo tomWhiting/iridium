@@ -42,11 +42,15 @@
 //! `d` of `Duplicate` and the `e` of `Line` rather than the word-initial `D`
 //! and the `e` that follows it.
 
+mod path;
 mod query;
 mod score;
 
 #[cfg(test)]
+mod path_tests;
+#[cfg(test)]
 mod score_tests;
 
+pub use path::{PathField, PathMatch, match_path};
 pub use query::{MAX_QUERY_CHARS, Query};
 pub use score::{FieldMatch, match_field};

@@ -1,23 +1,22 @@
-//! The panel itself: its state, its keys, and its rows.
+//! The explorer's state: what is open, what has been read, and what the
+//! query is.
+//!
+//! The keys that change it live in [`super::keys`] and the rows that show it
+//! in [`super::compose`]; the fields are `pub(super)` for exactly those two
+//! and are not reachable from outside this module.
 
 use std::path::{Path, PathBuf};
 
-use iridium_editor::theme::Theme;
-use iridium_editor::{KeyCode, KeyEvent, Modifiers};
-use iridium_explorer::{EntryKind, FileTree, NodeId};
+use iridium_editor::Modifiers;
+use iridium_explorer::{FileTree, NodeId};
 use iridium_tree::{Tree, TreeSource as _};
 
-use crate::overlay::{PanelAnchor, PanelContent, PanelFit, PanelRow, Span};
+use super::filter::{FilterView, filter};
+use crate::prompt::Entry;
 
-/// The most rows the panel shows at once, before the window's own limit.
-///
-/// The same number the palette and the undo tree use, so the three panels are
-/// the same size on screen; a file list that grew to fill the window would
-/// make the popover a sidebar, which is the thing it was chosen instead of.
-const PANEL_MAX_VISIBLE_ROWS: usize = 12;
-
-/// One indent level, in characters.
-const INDENT: usize = 2;
+/// The query prompt, drawn before the field. The palette's, so the two panels
+/// read as the same kind of thing.
+pub(super) const PROMPT: &str = "> ";
 
 /// What a key press did to the panel.
 ///
@@ -40,14 +39,23 @@ pub enum ExplorerOutcome {
 /// The host owns one of these, creates it when the kernel reports the
 /// `explorer.togglePanel` host command, hands it every key while it is open,
 /// polls it once per frame, and paints it over the composed frame.
+///
+/// # Two row sources, one panel
+///
+/// With an empty query the rows come from [`Tree`] — what the user has opened,
+/// and only that. With a query they come from [`super::filter`], which walks
+/// the arena and keeps the matches with their folders above them. The tree's
+/// expansion state is untouched by filtering, so clearing the query restores
+/// exactly the tree that was there before a character was typed.
 #[derive(Debug)]
 pub struct FileExplorer {
     /// The filesystem, read off the frame thread.
-    files: FileTree,
+    pub(super) files: FileTree,
     /// What is open and what is therefore visible.
-    tree: Tree<FileTree>,
-    /// The first row the window shows.
-    scroll: usize,
+    pub(super) tree: Tree<FileTree>,
+    /// The first row the window shows, counted in list rows — the query row
+    /// is not part of it and never scrolls away.
+    pub(super) scroll: usize,
     /// A node that was asked to open before its listing had landed, and
     /// opens as soon as it does.
     ///
@@ -61,7 +69,25 @@ pub struct FileExplorer {
     ///
     /// One deep, not a set: a keyboard user opens one node at a time, and
     /// the intent that matters is the last one expressed.
-    wanted: Option<NodeId>,
+    pub(super) wanted: Option<NodeId>,
+    /// The filter query.
+    ///
+    /// Its caret never moves. The arrow keys in a tree panel belong to the
+    /// tree, and a filter is three or four characters someone retypes rather
+    /// than edits — so the field takes characters and `Backspace`, and
+    /// nothing else. Giving it caret motions would cost `←` and `→`, which
+    /// are how the tree is opened and closed.
+    pub(super) query: Entry,
+    /// The filtered rows, recomputed when the query changes and when a
+    /// directory read lands. Empty whenever the query is.
+    ///
+    /// Cached rather than recomputed per frame: the palette re-ranks sixty
+    /// commands on every composition and that is free, but this walks every
+    /// node that has been read, and a large project has a great many.
+    pub(super) view: FilterView,
+    /// The selected row within [`Self::view`]. Meaningless when not
+    /// filtering, where the selection lives in the tree.
+    pub(super) filtered: usize,
 }
 
 impl FileExplorer {
@@ -70,7 +96,7 @@ impl FileExplorer {
     /// The root opens itself on the first [`poll`](Self::poll) that brings
     /// its listing, not here: a panel showing one collapsed row has told the
     /// user nothing, but expanding before the children exist would mark the
-    /// root a leaf permanently. See [`root_opened`](Self::root_opened).
+    /// root a leaf permanently.
     ///
     /// # Errors
     ///
@@ -86,7 +112,15 @@ impl FileExplorer {
             tree,
             scroll: 0,
             wanted: Some(root_id),
+            query: Entry::new(),
+            view: FilterView::default(),
+            filtered: 0,
         })
+    }
+
+    /// Whether a query is narrowing the rows.
+    pub(super) fn is_filtering(&self) -> bool {
+        !self.query.text().is_empty()
     }
 
     /// Collects any directory reads that finished, and reports whether the
@@ -100,6 +134,15 @@ impl FileExplorer {
         }
         self.tree.refresh(&mut self.files);
         self.open_what_was_wanted();
+        if self.is_filtering() {
+            // Keep the selection on the node it was on. A read landing
+            // elsewhere in the project can change which row scores best, and
+            // a selection that jumped because a background read finished
+            // would move the target out from under a keypress already in
+            // flight.
+            let held = self.selected_node();
+            self.refilter(held);
+        }
         true
     }
 
@@ -127,7 +170,7 @@ impl FileExplorer {
     /// The gate is [`FileTree::is_listed`]: expanding a node whose children
     /// have not arrived would mark it a leaf permanently. Asking the source
     /// for the children is what posts the read.
-    fn open_row(&mut self, index: usize) {
+    pub(super) fn open_row(&mut self, index: usize) {
         let Some(id) = self.tree.row(index).map(|row| row.id) else {
             return;
         };
@@ -152,253 +195,43 @@ impl FileExplorer {
         self.files.is_waiting()
     }
 
+    /// The node under the selection, from whichever list is showing.
+    pub(super) fn selected_node(&self) -> Option<NodeId> {
+        if self.is_filtering() {
+            return self.view.rows.get(self.filtered).map(|row| row.id);
+        }
+        self.tree.selected_id().copied()
+    }
+
     /// The path of the row under the selection, if there is one.
     #[must_use]
     pub fn selected_path(&self) -> Option<&Path> {
-        let id = self.tree.selected_id()?;
-        self.files.info(*id).map(|info| info.path)
+        let id = self.selected_node()?;
+        self.files.info(id).map(|info| info.path)
     }
 
-    /// Handles one key press. Every key is consumed; see [`ExplorerOutcome`].
-    pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
-        match (chord(event.modifiers), event.key) {
-            (Chord::Plain, KeyCode::Escape)
-            | (Chord::CtrlAlt | Chord::MetaAlt, KeyCode::Char('e' | 'E')) => {
-                ExplorerOutcome::Closed
-            },
-            (Chord::Plain, KeyCode::Enter) => self.activate(),
-            (Chord::Plain, KeyCode::Up) | (Chord::Ctrl, KeyCode::Char('p' | 'P')) => {
-                self.tree.move_up();
-                ExplorerOutcome::Handled
-            },
-            (Chord::Plain, KeyCode::Down) | (Chord::Ctrl, KeyCode::Char('n' | 'N')) => {
-                self.tree.move_down();
-                ExplorerOutcome::Handled
-            },
-            (Chord::Plain, KeyCode::Right) => {
-                self.expand_or_descend();
-                ExplorerOutcome::Handled
-            },
-            (Chord::Plain, KeyCode::Left) => {
-                self.tree.move_left();
-                ExplorerOutcome::Handled
-            },
-            (Chord::Plain, KeyCode::Home) => {
-                self.tree.move_to_first();
-                ExplorerOutcome::Handled
-            },
-            (Chord::Plain, KeyCode::End) => {
-                self.tree.move_to_last();
-                ExplorerOutcome::Handled
-            },
-            // Modal: everything else is swallowed, not passed to the
-            // document.
-            _ => ExplorerOutcome::Handled,
-        }
+    /// Rebuilds the filtered view, landing the selection on `held` if that
+    /// node is still a result and on the best match otherwise.
+    pub(super) fn refilter(&mut self, held: Option<NodeId>) {
+        self.view = filter(&self.files, self.query.text());
+        self.filtered = held
+            .and_then(|id| {
+                self.view
+                    .rows
+                    .iter()
+                    .position(|row| row.id == id && row.is_selectable())
+            })
+            .or(self.view.best)
+            .unwrap_or(0);
     }
-
-    /// What `Right` does: open a closed node, or step into an open one.
-    ///
-    /// Split from [`iridium_tree::Tree::move_right`] only for the closed
-    /// case, which has to go through [`open_row`](Self::open_row) rather
-    /// than expanding a node whose children may not have arrived.
-    fn expand_or_descend(&mut self) {
-        let Some(index) = self.tree.selected() else {
-            return;
-        };
-        if self
-            .tree
-            .row(index)
-            .is_some_and(iridium_tree::Row::is_openable)
-        {
-            self.open_row(index);
-        } else {
-            self.tree.move_right(&mut self.files);
-        }
-    }
-
-    /// What `Enter` does to the selected row.
-    ///
-    /// A directory toggles; a file opens. **This is the placeholder half of
-    /// an undecided question** — whether `Enter` on a directory should
-    /// instead descend, making the popover re-root itself, is Tom's to rule
-    /// on, and toggling is the answer that cannot surprise anyone in the
-    /// meantime: it is what `Right` already does, and it never moves the
-    /// ground under the selection.
-    fn activate(&mut self) -> ExplorerOutcome {
-        let Some(index) = self.tree.selected() else {
-            return ExplorerOutcome::Handled;
-        };
-        let Some(id) = self.tree.row(index).map(|row| row.id) else {
-            return ExplorerOutcome::Handled;
-        };
-        let Some(info) = self.files.info(id) else {
-            return ExplorerOutcome::Handled;
-        };
-        if info.kind.is_expandable() {
-            if self.tree.row(index).is_some_and(|row| row.expanded) {
-                self.tree.collapse(index);
-            } else {
-                self.open_row(index);
-            }
-            return ExplorerOutcome::Handled;
-        }
-        ExplorerOutcome::Open(info.path.to_path_buf())
-    }
-
-    /// Composes the panel for painting.
-    ///
-    /// `&mut self` because composition is where the scroll window follows the
-    /// selection and the page size is learned, exactly as in the palette.
-    pub fn content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
-        let total = self.tree.len();
-        // At least one row, so a tree whose root has not listed yet still
-        // says "Reading…" rather than composing an empty panel; and never
-        // more than the panel's own limit or the window's.
-        let ceiling = PANEL_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.max(1));
-        let visible = total.clamp(1, ceiling.max(1));
-        self.follow_selection(total, visible);
-
-        let mut rows = Vec::with_capacity(visible);
-        for offset in 0..visible {
-            let index = self.scroll + offset;
-            match self.tree.row(index) {
-                Some(row) => {
-                    let selected = self.tree.selected() == Some(index);
-                    rows.push(self.entry_row(
-                        row.id,
-                        row.depth,
-                        row.has_children,
-                        row.expanded,
-                        selected,
-                        theme,
-                        fit.content_columns,
-                    ));
-                },
-                // Only reachable for a tree with no rows at all, which is a
-                // root whose read has not landed yet.
-                None => rows.push(PanelRow::new(vec![Span::new(
-                    "Reading…",
-                    theme.editor.line_number,
-                )])),
-            }
-        }
-
-        PanelContent {
-            anchor: PanelAnchor::Top,
-            content_columns: fit.content_columns,
-            rows,
-            // No field has focus: this panel has no query yet. The filter
-            // arrives with the next step and brings a caret with it.
-            caret: None,
-        }
-    }
-
-    /// One row: indent, disclosure, name, and whatever the node has to say
-    /// for itself.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "every argument is one column of the row being composed; \
-                  bundling them into a struct would name the same seven \
-                  values twice"
-    )]
-    fn entry_row(
-        &self,
-        id: NodeId,
-        depth: usize,
-        has_children: bool,
-        expanded: bool,
-        selected: bool,
-        theme: &Theme,
-        width: usize,
-    ) -> PanelRow {
-        let Some(info) = self.files.info(id) else {
-            return PanelRow::new(vec![Span::new("?", theme.editor.line_number)]);
-        };
-
-        // Two characters per level, and a disclosure column every row pays
-        // for whether or not it has an arrow — so names line up down the
-        // panel instead of stepping in and out with the arrows.
-        let mut text = " ".repeat(depth.saturating_mul(INDENT));
-        text.push_str(match (has_children, expanded) {
-            (true, true) => "▾ ",
-            (true, false) => "▸ ",
-            (false, _) => "  ",
-        });
-        text.push_str(info.name);
-        if info.kind == EntryKind::Directory {
-            text.push('/');
-        }
-        if info.is_loading {
-            text.push('…');
-        }
-
-        let mut spans = vec![Span::new(
-            truncate(&text, width),
-            if info.kind.is_expandable() {
-                theme.editor.foreground
-            } else {
-                // Files sit a shade back from directories, so the shape of
-                // the tree reads before its contents do.
-                theme.editor.line_number
-            },
-        )];
-        if let Some(error) = info.error {
-            let room = width.saturating_sub(text.chars().count() + 2);
-            if room > 0 {
-                spans.push(Span::new(
-                    format!("  {}", truncate(error, room)),
-                    theme.editor.line_number,
-                ));
-            }
-        }
-
-        if selected {
-            PanelRow::selected(spans)
-        } else {
-            PanelRow::new(spans)
-        }
-    }
-
-    /// Slides the window so the selection is inside it, and never past the
-    /// end of the rows.
-    ///
-    /// The clamp is applied on the way out as well as the way in: a refresh
-    /// that removed rows can leave a scroll pointing past the end, and a
-    /// window starting past the last row draws nothing at all.
-    fn follow_selection(&mut self, total: usize, visible: usize) {
-        let last_start = total.saturating_sub(visible);
-        if let Some(selected) = self.tree.selected() {
-            if selected < self.scroll {
-                self.scroll = selected;
-            } else if visible > 0 && selected >= self.scroll + visible {
-                self.scroll = selected + 1 - visible;
-            }
-        }
-        self.scroll = self.scroll.min(last_start);
-    }
-}
-
-/// Cuts `text` to `width` characters, by characters and not by bytes.
-///
-/// An ellipsis rather than a hard cut, so a truncated name is visibly
-/// truncated — a path silently missing its last three characters is how
-/// someone opens the wrong file.
-pub(super) fn truncate(text: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if text.chars().count() <= width {
-        return text.to_owned();
-    }
-    let mut cut: String = text.chars().take(width.saturating_sub(1)).collect();
-    cut.push('…');
-    cut
 }
 
 /// The modifier shapes this panel distinguishes.
+///
+/// Shift is not among them: it decides which character a printable key
+/// produced, and the key translation has already resolved that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Chord {
+pub(super) enum Chord {
     /// No modifier that changes the meaning of the key.
     Plain,
     /// Control alone — the `Ctrl+N` / `Ctrl+P` movement pair.
@@ -412,7 +245,7 @@ enum Chord {
 }
 
 /// The chord one modifier set names.
-const fn chord(modifiers: Modifiers) -> Chord {
+pub(super) const fn chord(modifiers: Modifiers) -> Chord {
     match (modifiers.ctrl, modifiers.alt, modifiers.meta) {
         (false, false, false) => Chord::Plain,
         (true, false, false) => Chord::Ctrl,

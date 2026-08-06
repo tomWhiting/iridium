@@ -8,7 +8,8 @@
 //! the grid the GPU face draws on — the compositor places glyphs at
 //! `char × char_width`, and the prompt module records why at length.
 
-use iridium_editor::theme::Color;
+use iridium_editor::theme::{Color, Theme};
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::overlay::Span;
 
@@ -69,6 +70,54 @@ impl LineBuilder {
     pub fn finish(self) -> Vec<Span> {
         self.spans
     }
+}
+
+/// `text` split into runs, the matched grapheme clusters recoloured.
+///
+/// `positions` are the kernel's **character** positions into `text`. Each is
+/// mapped to its byte offset and from there to the grapheme cluster that
+/// contains it, so a combining sequence or a joined emoji recolours whole —
+/// splitting a colour run mid-cluster would hand the shaper half a glyph.
+///
+/// A position past the end of `text` is dropped rather than clamped, which is
+/// what makes this safe to call on a *truncated* string: the caller cuts the
+/// text to the width it has and the highlights that fell off the end go with
+/// it.
+///
+/// Shared by every panel that underlines what the user typed. A second copy
+/// would be a second answer to "which characters did the matcher mean", and
+/// the two would drift the first time either matcher changed.
+pub fn highlighted_spans(text: &str, positions: &[u32], base: Color, matched: Color) -> Vec<Span> {
+    if positions.is_empty() {
+        return vec![Span::new(text, base)];
+    }
+    let bytes: Vec<usize> = text.char_indices().map(|(byte, _)| byte).collect();
+    let matched_bytes: Vec<usize> = positions
+        .iter()
+        .filter_map(|&position| bytes.get(position as usize).copied())
+        .collect();
+
+    let mut spans: Vec<Span> = Vec::new();
+    for (start, cluster) in text.grapheme_indices(true) {
+        let end = start + cluster.len();
+        let is_match = matched_bytes
+            .iter()
+            .any(|&byte| byte >= start && byte < end);
+        let color = if is_match { matched } else { base };
+        match spans.last_mut() {
+            Some(last) if last.color == color => last.text.push_str(cluster),
+            _ => spans.push(Span::new(cluster, color)),
+        }
+    }
+    spans
+}
+
+/// The colour a matched character is recoloured with: the theme's current
+/// search-match colour at full strength, which is the same statement the
+/// terminal face makes with its match background.
+pub const fn match_color(theme: &Theme) -> Color {
+    let color = theme.editor.search_match_current;
+    Color::new(color.r, color.g, color.b, 1.0)
 }
 
 /// `text` with its first `count` characters removed — how a scrolled field

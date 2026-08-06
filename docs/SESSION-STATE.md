@@ -1,6 +1,98 @@
 # Session state — 2026-07-30
 
-## ✅ LIVE AT COMPACTION #5 (6 Aug ~10:5x local) — READ THIS FIRST
+## ✅ LIVE at 6 Aug ~10:1xZ / 19:1x local — READ THIS FIRST
+
+**#37 IS LANDED AND CLOSED — `6050896`.** It is no longer in flight; the
+section below headed "IN FLIGHT — #37" is superseded and kept only for
+its reasoning. Six gates green from my own hand, unpiped: **1958 passed
+/ 0 failed**, both `--no-default-features` configurations, the wasm32
+`cargo check`, clippy `-D warnings`, `fmt --check`.
+
+**What #37 turned out to be, beyond the plan:**
+
+1. **My own first version of the guard had the bug it was written to
+   prevent.** Bounding font size and line-height multiplier by `> 0.0`
+   admits `f32::from_bits(1)` and `f32::MIN_POSITIVE`, whose product is
+   *exactly* `0.0`. The degenerate line height was still reachable —
+   through underflow instead of through zero. Found by the property test
+   (`any_accepted_pair_yields_a_finite_positive_line_height`), not by
+   review. Both bounds are now positive floors: `MIN_FONT_SIZE = 1.0`,
+   `MIN_LINE_HEIGHT_MULTIPLIER = 0.1`.
+   Proved against the pre-fix predicate with a standalone `rustc` probe:
+   old guard accepted both, `line_height = 0.0`, `100.0 / 0.0 = inf`.
+2. **The first doc comment for `MIN_PIXEL_RATIO` gave a false reason.**
+   It claimed underflow. Scaling 14 px by a subnormal does *not*
+   underflow — multiplying by 14 raises it. The real reason is
+   agreement with the consumer: the renderer refuses a size below one
+   pixel, so any ratio under ≈0.071 would be accepted here and refused
+   there. Corrected in the comment, and a test now asserts the
+   non-underflow outright so nobody re-derives the wrong reason.
+3. **Guarding Rust alone would have created a new divergence.**
+   TypeScript sized the canvas with `|| 1` while Rust scaled the font
+   with a range check — for a ratio of `0.1` the canvas and the text
+   would disagree about how big a pixel is. So `sanitizePixelRatio` is
+   exported from wasm and **all four** TypeScript readers go through it,
+   including `getMousePosition`, which had no guard at all and put every
+   click at the origin when the ratio was zero.
+4. **Verified against the compiled artefact, not the source.**
+   `crates/iridium-bindings/pkg` was rebuilt with `wasm-pack` and driven
+   from node: `undefined`→1, `NaN`→1, `±inf`→1, `0`/`-0`→1, `-2`→1,
+   `5e-324`→1, `96`/`150`/`17`→1, and `1`/`1.25`/`1.5`/`2`/`3`/`16`
+   pass through untouched, each refusal naming its reason.
+
+⚠️ **The `pkg/` bundle is rebuilt and is NOT committed** (it is not
+tracked). Anyone running the web demo against a stale `pkg/` will get a
+hard failure — `wasm.sanitizePixelRatio` would be `undefined`. That is
+deliberate: loud beats silent. Rebuild with
+`wasm-pack build crates/iridium-bindings --target web --out-dir pkg
+--features web --no-default-features`.
+
+**🟢 TOM HAS RULED ON TABS (00:50Z):** *yes to tabs*, and he also wants
+**self-nesting groups** for organising workspaces. This **unblocks step 1
+of the sidebar plan** (`Workspace` — N documents in the kernel) and
+reverses the v1 no-tabs decision. His nesting ask lands directly on
+`crates/iridium-tree`: one generic tree, several sources, so a workspace
+of groups-containing-tabs-containing-groups is a `TreeSource`, not a
+second feature. Also still open from him: **modal editor as the terminal
+default** (modes are already keymap layers; the 22 `ast.*` and 15
+`transform.*` verbs already exist as named commands).
+
+**Owed at the next build swap:** one line naming both halves — *word-select
+is now ⌥⇧←/→; expand/shrink moved to ⌃⇧⌘←/→*.
+
+**Disk, for Cally's 00:52Z–01:09Z question (answered 01:1xZ):** I hold no
+`du` samples at those stamps and run no sampler. Measured instead by
+mtime: **5,799 files, 5,046,048 KiB = 4.81 GiB written** under
+`libs/iridium/target` inside the window; whole target dir is 9,238,508
+KiB. Reported to her explicitly as an **upper bound, not a summand** —
+it prices bytes *written*, and most were overwrites of existing
+artefacts, which move zero pool. One unquantified bias the other way:
+files written and deleted inside the window are invisible to mtime.
+Cally **withdrew the sum-to-9.15 test** on that basis and closed the
+window as *not decomposable with the instruments that exist* — consistent
+with the three declared lanes, evidences no undeclared drawer, cannot
+exclude one.
+
+### ★ ADOPTED PRACTICE — declare the ACTUAL, not just the ceiling
+
+Cally's fix, taken, and it needs no daemon: **`du -sk` on the lane's tree
+at LANE OPEN and again at LANE CLOSE, recorded as part of the price
+declaration.** Two readings, bracketing, no background process, nothing
+to orphan — which is why it beats a fixed-cadence sampler under the
+standing rule about long-lived things.
+
+★ **The reason it is the right fix: the whole after-the-fact attribution
+problem exists only because lanes declare CEILINGS and never record
+ACTUALS, forcing the board to attribute pool deltas with `df`, which
+cannot attribute. Make the actual part of the declaration and the problem
+does not get solved — it stops existing.**
+
+**Do this on the next lane opened from this seat.** Baseline reading
+already taken: **`target` = 9,238,508 KiB at 01:12Z.**
+
+---
+
+## ✅ (SUPERSEDED — #37 landed, see above) LIVE AT COMPACTION #5 (6 Aug ~10:5x local)
 
 **PUSHED AND GREEN:** `482f986` (one `pixel_to_index`), the exhaustive
 oracle doc commit, the uninformative-control correction, and **`f5b91b5`
@@ -1228,6 +1320,9 @@ agrees with its target on the examined set**.
 | a live citation | a reproducible claim | the 8-of-8 dead scratchpad artifacts |
 | a pid | a process | reboot, or pid reuse |
 | a restated conversion | the conversion it restates | any input ≥ 2^32 (added 6 Aug — see below) |
+| both factors positive | the product positive | `f32::from_bits(1) * f32::MIN_POSITIVE == 0.0` — underflow (added 6 Aug, #37) |
+| what a sanitiser accepts | what its consumer accepts | a ratio of `0.1`: sanitiser passes it, renderer refuses the resulting size |
+| bytes written in a window | bytes added in a window | an overwrite — a 4 MiB rlib replacing a 4 MiB rlib moves zero pool |
 
 Eight, four seats, one shape. **Every one was correct on every case
 anyone had checked** — which is exactly why none was caught by being

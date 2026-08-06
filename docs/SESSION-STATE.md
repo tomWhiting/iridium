@@ -49,6 +49,7 @@ Everything below is committed, pushed, and green on all six gates.
 | `a6d28d6` | the fuzzy matcher leaves the command palette for `crate::fuzzy` |
 | `cd033b6` | **`compositor.rs` split into thirteen files, none over 450** |
 | `4c68943` | **`app.rs` split into nineteen files, none over 462** |
+| `225cd1a` | **the document is fenced out of the band a face reserved** |
 
 ---
 
@@ -151,6 +152,38 @@ moving tests:
    files.** The line-level diff strips comments, so it cannot see a lost doc
    comment — and three *had* been dropped by an off-by-one in the extracted
    ranges. This check found them. **Do this on any split that moves tests.**
+
+---
+
+## 🧱 #51 — THE RESERVED BAND IS NOW FENCED, not just offset — `225cd1a`
+
+**`TextBounds` clips text. Every quad is geometry, and it clipped none of
+them.** The gutter background, its change bars, the diff line backgrounds,
+the selection highlights and the caret each tested visibility against `0.0`
+— the window's top edge, which equals the band's bottom edge for exactly as
+long as no face reserves anything.
+
+**The case they diverge on is a *scroll*.** A row's Y is
+`top_inset + row - scroll`, so a row that started below the band moves into
+it. The builders' cull asks "is this row in the window?"; nobody asked "is it
+in the band?". The left band has no such case — nothing scrolls sideways —
+which is why `left_inset.rs` has asserted an empty band since #50 and the Y
+axis still leaked.
+
+**The fix is one scissor rect on the compositor's own pass**, not five
+clamped quads: five copies of one comparison is how this bug was born. Set
+*after* the clear, so a reserved band still returns page-coloured — the
+document is fenced out, not the frame. The overlay's pass is separate and
+untouched, which is what lets a face draw in the band it claimed.
+
+`reserved_edge` **truncates**, matching `pixel_to_bound`, which is what the
+text areas clip with. A band 44.5 pixels deep must clip a glyph and the caret
+beside it at the same row.
+
+Two tests in `top_inset.rs`, both proven red first. The second exists because
+the first fails at (0, 0) on the gutter's background quad and would keep
+reporting a leak while every content quad was already correct — turn the
+gutter off and the content answers for itself.
 
 ## 🧭 THE LEFT INSET — WHAT LANDED AND WHY
 
@@ -424,10 +457,6 @@ looked at was the thing you meant.
   (`open_file` in `app.rs`, the `parent` binding).
 - **Awaiting Tom (asked 6 Aug)**: the inactive close control's alpha, and
   whether the wheel over the strip should scroll the strip.
-- **#51** the caret and line-background *quads* are drawn inside a reserved
-  band when the caret's line scrolls behind chrome. `TextBounds` does not clip
-  geometry. Masked today only because the desktop overlay paints the strip
-  opaquely afterwards.
 - **Oversized files still to split**, worst first: `wasm.rs` (3,154),
   `core.rs` (2,807), `overlay.rs` (1,768, wants its colour derivations in a
   `chrome.rs`) and `workspace/model.rs` (578, wants attach/detach/subtree in

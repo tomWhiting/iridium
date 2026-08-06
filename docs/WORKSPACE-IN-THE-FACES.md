@@ -130,7 +130,67 @@ change, before the web face multiplies its copy.
 
 ---
 
-## Build order
+## The desktop face is a much smaller job — and Tom asked for it first
+
+Counted from `apps/iridium-desktop/src/app.rs`. `DesktopApp` holds
+**nineteen** fields and only **four** are per-document:
+
+| field | line | |
+|---|---|---|
+| `editor: Editor` | 234 | the kernel's own state |
+| `scroll_y: f32` | 238 | where this document is scrolled to |
+| `file: Option<TextFile>` | 250 | the path on disk — genuinely per tab |
+| `syntax: HighlightCache` | 254 | spans cached per parse generation |
+
+Everything else — shell, modifiers, pointer, clipboard, search, palette,
+mru, menu, history, prompt, message, latency, title, failure — is per
+window and stays exactly where it is.
+
+Four against the web face's ten, with **no duplicated kernel state at all**:
+the desktop face reads `editor.fold_state()` and `editor.state().read_only`
+rather than keeping its own. So the whole `read_only` / `fold_state`
+collapse above is a web-face problem that the desktop face simply does not
+have.
+
+**The friction is the `Option`, not the fields.** `Workspace::active_editor`
+answers `Option<&Editor>`, and `self.editor` appears at 58 sites in
+`app.rs`. Matching on `None` 58 times would be miserable and would bury the
+one interesting question — *what should a window with no tabs even do?*
+
+Two things resolve it together:
+
+1. **The desktop session keeps at least one tab open.** Startup opens the
+   named file or an untitled empty buffer, exactly as today; closing the
+   last tab opens a fresh untitled one rather than leaving a void. So the
+   `None` branch is unreachable in practice — but it is still written, and
+   written as an early return, never as an `expect`.
+2. **Bind once per entry point, then pass down.** There are on the order of
+   ten event handlers (key, mouse, scroll, redraw, resize, …). Each binds
+   the active editor and payload once with a `let … else { return }`, and
+   the helper methods below take `&mut Editor` as a parameter instead of
+   reaching into `self`. That converts most of the 58 field reads into
+   local reads, and leaves those helpers testable without a window.
+
+**The borrow that would otherwise bite:** `self.search.handle_key(event,
+&mut self.editor)` needs two `&mut` into `self` at once. It works today
+because they are disjoint *fields*. It keeps working as
+`self.workspace.active_editor_mut()` for the same reason — but only if the
+accessor stays a field path. A convenience `fn editor_mut(&mut self)` on
+`DesktopApp` would borrow all of `self` and break every such call site, so
+there must not be one.
+
+### Desktop build order
+
+- **A.** `DesktopDocument { scroll_y, file, syntax }` as the payload;
+  `DesktopApp` swaps four fields for one `Workspace<DesktopDocument>`. No
+  visible change — still exactly one tab. This is the whole refactor.
+- **B.** Wire the five `workspace.*` commands and open-into-a-tab, so
+  ⌘⇧] and ⌘W do something. Still no strip, but the behaviour is live.
+- **C.** Draw the strip.
+
+---
+
+## Build order (web)
 
 1. **`Workspace<T>`** with `T: Default`, plus the `Workspace<()>` alias so no
    existing call site moves. One new test: the payload is dropped when the last

@@ -86,9 +86,20 @@ differ" into "here is precisely who is affected".**
 
 **NEGATIVE TEST — PREMISE CONFIRMED, VERDICT NOT AVAILABLE.**
 `~/.cargo/registry` **4,789,868 → 4,789,868 (+0)**, `~/.cargo/git`
-**3,950,488 → 3,950,488 (+0)** across the release build. So the release
-build genuinely downloaded nothing and **registry growth is excluded as
-the mechanism for any gap in this window.** ⚠️ **But I cannot report
+**3,950,488 → 3,950,488 (+0)** across the release build.
+
+⚠️ **CORRECTION, same hour, before this was relied on: that flatness
+carries NO information and this test was uninformative.** Cally checked
+the caches' newest-file times — registry last written 2026-08-05T08:36Z,
+git 2026-08-05T01:39Z, ~15.5 h before any of tonight's builds, with a
+positive control proving the predicate discriminates (47,571 files match
+a 2020 predicate, 83 and 1,257 match the Aug-5 one). **The caches were
+already flat before my test began**, so "flat after" was never at risk
+and confirms nothing. The mechanism I was testing had never operated.
+⇒ ★ **a control that could not have come out otherwise is not a
+control.** Check that your predicted-negative was actually *live*
+before treating its absence as evidence — otherwise a confirmation is
+just a restatement of the setup. ⚠️ **But I cannot report
 (i) vs (ii): I never took a `df` pair bracketing the release build
 alone.** The df readings I hold straddle two rerun batteries and, per
 Cally, a concurrent cold aion lane. Post-build target `du`

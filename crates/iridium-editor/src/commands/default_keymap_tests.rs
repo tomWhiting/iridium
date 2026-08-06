@@ -30,7 +30,8 @@ use super::builtin::{
     TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
     TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
     TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
-    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, builtin_registry, default_registry,
+    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, WORKSPACE_COMMAND_COUNT,
+    WORKSPACE_FIRST_TAB, WORKSPACE_LAST_TAB, builtin_registry, default_registry,
     host_command_metas,
 };
 use super::{
@@ -313,12 +314,20 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             AST_PREVIOUS_FUNCTION.as_str(),
             AST_NEXT_CLASS.as_str(),
             AST_PREVIOUS_CLASS.as_str(),
-            COMMAND_NO_OP.as_str()
+            COMMAND_NO_OP.as_str(),
+            // Palette verbs by design: jumping to the ends of a tab strip
+            // is not something anyone reaches for by key, and every bound
+            // chord is one the chord space no longer has.
+            WORKSPACE_FIRST_TAB.as_str(),
+            WORKSPACE_LAST_TAB.as_str()
         ]
     );
     // Every host command is bound too — an id the kernel names but no face can
     // discover by key is a feature nobody finds.
-    assert_eq!(bound.len(), BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT - 41);
+    assert_eq!(
+        bound.len(),
+        BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT + WORKSPACE_COMMAND_COUNT - 43
+    );
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }
 

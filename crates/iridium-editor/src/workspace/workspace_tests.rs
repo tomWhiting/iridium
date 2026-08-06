@@ -1,23 +1,37 @@
 //! Tests for the workspace: tabs, nested groups, and what survives a close.
 
-use iridium_tree::{Tree, TreeSource};
-
 use super::{Node, NodeId, Workspace};
 use crate::editor::{Editor, EditorConfig};
 use crate::theme::Theme;
 
-fn workspace() -> Workspace {
+/// A fresh, empty workspace at the default config and theme.
+pub(super) fn workspace() -> Workspace {
     Workspace::new(EditorConfig::default(), Theme::default())
 }
 
 /// The labels of every tab, in display order.
-fn tab_labels(workspace: &Workspace) -> Vec<String> {
+pub(super) fn tab_labels(workspace: &Workspace) -> Vec<String> {
     workspace
         .tabs()
         .into_iter()
         .filter_map(|id| workspace.node(id))
         .map(|node| node.label().to_owned())
         .collect()
+}
+
+/// The active node's label, or `None` when nothing is active.
+///
+/// Shared rather than re-spelled per test: activation is asserted from three
+/// test modules, and an inline `active().and_then(node).map(label)` chain
+/// repeated at each site is a chain that can be got subtly wrong at one of
+/// them — reading `roots().first()` instead of `active()`, say — while every
+/// other copy stays right and the difference reads as a test that simply
+/// checks something slightly different.
+pub(super) fn active_label(workspace: &Workspace) -> Option<&str> {
+    workspace
+        .active()
+        .and_then(|id| workspace.node(id))
+        .map(Node::label)
 }
 
 #[test]
@@ -238,13 +252,7 @@ fn closing_the_active_tab_activates_the_one_after_it() {
         "sanity: b is gone"
     );
     assert_ne!(workspace.active(), Some(first), "forward, not backward");
-    assert_eq!(
-        workspace
-            .active()
-            .and_then(|id| workspace.node(id))
-            .map(Node::label),
-        Some("c.rs")
-    );
+    assert_eq!(active_label(&workspace), Some("c.rs"));
 }
 
 #[test]
@@ -257,10 +265,7 @@ fn closing_the_last_active_tab_falls_back_to_the_one_before_it() {
     assert!(workspace.close(last));
 
     assert_eq!(
-        workspace
-            .active()
-            .and_then(|id| workspace.node(id))
-            .map(Node::label),
+        active_label(&workspace),
         Some("a.rs"),
         "closing the end must land somewhere, not nowhere"
     );
@@ -276,13 +281,7 @@ fn closing_a_group_containing_the_active_tab_moves_activation_outside_it() {
 
     assert!(workspace.close(group));
 
-    assert_eq!(
-        workspace
-            .active()
-            .and_then(|id| workspace.node(id))
-            .map(Node::label),
-        Some("b.rs")
-    );
+    assert_eq!(active_label(&workspace), Some("b.rs"));
 }
 
 #[test]
@@ -311,54 +310,6 @@ fn a_group_cannot_be_activated() {
         Some(tab),
         "a refused activation must not clear the good one"
     );
-}
-
-#[test]
-fn tab_movement_walks_the_flattened_order_across_group_boundaries() {
-    let mut workspace = workspace();
-    let group = workspace.create_group("work", None).expect("created");
-    workspace.open("a", "a.rs", Some(group)).expect("opened");
-    workspace.open("b", "b.rs", Some(group)).expect("opened");
-    workspace.open("c", "c.rs", None).expect("opened");
-    assert_eq!(tab_labels(&workspace), ["a.rs", "b.rs", "c.rs"]);
-    // `first_tab` reports whether it *moved*, and a.rs is already active
-    // because it was opened first — so `false` here is the correct answer,
-    // not a failure. Asserted on the resulting state instead.
-    workspace.first_tab();
-    assert_eq!(
-        workspace
-            .active()
-            .and_then(|id| workspace.node(id))
-            .map(Node::label),
-        Some("a.rs")
-    );
-
-    assert!(workspace.next_tab());
-    assert!(workspace.next_tab());
-
-    assert_eq!(
-        workspace
-            .active()
-            .and_then(|id| workspace.node(id))
-            .map(Node::label),
-        Some("c.rs"),
-        "movement must cross out of the group, as the display order does"
-    );
-}
-
-#[test]
-fn tab_movement_clamps_at_both_ends_rather_than_wrapping() {
-    let mut workspace = workspace();
-    workspace.open("a", "a.rs", None).expect("opened");
-    workspace.open("b", "b.rs", None).expect("opened");
-
-    assert!(workspace.last_tab());
-    assert!(
-        !workspace.next_tab(),
-        "wrapping would jump to the first tab under a held key"
-    );
-    assert!(workspace.first_tab());
-    assert!(!workspace.previous_tab());
 }
 
 #[test]
@@ -517,64 +468,4 @@ fn a_very_deep_nesting_neither_overflows_nor_truncates() {
     assert!(workspace.close(root));
     assert!(workspace.is_empty());
     assert_eq!(workspace.document_count(), 0);
-}
-
-// =========================================================================
-// The workspace as a tree source
-// =========================================================================
-
-#[test]
-fn the_tree_projects_the_workspace_and_starts_closed() {
-    let mut workspace = workspace();
-    let group = workspace.create_group("work", None).expect("created");
-    workspace.open("a", "a.rs", Some(group)).expect("opened");
-    let loose = workspace.open("b", "b.rs", None).expect("opened");
-
-    let tree = Tree::new(&mut workspace);
-
-    assert_eq!(tree.len(), 2, "the group's contents start hidden");
-    assert_eq!(tree.rows()[0].id, group);
-    assert_eq!(tree.rows()[1].id, loose);
-    assert!(tree.rows()[0].has_children);
-    assert!(!tree.rows()[1].has_children, "a tab is a leaf");
-}
-
-#[test]
-fn expanding_a_group_in_the_tree_reveals_its_children() {
-    let mut workspace = workspace();
-    let group = workspace.create_group("work", None).expect("created");
-    let inner = workspace.open("a", "a.rs", Some(group)).expect("opened");
-    let mut tree = Tree::new(&mut workspace);
-
-    assert!(tree.expand(&mut workspace, 0));
-
-    assert_eq!(tree.len(), 2);
-    assert_eq!(tree.rows()[1].id, inner);
-    assert_eq!(tree.rows()[1].depth, 1);
-}
-
-#[test]
-fn an_empty_group_reports_no_children_so_it_draws_without_an_arrow() {
-    let mut workspace = workspace();
-    let empty = workspace.create_group("empty", None).expect("created");
-
-    assert!(!workspace.has_children(&empty));
-    assert!(workspace.children(Some(&empty)).is_empty());
-
-    let tree = Tree::new(&mut workspace);
-    assert!(
-        !tree.rows()[0].has_children,
-        "an arrow onto nothing invites the click again"
-    );
-}
-
-#[test]
-fn the_tree_source_answers_for_a_tab_and_for_an_unknown_id() {
-    let mut workspace = workspace();
-    let tab = workspace.open("a", "a.rs", None).expect("opened");
-
-    assert!(workspace.children(Some(&tab)).is_empty());
-    assert!(!workspace.has_children(&tab));
-    assert!(workspace.children(Some(&NodeId(9_999))).is_empty());
-    assert!(!workspace.has_children(&NodeId(9_999)));
 }

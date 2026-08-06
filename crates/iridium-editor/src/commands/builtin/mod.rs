@@ -29,6 +29,7 @@
 mod host;
 mod ids;
 mod table;
+mod workspace;
 
 pub use host::{
     HISTORY_TOGGLE_PANEL, HOST, HOST_COMMAND_COUNT, PALETTE_OPEN, host_command_metas,
@@ -36,6 +37,11 @@ pub use host::{
 };
 pub use ids::*;
 pub use table::{BUILTIN, BUILTIN_COMMAND_COUNT};
+pub use workspace::{
+    WORKSPACE, WORKSPACE_CLOSE_TAB, WORKSPACE_COMMAND_COUNT, WORKSPACE_FIRST_TAB,
+    WORKSPACE_LAST_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB, register_workspace_commands,
+    workspace_command_metas, workspace_commands,
+};
 
 use crate::commands::{CommandMeta, CommandRegistry, RegistryError};
 
@@ -87,8 +93,11 @@ pub fn builtin_registry() -> Result<CommandRegistry, RegistryError> {
 /// [`RegistryError`] only if one of the two tables is inconsistent, or if they
 /// collide with each other; the module tests rule both out.
 pub fn default_registry() -> Result<CommandRegistry, RegistryError> {
-    let mut registry = CommandRegistry::with_capacity(BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT);
+    let mut registry = CommandRegistry::with_capacity(
+        BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT + WORKSPACE_COMMAND_COUNT,
+    );
     register_builtin_commands(&mut registry)?;
     register_host_commands(&mut registry)?;
+    register_workspace_commands(&mut registry)?;
     Ok(registry)
 }

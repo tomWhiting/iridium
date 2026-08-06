@@ -1,6 +1,48 @@
 # Session state — 2026-07-30
 
-## ✅ LIVE at 6 Aug ~10:1xZ / 19:1x local — READ THIS FIRST
+## ✅ LIVE at 6 Aug ~01:3xZ — READ THIS FIRST
+
+**TABS AND NESTED GROUPS ARE LANDED — `d2e78b8`, pushed.** Six gates
+green from my own hand: **1990 passed / 0 failed**, both
+`--no-default-features` configurations, the wasm32 check, clippy
+`-D warnings`, `fmt --check`.
+
+`crates/iridium-editor/src/workspace/` — `mod.rs`, `nav.rs`,
+`tree_source.rs`, `workspace_tests.rs`. **32 workspace tests.** Design
+map at `docs/WORKSPACE-DESIGN.md`.
+
+- `Workspace` owns N whole `Editor`s. `DocumentId` names a buffer,
+  `NodeId` names a place; separate so one file can sit in two groups with
+  one undo history. Documents drop only when no node refers to them.
+- `Node = Group { name, children } | Tab { document, title }`, nesting
+  without limit.
+- **`impl TreeSource for Workspace`** — the sidebar gets expansion,
+  selection, keyboard movement and virtualised windowing from
+  `iridium-tree`. `iridium-editor` now depends on `iridium-tree`.
+- `Editor` gained `get_config` / `set_config`; the setter re-applies the
+  undo grouping timeout, which `UndoTree` reads at construction.
+
+**STILL TO DO for tabs, in order:** commands + bindings
+(`workspace.nextTab`, `previousTab`, `closeTab`, `newGroup`), then the
+wasm/napi surface, then the faces. Nothing about the kernel half is
+deferred — it is complete and tested.
+
+**📏 LANE CLOSED WITH ITS ACTUAL** (first under the new rule): `du -sk`
+on `libs/iridium/target`, same instrument both ends — open **9,238,508
+KiB @01:12Z**, close **12,130,504 KiB @01:27Z**, **actual +2,891,996 KiB
+= 2.76 GiB**. A net block-delta on the lane tree; **never a summand
+against a pool delta.**
+
+**Law banked:** *a check that could not have failed is not a check* —
+the same law as *a control that could not have come out otherwise is not
+a control*, which I had only half of. Also: *a calibration measured on
+one population is not a property of the instrument* (`du`'s over-read is
+3–9× on many-small-files and ≈1× on an rlib tree; this repo is the
+latter, so do not discount for inflation that is not there).
+
+---
+
+## ✅ (SUPERSEDED — workspace landed, see above) LIVE at 6 Aug ~10:1xZ / 19:1x local
 
 **#37 IS LANDED AND CLOSED — `6050896`.** It is no longer in flight; the
 section below headed "IN FLIGHT — #37" is superseded and kept only for

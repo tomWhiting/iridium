@@ -1,0 +1,262 @@
+//! Capture-name mapping, and the two unstyled-list ratchets.
+
+use super::spans_for;
+use crate::Language;
+use crate::highlight::HighlightType;
+
+#[test]
+fn test_highlight_type_from_capture_name() {
+    assert_eq!(
+        HighlightType::from_capture_name("keyword"),
+        Some(HighlightType::Keyword)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("@keyword"),
+        Some(HighlightType::Keyword)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("keyword.control"),
+        Some(HighlightType::KeywordControl)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("function.method"),
+        Some(HighlightType::FunctionMethod)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("string"),
+        Some(HighlightType::String)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("comment.doc"),
+        Some(HighlightType::CommentDoc)
+    );
+}
+
+/// Capture names that deliberately produce no span.
+///
+/// A capture beginning with `_` is a predicate operand by tree-sitter
+/// convention — `(#eq? @_isinstance "isinstance")` names a node so a predicate
+/// can test it, and styling it was never intended. `none` is the same idea
+/// spelled differently: Rust's query uses it inside `#match?`, and the name is
+/// also the upstream convention for *cancelling* a highlight an earlier pattern
+/// applied. `text` is markdown prose, which should render in the plain
+/// foreground, and `text.jsx` is the same thing in another grammar — the prose
+/// between JSX elements, captured by `(jsx_text) @text.jsx`.
+///
+/// `nested` is the odd one, and it earns its place for a different reason. The
+/// pattern at `typescript/highlights.scm:70-99` hijacks `statement_block` to
+/// colour the pseudo-TypeScript snippets an LSP returns. Inside a
+/// `labeled_statement` it alternates on the body, and `(statement_block)
+/// @nested` is the **recursion arm** — it exists so the alternation succeeds
+/// when the body is another block, letting the outer `label:` capture fire.
+/// It must never carry a colour, because it matches a whole brace-delimited
+/// region: `spans_with` emits the captured node's full byte range, so mapping
+/// it would paint one span over everything inside those braces. Its author
+/// simply did not use the `_` convention.
+///
+/// Verified individually against the vendored queries rather than assumed.
+const DELIBERATELY_UNSTYLED: &[&str] = &[
+    "_isinstance",
+    "_issubclass",
+    "none",
+    "text",
+    "text.jsx",
+    "nested",
+];
+
+/// Captures that render unstyled today and should not.
+///
+/// This is a real gap, not a convention: markdown headings and link text, every
+/// CSS selector, and JSX tags all reach the screen in the plain foreground.
+/// It predates AWL and was found by the test below rather than by anyone
+/// noticing the colour, which is exactly why the test exists.
+///
+/// Listed rather than fixed here because choosing a colour for each is a
+/// presentation decision, and this stint is the language registry. The list is
+/// a ratchet: the gap cannot grow without a failing test, and the test names
+/// the language.
+const KNOWN_UNSTYLED_GAP: &[&str] = &[
+    "link_text.markup",
+    "link_uri.markup",
+    "title.markup",
+    "selector.class",
+    "selector.id",
+    "selector.pseudo",
+];
+
+#[test]
+fn every_vendored_capture_maps_to_a_highlight_type() {
+    // The bug this exists to catch is silent: an unmapped capture produces no
+    // span, so the text renders in the plain foreground and nothing anywhere
+    // reports a problem. It is invisible unless you know what colour the token
+    // was supposed to be.
+    //
+    // Checked against the compiled queries rather than by scanning the `.scm`
+    // text, so predicate arguments and comments cannot be mistaken for
+    // captures.
+    let mut unmapped: std::collections::BTreeMap<&str, Vec<&str>> =
+        std::collections::BTreeMap::new();
+
+    for &language in Language::all() {
+        let Some(query) = crate::query::compiled(language, crate::query::QueryKind::Highlights)
+            .expect("a vendored highlights.scm must compile")
+        else {
+            continue;
+        };
+        for name in query.capture_names() {
+            if HighlightType::from_capture_name(name).is_none()
+                && !DELIBERATELY_UNSTYLED.contains(name)
+                && !KNOWN_UNSTYLED_GAP.contains(name)
+            {
+                unmapped.entry(name).or_default().push(language.id());
+            }
+        }
+    }
+
+    assert!(
+        unmapped.is_empty(),
+        "these capture names produce no highlight at all, so the tokens they \
+         match render unstyled:\n{}",
+        unmapped
+            .iter()
+            .map(|(name, languages)| format!("  @{name} — used by {}", languages.join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[test]
+fn the_unstyled_lists_name_only_captures_that_are_still_unstyled_and_still_used() {
+    // Without this, both lists rot in the two ways an exception list can:
+    // a name that gets mapped stays listed as an exception forever, and a
+    // capture dropped by a vendor refresh leaves a row nothing checks. Either
+    // way the list stops describing the tree it claims to describe.
+    let mut vendored: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for &language in Language::all() {
+        if let Some(query) = crate::query::compiled(language, crate::query::QueryKind::Highlights)
+            .expect("a vendored highlights.scm must compile")
+        {
+            vendored.extend(query.capture_names().iter().copied());
+        }
+    }
+
+    for &name in DELIBERATELY_UNSTYLED.iter().chain(KNOWN_UNSTYLED_GAP) {
+        assert!(
+            vendored.contains(name),
+            "@{name} is listed as unstyled but no vendored query captures it"
+        );
+        assert!(
+            HighlightType::from_capture_name(name).is_none(),
+            "@{name} now maps to a highlight type, so it must come off the \
+             unstyled list — and if that was the fix, the list is how anyone \
+             knows what is left"
+        );
+    }
+}
+
+/// `<div>` and `<Foo>` must both reach the screen coloured.
+///
+/// The TSX query splits JSX element names by case. Lowercase names — the
+/// intrinsic HTML elements — are captured as `@tag.jsx` behind a
+/// `(#match? "^[a-z][^.]*$")` predicate at `tsx/highlights.scm:385-387`;
+/// uppercase names fall to the unpredicated `@type` pattern at `:389`. Only
+/// the second was mapped, so a component was coloured and an intrinsic element
+/// was not, in the same file and often on the same line.
+///
+/// Asserted end-to-end through the real query rather than as a
+/// `from_capture_name` equality, because the predicate is what decides which
+/// of the two patterns fires and a mapping test cannot see it.
+#[test]
+fn jsx_intrinsic_elements_are_coloured_like_components_are() {
+    const SOURCE: &str = "const a = <div><Foo /></div>;\n";
+    let spans = spans_for(Language::Tsx, SOURCE);
+
+    let at = |needle: &str| {
+        let start = SOURCE.find(needle).expect("needle is in the source");
+        spans
+            .iter()
+            .find(|span| span.start == start && span.end == start + needle.len())
+            .map(|span| span.highlight)
+    };
+
+    assert_eq!(
+        at("div"),
+        Some(HighlightType::Tag),
+        "the intrinsic element `div` rendered unstyled while `Foo` did not"
+    );
+    assert_eq!(
+        at("Foo"),
+        Some(HighlightType::Type),
+        "the component arm is the control: it was already styled and must stay so"
+    );
+}
+
+/// No byte range may carry two highlights.
+///
+/// This is the invariant `spans_with` exists to hold, and it cannot be checked
+/// downstream: `HighlightSpan`'s `Ord` compares `(start, end)` only, so a pair
+/// of spans over one range is invisible to any sort or `dedup` a consumer
+/// applies — and the desktop resolver's `sort_unstable` would pick between
+/// them arbitrarily. Asserted over every language rather than TSX alone,
+/// because the shape that produces it — a predicated pattern above a broad
+/// fallback — is a general grammar idiom, not a TSX quirk.
+#[test]
+fn no_byte_range_carries_two_different_highlights() {
+    // One source per language would be a large fixture set for a property that
+    // holds structurally, so this drives the languages whose queries are known
+    // to stack a predicated pattern over a fallback on the same node.
+    const CASES: &[(Language, &str)] = &[
+        (Language::Tsx, "const a = <div><Foo x={1} /></div>;\n"),
+        (
+            Language::TypeScript,
+            "function f(a: string): number { return a.length; }\n",
+        ),
+        (Language::JavaScript, "const x = { a: 1 }; foo(x.a);\n"),
+        (Language::Css, "a.b#c:hover { color: red; }\n"),
+        (Language::Rust, "fn main() { let x: u32 = 1; }\n"),
+    ];
+
+    let mut conflicts: Vec<String> = Vec::new();
+    for &(language, source) in CASES {
+        let spans = spans_for(language, source);
+        for pair in spans.windows(2) {
+            let (left, right) = (&pair[0], &pair[1]);
+            if left.start == right.start && left.end == right.end {
+                conflicts.push(format!(
+                    "  {} {}..{} {:?} — {:?} vs {:?}",
+                    language.id(),
+                    left.start,
+                    left.end,
+                    &source[left.start..left.end],
+                    left.highlight,
+                    right.highlight
+                ));
+            }
+        }
+    }
+
+    assert!(
+        conflicts.is_empty(),
+        "{} byte range(s) carry more than one highlight:\n{}",
+        conflicts.len(),
+        conflicts.join("\n")
+    );
+}
+
+#[test]
+fn a_namespace_capture_is_styled_rather_than_falling_through() {
+    // The regression that motivated the sweep above. AWL, C++, CSS and Go all
+    // capture @namespace, and it reached the screen unstyled.
+    assert_eq!(
+        HighlightType::from_capture_name("namespace"),
+        Some(HighlightType::Type)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("@namespace"),
+        Some(HighlightType::Type)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("module"),
+        Some(HighlightType::Type)
+    );
+}

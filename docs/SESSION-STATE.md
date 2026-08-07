@@ -2593,3 +2593,104 @@ solves it: `workspace/settings.rs:192` replays every face keymap onto every open
 tab **and every future one**, and `workspace/face_setup_tests.rs` tests both
 directions by name. Not a defect. The sticky-column half of blocker 3 is
 likewise correct today, and only becomes a question when one handler is shared.
+
+---
+
+# ▶▶▶ BATON — 8 Aug ~06:55, written under a compaction warning
+
+Supersedes every earlier "PICK UP HERE" and BATON in this file. Everything
+below is committed; nothing lives only in the conversation.
+
+## Do these, in order
+
+**1. One Meridian attempt.** ⚠️ **One per tick, not five.** It has now failed
+**ten** times with an identical `500 ... database connection pool acquire timed
+out`, across most of a night. The current text was sent verbatim as attempt 10
+and is up to date except that it does not yet mention `995e513` (the doc-link
+sweep). Tom has **not** been told out of band — `PushNotification` declines
+while the terminal is active — so **the transcript is the live channel and
+Meridian is not.**
+
+**2. The `cargo doc` question, which is now the only thing left of that sweep.**
+`995e513` took the workspace from **57 broken doc links to 0**. What remains is
+**64 warnings of one kind**: *"public documentation for X links to private item
+Y"*. Those links **work** under `--document-private-items`, which is how anyone
+reads an internal crate's docs, so stripping them would make the docs worse.
+
+Two decisions sit on top of that and **I did not make either alone**:
+- Add `#![allow(rustdoc::private_intra_doc_links)]` per crate root, with the
+  reason stated? (My recommendation: yes — it is true, and it is the only way
+  the count can ever mean anything.)
+- Gate `cargo doc` in CI? ⚠️ **Unlike the version-echo, a doc gate can turn a
+  green PR red**, which is why I stopped. If it is armed, the ci.yml discipline
+  applies: **burn down first, arm last.** The burn-down is done except for the
+  64 above.
+
+**3. Then look for the next ruling-free slice**, the way the last six were
+found. ⭐ **A blocked item is blocked on its choices, not necessarily on its
+defects.** Read a blocked item's own design map — or the sentence another
+document says it left open — for a claim that holds whichever way the ruling
+goes. That last route is how `63aa7fc` was found and it was the biggest of the
+six.
+
+## ⭐ One rule earned this tick, cheap to forget and expensive to rediscover
+
+**A `//!` module doc cannot link to a name the module merely imports or
+re-exports — only to items it defines.** `span_index/mod.rs` links
+``[`SpanIndex`]`` two lines above `pub use interval_tree::SpanIndex;` and it
+does not resolve. Every one of the 47 unresolved links was this, or a stale name.
+Write the item's own path in a module doc.
+
+Two finds inside that sweep worth keeping:
+- Markdown ate `[, ]` in `PunctuationBracket`'s doc as a link to `,`.
+- Three links named `iridium_editor::Workspace` and
+  `iridium_editor::EditorKeyResult`, **neither of which exists at the crate
+  root** — the docs named a re-export that is not there.
+
+## Commits this session, in order
+
+`e2d47c9` `cf7420c` `45b3756` `9bb09df` `0dbaeff` `dd292b4` `679e592`
+`af7a680` `19ee7e8` `28b49a4` `b35efe1` `f799f69` `772ecd7` `eb47072`
+`17dc423` `63aa7fc` `cab4e26` `6c2b536` `ac6ee1c` `995e513`
+
+## The strip
+
+| | state |
+| --- | --- |
+| #35, #75, #77 | ✅ closed this session |
+| #31 | ⛔ D-1..D-8 — but its fallback-palette defect landed (`9bb09df`) |
+| #64 | ⛔ Tom's — but its open question is **answered** (`679e592`) |
+| #58 | ⛔ three keys — but step 4b's logic landed (`28b49a4`, 19 tests) |
+| #43, #44, #45 | ⛔ all three behind L-0 |
+| #69 | 🔍 not reproduced in 160 runs; decidable at the next occurrence |
+| #70, #74's pin, Cally's hook | ⏸ Tom's |
+
+**The unblocked column is empty again.** Nothing above is a manufactured task.
+
+## The highest-value things Tom can answer
+
+1. **The three oil keys** (section 6b) — logic done, waiting behind a scoped
+   `#[allow(dead_code)]`. ⚠️ **If a later tick sees that allow, the fix is to
+   wire `keys`, not to widen the allow.**
+2. **A green light to clone nineteen grammar repos** — the only way to verify
+   #64's gzip restore. A resource call, not a ruling.
+3. ⚠️ **He has not yet acknowledged that `63aa7fc` changes how code looks.**
+   Interpolations, f-strings and generic type arguments are now differentiated.
+   I judged it taste-free (no new colour, no theme field, no capture remapped)
+   and said so in the transcript, but he has not replied. It reverts cleanly.
+
+## Gate state
+
+Nine gates green on `63aa7fc` (2,513 tests, 0 failed). Since then:
+`6c2b536` re-ran gates 1/5/9 green; `995e513` is doc comments only and was
+verified with `cargo check --workspace --all-features --all-targets` (exit 0)
+and `cargo fmt --all --check`. ⚠️ **Gates 2/3/4/6/7/8 have not run since
+`63aa7fc`** — and nothing since touches what they compile (docs, the desktop
+crate, and comments), which is the reason, not an excuse.
+
+## Box
+
+Load ~9. Disk **170 GB free** — it was 29 GB at the start of this tick, so
+something outside this seat freed ~140 GB. Tree 18.7 GB at last `du -sk`.
+Working tree clean apart from `?? .claude/skills/`, untracked at session start
+and not mine.

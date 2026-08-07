@@ -463,3 +463,24 @@ gate that only works on a quiet box is not doing anything a quiet box needed.
 Near-identical readings. The only thing separating them is **how long the run
 was going to take**. Duration is not a refinement of the gate; without it the
 gate cannot distinguish these two cases at all.
+
+### ⚠️ The sampler was killed, and the series has a seam
+
+The observer was stopped at **21:16:23** after 169 samples, not by me. It was
+restarted ~40 s later into a **new file** (`load2.tsv`) rather than appended to
+the old one.
+
+That is deliberate. The trough analysis reads consecutive rows as 30 s apart,
+so appending across the gap would have made two separate windows look like one
+continuous trough — **manufacturing a falsely wide lull, which is the exact
+direction that produces a false CLEAR.** ⭐ **A gap in a measurement series is
+data; appending across it destroys the evidence that anything was missed.**
+
+**Troughs must never be computed across the two files.** Every figure above —
+450 / 150 / 601 / 300 s — comes from `load.tsv` alone and stands unaffected.
+Anything derived from `load2.tsv` is a separate series and must be reported as
+one.
+
+A new file per continuous run makes the discontinuity structural rather than a
+comment someone has to notice, which is the same reasoning as labelling every
+trough width CLOSED or OPEN.

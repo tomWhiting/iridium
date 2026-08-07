@@ -21,6 +21,7 @@ path = "src/lib.rs"
 # separated out.
 [dependencies]
 serde.workspace = true
+toml.workspace = true
 
 # Only to assert the wire form equals `id()`. A document saved by one face
 # names a language another has to read back, so the two spellings agreeing is

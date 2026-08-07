@@ -52,6 +52,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod manifest;
 pub mod query;
 
 /// A language a document can be written in.
@@ -253,6 +254,17 @@ impl Language {
             Self::C => 11,
             Self::Cpp => 12,
         }
+    }
+
+    /// This language's vendored manifest, if one was vendored for it.
+    ///
+    /// Every variant has one today and a test asserts it, but the return type
+    /// is an `Option` rather than a bare reference because the manifests are a
+    /// vendored upstream tree: a refresh can drop a directory, and that should
+    /// cost a caller a `None` to handle rather than this crate a panic.
+    #[must_use]
+    pub fn manifest(self) -> Option<&'static manifest::Manifest> {
+        manifest::by_id(self.id())
     }
 }
 

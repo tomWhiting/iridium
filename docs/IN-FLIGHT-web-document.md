@@ -270,3 +270,50 @@ step 1 goes first: a field collapse is a change the compiler *can* fully check,
 because it enumerates every reader. Steps 2 and 3 move behaviour, and behaviour
 is the thing nothing here can test. That asymmetry should drive the ordering,
 not convenience.
+
+---
+
+## #44 IS BLOCKED TOO, and by the same thing — verified 8 Aug from both sides
+
+Checked when picking #44 up as the next unblocked item. It is not unblocked.
+
+**The wire shape is already done.** `crates/iridium-bindings/src/workspace.rs`
+is 540 lines with 470 lines of host tests, deliberately ungated so `cargo test`
+covers it, and it carries the whole design — space-tagged ids (`"n:7"` vs
+`"d:3"`), ids as strings against `f64` rounding, revision instead of a
+kernel-guessed `modified` flag. **Nothing consumes it**: `grep -c workspace` is
+**0** in both `wasm.rs` and `editor.rs`. So #44 really is only the
+`#[wasm_bindgen]` adapter layer.
+
+**But the adapter is what makes two documents possible, and two documents is
+what the web face cannot currently have correctly.**
+
+The proof is in what the desktop face does *not* carry.
+`DesktopDocument` (`apps/iridium-desktop/src/app/state.rs:59`) holds
+`scroll_y`, `file` and `syntax` — **no fold fields**. Every desktop read is
+`editor.fold_state()` (`paint.rs:74`, `pointer.rs:212`, `viewport.rs:71,97`) —
+the *kernel's* per-`Editor` fold state. That is per-document for free, and it
+works there for exactly one reason: the desktop calls `Editor::set_language`
+(`app/files.rs:85-86`).
+
+The web face does not, so its kernel fold state is inert and its own
+`WebEditor::fold_state` is a single, app-wide copy. ⭐ **Ship #44 on top of that
+and the second tab renders the first tab's folds** — a real defect, introduced
+by the commit that adds the feature.
+
+### No cheap unblock — checked
+
+Calling `set_language(Language::C)` with the stand-in `wasm.rs` already uses for
+folding would make the kernel's fold state work. It would also drive
+highlighting and comment toggling, so `Ctrl+/` would insert `//` into a JSON
+file. **That is the L-0 question, not a way around it.**
+
+### So the order is
+
+**L-0 → folds → #43 → #44 → #45.** All four sit behind one ruling.
+
+The narrow #43 (move `scroll_y`, the highlight cache and `pending_edit` into a
+`WebDocument`, leave folds and `keyboard_handler` behind) is still *available*
+and still compiles — but it buys nothing on its own, because the payoff is
+multiple documents and that is what is blocked. Doing it now would be motion
+rather than progress.

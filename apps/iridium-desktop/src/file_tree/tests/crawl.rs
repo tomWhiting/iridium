@@ -263,3 +263,71 @@ fn a_read_landing_under_a_query_does_not_move_the_selection_off_its_row() {
         "the selection stayed on the row the user left it on"
     );
 }
+
+#[test]
+fn a_regular_expression_reaches_into_folders_nobody_opened() {
+    // The crawl is the *query's*, not the fuzzy matcher's. A sigil that
+    // quietly stopped the search at what was already read would make the
+    // regex half strictly weaker than the plain half for no stated reason.
+    let directory = project();
+    let mut explorer = opened(&directory);
+
+    type_query(&mut explorer, "/^butt.n");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("button.rs")),
+        "a file two levels down, in a folder never expanded: {rows:?}"
+    );
+}
+
+#[test]
+fn the_sigil_on_its_own_reads_nothing() {
+    // Pressing the key that means "a pattern is coming" must not send the
+    // panel across the project, because an empty regular expression matches
+    // every string and there would be no bound on what it wanted.
+    let directory = project();
+    let mut explorer = opened(&directory);
+
+    type_query(&mut explorer, "/");
+    for _ in 0..8 {
+        explorer.poll();
+    }
+    assert!(
+        !explorer.is_waiting(),
+        "a bare sigil posted a read nobody asked for"
+    );
+    assert_eq!(
+        lines(&mut explorer).len(),
+        4,
+        "and the rows are still the root's own listing"
+    );
+}
+
+#[test]
+fn a_pattern_that_does_not_compile_reads_nothing_either() {
+    // **The distinction that had to be kept separate from "is it
+    // filtering".** `/[` narrows the rows to none — the tree must not flash
+    // back on screen mid-keystroke — but it cannot match anything, so every
+    // directory read on its behalf is work whose result is discarded by
+    // construction.
+    let directory = project();
+    let mut explorer = opened(&directory);
+
+    type_query(&mut explorer, "/[");
+    for _ in 0..8 {
+        explorer.poll();
+    }
+    assert!(
+        !explorer.is_waiting(),
+        "the panel went reading the disk for a pattern that cannot match"
+    );
+    let rows = lines(&mut explorer);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(
+        rows[0].starts_with("Bad pattern — "),
+        "and it says why, rather than claiming to still be looking: {:?}",
+        rows[0]
+    );
+}

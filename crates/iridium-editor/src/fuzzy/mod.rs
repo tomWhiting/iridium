@@ -51,6 +51,6 @@ mod path_tests;
 #[cfg(test)]
 mod score_tests;
 
-pub use path::{PathField, PathMatch, match_path};
+pub use path::{Basename, PathField, PathMatch, basename_start, match_path};
 pub use query::{MAX_QUERY_CHARS, Query};
 pub use score::{FieldMatch, match_field};

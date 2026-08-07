@@ -135,13 +135,19 @@ pub fn match_path(query: &Query, path: &str) -> Option<PathMatch> {
 /// Where a path's final component begins, in both bytes and characters.
 ///
 /// Both are needed and neither derives from the other cheaply: the byte offset
-/// slices the name out, and the character offset rebases the matcher's
-/// character positions onto it.
+/// slices the name out, and the character offset rebases a matcher's character
+/// positions onto it.
 ///
 /// A path ending in a separator has an *empty* final component, which is the
 /// honest answer — `src/` names a directory, and the characters the user typed
 /// are all in the chain.
-fn basename_start(path: &str) -> Offset {
+///
+/// Public because [`crate::pattern`] needs the same answer for the same
+/// reason: it also draws basenames and also has to decide which part of a
+/// match landed in one. Two implementations of "where does the name start"
+/// would drift on trailing separators and on `\` before anyone noticed.
+#[must_use]
+pub fn basename_start(path: &str) -> Basename {
     let mut byte = 0;
     let mut chars = 0;
     let mut seen = 0;
@@ -152,16 +158,16 @@ fn basename_start(path: &str) -> Offset {
             chars = seen;
         }
     }
-    Offset { byte, chars }
+    Basename { byte, chars }
 }
 
-/// A position in a string, counted both ways.
-#[derive(Debug, Clone, Copy)]
-struct Offset {
+/// Where a path's final component starts, counted both ways.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Basename {
     /// The byte offset, always on a character boundary.
-    byte: usize,
+    pub byte: usize,
     /// The character offset.
-    chars: usize,
+    pub chars: usize,
 }
 
 /// `score` with `field`'s weight applied.

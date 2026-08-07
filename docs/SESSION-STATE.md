@@ -351,9 +351,10 @@ actions on a filtered set of names are exactly what he wants. The resolution:
 
 ### Build order — step 1 is DONE, `2ad81ab`
 
-Filesystem `TreeSource` ✅ → the popover showing it ✅ (`d914bd7`) → **fuzzy
-filtering (NEXT)** → regex → **the editable-buffer half last**, since it is
-the part that touches the disk.
+Filesystem `TreeSource` ✅ → the popover showing it ✅ (`d914bd7`) → fuzzy
+filtering ✅ (`1148e73`, `3c269fa`, `b33e89e`) → regex ✅ (7 Aug) → **the
+editable-buffer half is what is left**, and it is last because it is the part
+that touches the disk.
 
 #### Step 2 — what landed, and the defect it turned up
 
@@ -561,6 +562,56 @@ file or a project is opened.
 `file_tree/tests/filter.rs` (551) → `filter.rs` (what a query does to the
 rows) + `crawl.rs` (what a query causes to be *read*), with the shared
 `project()` fixture hoisted into `support.rs`.
+
+### STEP 4 — REGEX, landed 7 Aug
+
+Tom's ruling was **a sigil, not a mode key**: plain text is fuzzy, a leading
+`/` makes the rest a regular expression. Built as
+**`crates/iridium-editor/src/pattern/`** — in the kernel for the reason
+`fuzzy` is there, that a second implementation is a bug waiting to be filed as
+a feel problem. Every decision below is invisible until two faces disagree.
+
+- **`Pattern::parse(text)`** → `Unfiltered` · `Fuzzy(Box<Query>)` ·
+  `Regex(Box<Regex>)` · `Invalid(String)`. Never fails.
+- **Two flags, not one, and keeping them apart is the whole lesson of the
+  root bug repeating itself.** `is_narrowing()` — do the rows come from the
+  filter — is **true** for `Invalid`, so a half-typed `/[` does not flash the
+  whole tree back for one keystroke. `can_match()` — is this worth reading
+  the disk for — is **false** for it, because every directory read on behalf
+  of a pattern that cannot compile is discarded by construction. The panel's
+  crawl gate and `is_waiting` both moved onto `can_match`.
+- **A bare `/` is not a filter.** An empty regular expression matches every
+  string, so a sigil treated as a pattern would flatten the tree and set the
+  crawl going the instant the key was pressed. Pinned by a test in both
+  halves.
+- **Name first, then the whole path**, mirroring `PathField`'s weights, so
+  `^mod` and `widgets/.*[.]rs` both do the obvious thing. A name hit scores
+  100, a path hit 70, which puts the selection on the file that is named what
+  you typed rather than the first file inside a folder that is.
+- **Case-insensitive, always** — the fuzzy half folds case, and a query that
+  found a file then lost it because the user reached for `/` is indefensible.
+  `(?-i)` is the escape, which is standard syntax rather than an invention.
+  **Deliberately not smart-case:** the obvious test — "does the pattern
+  contain an uppercase letter" — is wrong for `\S`, `\D`, `\W`, and doing it
+  properly means parsing the regex AST.
+- **The pattern is held on the panel, not parsed per filter.** Compiling
+  costs orders of magnitude more than matching, and the rows re-filter on
+  every landing read — dozens a second under a crawl. `requery()` is the only
+  place it is rebuilt.
+- The empty row now says **five** things; `Bad pattern — <reason>` is first,
+  for the same reason the crawl-off answer is: neither state ever drains the
+  frontier, so anything checked before them would say `Searching…` forever.
+- The reason is lifted out of `regex`'s multi-line message (heading, pattern,
+  caret diagram, `error: …`) with a whole-message fallback — ugly and never
+  wrong, which is the right way round.
+
+**Also:** `fuzzy::basename_start` and `fuzzy::Basename` are now public, since
+`pattern` needs the same answer for the same reason and two implementations
+would drift on trailing separators and on `\`.
+
+Tests: 25 in the kernel, 9 in the panel. Three claims verified red first —
+bare `/` not filtering, an invalid pattern not crawling, and the message
+order.
 
 ### The query field is deliberately caretless
 

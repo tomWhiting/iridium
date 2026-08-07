@@ -288,3 +288,111 @@ fn the_characters_the_query_matched_are_drawn_in_the_match_colour() {
         row.spans
     );
 }
+
+#[test]
+fn a_leading_slash_makes_the_query_a_regular_expression() {
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+
+    // `.` is a wildcard here and a literal in a fuzzy query, so this pattern
+    // matching `button.rs` is only possible in the mode the sigil selects.
+    type_query(&mut explorer, "/^butt.n");
+    let rows = lines(&mut explorer);
+    assert!(rows.iter().any(|row| row.contains("button.rs")), "{rows:?}");
+    assert!(
+        rows.iter().all(|row| !row.contains("render.rs")),
+        "and nothing the pattern did not match: {rows:?}"
+    );
+}
+
+#[test]
+fn a_regular_expression_keeps_the_hierarchy_a_fuzzy_query_keeps() {
+    // The sigil chooses how rows are *matched*. It does not choose how they
+    // are drawn, and a regex result that arrived as a flat list would be a
+    // second kind of thing appearing in the same panel.
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+
+    type_query(&mut explorer, "/button");
+    let rows = lines(&mut explorer);
+    assert_eq!(rows.len(), 3, "root, folder, hit: {rows:?}");
+    assert!(rows[1].contains("widgets/"), "the folder: {:?}", rows[1]);
+    assert!(rows[2].contains("button.rs"), "the hit: {:?}", rows[2]);
+    assert!(
+        rows[2].starts_with("    "),
+        "still indented under it: {:?}",
+        rows[2]
+    );
+}
+
+#[test]
+fn the_sigil_on_its_own_leaves_the_tree_exactly_as_it_was() {
+    // **The one that would have been a real defect.** An empty regular
+    // expression matches every string, so a bare `/` treated as a pattern
+    // would flatten the whole tree into the result list the instant the key
+    // was pressed — before the user had typed anything to search for.
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+    let before = lines(&mut explorer);
+
+    type_query(&mut explorer, "/");
+    assert_eq!(
+        lines(&mut explorer),
+        before,
+        "pressing the key that means `a pattern is coming` is not a filter"
+    );
+}
+
+#[test]
+fn a_pattern_that_does_not_compile_says_why_rather_than_saying_nothing_matched() {
+    // `/[` is two keystrokes into `/[a-z]`. "No matching files" would be a
+    // claim about the project; the truth is about the pattern.
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+
+    type_query(&mut explorer, "/[");
+    let rows = lines(&mut explorer);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(
+        rows[0].starts_with("Bad pattern — "),
+        "the reason, not a verdict on the files: {:?}",
+        rows[0]
+    );
+    assert!(
+        !rows[0].contains("No matching files") && !rows[0].contains("Searching"),
+        "{:?}",
+        rows[0]
+    );
+}
+
+#[test]
+fn finishing_a_half_typed_pattern_filters_without_anything_being_retyped() {
+    // The rejection is a state, not an error to dismiss: the next character
+    // is all it takes to leave it.
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+
+    type_query(&mut explorer, "/[b");
+    assert!(lines(&mut explorer)[0].starts_with("Bad pattern — "));
+
+    type_query(&mut explorer, "]");
+    let rows = lines(&mut explorer);
+    assert!(rows.iter().any(|row| row.contains("button.rs")), "{rows:?}");
+}
+
+#[test]
+fn escape_takes_back_a_regular_expression_query_like_any_other() {
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+    let before = lines(&mut explorer);
+
+    type_query(&mut explorer, "/button");
+    assert_ne!(lines(&mut explorer), before);
+
+    assert_eq!(
+        explorer.handle_key(&press(KeyCode::Escape)),
+        ExplorerOutcome::Handled,
+        "the query goes before the panel does"
+    );
+    assert_eq!(lines(&mut explorer), before);
+}

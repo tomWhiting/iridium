@@ -2476,3 +2476,43 @@ verify #64's gzip restore. That is a resource call, not a ruling.
 Working tree clean apart from `?? .claude/skills/`, which was untracked at
 session start and is not mine. Load ~6.4, 30 GB free, tree 17,280,872 KB at
 last measure. The loop is re-armed with `<<autonomous-loop-dynamic>>`.
+
+---
+
+# Tick of 8 Aug ~06:10 — baton items 1 and 2
+
+**1. Meridian attempt 9 failed.** Identical `500 ... database connection pool
+acquire timed out`. **Nine attempts, nine identical 500s**, now spanning most
+of a night. The queued text (📮 above) is current and was sent verbatim as
+attempt 9 — it needs no further amending except to add `772ecd7` below. Cadence
+holds: **one attempt per tick.**
+
+**2. The CI version-echo landed — `772ecd7`.** #74's ruling-free half. All four
+jobs in `.github/workflows/ci.yml` now echo their toolchain before doing any
+work: `rustc --version --verbose` and `cargo --version` everywhere, plus
+`cargo clippy --version` in Clippy and `cargo fmt --version` in Format, which
+are the two gates whose verdict is the toolchain's rather than the code's.
+
+Verified rather than assumed: the workflow parses (`ruby -ryaml`), each of the
+four `run` bodies is the intended one, and all four commands exit 0 on this box
+— `rustc 1.97.1 (8bab26f4f 2026-07-14)`, `cargo 1.97.1`, **`clippy 0.1.97`**,
+`rustfmt 1.9.0-stable`. ⭐ Clippy's number is *not* rustc's, and the lint set
+follows clippy's — which is why its version is printed separately rather than
+inferred from the compiler's.
+
+⚠️ **One stale citation caught and corrected before commit.** My first draft of
+the Format job's comment said `rustfmt.toml` "declares options that only
+nightly reads". It does not — #73 deleted the 19 no-ops and left the two live
+ones **commented out**. The claim that is actually live is narrower and better:
+`rustfmt.toml`'s own comment records that the 19 were measured as no-ops
+*against this toolchain and style edition*, and a measurement with a toolchain
+attached is only re-checkable if the toolchain is recorded. Same lesson as
+LIGHT-THEME-MAP fact 1: **a citation chain is not evidence; only the file is.**
+
+No Rust changed, so the gate battery had nothing new to compile, and it was not
+run. Stated plainly rather than implied — a gate that has not run is not a gate
+that passed.
+
+**#74 itself stays pending.** The pin is still Tom's: it changes the toolchain
+for everyone who builds the repo. What has changed is that its *failure mode*
+is now diagnosable while it waits.

@@ -2516,3 +2516,61 @@ that passed.
 **#74 itself stays pending.** The pin is still Tom's: it changes the toolchain
 for everyone who builds the repo. What has changed is that its *failure mode*
 is now diagnosable while it waits.
+
+**3. The fifth ruling-free slice, and the biggest — `63aa7fc`, task #77.**
+Write-up in `docs/IN-FLIGHT-span-nesting.md`.
+
+Found by following the one sentence `IN-FLIGHT-span-precedence.md` ends on:
+*"It still does not resolve nested ranges of different extents."* That was
+recorded as a reason `@nested` must stay unstyled. It was also a live defect in
+both faces.
+
+⭐ **A span nested inside another was discarded entirely.** Both resolvers
+walked the spans in start order and skipped any beginning inside a claimed
+range — and the container starts earlier, so it took every byte. A probe over
+fourteen languages found **37 containments** on ordinary lines: template
+literals, f-strings, shell interpolation, regex literals, `: Array<string>`.
+
+⭐ **The red test returned `None`, not a wrong colour.** There was no run for
+the interpolated `y` at all. That is this defect's shape: an absence, not a
+mis-colouring — which is why nothing downstream could have caught it.
+
+⭐ **One relationship, three answers.** Identical ranges resolve in the kernel;
+equal starts gave the inner span the win and then dropped the outer *whole*,
+tail included; different starts gave the outer everything. Decided by byte
+arithmetic rather than by anything anybody chose — the same defect class
+`IN-FLIGHT-span-precedence.md` closed one level down.
+
+The fix is `crates/iridium-editor/src/render/runs.rs`: one payload-generic
+sweep, innermost wins, 12 unit tests. ⭐ **It lives in the always-compiled half
+of `render` for a reason worth keeping**: its second caller is `wasm.rs`, which
+has no tests and which nothing executes, so an algorithm written there could
+only ever be verified by reading it.
+
+⚠️ **Two defects fixed in the lines being rewritten** — not scope creep, they
+are in the slicing this change replaces:
+1. **A panic path in the browser.** `snap_down` existed only in the desktop
+   face; both web resolvers sliced raw document offsets against fold-collapsed
+   content they drift from. Hoisted; all three use it now.
+2. **A per-frame clone of the whole span set** in the legacy web fallback,
+   there only because the callee sorted in place.
+
+⚠️ **Appearance changes** — and Tom should hear it from me rather than see it.
+There is no taste in it: no new colour, no theme field, no capture remapped,
+every affected byte moving from a less specific answer to a more specific one
+the grammar already gave. But it is visible, and it is in the queued message.
+
+⚠️ `apps/iridium-desktop/src/highlight.rs` is **843 lines, up from 806 — and it
+was already over the 500 bar before this change.** Recorded so a later reader
+does not attribute it here. The split is its own piece of work; the seam is the
+windowed-cache handle against the per-frame resolver.
+
+**4. One lead checked and found NOT to be a defect**, recorded so nobody spends
+a window on it twice. `IN-FLIGHT-web-document.md`'s **blocker 3** warns that a
+`KeyboardHandler` per document would duplicate the keymap stack per tab, so *"a
+config reload reaches some tabs and not others"*. The desktop face does have one
+`Editor` — and so one handler — per open document. But `Workspace` already
+solves it: `workspace/settings.rs:192` replays every face keymap onto every open
+tab **and every future one**, and `workspace/face_setup_tests.rs` tests both
+directions by name. Not a defect. The sticky-column half of blocker 3 is
+likewise correct today, and only becomes a question when one handler is shared.

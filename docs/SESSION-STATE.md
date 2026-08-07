@@ -1497,3 +1497,64 @@ an independent re-run reproduced exit 0 with byte-identical output.
 separately-recorded exit status distinguishes pass from fail. Filed as **#73**,
 along with the fact that 21 declared formatting options — including
 `error_on_line_overflow` and `error_on_unformatted` — do nothing at all.
+
+---
+
+## ▶ PICK UP HERE — state at 22:38, 2026-08-07
+
+### The one action that moves things
+
+**Run #71's three remaining gates inline, on any tick where 1-minute load is
+under 10.** Cheapest first; the first two are ~30 s each, the last is the
+expensive one:
+
+```
+cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
+cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
+cargo test --workspace --all-features --no-fail-fast
+```
+
+Four of six are already green (`fmt --check`, both no-default-features clippy
+configs, the GPU-free kernel tests) — recorded above with timings. #71 is
+committed at `bd582e1`; the commit names which gates ran and which did not, so
+nothing is being implied that was not measured.
+
+### Two things not to redo
+
+⛔ **Do not relaunch anything as a background task.** The load observer was
+killed twice and the gate runner once, the last two simultaneously — a harness
+reap, not the box. A third attempt is fighting the harness rather than reading
+it. Run gates in the foreground.
+
+⛔ **Do not restart the load sampler.** Its purpose was deriving a debounce
+span; that got demoted to belt-only once the multi-window finding landed.
+Sampling `sysctl -n vm.loadavg` inline at each tick is sufficient for deciding
+whether to run. `load.tsv` and `load2.tsv` are separate series — **never
+compute troughs across both**, the sampler was killed between them.
+
+### Blocked on Tom, all with written recommendations
+
+| task | needs | where |
+| --- | --- | --- |
+| **#58** | three key rulings — edit / delete+create / apply. Suggested Tab, Ctrl+D, ⌘S | `IN-FLIGHT-oil.md` |
+| **#64** | ruling to delete the 21 MB legacy bindings tree. Recommend yes | `IN-FLIGHT-legacy-bindings.md` |
+| **#70** | six colour choices, six unstyled captures | `IN-FLIGHT-unstyled-captures.md` |
+
+**#72** (`tag.jsx` → `Tag`, `text.jsx` and `nested` → deliberately unstyled)
+needs **no ruling** — it was split out of #70 precisely so it would not wait.
+It needs only a build.
+
+**#73** — `rustfmt.toml` declares 21 options inert on the pinned stable
+toolchain, two of them enforcement options the project believes are active.
+
+### Loop
+
+A ScheduleWakeup is armed for **23:39** with `<<autonomous-loop-dynamic>>`.
+
+### The box, all evening
+
+Another seat's legitimate lane (Vesper's `aion-rs`) held it from roughly 19:45
+onward. Four closed troughs measured before the sampler died — **450 / 150 /
+601 / 300 s** — and every battery-scale run this evening was declined on that
+basis. Full reasoning, including why a multi-window gate never clears here, is
+in `docs/IN-FLIGHT-box-gate.md`.

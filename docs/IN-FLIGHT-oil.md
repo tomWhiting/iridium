@@ -329,6 +329,54 @@ Two things came out of that:
   Not a data-loss bug: such a row is its own target, so paths below it stay
   correct. A lying message, fixed because it lies.
 
-## Still to do after step 3
-4. Confirmation view.
+## Step 4 — DONE (the content half). `confirm.rs`, 13 tests
+
+Ruling 7 fully determines what a confirmation *says*; only how you reach it
+waits on a key. So the content was built and tested, and the panel mode that
+shows it lands with the keys.
+
+Operations are listed **in the order they will happen**, because the order is
+where the surprises are: a rename cycle routed through a temporary looks like
+three renames and two of them name a file nobody typed. Someone about to
+press `y` should see that.
+
+### Nothing is hidden without saying so
+
+A panel has a fixed number of rows and a plan has no fixed length. The failure
+to avoid is a list that *looks* complete and is not — a confirmation that
+quietly drops the delete at the bottom is worse than showing none, because it
+was read and trusted. When the list is cut, the last row says how many are
+missing.
+
+That is the module's load-bearing test, and it was proven by making
+`extend_capped` truncate silently: two tests go red.
+
+### Two smaller decisions
+
+- **Paths are read against the folder on screen.** Twenty absolute paths down
+  a narrow panel are unreadable and every one repeats the same prefix. A path
+  that is *not* under the root is shown whole rather than as a fragment of
+  itself — the one rendering of a destructive operation that must never
+  happen.
+- **The three verbs reuse `change_added` / `change_modified` /
+  `change_deleted`.** Not thrift: a delete that reads the same as a rename is
+  the one distinction in this panel worth a colour, and the theme has already
+  drawn it for the same three ideas in the gutter.
+
+Refusals get the same treatment, and are named rather than numbered — "row 3"
+is a number somebody has to count to.
+
+## Still to do
+4b. The panel mode itself: Browse → Edit → Confirm, and drawing the rows
+    above. **Needs the edit key.**
 5. `⌘O`, and the apply-or-discard prompt on a filter change.
+
+### Blocked on Tom (asked, twice)
+
+1. **What enters edit mode?** Every plain character goes to the filter, so it
+   cannot be a letter. `Tab` is unbound here.
+2. **How is a row marked deleted, and how is one created?** `Ctrl+D` to strike
+   through; `Ctrl+N` is taken by *move down*, so "new row" needs another key.
+3. **What applies?** `⌘S` reads as "save this buffer", which is the oil idea.
+
+Told him I will take my own suggestions on any he does not care about.

@@ -71,6 +71,11 @@ napi-derive = "3.5.1"
 
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }
+
+# Reading the vendored language manifests. `default-features = false` drops the
+# writer half: nothing in this workspace emits TOML, and the manifests are
+# vendored upstream files that Iridium has no business rewriting.
+toml = { version = "1.1.4", default-features = false, features = ["parse", "serde"] }
 serde_json = "1.0.149"
 
 # Error handling

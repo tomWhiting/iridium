@@ -97,7 +97,7 @@ argument for reading the manifests rather than maintaining a list.
 Note `diff`, `gitcommit`, `gomod` and `gowork` are **not** hidden — they are
 real languages Iridium simply has no grammar for yet.
 
-## 5. ⚠️ The structural question — answer before writing code
+## 5. ✅ The structural question — SETTLED, and landed (`d610214`)
 
 **The manifests are in the wrong crate for the thing that needs them most.**
 
@@ -130,22 +130,123 @@ left in `iridium-lang` — possibly the answer is that they should be one crate.
 Cheapest edit, worst outcome — one vendored upstream directory becomes two
 places, and the next re-vendor has to know that.
 
-**Leaning (b)**, because it is the only one where the directory has exactly one
-owner and nothing reaches backwards, and because "what is `iridium-lang` for"
-is a question the registry step (#63) has to answer anyway. But it is a
-workspace-shape decision and it should be made deliberately rather than fallen
-into halfway through an afternoon's refactor.
+**The answer was (a), done properly** — and (b)'s substance without the fifth
+crate. (b) was the leaning because it was the only shape where the directory
+has exactly one owner and nothing reaches backwards. But (a)'s stated cost was
+the cross-crate `include_str!`, and that dissolves the moment `QueryKind` and
+the include table move down *with* the files: nothing includes across a
+boundary, and the directory still has exactly one owner. `QueryKind` naming
+`highlights.scm` is a fact about the vendored tree, not about the parser, so
+putting it there is not the dependency inversion the earlier note feared.
+
+The follow-on question — "what is left in `iridium-lang`, and should these be
+one crate?" — answers itself. `iridium-lang` has exactly two dependents,
+`iridium-syntax` and `iridium-editor`, and after #66 both need the manifests.
+After #63, `Language` is *defined by* the manifests. A crate that owns identity
+but not the data defining it would be a thin wrapper over the data crate.
+
+**The one argument for keeping the bytes out of an always-linked crate was
+measured and is empty.** 146 vendored `.scm` files, 167 KB, reachable only
+through an uncalled function across a crate boundary, built for
+`wasm32-unknown-unknown` under this workspace's release profile
+(`lto = "thin"`, `codegen-units = 1`, `strip = true`): **byte-identical output,
+348 bytes with and without.** The linker discards the function and its string
+data together. Bundle size is therefore not a reason to split a vendored tree,
+here or later.
+
+**One thing the survey missed, found by the compiler.** `iridium-syntax` had a
+`pub mod languages` — real Rust code sharing a directory with the vendored
+tree. It was three `Config` structs whose only field was `_placeholder: ()`,
+with a comment saying the real thing "will be added", referenced nowhere in the
+workspace. Removed with the move: it was scaffolding for exactly the
+per-language hard-coding the registry step replaces with manifest data.
 
 ---
 
-## Order of work, once (a)/(b)/(c) is settled
+## 6. What the reader turned up that the survey had not
 
-1. Land the crate move on its own, no behaviour change, gates green.
-2. A manifest reader — `include_str!`, parsed at first use, unknown keys
-   ignored, `hidden` respected.
-3. The equality oracle in §2, against the still-present hard-coded table.
+Written while building it. Each is a **behaviour change waiting in step 5**, and
+none of them should be made silently.
+
+### 6.1 `[overrides.*]` restates the comment keys — the trap
+
+`javascript` and `tsx` set `line_comments` and `block_comment` *twice*: once at
+the top level, and again under `[overrides.element]`, where the values are JSX's
+(`{/* … */}`, and `line_comments = { remove = true }` — a table where the
+top-level key is an array). A reader that flattened the file, or took the last
+occurrence of a key, would hand JSX's delimiters to every toggle in the
+language, and `line_comments` would not even deserialize. Serde reading only
+top-level keys gets this right; there is a test pinning it so a future reader
+cannot get it wrong quietly.
+
+### 6.2 `.h` changes language
+
+Zed's `cpp` claims `h`; its `c` does not. Iridium's table gives `.h` to C, with
+a comment conceding the ambiguity and choosing C deliberately. Reading
+`path_suffixes` flips it to C++. That is a defensible answer — most `.h` files
+in the wild are C++ — but it is a decision, not a consequence.
+
+### 6.3 `.jsonc` would be lost
+
+Zed's `json` claims `["json", "flake.lock"]`. `jsonc` is a **separate language**
+with `grammar = "jsonc"`, a grammar Iridium does not vendor, and it is what
+claims `jsonc`, `tsconfig.json`, `bun.lock`, `devcontainer.json` and
+`pyrightconfig.json`. So a naïve `from_extension` over `path_suffixes` drops
+`.jsonc → Json`, which #61 established on purpose two commits ago. Step 5 has to
+map the `jsonc` manifest onto `Language::Json` explicitly, and say why.
+
+### 6.4 Two smaller extension divergences
+
+`python`: Zed has `mpy`, Iridium has `pyw`; neither has both. `markdown`: Zed
+has `mdx` and `MD`, Iridium neither. Everything else is a strict gain — `bash`
+alone goes from three suffixes to nineteen, including `.env`, `PKGBUILD` and
+`zshrc`.
+
+### 6.5 Zed parses JavaScript with the TSX grammar
+
+`javascript/config.toml` says `grammar = "tsx"`. Iridium uses
+`tree-sitter-javascript`. Nothing depends on this yet — the grammar table is the
+registry step — but it is the first proof that `grammar` is not a synonym for
+the language id, and any registry that assumes it is will be wrong on the first
+language it meets.
+
+### 6.6 The measured cost of parsing at runtime
+
+`toml` with `default-features = false, features = ["parse", "serde"]`, reachable
+from a `wasm32-unknown-unknown` cdylib under this workspace's release profile:
+
+| | stripped `.wasm` |
+| --- | --- |
+| `Language::from_extension` only | 35,872 B |
+| plus `manifest::all()` reachable | 251,901 B |
+
+**+216,029 B (211 KiB)**, against a kernel bundle of 3,455,192 B — about
+**+6.3%**. `basic-toml` was tried as a swap and all 42 tests passed on it
+unchanged, but it saved only 47 KB: the bulk is serde's deserialization codegen,
+not the parser, so a smaller TOML crate does not solve it.
+
+Accepted for now, and named here rather than buried. The alternative that would
+actually recover the bytes is parsing in a `build.rs` and emitting a static
+table, which costs a build script and a `&'static str` twin of `Manifest` for a
+saving that is small beside the multi-megabyte grammar `.wasm` files the web
+face already loads. If it becomes worth doing, it is contained: `embedded.rs`
+and a build script change, and `Manifest`'s API does not. Tier 2 needs a runtime
+parser for user-supplied extensions regardless.
+
+---
+
+## Order of work
+
+1. ~~Land the crate move on its own, no behaviour change, gates green.~~ ✅
+   `d610214`, all eight gates green.
+2. ~~A manifest reader — `include_str!`, parsed at first use, unknown keys
+   ignored, `hidden` respected.~~ ✅ 42 tests, derivation rules red-proved.
+3. The equality oracle in §2, against the still-present hard-coded table. It has
+   to live in `iridium-editor`, not here: `language_tokens()` is what it
+   compares against, and that is downstream of this crate.
 4. Delete `language_tokens()`; `comments.rs` reads the manifest.
-5. Delete `Language::extensions()`; `from_extension` reads `path_suffixes`.
+5. Delete `Language::extensions()`; `from_extension` reads `path_suffixes` —
+   with §6.2, §6.3 and §6.4 answered explicitly, each with its own test.
 6. Whole-file-name matching (§3), separately, with its own test.
 
 Fold node kinds (`folding/language.rs`) are **not** in the schema and are not

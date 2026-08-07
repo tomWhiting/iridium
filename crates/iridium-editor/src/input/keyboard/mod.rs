@@ -62,6 +62,8 @@ mod types;
 #[cfg(test)]
 mod behavior_tests;
 #[cfg(test)]
+mod comment_manifest_tests;
+#[cfg(test)]
 mod comment_tests;
 #[cfg(test)]
 mod dispatch_tests;

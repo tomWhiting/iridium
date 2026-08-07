@@ -75,8 +75,14 @@ pub(super) struct CommentSyntax {
 /// simply untrue: the stub's `from_id` resolves every canonical id. Nothing
 /// caught it because the language tests were gated on the same feature, so
 /// the configuration that was broken was the one nothing exercised.
+///
+/// # Visibility
+///
+/// `pub(super)` only so `comment_manifest_tests` can compare it against the
+/// vendored manifest, which is the oracle for deleting it. Nothing outside this
+/// module calls it, and when the manifest replaces it both go together.
 #[allow(clippy::type_complexity)] // A pair of token options, not worth naming.
-const fn language_tokens(
+pub(super) const fn language_tokens(
     language: Language,
 ) -> (Option<&'static str>, Option<(&'static str, &'static str)>) {
     match language {

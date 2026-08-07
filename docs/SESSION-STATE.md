@@ -2983,3 +2983,108 @@ target dir. Worth a glance if it keeps falling.
    `IN-FLIGHT-span-precedence`'s "still does not resolve nested ranges", the
    manifest reader's "replaced one at a time", and now my own "for the
    languages checked".
+
+---
+
+# ▶▶▶ BATON — 8 Aug ~08:20, written under a compaction warning
+
+Supersedes every earlier BATON in this file. Everything below is committed.
+
+## Do these, in order
+
+**1. One Meridian attempt per tick.** ⚠️ **One, not five.** The bridge failed
+ten times overnight (`500 … database connection pool acquire timed out`) and
+has since succeeded **three times running** — attempts 11, 12, 13. Do not
+treat that as permanent. Next message owes Tom: **S-6** (`d013abfc`) and
+**B-5**.
+
+**2. Two questions are with Tom and neither should be answered alone:**
+- **B-2** — should Markdown auto-close `<`→`>`? The only single-character
+  pairing any manifest declares that we do not offer. **Recommend no.**
+- **B-5** — `autoclose_before`'s semantics. The manifests give the character
+  sets, not what happens at **end of line** or **before whitespace**, and
+  neither appears in any set. Strong inference that both must permit closing
+  (every set is punctuation only, so whitespace must be handled outside it);
+  **but it is an inference**, Zed is not vendored here, and this map already
+  shipped one wrong claim from a convenient inference. Recommend building S-5
+  with the assumption stated in code — **after he says so**.
+
+**3. Then the next ruling-free slice.** ⭐ **The route that has now paid three
+times in three ticks: read a document's own hedge.**
+- `IN-FLIGHT-span-precedence`'s *"still does not resolve nested ranges"* → #77
+- the manifest reader's *"the hard-coded tables are replaced one at a time"*
+  → #79 S-1
+- **my own** *"for the languages checked"* → #79 S-6
+
+## ⭐ Two rules earned this session, both expensive to rediscover
+
+**A. Parse the format, do not match it.** The auto-pair map's first draft
+claimed Markdown wanted `*` auto-closed. `\{[^}]*\}` terminates on the `}`
+inside `end = "}"`, so every `{` row was dropped **and no `close` flag was
+read at all**. `tomllib` disagreed with the regex on two of nine claims. The
+map keeps both tables, the wrong one labelled.
+
+**B. A hedge inside a clearance is a defect waiting.** "For the languages
+checked" reads as diligence and functions as cover. Check exhaustively before
+a claim goes in a design map, or write it as an open question with the check
+named.
+
+## Where #79 stands
+
+`docs/design/AUTO-PAIR-MAP.md` is the map. Landed: **S-1** (`88dde26a`, the
+pair set is the language's) and **S-6** (`d013abfc`, Enter expansion follows
+`newline`). Remaining and priced: **S-2** (Markdown's `<`, needs B-2),
+**S-3** (multi-character openers — `"""`, `r#"`, `/*`; a different data
+structure and skip-over rule), **S-4** (`not_in` scopes — ⚠️ the only slice
+that puts a syntax query on the typing path; recommend **not yet**),
+**S-5** (`autoclose_before`, needs B-5).
+
+⚠️ Trap for whoever builds S-3: `Manifest::single_char_pairs` drops
+multi-character rows **at the reader**, deliberately. Do not "fix" it by
+taking the first `char` of `r#"` — that pairs a bare `r`.
+
+## Commits this session, in order
+
+`e2d47c9` `cf7420c` `45b3756` `9bb09df` `0dbaeff` `dd292b4` `679e592`
+`af7a680` `19ee7e8` `28b49a4` `b35efe1` `f799f69` `772ecd7` `eb47072`
+`17dc423` `63aa7fc` `cab4e26` `6c2b536` `ac6ee1c` `995e513` `b373a77`
+`71da0da` `336c3ed` `3c31c2f` `88dde26a` `8ce55362` `d013abfc` `8e2f6841`
+`1f158d97`
+
+## The strip
+
+| | state |
+| --- | --- |
+| #35, #75, #77, #78 | ✅ closed |
+| #79 | 🟡 S-1 + S-6 landed; S-2/S-5 need rulings, S-3/S-4 open |
+| #31 | ⛔ D-1..D-8 — `theme/classic.rs` already carries three candidates |
+| #64 | ⛔ Tom's — open question answered (`679e592`) |
+| #58 | ⛔ three keys — step 4b's logic landed behind a scoped allow |
+| #43, #44, #45 | ⛔ all three behind L-0 |
+| #69 | 🔍 not reproduced in 160 runs |
+| #70, #74's pin, Cally's hook | ⏸ Tom's |
+
+⚠️ **If a later tick sees the `#[allow(dead_code)]` on #58's `mod mode;`, the
+fix is to wire `keys`, not to widen the allow.**
+
+## Everything blocked on Tom
+
+L-0..L-8 (blocks #43/#44/#45) · D-1..D-8 (#31) · #58's three keys · #64
+(recommend delete) · #70's six colours · #74's pin · Cally's hook · the green
+light to clone nineteen grammar repos · **B-2** · **B-5** · the `cargo doc`
+pair (allow `private_intra_doc_links` per crate root — recommend yes; gate
+`cargo doc` in CI — ⚠️ **can turn a green PR red**, so I stopped) · and an
+acknowledgement that `63aa7fc` changes how code looks.
+
+## Gate state
+
+**All nine green on `d013abfc`**: 2,530 passed, 0 failed. `8e2f6841` and
+`1f158d97` are documentation only.
+
+## Box
+
+Load ~32 and not this seat's. ⚠️ **Disk 130 GB free, down from 170 GB three
+ticks ago** — the only writes from here are source files and cargo's
+incremental target dir, so something else is consuming it. Worth a `du` if it
+keeps falling. Working tree clean apart from `?? .claude/skills/`, untracked
+at session start and not mine.

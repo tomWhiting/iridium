@@ -5,6 +5,7 @@ use crate::harness::{
     target,
 };
 use crate::support::gpu::{FONT, HEIGHT, WIDTH};
+use crate::support::pixels::assert_same_frame;
 
 /// A scroll that crosses a line boundary changes the viewport range: a full
 /// miss (stage 2b is out of scope), never the diff path.
@@ -45,7 +46,12 @@ fn a_line_scroll_misses_and_recomposes_identically() {
         &mut ActiveLanguageNoSpans,
         |_| {},
     );
-    assert!(after == cold, "the scrolled frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the scrolled frame must be byte-identical",
+    );
 }
 
 /// A surface resize changes the wrap width.
@@ -71,7 +77,12 @@ fn a_resize_misses_and_recomposes_identically() {
         &mut ActiveLanguageNoSpans,
         |_| {},
     );
-    assert!(after == cold, "the resized frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDE_WIDTH,
+        "the resized frame must be byte-identical",
+    );
 }
 
 /// Loading font data can change how `Family::Monospace` resolves.
@@ -99,7 +110,12 @@ fn loading_a_font_misses_and_recomposes_identically() {
             fresh.load_font(FONT.to_vec());
         },
     );
-    assert!(after == cold, "the post-load frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the post-load frame must be byte-identical",
+    );
 }
 
 /// The font size is a shaping metric.
@@ -129,8 +145,10 @@ fn a_font_size_change_misses_and_recomposes_identically() {
             fresh.set_font_size(16.0);
         },
     );
-    assert!(
-        after == cold,
-        "the resized-font frame must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the resized-font frame must be byte-identical",
     );
 }

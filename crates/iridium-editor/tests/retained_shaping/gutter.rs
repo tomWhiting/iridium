@@ -7,6 +7,7 @@ use crate::harness::{
     target,
 };
 use crate::support::gpu::{HEIGHT, WIDTH};
+use crate::support::pixels::assert_same_frame;
 
 /// The sharpest trap in the input set: folding hides lines without moving
 /// the document revision. The fold generation must carry the miss, and the
@@ -58,7 +59,12 @@ fn a_fold_toggle_misses_despite_an_unchanged_document_revision() {
         &mut ActiveLanguageNoSpans,
         |_| {},
     );
-    assert!(after == cold, "the folded frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the folded frame must be byte-identical",
+    );
 }
 
 /// Custom gutter text changes the gutter's text and (through its measured
@@ -90,9 +96,11 @@ fn custom_gutter_lines_miss_and_recompose_identically() {
             fresh.set_custom_gutter_lines(Some(custom.clone()));
         },
     );
-    assert!(
-        after == cold,
-        "the custom-gutter frame must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the custom-gutter frame must be byte-identical",
     );
 }
 
@@ -123,7 +131,12 @@ fn a_gutter_toggle_misses_and_recomposes_identically() {
             fresh.set_gutter_enabled(false);
         },
     );
-    assert!(after == cold, "the gutterless frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the gutterless frame must be byte-identical",
+    );
 }
 
 /// The 999→1000 digit rollover widens the gutter through an ordinary edit —
@@ -150,8 +163,10 @@ fn the_digit_rollover_recomposes_identically() {
     assert!(after != before, "the widened gutter must be visible");
 
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        after == cold,
-        "the rolled-over frame must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the rolled-over frame must be byte-identical",
     );
 }

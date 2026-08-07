@@ -6,6 +6,7 @@ use crate::harness::{
     ActiveLanguageNoSpans, cold_pixels, compose, compositor, editor_over, gpu, pixels, target,
 };
 use crate::support::gpu::{HEIGHT, WIDTH};
+use crate::support::pixels::assert_same_frame;
 
 /// The theme feeds text colors and the fallback highlighter's palette.
 #[test]
@@ -34,9 +35,11 @@ fn a_theme_flip_misses_and_recomposes_identically() {
             fresh.set_dark_theme(false);
         },
     );
-    assert!(
-        after == cold,
-        "the light-theme frame must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the light-theme frame must be byte-identical",
     );
 }
 
@@ -83,5 +86,10 @@ fn a_set_theme_misses_and_recomposes_identically() {
             fresh.set_theme(theme.clone());
         },
     );
-    assert!(after == cold, "the set-theme frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the set-theme frame must be byte-identical",
+    );
 }

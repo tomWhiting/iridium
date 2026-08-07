@@ -21,7 +21,10 @@
 //!   case-sensitively, so `from_id("rs")` was `Some(Rust)` in one build and
 //!   `None` in the other;
 //! - the real `from_extension` knew `.pyw` and the stub did not; the stub knew
-//!   `.jsonc` and the real one did not;
+//!   `.jsonc` and the real one did not. Collapsing the two took the real one's
+//!   answer, which left `.jsonc` resolving to nothing at all; the grammar was
+//!   then checked and it turned out the stub had been right, so `.jsonc` is
+//!   back — see the note on it in [`Language::extensions`];
 //! - the real enum derived `Serialize`/`Deserialize` and the stub did not, so
 //!   a value that round-tripped through a configuration in one build would not
 //!   compile in the other.
@@ -129,29 +132,68 @@ impl Language {
         }
     }
 
+    /// Every file extension that names this language, without the leading dot.
+    ///
+    /// This is the *only* extension table. [`Self::from_extension`] searches it
+    /// rather than restating it, so the forward and reverse directions cannot
+    /// disagree — a hand-written inverse is a second copy of a decision, and a
+    /// second copy is a thing that drifts. The web face's
+    /// `get_extensions_for_language` was exactly such a copy, and it went stale
+    /// the moment `.jsonc` was added here.
+    ///
+    /// Entries are lower-case, because `from_extension` lower-cases its input
+    /// before comparing; `every_extension_is_lower_case` holds that.
+    #[must_use]
+    pub const fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Self::Rust => &["rs"],
+            Self::Python => &["py", "pyi", "pyw"],
+            Self::TypeScript => &["ts", "mts", "cts"],
+            // JSX is the JavaScript grammar; there is no separate one.
+            Self::JavaScript => &["js", "mjs", "cjs", "jsx"],
+            Self::Tsx => &["tsx"],
+            Self::Go => &["go"],
+            // `.jsonc` is the JSON grammar and not a mistake: tree-sitter-json
+            // carries `comment` in its `extras`, covering both `//` and
+            // `/* */`, and the vendored `json/highlights.scm` already captures
+            // `(comment)`. A commented document parses with no error node at
+            // all. See `jsonc_is_the_json_grammar_and_its_comments_parse` in
+            // `iridium-syntax`, which pins that against a grammar bump.
+            //
+            // Highlighting is all this mapping buys. Whether `Ctrl+/` writes a
+            // comment is decided by the comment-token table in
+            // `iridium-editor`, where JSON deliberately has no token — so the
+            // toggle stays a no-op here. Giving JSON one would give every
+            // `.json` file one too, which is a separate call: the two formats
+            // share a grammar but not a specification.
+            Self::Json => &["json", "jsonc"],
+            Self::Yaml => &["yaml", "yml"],
+            Self::Markdown => &["md", "markdown"],
+            Self::Css => &["css"],
+            Self::Bash => &["sh", "bash", "zsh"],
+            // `.h` is ambiguous in reality and the choice here is C.
+            Self::C => &["c", "h"],
+            Self::Cpp => &["cpp", "cxx", "cc", "hpp", "hxx", "hh"],
+        }
+    }
+
     /// Detects a language from a file extension, without the leading dot.
     ///
     /// Case-insensitive over the whole string rather than ASCII-only, so a
     /// file named `README.MD` on a case-preserving filesystem is Markdown.
+    ///
+    /// The search is linear over [`Self::all`], which is a few dozen string
+    /// comparisons on the path that opens a file — not on any path that runs
+    /// per keystroke or per frame. Its result does not depend on the order of
+    /// that scan, because no extension belongs to two languages; that is
+    /// asserted rather than assumed, in `no_extension_names_two_languages`.
     #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
-        match ext.to_lowercase().as_str() {
-            "rs" => Some(Self::Rust),
-            "py" | "pyi" | "pyw" => Some(Self::Python),
-            "ts" | "mts" | "cts" => Some(Self::TypeScript),
-            // JSX is the JavaScript grammar; there is no separate one.
-            "js" | "mjs" | "cjs" | "jsx" => Some(Self::JavaScript),
-            "tsx" => Some(Self::Tsx),
-            "go" => Some(Self::Go),
-            "json" => Some(Self::Json),
-            "yaml" | "yml" => Some(Self::Yaml),
-            "md" | "markdown" => Some(Self::Markdown),
-            "css" => Some(Self::Css),
-            "sh" | "bash" | "zsh" => Some(Self::Bash),
-            "c" | "h" => Some(Self::C),
-            "cpp" | "cxx" | "cc" | "hpp" | "hxx" | "hh" => Some(Self::Cpp),
-            _ => None,
-        }
+        let lowered = ext.to_lowercase();
+        Self::all()
+            .iter()
+            .copied()
+            .find(|language| language.extensions().contains(&lowered.as_str()))
     }
 
     /// Every language, in the order that is this type's index space.
@@ -269,6 +311,81 @@ mod tests {
         assert_eq!(Language::from_extension("h"), Some(Language::C));
         assert_eq!(Language::from_extension("hpp"), Some(Language::Cpp));
         assert_eq!(Language::from_extension("hh"), Some(Language::Cpp));
+    }
+
+    #[test]
+    fn jsonc_is_json_but_is_not_an_identifier() {
+        // The extension resolves, because a `.jsonc` file wants the JSON
+        // grammar and that grammar parses its comments.
+        assert_eq!(Language::from_extension("jsonc"), Some(Language::Json));
+        assert_eq!(Language::from_extension("JSONC"), Some(Language::Json));
+
+        // The *identifier* deliberately does not, because nothing produces it:
+        // a face sets a document's language from `id()`, which is `"json"`.
+        // Accepting `"jsonc"` here would claim a name this type never emits and
+        // that no serialized document can contain.
+        assert_eq!(Language::from_id("jsonc"), None);
+        assert_eq!(Language::Json.id(), "json");
+    }
+
+    /// The forward and reverse directions of the one extension table agree.
+    ///
+    /// `from_extension` searches `extensions()`, so this cannot fail by
+    /// construction today. It is written down anyway because the day someone
+    /// reintroduces a hand-written match for speed, this is the test that says
+    /// what the match now owes.
+    #[test]
+    fn every_listed_extension_resolves_to_the_language_that_lists_it() {
+        for &language in Language::all() {
+            for extension in language.extensions() {
+                assert_eq!(
+                    Language::from_extension(extension),
+                    Some(language),
+                    "{language:?} lists {extension:?}, which resolves elsewhere"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn no_extension_names_two_languages() {
+        // This is what makes the scan order in `from_extension` irrelevant. If
+        // it ever fails, the fix is to decide which language owns the
+        // extension, not to reorder `all()`.
+        let mut seen: Vec<(&str, Language)> = Vec::new();
+        for &language in Language::all() {
+            for extension in language.extensions() {
+                if let Some((_, owner)) = seen.iter().find(|(name, _)| name == extension) {
+                    panic!("{extension:?} is claimed by both {owner:?} and {language:?}");
+                }
+                seen.push((extension, language));
+            }
+        }
+    }
+
+    #[test]
+    fn every_extension_is_lower_case_and_carries_no_dot() {
+        // `from_extension` lower-cases its input before comparing, so an
+        // upper-case entry here would be unreachable. A leading dot would be
+        // the same mistake in a different spelling: callers pass what
+        // `Path::extension` returns, which never includes one.
+        for &language in Language::all() {
+            assert!(
+                !language.extensions().is_empty(),
+                "{language:?} claims no extension, so no file can ever select it"
+            );
+            for extension in language.extensions() {
+                assert_eq!(
+                    *extension,
+                    extension.to_lowercase(),
+                    "{language:?} lists {extension:?} in a case `from_extension` cannot match"
+                );
+                assert!(
+                    !extension.starts_with('.'),
+                    "{language:?} lists {extension:?} with a leading dot"
+                );
+            }
+        }
     }
 
     #[test]

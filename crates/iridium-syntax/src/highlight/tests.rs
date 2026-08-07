@@ -350,3 +350,88 @@ fn test_tsx() {
 
     assert!(!spans.is_empty(), "TSX code should produce highlight spans");
 }
+
+/// A `.jsonc` document is parsed by the JSON grammar, and its comments survive.
+///
+/// This is the fact that made `Language::from_extension("jsonc")` resolve to
+/// [`Language::Json`], and it is a property of the vendored grammar rather than
+/// of anything in this repository: tree-sitter-json lists `comment` in its
+/// `extras`, so both `//` and `/* */` are legal wherever whitespace is. A
+/// grammar bump that dropped the rule would turn every commented configuration
+/// file into an error tree with no warning anywhere else, which is what this
+/// test exists to prevent.
+#[test]
+fn jsonc_is_the_json_grammar_and_its_comments_parse() {
+    const SOURCE: &str =
+        "{\n  // a line comment\n  \"a\": 1,\n  /* a block\n     comment */\n  \"b\": [2]\n}\n";
+
+    let mut tree = SyntaxTree::new(Language::Json).expect("json parses");
+    let parsed = tree.parse(SOURCE).expect("a parse must produce a tree");
+
+    assert!(
+        !parsed.root_node().has_error(),
+        "a commented JSON document must parse cleanly, not recover: {}",
+        parsed.root_node().to_sexp()
+    );
+
+    let comments: Vec<&str> = Highlighter::new(Language::Json)
+        .expect("json ships a highlights query")
+        .spans_in(parsed, SOURCE)
+        .iter()
+        .filter(|span| span.highlight == HighlightType::Comment)
+        .map(|span| &SOURCE[span.start..span.end])
+        .collect();
+
+    assert_eq!(
+        comments,
+        vec!["// a line comment", "/* a block\n     comment */"],
+        "both comment forms must highlight, and cover exactly their own text"
+    );
+}
+
+/// A trailing comma is recovered from locally, and never mis-colours anything.
+///
+/// Trailing commas are the other half of what people mean by JSONC, and the
+/// JSON grammar does *not* accept them — unlike comments, which it does. The
+/// question that mattered was not whether the tree is clean (it is not) but
+/// whether the damage is contained, because wrong highlighting is worse than
+/// none. It is contained: tree-sitter's recovery marks the missing value and
+/// carries on, so every real token either side still highlights as itself.
+#[test]
+fn a_trailing_comma_costs_an_error_node_and_nothing_else() {
+    const SOURCE: &str = "{\n  \"a\": 1,\n  \"b\": [2, 3,],\n}\n";
+
+    let mut tree = SyntaxTree::new(Language::Json).expect("json parses");
+    let parsed = tree.parse(SOURCE).expect("a parse must produce a tree");
+    assert!(
+        parsed.root_node().has_error(),
+        "the JSON grammar rejects trailing commas; if this ever passes, the \
+         grammar gained JSON5-style tolerance and this test should say so"
+    );
+
+    let spans = Highlighter::new(Language::Json)
+        .expect("json ships a highlights query")
+        .spans_in(parsed, SOURCE);
+
+    // The keys and the numbers either side of the offending commas are still
+    // themselves. Recovery that swallowed them would show as a missing span.
+    for (text, highlight) in [
+        ("\"a\"", HighlightType::Property),
+        ("\"b\"", HighlightType::Property),
+    ] {
+        let start = SOURCE.find(text).expect("the fixture contains it");
+        assert!(
+            spans.iter().any(|span| span.start == start
+                && span.end == start + text.len()
+                && span.highlight == highlight),
+            "{text} lost its {highlight:?} span to error recovery"
+        );
+    }
+
+    assert!(
+        spans
+            .iter()
+            .all(|span| span.start < span.end && span.end <= SOURCE.len()),
+        "recovery must not produce a degenerate or out-of-bounds span"
+    );
+}

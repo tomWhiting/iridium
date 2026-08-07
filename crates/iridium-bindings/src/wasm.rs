@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
-use crate::display_scale::sanitize_pixel_ratio;
+use crate::display_scale::{BASE_FONT_SIZE, DisplayScale, sanitize_pixel_ratio};
 use crate::edit_tracking::{
     EditSpan, EditSpanError, PendingEdit, byte_point, compose_pending, compute_edit_span,
 };
@@ -322,24 +322,28 @@ pub async fn create_web_editor(
     // is `0` in some headless environments and `undefined` before first
     // layout, and both reach here as values that make the line height zero
     // and the first visible line `usize::MAX`.
-    let pixel_ratio = match sanitize_pixel_ratio(pixel_ratio) {
-        Ok(ratio) => ratio,
-        Err((fallback, fault)) => {
-            // Scientific notation for the reason given on
-            // `sanitize_pixel_ratio_js`.
-            log(&format!(
-                "[Iridium] Refusing pixel ratio {pixel_ratio:e} ({}); using {fallback}",
-                fault.reason()
-            ));
-            fallback
-        },
-    };
+    //
+    // Through `DisplayScale` rather than `sanitize_pixel_ratio` directly, so
+    // this shares one path with `WebEditor::set_pixel_ratio` — construction
+    // and re-application must not be able to disagree about what a usable
+    // ratio is or what font size it implies.
+    let scale = DisplayScale::resolve(pixel_ratio);
+    if let Some(fault) = scale.fault {
+        // Scientific notation for the reason given on
+        // `sanitize_pixel_ratio_js`.
+        log(&format!(
+            "[Iridium] Refusing pixel ratio {pixel_ratio:e} ({}); using {}",
+            fault.reason(),
+            scale.ratio
+        ));
+    }
 
     // Get canvas dimensions
     let width = canvas.width();
     let height = canvas.height();
     log(&format!(
-        "[Iridium] Canvas size: {width}x{height}, pixel ratio: {pixel_ratio}"
+        "[Iridium] Canvas size: {width}x{height}, pixel ratio: {}",
+        scale.ratio
     ));
 
     // Create the web surface
@@ -369,22 +373,22 @@ pub async fn create_web_editor(
         JsValue::from_str(&msg)
     })?;
 
-    // Scale font size for HiDPI displays
-    let base_font_size = 14.0;
-    let scaled_font_size = base_font_size * pixel_ratio;
-    // The ratio is already sanitised, so this cannot fail today: the product
-    // of a positive base and a ratio in `(0, MAX_PIXEL_RATIO]` is inside the
-    // renderer's bounds. Checked anyway, because "cannot fail today" is a
-    // property of two constants that live in different crates, and the
-    // renderer keeping its previous size while the face believed it had
-    // changed is exactly the silent mismatch worth a line in the console.
-    if compositor.set_font_size(scaled_font_size) {
+    // Scale font size for HiDPI displays. The ratio is already sanitised, so
+    // this cannot fail today: the product of a positive base and a ratio in
+    // `(0, MAX_PIXEL_RATIO]` is inside the renderer's bounds. Checked anyway,
+    // because "cannot fail today" is a property of two constants that live in
+    // different crates, and the renderer keeping its previous size while the
+    // face believed it had changed is exactly the silent mismatch worth a line
+    // in the console.
+    if compositor.set_font_size(scale.font_size) {
         log(&format!(
-            "[Iridium] Font size: {scaled_font_size} (base {base_font_size} * ratio {pixel_ratio})"
+            "[Iridium] Font size: {} (base {BASE_FONT_SIZE} * ratio {})",
+            scale.font_size, scale.ratio
         ));
     } else {
         log(&format!(
-            "[Iridium] Renderer refused font size {scaled_font_size}; keeping its default"
+            "[Iridium] Renderer refused font size {}; keeping its default",
+            scale.font_size
         ));
     }
     log("[Iridium] FrameCompositor created");
@@ -1579,6 +1583,75 @@ impl WebEditor {
         self.surface.resize(width, height);
         self.compositor.resize(self.surface.queue(), width, height);
         self.needs_redraw = true;
+    }
+
+    /// Re-applies the display scale factor after it changes.
+    ///
+    /// Returns whether the derived font size was accepted; `false` leaves the
+    /// previous size in place and means the renderer's bounds and
+    /// [`DisplayScale`]'s have drifted apart, which is reported rather than
+    /// dropped for the same reason it is at construction.
+    ///
+    /// # Why this export has to exist
+    ///
+    /// The font size is the one quantity derived from `devicePixelRatio` that
+    /// the host cannot recompute for itself. The canvas backing store, mouse
+    /// coordinates and the viewport height are all read fresh on the
+    /// TypeScript side every time they are used; the font size was computed
+    /// once, inside `createWebEditor`, and there was no way to change it
+    /// afterwards. So a browser window dragged from a 2× display to a 1× one
+    /// kept text sized for the display it left. See
+    /// `docs/IN-FLIGHT-35-hidpi.md`.
+    ///
+    /// # What it deliberately does not do
+    ///
+    /// It does not resize the canvas or the surface. A ratio change and a size
+    /// change are different events that happen to co-occur — dragging between
+    /// displays changes the ratio while the CSS box stays exactly the same
+    /// size, and a window drag on one display does the opposite. Folding the
+    /// two together here would make one of those two cases do the wrong thing
+    /// silently. The host calls [`Self::resize`] when the pixel dimensions
+    /// change and this when the ratio does, and both when both do.
+    ///
+    /// # Why the character width comes out right
+    ///
+    /// `set_font_size` remeasures it. That was not true before #35 — the
+    /// compositor's cached width was written only by `load_font`, so this
+    /// method would have set an honest line height beside a stale character
+    /// width and misplaced every caret by the ratio. The font bytes are not
+    /// reloaded here and do not need to be: they are already in the font
+    /// system, and only the measurement was size-dependent.
+    #[wasm_bindgen(js_name = setPixelRatio)]
+    pub fn set_pixel_ratio(&mut self, pixel_ratio: f32) -> bool {
+        let scale = DisplayScale::resolve(pixel_ratio);
+        if let Some(fault) = scale.fault {
+            log(&format!(
+                "[Iridium] Refusing pixel ratio {pixel_ratio:e} ({}); using {}",
+                fault.reason(),
+                scale.ratio
+            ));
+        }
+
+        let accepted = self.compositor.set_font_size(scale.font_size);
+        if accepted {
+            log(&format!(
+                "[Iridium] Pixel ratio now {}; font size {}",
+                scale.ratio, scale.font_size
+            ));
+        } else {
+            log(&format!(
+                "[Iridium] Renderer refused font size {}; keeping the previous one",
+                scale.font_size
+            ));
+        }
+
+        // Unconditionally, and after either branch. A refused size still
+        // leaves a frame that was composed for a different display on screen,
+        // and the scroll offset is in physical pixels either way — so the
+        // clamp below has to run even when nothing about the font changed.
+        self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll_y());
+        self.needs_redraw = true;
+        accepted
     }
 
     /// Gets the current vertical scroll offset.

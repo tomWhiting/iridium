@@ -161,27 +161,60 @@ on this path. Checked rather than assumed — this was a suspected second defect
 and it is not one.
 
 **2. Bindings — `WebEditor::setPixelRatio(ratio)`.**
-Sanitised through the existing `display_scale::sanitize_pixel_ratio`, so the
-re-apply path and the construction path cannot disagree about what a usable
-ratio is. The 14.0 base and the multiplication move into `display_scale` as a
-named function with host tests, because at present the constant is written twice
-— `wasm.rs:373` and `startup.rs:41` — and the duplication is only safe while
-nobody changes one.
+Through a new `DisplayScale::resolve`, which is the *only* way to get a font
+size from a ratio, so construction and re-application cannot disagree about
+what a usable ratio is. `sanitize_pixel_ratio` on its own is a guard a caller
+can forget, and #35 is the shape of what happens when one does.
+
+⚠️ **This does not deduplicate the base font size across the estate, and an
+earlier draft of this document said it would.** `14.0` is written in three
+places — `render/text.rs:19` (the renderer's private default), the desktop's
+`app/startup.rs:41`, and, until now, a `let` inside `create_web_editor`. This
+change removes the third; it cannot remove the first two, because the shared
+home would have to be `iridium-editor` and moving a private renderer constant
+into the public surface is a separate change with its own blast radius. What it
+does do is make the remaining duplication *checked*: `display_scale`'s test
+module already kept a deliberate copy of the value with a comment saying "if
+that constant moves, this test should be the thing that notices", which was
+unenforceable while the real value lived in a `let`. It is now an assertion.
 
 **3. TypeScript — detect the change and call it.**
 A re-arming `matchMedia` watcher, plus a ratio check inside the existing
 `ResizeObserver` so the two paths converge on the same call. Both routed through
-one private method so there is exactly one place that decides what happens when
-the ratio moves.
+one private method so there is exactly one place that decides whether the kernel
+was told.
+
+The controller gains `appliedPixelRatio` — the ratio the kernel was last given.
+⭐ **A fresh read cannot replace it**: applying a *change* requires knowing what
+was applied before, which is exactly the thing the four correct fresh readers
+never needed and the font size always did. It also makes the canvas's current
+CSS size recoverable by division, so the watcher path resizes without a layout
+read that could disagree with the observer's `contentRect` by a padding.
 
 ---
 
 ## Progress
 
 - [x] Ground verified: desktop correct, web broken, kernel defect named
-- [ ] Red test for the kernel defect, proven red
-- [ ] Kernel fix
-- [ ] `display_scale::scaled_font_size` + host tests
-- [ ] `setPixelRatio` export
-- [ ] TypeScript watcher
-- [ ] Eight-gate battery + the ninth (wasm clippy)
+- [x] Red test for the kernel defect, proven red — reported `8.428711` against
+      an honest `16.857422`, exactly the 2× ratio of the two font sizes
+- [x] Kernel fix (`e2d47c9`)
+- [x] `DisplayScale::resolve` + 11 host tests
+- [x] `setPixelRatio` export, verified present in the generated bundle
+      (`pkg/iridium_bindings.d.ts:342`, `.js:988`)
+- [x] TypeScript watcher; `deno check` clean
+- [x] All nine gates green
+
+## What is left, and why it is not deferred work
+
+**A browser-side confirmation with two physical displays.** Everything above is
+verified by test, by type check, and by reading the generated bundle — but the
+event this fixes is a window crossing between two monitors with different scale
+factors, and this box's harness cannot stage that. The demo needs its wasm
+bundle rebuilt (done: `wasm-pack build crates/iridium-bindings --target web
+--features web --no-default-features`) and then a drag between displays.
+
+That is a hardware-availability limit on *observation*, stated rather than
+quietly skipped. The change does not depend on it: the kernel half has a
+discriminating test that was proven red, and the TypeScript half is two paths
+into one guarded call.

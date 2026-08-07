@@ -191,6 +191,20 @@ mod tests {
         sanitize_pixel_ratio,
     };
 
+    /// Bit-equality, and it is the honest question rather than a strictness
+    /// anybody should soften.
+    ///
+    /// Every value compared with this was either returned unchanged by
+    /// [`DisplayScale::resolve`] or produced by the single multiplication
+    /// `BASE_FONT_SIZE * ratio` — which the assertions reproduce exactly, in
+    /// the same order, so the two are bit-identical or the function did
+    /// something other than what it says. An epsilon band here would admit a
+    /// result computed differently, which is precisely what these tests exist
+    /// to catch. This is the justification `clippy::float_cmp` asks for.
+    fn same_f32(left: f32, right: f32) -> bool {
+        left.to_bits() == right.to_bits()
+    }
+
     /// The base font size `createWebEditor` scales by the ratio. Duplicated
     /// here on purpose: if that constant moves, this test should be the
     /// thing that notices.
@@ -408,9 +422,14 @@ mod tests {
     fn resolving_a_real_display_ratio_reports_no_fault() {
         for ratio in [1.0_f32, 1.25, 1.5, 2.0, 3.0] {
             let scale = DisplayScale::resolve(ratio);
-            assert_eq!(scale.ratio, ratio);
             assert!(
-                (scale.font_size - BASE_FONT_SIZE * ratio).abs() < f32::EPSILON,
+                same_f32(scale.ratio, ratio),
+                "a real display's ratio must survive resolution unchanged, and \
+                 {ratio} became {}",
+                scale.ratio
+            );
+            assert!(
+                same_f32(scale.font_size, BASE_FONT_SIZE * ratio),
                 "the font size must be the base scaled by the ratio, and was {}",
                 scale.font_size
             );
@@ -435,9 +454,13 @@ mod tests {
         ] {
             let scale = DisplayScale::resolve(input);
             assert_eq!(scale.fault, Some(expected), "for input {input}");
-            assert_eq!(scale.ratio, FALLBACK_PIXEL_RATIO);
             assert!(
-                (scale.font_size - BASE_FONT_SIZE * FALLBACK_PIXEL_RATIO).abs() < f32::EPSILON,
+                same_f32(scale.ratio, FALLBACK_PIXEL_RATIO),
+                "an unusable ratio must fall back, and {input} gave {}",
+                scale.ratio
+            );
+            assert!(
+                same_f32(scale.font_size, BASE_FONT_SIZE * FALLBACK_PIXEL_RATIO),
                 "an unusable ratio must still leave a legible editor, and gave {}",
                 scale.font_size
             );
@@ -491,9 +514,12 @@ mod tests {
         for input in [2.0_f32, 0.0, f32::NAN, 96.0, 1.5] {
             let once = DisplayScale::resolve(input);
             let twice = DisplayScale::resolve(once.ratio);
-            assert_eq!(
-                once.ratio, twice.ratio,
-                "a resolved ratio must survive being resolved again"
+            assert!(
+                same_f32(once.ratio, twice.ratio),
+                "a resolved ratio must survive being resolved again: {input} gave \
+                 {} and then {}",
+                once.ratio,
+                twice.ratio
             );
             assert_eq!(twice.fault, None, "and must have nothing left to report");
         }

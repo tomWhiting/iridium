@@ -225,6 +225,7 @@ interface WebEditor {
   forceRender(): void;
   render(): void;
   resize(width: number, height: number): void;
+  setPixelRatio(ratio: number): boolean;
   insert(text: string): void;
   backspace(): void;
   delete_forward(): void;
@@ -456,15 +457,37 @@ export class IridiumEditor {
     return this.sanitizePixelRatio(window.devicePixelRatio);
   }
 
+  /**
+   * The ratio the kernel was last told about, and the one the canvas backing
+   * store was last sized with.
+   *
+   * ⭐ Held because the fresh getter above is not enough on its own, and #35
+   * is what that looked like. Four things re-read `devicePixelRatio` every
+   * time they need it — canvas sizing, mouse coordinates, viewport height —
+   * and were correct. The font size was never a read: it was computed once
+   * inside `createWebEditor` and baked into the compositor, so a window
+   * dragged from a 2x display to a 1x one kept text sized for the display it
+   * left. Applying a change requires knowing what was applied before, which
+   * no fresh read can tell you.
+   *
+   * It also makes the canvas's current CSS size exactly recoverable — the
+   * backing store divided by this — which is what
+   * {@link applyDisplayScale} resizes from, with no layout read and no
+   * content-box/border-box mismatch to get wrong.
+   */
+  private appliedPixelRatio: number;
+
   private constructor(
     canvas: HTMLCanvasElement,
     editor: WebEditor,
     options: IridiumEditorOptions,
-    sanitizePixelRatio: (ratio: number) => number
+    sanitizePixelRatio: (ratio: number) => number,
+    initialPixelRatio: number
   ) {
     this.canvas = canvas;
     this.editor = editor;
     this.sanitizePixelRatio = sanitizePixelRatio;
+    this.appliedPixelRatio = initialPixelRatio;
     this.options = {
       content: options.content ?? "",
       language: options.language ?? "rust",
@@ -558,7 +581,10 @@ export class IridiumEditor {
     const editor = await wasm.createWebEditor(canvas, pixelRatio);
 
     // Create the controller
-    const instance = new IridiumEditor(canvas, editor, options, sanitizePixelRatio);
+    // `pixelRatio` is passed on as the applied ratio, not re-read: the canvas
+    // above and the compositor's font size were both derived from this exact
+    // number, and that agreement is the invariant `appliedPixelRatio` records.
+    const instance = new IridiumEditor(canvas, editor, options, sanitizePixelRatio, pixelRatio);
 
     // Initialize
     await instance.initialize();
@@ -689,14 +715,135 @@ export class IridiumEditor {
         const { width, height } = entry.contentRect;
         if (width === 0 || height === 0) continue;
         const { pixelRatio } = this;
+        // Before the canvas is sized, so the font and the backing store are
+        // derived from the same ratio within one turn. A display change that
+        // also changes the box size arrives here rather than at the watcher
+        // below, and this is the only thing that makes the two paths agree.
+        this.applyPixelRatioToKernel(pixelRatio);
         this.canvas.width = width * pixelRatio;
         this.canvas.height = height * pixelRatio;
+        this.appliedPixelRatio = pixelRatio;
         this.editor.resize(this.canvas.width, this.canvas.height);
         this.editor.forceRender();
       }
     });
     resizeObserver.observe(resizeTarget);
     this.eventCleanup.push(() => resizeObserver.disconnect());
+
+    this.watchDisplayScale();
+  }
+
+  /**
+   * Re-applies the display scale factor whenever it changes.
+   *
+   * ⚠️ **The `ResizeObserver` above cannot carry this on its own.** Dragging a
+   * window from a 2x display to a 1x one usually leaves the CSS box exactly
+   * the same size, so the observer has nothing to report and never fires — yet
+   * every physical dimension in the editor just changed. There is no resize
+   * event to hang the fix on.
+   *
+   * The platform offers no `devicePixelRatiochange` event either. The
+   * supported mechanism is a media query pinned to the *current* ratio, which
+   * stops matching the moment the ratio moves. That makes it a one-shot: it
+   * must be re-armed at the new ratio each time, which is why this calls
+   * itself rather than looping.
+   *
+   * `dppx` and `devicePixelRatio` are the same quantity, so the query is exact
+   * rather than a threshold. It is written with a small tolerance band anyway
+   * because the ratio is a float and an exact-equality media query on
+   * something like 1.7647058823529411 is asking the browser's parser to
+   * round-trip a value it may not.
+   */
+  private watchDisplayScale(): void {
+    if (typeof window.matchMedia !== "function") return;
+
+    // Held so re-arming replaces the previous watch rather than accumulating
+    // one dead listener per display change for the life of the session, and so
+    // a single cleanup entry can cancel whichever one is currently live.
+    let live: { query: MediaQueryList; onChange: () => void } | null = null;
+
+    const disarm = () => {
+      if (live === null) return;
+      live.query.removeEventListener("change", live.onChange);
+      live = null;
+    };
+
+    const arm = () => {
+      disarm();
+      const ratio = this.pixelRatio;
+      // A band rather than `(resolution: Xdppx)`: a fractional ratio that does
+      // not survive serialisation would produce a query that never matches,
+      // which is a watcher that silently does nothing.
+      const query = window.matchMedia(
+        `(min-resolution: ${ratio * 0.99}dppx) and (max-resolution: ${ratio * 1.01}dppx)`
+      );
+
+      const onChange = () => {
+        this.applyDisplayScale();
+        // Re-armed at whatever the ratio is *now*, not at what it was when
+        // this listener was created — which is the whole reason the watch is a
+        // one-shot rather than a standing subscription.
+        arm();
+      };
+
+      query.addEventListener("change", onChange);
+      live = { query, onChange };
+    };
+
+    arm();
+    this.eventCleanup.push(disarm);
+  }
+
+  /**
+   * Brings the kernel and the canvas onto the current display's scale factor.
+   *
+   * Called only from the media-query watcher, where no resize event will
+   * arrive — so it has to do the canvas half itself. It does not read layout
+   * to find the CSS size: the backing store was set as CSS size times
+   * {@link appliedPixelRatio}, so dividing recovers it, with none of the
+   * content-box against border-box ambiguity a `getBoundingClientRect` would
+   * introduce.
+   *
+   * Recovers it to within a rounding step, not exactly — `canvas.width` is an
+   * integer, so the product that produced it was truncated. The drift is under
+   * one CSS pixel and the next real resize replaces the value outright, which
+   * is a better trade than a layout read that can disagree with the observer's
+   * `contentRect` by a padding.
+   */
+  private applyDisplayScale(): void {
+    const ratio = this.pixelRatio;
+    if (ratio === this.appliedPixelRatio) return;
+
+    const cssWidth = this.canvas.width / this.appliedPixelRatio;
+    const cssHeight = this.canvas.height / this.appliedPixelRatio;
+
+    this.applyPixelRatioToKernel(ratio);
+
+    const width = Math.max(1, Math.round(cssWidth * ratio));
+    const height = Math.max(1, Math.round(cssHeight * ratio));
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.appliedPixelRatio = ratio;
+    this.editor.resize(width, height);
+    this.editor.forceRender();
+  }
+
+  /**
+   * Tells the kernel the ratio, if it does not already have it.
+   *
+   * Separate from the canvas half because the two paths that need it differ in
+   * what else they do: the observer sizes the canvas from a `contentRect` it
+   * was handed, while {@link applyDisplayScale} has to work the size out. What
+   * they must not differ on is *whether the kernel was told*, so that part is
+   * one function with one guard.
+   *
+   * Guarded rather than unconditional because the observer fires on every
+   * ordinary window resize, and re-applying an unchanged size would discard
+   * the compositor's glyph atlas on each one.
+   */
+  private applyPixelRatioToKernel(ratio: number): void {
+    if (ratio === this.appliedPixelRatio) return;
+    this.editor.setPixelRatio(ratio);
   }
 
   private startRenderLoop(): void {

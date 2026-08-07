@@ -9,8 +9,8 @@
 use iridium_file::test_support::TempDir;
 
 use super::support::{
-    lines, open_directory, opened, opened_with_crawl, press, project, select_row, selected_text,
-    settle, type_query,
+    lines, meta, open_directory, opened, opened_with_crawl, press, project, select_row,
+    selected_text, settle, type_query,
 };
 use iridium_editor::KeyCode;
 
@@ -329,5 +329,96 @@ fn a_pattern_that_does_not_compile_reads_nothing_either() {
         rows[0].starts_with("Bad pattern — "),
         "and it says why, rather than claiming to still be looking: {:?}",
         rows[0]
+    );
+}
+
+#[test]
+fn the_crawl_goes_as_deep_as_the_tree_does() {
+    // Reported from use: "searching doesn't seem to go more than one layer
+    // deep". Every crawl test before this one used a two-level fixture, so
+    // one round of the frontier draining was enough to pass them all — and a
+    // crawl that only ever managed one round would have looked identical.
+    // This one needs five.
+    let directory = TempDir::new("explorer-deep");
+    let root = directory.path();
+    let deep = root.join("a/b/c/d/e");
+    std::fs::create_dir_all(&deep).expect("the fixture directories were made");
+    std::fs::write(deep.join("treasure.rs"), "t").expect("the fixture was written");
+    // A sibling at every level, so breadth-first has real width to get
+    // through rather than a single corridor it could not help but follow.
+    for folder in ["a", "a/b", "a/b/c", "a/b/c/d"] {
+        std::fs::create_dir(root.join(folder).join("sibling")).expect("the fixture was made");
+    }
+
+    let mut explorer = opened(&directory);
+    type_query(&mut explorer, "treasure");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("treasure.rs")),
+        "five levels down, nothing opened by hand: {rows:?}"
+    );
+}
+
+#[test]
+fn a_regular_expression_reaches_just_as_deep() {
+    let directory = TempDir::new("explorer-deep-regex");
+    let root = directory.path();
+    let deep = root.join("one/two/three/four");
+    std::fs::create_dir_all(&deep).expect("the fixture directories were made");
+    std::fs::write(deep.join("buried.rs"), "b").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    type_query(&mut explorer, "/^buri.d");
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(rows.iter().any(|row| row.contains("buried.rs")), "{rows:?}");
+}
+
+#[test]
+fn walking_into_a_folder_earns_the_search_that_the_opening_root_was_denied() {
+    // **What Tom actually reported.** Cold-launched with no file, the panel
+    // roots at a home directory and will not crawl — nothing bounds a home
+    // directory, so a search there reads twenty thousand application support
+    // folders and finds none of them. From the inside that looks exactly like
+    // "searching doesn't go more than one layer deep", because one layer is
+    // all the root's own listing gives you.
+    //
+    // Walking into a folder is a person saying which scope they meant, and
+    // that is the thing the opening root could not be given: a bound. So the
+    // same panel, one keystroke later, searches all the way down.
+    let directory = TempDir::new("explorer-earned");
+    let root = directory.path();
+    let deep = root.join("chosen/one/two/three");
+    std::fs::create_dir_all(&deep).expect("the fixture directories were made");
+    std::fs::write(deep.join("wanted.rs"), "w").expect("the fixture was written");
+
+    let mut explorer = opened_with_crawl(&directory, false);
+
+    type_query(&mut explorer, "wanted");
+    for _ in 0..8 {
+        explorer.poll();
+    }
+    assert!(
+        !lines(&mut explorer)
+            .iter()
+            .any(|row| row.contains("wanted.rs")),
+        "the guessed root does not read past what is open"
+    );
+
+    // Clear the query, walk in, ask again.
+    explorer.handle_key(&press(KeyCode::Escape));
+    select_row(&mut explorer, "chosen/");
+    explorer.handle_key(&meta(KeyCode::Down));
+    settle(&mut explorer);
+
+    type_query(&mut explorer, "wanted");
+    settle(&mut explorer);
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("wanted.rs")),
+        "three levels below a folder the user chose: {rows:?}"
     );
 }

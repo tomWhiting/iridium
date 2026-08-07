@@ -151,6 +151,13 @@ impl DesktopApp {
                 self.open_file(&path);
                 Flow::Running
             },
+            // The panel stays open. What failed is one operation inside it,
+            // not the panel, and closing over an error would take away the
+            // thing the user was in the middle of.
+            ExplorerOutcome::Failed(message) => {
+                self.message = Some(Message::error(message));
+                Flow::Running
+            },
         }
     }
 

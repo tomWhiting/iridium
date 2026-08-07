@@ -11,7 +11,7 @@ use iridium_editor::theme::Theme;
 use iridium_editor::{KeyCode, Modifiers};
 use iridium_file::test_support::TempDir;
 
-use super::support::{all_lines, chord, lines, opened, press};
+use super::support::{all_lines, chord, lines, meta, opened, press, select_row, settle};
 use crate::file_tree::ExplorerOutcome;
 use crate::file_tree::rows::truncate;
 use crate::overlay::PanelFit;
@@ -194,4 +194,111 @@ fn a_name_too_wide_for_the_panel_is_visibly_cut() {
     // By characters, not bytes — a cut mid-codepoint would panic, and
     // these are filenames.
     assert_eq!(truncate("ééééé", 3), "éé…");
+}
+
+/// A root with one folder holding one file, for walking in and out of.
+fn nested() -> TempDir {
+    let directory = TempDir::new("explorer-reroot");
+    let inner = directory.path().join("inner");
+    std::fs::create_dir(&inner).expect("the fixture directory was made");
+    std::fs::write(inner.join("leaf.rs"), "l").expect("the fixture was written");
+    std::fs::write(directory.path().join("outer.rs"), "o").expect("the fixture was written");
+    directory
+}
+
+#[test]
+fn walking_into_a_folder_makes_it_the_root() {
+    let directory = nested();
+    let mut explorer = opened(&directory);
+    select_row(&mut explorer, "inner/");
+
+    assert_eq!(
+        explorer.handle_key(&meta(KeyCode::Down)),
+        ExplorerOutcome::Handled
+    );
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(rows[0].contains("inner"), "the new root: {rows:?}");
+    assert!(rows.iter().any(|row| row.contains("leaf.rs")), "{rows:?}");
+    assert!(
+        rows.iter().all(|row| !row.contains("outer.rs")),
+        "and nothing from above it, which is what re-rooting means: {rows:?}"
+    );
+}
+
+#[test]
+fn walking_in_from_a_file_uses_the_folder_holding_it() {
+    // A file is a perfectly sensible thing to have selected when you press
+    // "go in here", and refusing would make the key look dead half the time.
+    let directory = nested();
+    let mut explorer = opened(&directory);
+    select_row(&mut explorer, "outer.rs");
+
+    assert_eq!(
+        explorer.handle_key(&meta(KeyCode::Down)),
+        ExplorerOutcome::Handled
+    );
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("outer.rs")),
+        "rooted at the folder the file was in, so the file is still there: {rows:?}"
+    );
+}
+
+#[test]
+fn walking_back_up_restores_the_folder_above() {
+    let directory = nested();
+    let mut explorer = opened(&directory);
+    select_row(&mut explorer, "inner/");
+    explorer.handle_key(&meta(KeyCode::Down));
+    settle(&mut explorer);
+
+    assert_eq!(
+        explorer.handle_key(&meta(KeyCode::Up)),
+        ExplorerOutcome::Handled
+    );
+    settle(&mut explorer);
+
+    let rows = lines(&mut explorer);
+    assert!(
+        rows.iter().any(|row| row.contains("outer.rs")),
+        "back to the folder above, which the inner root could not see: {rows:?}"
+    );
+}
+
+#[test]
+fn the_control_spelling_of_the_pair_does_the_same_thing() {
+    // For a keyboard with no command key. Bound together so the two cannot
+    // drift into meaning different things.
+    let directory = nested();
+    let mut explorer = opened(&directory);
+    select_row(&mut explorer, "inner/");
+
+    let ctrl = Modifiers {
+        ctrl: true,
+        ..Modifiers::none()
+    };
+    explorer.handle_key(&chord(KeyCode::Down, ctrl));
+    settle(&mut explorer);
+    assert!(lines(&mut explorer)[0].contains("inner"));
+}
+
+#[test]
+fn re_rooting_drops_the_query_with_the_tree_it_was_narrowing() {
+    // The rows were about a different root. Keeping the text would leave a
+    // query in the field describing results nobody can see.
+    let directory = nested();
+    let mut explorer = opened(&directory);
+    select_row(&mut explorer, "inner/");
+    explorer.handle_key(&meta(KeyCode::Down));
+    settle(&mut explorer);
+
+    assert_eq!(
+        all_lines(&mut explorer).first().map(String::as_str),
+        Some("> "),
+        "an empty query row"
+    );
 }

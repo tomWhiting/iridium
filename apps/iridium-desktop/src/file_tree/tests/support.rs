@@ -47,6 +47,17 @@ pub(super) fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEvent {
     }
 }
 
+/// The `⌘` spelling of a key — what a mac keyboard actually sends.
+pub(super) fn meta(key: KeyCode) -> KeyEvent {
+    chord(
+        key,
+        Modifiers {
+            meta: true,
+            ..Modifiers::none()
+        },
+    )
+}
+
 /// A window big enough for everything these tests compose.
 pub(super) const FIT: PanelFit = PanelFit {
     content_columns: 40,

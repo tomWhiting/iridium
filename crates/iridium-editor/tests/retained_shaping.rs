@@ -21,37 +21,33 @@
 //! not happen.
 
 use std::fmt::Write as _;
-use std::io::Write as _;
-use std::sync::mpsc;
+
+mod support;
 
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
 use iridium_editor::theme::{Color, Theme};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Language, Modifiers, Position};
 
-/// Offscreen frame width in physical pixels. Chosen so `width * 4` is a
-/// multiple of wgpu's 256-byte row alignment, which keeps the readback a
-/// straight copy with no row padding to strip.
-const WIDTH: u32 = 512;
+use support::frame::Target;
+use support::gpu::{FONT, Gpu, HEIGHT, WIDTH};
 
-/// Offscreen frame height in physical pixels.
-const HEIGHT: u32 = 384;
+/// The name this harness reports failures and labels GPU objects under.
+const HARNESS: &str = "retained_shaping";
 
 /// The wider target the resize row composes onto (also 256-byte aligned).
 const WIDE_WIDTH: u32 = 768;
 
-/// The same face font the desktop shell, the web demo and the compose bench
-/// load, so shaping exercises real glyphs.
-static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
-
-/// Font size in pixels, matching the faces' base size.
-const FONT_SIZE: f32 = 14.0;
-
 /// A highlight source with a language but no spans, ever — the bridge case:
 /// the compositor's built-in keyword fallback colors the content, and the
 /// generation is honestly constant because the answer is `None` forever.
-struct NoHighlights;
+///
+/// **Deliberately not `support::scene::ActiveLanguageNoSpans`**, which answers `false`
+/// to `language_active`. That difference is the whole subject of several tests
+/// below, so the two must stay separate types — and this one is named for what
+/// it does rather than sharing a name with something that behaves differently.
+struct ActiveLanguageNoSpans;
 
-impl HighlightSource for NoHighlights {
+impl HighlightSource for ActiveLanguageNoSpans {
     fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
         None
     }
@@ -114,111 +110,24 @@ impl HighlightSource for ToggleLanguage {
     }
 }
 
-/// The headless GPU objects one test composes with.
-struct Gpu {
-    /// The device frames are composed with.
-    device: wgpu::Device,
-    /// The queue frames are submitted to.
-    queue: wgpu::Queue,
-}
-
-/// One offscreen render target, standing in for a swapchain frame.
-struct Target {
-    /// The texture, held so the view stays valid and the readback can copy
-    /// from it.
-    texture: wgpu::Texture,
-    /// The render target view handed to the compositor.
-    view: wgpu::TextureView,
-    /// Width in physical pixels.
-    width: u32,
-    /// Height in physical pixels.
-    height: u32,
-}
-
-/// Reports a failure the harness cannot proceed past and exits non-zero —
-/// loud by exit status, exactly the compose bench's pattern. A missing GPU
-/// must fail the run rather than silently pass over work that did not
-/// happen.
-fn die(message: &str) -> ! {
-    let _ = writeln!(std::io::stderr(), "retained_shaping: {message}");
-    std::process::exit(1)
-}
-
-/// Brings up a device with no surface anywhere near it. Fails loudly when
-/// no adapter or device can be had — a silently green test of nothing would
-/// be worse than a red one.
+/// The headless device this harness composes on.
 fn gpu() -> Gpu {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..Default::default()
-    });
-    let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    })) {
-        Ok(adapter) => adapter,
-        Err(error) => die(&format!("no headless GPU adapter is available: {error}")),
-    };
-    let (device, queue) =
-        match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("Iridium Retained Shaping Test Device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            ..Default::default()
-        })) {
-            Ok(pair) => pair,
-            Err(error) => die(&format!("the GPU device request failed: {error}")),
-        };
-    Gpu { device, queue }
+    support::gpu::gpu(HARNESS)
 }
 
 /// An offscreen render target of the given pixel size.
+///
+/// The size is explicit here, unlike in the inset harnesses, because the
+/// resize row composes the same document onto [`WIDE_WIDTH`] as well and the
+/// whole point of that test is that the two differ.
 fn target(gpu: &Gpu, width: u32, height: u32) -> Target {
-    assert_eq!(
-        (width * 4) % 256,
-        0,
-        "target widths are chosen so readback rows need no padding"
-    );
-    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Iridium Retained Shaping Target"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    Target {
-        texture,
-        view,
-        width,
-        height,
-    }
+    support::frame::target_sized(gpu, width, height)
 }
 
 /// A compositor configured exactly as every comparand in these tests is:
 /// same format, same font size, same font bytes, in the same order.
 fn compositor(gpu: &Gpu) -> FrameCompositor {
-    let mut compositor = match FrameCompositor::new(
-        &gpu.device,
-        &gpu.queue,
-        wgpu::TextureFormat::Bgra8Unorm,
-        WIDTH,
-        HEIGHT,
-    ) {
-        Ok(compositor) => compositor,
-        Err(error) => die(&format!("the compositor could not be created: {error}")),
-    };
-    compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
-    compositor
+    support::gpu::compositor(gpu)
 }
 
 /// One compose with the blink pinned, plus the wait for its GPU work.
@@ -230,76 +139,12 @@ fn compose(
     gpu: &Gpu,
     tgt: &Target,
 ) {
-    compositor.reset_blink();
-    if let Err(error) = compositor.compose(
-        editor,
-        editor.fold_state(),
-        scroll_y,
-        highlights,
-        FrameTarget {
-            view: &tgt.view,
-            device: &gpu.device,
-            queue: &gpu.queue,
-            width: tgt.width,
-            height: tgt.height,
-        },
-    ) {
-        die(&format!("compose failed: {error}"));
-    }
-    if let Err(error) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        die(&format!("waiting for the GPU failed: {error}"));
-    }
+    support::frame::compose(compositor, editor, scroll_y, highlights, gpu, tgt);
 }
 
 /// Reads the target's pixels back as bytes.
 fn pixels(gpu: &Gpu, tgt: &Target) -> Vec<u8> {
-    let bytes_per_row = tgt.width * 4;
-    let size = u64::from(bytes_per_row) * u64::from(tgt.height);
-    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Iridium Retained Shaping Readback"),
-        size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut encoder = gpu
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Iridium Retained Shaping Readback Encoder"),
-        });
-    encoder.copy_texture_to_buffer(
-        tgt.texture.as_image_copy(),
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buffer,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(bytes_per_row),
-                rows_per_image: None,
-            },
-        },
-        wgpu::Extent3d {
-            width: tgt.width,
-            height: tgt.height,
-            depth_or_array_layers: 1,
-        },
-    );
-    gpu.queue.submit(std::iter::once(encoder.finish()));
-
-    let slice = buffer.slice(..);
-    let (sender, receiver) = mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        let _ = sender.send(result);
-    });
-    if let Err(error) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        die(&format!("waiting for the readback failed: {error}"));
-    }
-    match receiver.recv() {
-        Ok(Ok(())) => {},
-        Ok(Err(error)) => die(&format!("mapping the readback buffer failed: {error}")),
-        Err(_) => die("the map callback never ran"),
-    }
-    let data = slice.get_mapped_range().to_vec();
-    buffer.unmap();
-    data
+    support::frame::read_pixels(gpu, tgt)
 }
 
 /// Composes the given editor state cold on a *fresh* compositor (configured
@@ -364,7 +209,7 @@ fn steady_frames_hit_and_reproduce_the_cold_frame_exactly() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut compositor = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut compositor, &editor, 0.0, &mut highlights, &gpu, &tgt);
     assert_eq!(compositor.shape_rebuilds(), 1, "the first frame is cold");
@@ -448,7 +293,7 @@ fn the_dark_frame_background_is_opaque_1a1a1a() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut compositor = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut compositor, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let frame = pixels(&gpu, &tgt);
@@ -471,7 +316,7 @@ fn an_empty_document_composes_and_hits() {
     let mut compositor = compositor(&gpu);
     let mut editor = Editor::with_defaults();
     editor.set_content("");
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut compositor, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let cold = pixels(&gpu, &tgt);
@@ -495,7 +340,7 @@ fn a_one_character_edit_reshapes_one_line_and_recomposes_identically() {
     let mut warm = compositor(&gpu);
     let mut editor = editor_over(200);
     editor.set_cursor(Position::new(5, 3));
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -512,7 +357,7 @@ fn a_one_character_edit_reshapes_one_line_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "the edit must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         after == cold,
         "the diffed frame must be byte-identical to a cold compose of the same state"
@@ -529,7 +374,7 @@ fn a_one_character_edit_reshapes_one_line_and_recomposes_identically() {
         "the second keystroke reshapes one more"
     );
     let second = pixels(&gpu, &tgt);
-    let second_cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let second_cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         second == second_cold,
         "diff-after-diff must stay byte-identical"
@@ -546,7 +391,7 @@ fn a_plain_text_edit_diffs_one_line_and_recomposes_identically() {
     warm.set_syntax_enabled(false);
     let mut editor = editor_over(200);
     editor.set_cursor(Position::new(5, 3));
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let _ = editor.handle_key(&press(KeyCode::Char('x')));
@@ -555,9 +400,16 @@ fn a_plain_text_edit_diffs_one_line_and_recomposes_identically() {
     assert_eq!(warm.lines_reshaped(), 1, "and diffs exactly one line");
     let after = pixels(&gpu, &tgt);
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_syntax_enabled(false);
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_syntax_enabled(false);
+        },
+    );
     assert!(
         after == cold,
         "the plain-text diffed frame must be byte-identical"
@@ -578,7 +430,7 @@ fn a_multibyte_edit_diffs_and_recomposes_identically() {
     content.push_str(&document(40));
     editor.set_content(&content);
     editor.set_cursor(Position::new(40, 13));
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let _ = editor.handle_key(&press(KeyCode::Char('x')));
@@ -586,7 +438,7 @@ fn a_multibyte_edit_diffs_and_recomposes_identically() {
     assert_eq!(warm.shape_rebuilds(), 2, "the edit misses");
     let after = pixels(&gpu, &tgt);
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         after == cold,
         "the multibyte diffed frame must be byte-identical"
@@ -602,7 +454,7 @@ fn an_edit_that_adds_a_line_recomposes_identically() {
     let mut warm = compositor(&gpu);
     let mut editor = editor_over(200);
     editor.set_cursor(Position::new(5, 0));
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let _ = editor.handle_key(&press(KeyCode::Enter));
@@ -610,7 +462,7 @@ fn an_edit_that_adds_a_line_recomposes_identically() {
     assert_eq!(warm.shape_rebuilds(), 2, "the newline is a miss");
     let after = pixels(&gpu, &tgt);
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         after == cold,
         "the line-inserting diff must be byte-identical"
@@ -626,7 +478,7 @@ fn an_edit_that_changes_wrapping_recomposes_identically() {
     let mut warm = compositor(&gpu);
     let mut editor = editor_over(200);
     editor.set_cursor(Position::new(5, 3));
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     editor.paste("wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap wrap");
@@ -634,7 +486,7 @@ fn an_edit_that_changes_wrapping_recomposes_identically() {
     assert_eq!(warm.shape_rebuilds(), 2, "the paste is a miss");
     let after = pixels(&gpu, &tgt);
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         after == cold,
         "the wrap-changing diff must be byte-identical"
@@ -653,7 +505,7 @@ fn a_line_scroll_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
     let line_height = warm.line_height();
     // Mid-line anchored so `floor(scroll / line_height)` is robust against
     // f32 rounding on both sides of the one-line hop.
@@ -681,7 +533,7 @@ fn a_line_scroll_misses_and_recomposes_identically() {
         &tgt,
         &editor,
         base + line_height,
-        &mut NoHighlights,
+        &mut ActiveLanguageNoSpans,
         |_| {},
     );
     assert!(after == cold, "the scrolled frame must be byte-identical");
@@ -695,14 +547,21 @@ fn a_resize_misses_and_recomposes_identically() {
     let wide = target(&gpu, WIDE_WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &narrow);
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &wide);
     assert_eq!(warm.shape_rebuilds(), 2, "a resize is a miss");
     let after = pixels(&gpu, &wide);
 
-    let cold = cold_pixels(&gpu, &wide, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(
+        &gpu,
+        &wide,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |_| {},
+    );
     assert!(after == cold, "the resized frame must be byte-identical");
 }
 
@@ -713,7 +572,7 @@ fn loading_a_font_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     warm.load_font(FONT.to_vec());
@@ -721,9 +580,16 @@ fn loading_a_font_misses_and_recomposes_identically() {
     assert_eq!(warm.shape_rebuilds(), 2, "a font load is a miss");
     let after = pixels(&gpu, &tgt);
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.load_font(FONT.to_vec());
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.load_font(FONT.to_vec());
+        },
+    );
     assert!(after == cold, "the post-load frame must be byte-identical");
 }
 
@@ -734,7 +600,7 @@ fn a_font_size_change_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -744,9 +610,16 @@ fn a_font_size_change_misses_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "the size change must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_font_size(16.0);
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_font_size(16.0);
+        },
+    );
     assert!(
         after == cold,
         "the resized-font frame must be byte-identical"
@@ -760,7 +633,7 @@ fn a_theme_flip_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -770,9 +643,16 @@ fn a_theme_flip_misses_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "the theme flip must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_dark_theme(false);
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_dark_theme(false);
+        },
+    );
     assert!(
         after == cold,
         "the light-theme frame must be byte-identical"
@@ -790,7 +670,7 @@ fn a_set_theme_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
     let mut theme = Theme::dark();
     // #336699: every channel an exact multiple of 1/255, so the readback
     // bytes are exact.
@@ -812,9 +692,16 @@ fn a_set_theme_misses_and_recomposes_identically() {
         "the frame must stand on the set theme's background (Bgra8Unorm bytes)"
     );
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_theme(theme.clone());
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_theme(theme.clone());
+        },
+    );
     assert!(after == cold, "the set-theme frame must be byte-identical");
 }
 
@@ -825,7 +712,7 @@ fn a_syntax_toggle_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -835,9 +722,16 @@ fn a_syntax_toggle_misses_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "losing the keyword colors must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_syntax_enabled(false);
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_syntax_enabled(false);
+        },
+    );
     assert!(after == cold, "the plain frame must be byte-identical");
 }
 
@@ -855,15 +749,22 @@ fn a_language_less_source_composes_the_plain_frame() {
     compose(&mut compositor, &editor, 0.0, &mut void, &gpu, &tgt);
     let composed = pixels(&gpu, &tgt);
 
-    let plain = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_syntax_enabled(false);
-    });
+    let plain = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_syntax_enabled(false);
+        },
+    );
     assert!(
         composed == plain,
         "no language must render the plain frame, never the keyword fallback"
     );
 
-    let bridged = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let bridged = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         composed != bridged,
         "and the comparison discriminates: the bridge frame is coloured"
@@ -883,15 +784,22 @@ fn a_set_language_without_spans_keeps_the_keyword_fallback() {
     compose(&mut compositor, &editor, 0.0, &mut bridge, &gpu, &tgt);
     let bridged = pixels(&gpu, &tgt);
 
-    let fallback = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let fallback = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         bridged == fallback,
         "a language-active source with no spans is exactly the fallback frame"
     );
 
-    let plain = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_syntax_enabled(false);
-    });
+    let plain = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_syntax_enabled(false);
+        },
+    );
     assert!(
         bridged != plain,
         "and the fallback really coloured: the bridge frame is not the plain one"
@@ -986,7 +894,7 @@ fn a_syntax_theme_borrow_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let _ = warm.syntax_theme_mut();
@@ -998,7 +906,7 @@ fn a_syntax_theme_borrow_misses_and_recomposes_identically() {
     );
     let after = pixels(&gpu, &tgt);
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         after == cold,
         "an unchanged map still recomposes identically"
@@ -1018,7 +926,7 @@ fn a_fold_toggle_misses_despite_an_unchanged_document_revision() {
         "fn folded() {\n    one();\n    two();\n    three();\n}\nfn after() {\n    tail();\n}\n",
     );
     editor.set_language(Language::Rust);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -1047,7 +955,14 @@ fn a_fold_toggle_misses_despite_an_unchanged_document_revision() {
     );
     cold_editor.set_language(Language::Rust);
     assert!(cold_editor.fold_at(0));
-    let cold = cold_pixels(&gpu, &tgt, &cold_editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &cold_editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |_| {},
+    );
     assert!(after == cold, "the folded frame must be byte-identical");
 }
 
@@ -1059,7 +974,7 @@ fn custom_gutter_lines_miss_and_recompose_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
     let custom: Vec<String> = (0..201).map(|line| format!("+{line}")).collect();
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
@@ -1070,9 +985,16 @@ fn custom_gutter_lines_miss_and_recompose_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "the custom gutter must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_custom_gutter_lines(Some(custom.clone()));
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_custom_gutter_lines(Some(custom.clone()));
+        },
+    );
     assert!(
         after == cold,
         "the custom-gutter frame must be byte-identical"
@@ -1086,7 +1008,7 @@ fn a_gutter_toggle_misses_and_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let editor = editor_over(200);
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -1096,9 +1018,16 @@ fn a_gutter_toggle_misses_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "the missing gutter must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |fresh| {
-        fresh.set_gutter_enabled(false);
-    });
+    let cold = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_gutter_enabled(false);
+        },
+    );
     assert!(after == cold, "the gutterless frame must be byte-identical");
 }
 
@@ -1111,7 +1040,7 @@ fn the_digit_rollover_recomposes_identically() {
     let tgt = target(&gpu, WIDTH, HEIGHT);
     let mut warm = compositor(&gpu);
     let mut editor = editor_over(998); // 998 lines + the trailing line = 999
-    let mut highlights = NoHighlights;
+    let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     let before = pixels(&gpu, &tgt);
@@ -1125,7 +1054,7 @@ fn the_digit_rollover_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
     assert!(after != before, "the widened gutter must be visible");
 
-    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut NoHighlights, |_| {});
+    let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
     assert!(
         after == cold,
         "the rolled-over frame must be byte-identical"

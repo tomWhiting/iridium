@@ -17,245 +17,58 @@
 //! offscreen texture, and a missing adapter fails the run loudly rather than
 //! passing over work that never happened.
 
-use std::io::Write as _;
+mod support;
 
 use iridium_editor::Editor;
+use iridium_editor::render::FrameCompositor;
 use iridium_editor::render::units::{index_to_f32, pixel_to_index};
-use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
 use iridium_editor::theme::Color;
 
-/// Offscreen frame width, chosen so `width * 4` is a multiple of wgpu's
-/// 256-byte row alignment.
-const WIDTH: u32 = 512;
+use support::frame::{Target, read_pixels};
+use support::gpu::{Gpu, HEIGHT_F32, HEIGHT_USIZE, WIDTH_USIZE};
+use support::pixels::{first_inked_row, inked, page};
+use support::scene::{NoHighlights, editor, loud_gutter_theme};
 
-/// Offscreen frame height.
-const HEIGHT: u32 = 384;
-
-/// The same height as a float, for the scroll clamp's viewport argument.
-const HEIGHT_F32: f32 = 384.0;
-
-/// The frame's dimensions as `usize`, for indexing the read-back pixels.
-const WIDTH_USIZE: usize = 512;
-const HEIGHT_USIZE: usize = 384;
-
-/// The face font, so shaping exercises real glyphs and real metrics.
-static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
-
-/// Font size in pixels, matching the faces' base size.
-const FONT_SIZE: f32 = 14.0;
+/// The name this harness reports failures and labels GPU objects under.
+const HARNESS: &str = "top_inset";
 
 /// The height a tab strip would claim, on top of the document's own ten
 /// pixels of breathing room.
 const STRIP_HEIGHT: f32 = 34.0;
 
-/// A highlight source that never has spans — the colour of the text is not
-/// what is under test.
-struct NoHighlights;
-
-impl HighlightSource for NoHighlights {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
-        None
-    }
-
-    fn language_active(&self) -> bool {
-        false
-    }
-
-    fn generation(&self) -> u64 {
-        0
-    }
-}
-
-struct Gpu {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-}
-
-/// A silently green test of nothing is worse than a red one.
+/// Reports a failure this harness cannot proceed past, naming itself.
 fn die(message: &str) -> ! {
-    let _ = writeln!(std::io::stderr(), "top_inset: {message}");
-    std::process::exit(1)
+    support::gpu::die(HARNESS, message)
 }
 
+/// The headless device this harness composes on.
 fn gpu() -> Gpu {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..Default::default()
-    });
-    let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    })) {
-        Ok(adapter) => adapter,
-        Err(error) => die(&format!("no headless GPU adapter is available: {error}")),
-    };
-    let (device, queue) =
-        match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("Iridium Top Inset Test Device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            ..Default::default()
-        })) {
-            Ok(pair) => pair,
-            Err(error) => die(&format!("the GPU device request failed: {error}")),
-        };
-    Gpu { device, queue }
+    support::gpu::gpu(HARNESS)
 }
 
+/// A compositor at the default frame size, font loaded.
 fn compositor(gpu: &Gpu) -> FrameCompositor {
-    let mut compositor = match FrameCompositor::new(
-        &gpu.device,
-        &gpu.queue,
-        wgpu::TextureFormat::Bgra8Unorm,
-        WIDTH,
-        HEIGHT,
-    ) {
-        Ok(compositor) => compositor,
-        Err(error) => die(&format!("the compositor could not be created: {error}")),
-    };
-    compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
-    compositor
+    support::gpu::compositor(gpu)
 }
 
-/// A document of numbered lines, long enough to scroll.
-fn editor() -> Editor {
-    let mut editor = Editor::with_defaults();
-    let text = (0..60)
-        .map(|line| format!("line {line} of the document"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    editor.set_content(&text);
-    editor
-}
-
-/// One compose onto an offscreen texture, with the GPU work awaited so the
-/// between-frames caches this test reads are populated.
+/// One compose onto a fresh offscreen target, with the GPU work awaited so
+/// the between-frames caches these tests read are populated.
 fn compose(compositor: &mut FrameCompositor, editor: &Editor, scroll_y: f32, gpu: &Gpu) {
-    let _ = compose_to_texture(compositor, editor, scroll_y, gpu);
+    let _ = frame(compositor, editor, scroll_y, gpu);
 }
 
-/// The same compose, keeping the texture so its pixels can be read back.
-fn compose_to_texture(
-    compositor: &mut FrameCompositor,
-    editor: &Editor,
-    scroll_y: f32,
-    gpu: &Gpu,
-) -> wgpu::Texture {
-    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Iridium Top Inset Target"),
-        size: wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let mut highlights = NoHighlights;
-    if let Err(error) = compositor.compose(
+/// The same compose, keeping the target so its pixels can be read back.
+fn frame(compositor: &mut FrameCompositor, editor: &Editor, scroll_y: f32, gpu: &Gpu) -> Target {
+    let target = support::frame::target(gpu);
+    support::frame::compose(
+        compositor,
         editor,
-        editor.fold_state(),
         scroll_y,
-        &mut highlights,
-        FrameTarget {
-            view: &view,
-            device: &gpu.device,
-            queue: &gpu.queue,
-            width: WIDTH,
-            height: HEIGHT,
-        },
-    ) {
-        die(&format!("the frame did not compose: {error}"));
-    }
-    if let Err(error) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        die(&format!("the frame's GPU work did not complete: {error}"));
-    }
-    texture
-}
-
-/// The composed frame's pixels, row-major BGRA.
-///
-/// [`WIDTH`] is chosen so `WIDTH * 4` is already a multiple of wgpu's 256-byte
-/// copy alignment, so the rows come back tightly packed and need no unpadding.
-fn read_pixels(gpu: &Gpu, texture: &wgpu::Texture) -> Vec<u8> {
-    let row_bytes = WIDTH * 4;
-    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Iridium Top Inset Readback"),
-        size: u64::from(row_bytes * HEIGHT),
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut encoder = gpu
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Iridium Top Inset Readback Encoder"),
-        });
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buffer,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(row_bytes),
-                rows_per_image: Some(HEIGHT),
-            },
-        },
-        wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
+        &mut NoHighlights,
+        gpu,
+        &target,
     );
-    gpu.queue.submit(std::iter::once(encoder.finish()));
-
-    buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-    if let Err(error) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        die(&format!("the readback did not complete: {error}"));
-    }
-    let pixels = buffer.slice(..).get_mapped_range().to_vec();
-    buffer.unmap();
-    pixels
-}
-
-/// The first row of the frame carrying ink in the column range `[left,
-/// right)`, or `None` for a column that is empty top to bottom.
-///
-/// "Ink" is any pixel that differs from the frame's own top-left corner —
-/// which is always page, since the document starts at the inset — by more
-/// than a threshold well above antialiasing noise. Comparing two frames of
-/// the same document under the same threshold makes the *difference* the
-/// claim, so the exact threshold buys nothing and costs nothing.
-fn first_inked_row(pixels: &[u8], left: f32, right: f32) -> Option<usize> {
-    /// How far a channel must move from the page colour to count as ink.
-    const INK: i32 = 24;
-
-    let page = [pixels[0], pixels[1], pixels[2]];
-    let first = pixel_to_index(left.max(0.0)).min(WIDTH_USIZE);
-    let last = pixel_to_index(right.max(0.0)).min(WIDTH_USIZE);
-    for row in 0..HEIGHT_USIZE {
-        for column in first..last {
-            let offset = (row * WIDTH_USIZE + column) * 4;
-            let inked = (0..3).any(|channel| {
-                (i32::from(pixels[offset + channel]) - i32::from(page[channel])).abs() > INK
-            });
-            if inked {
-                return Some(row);
-            }
-        }
-    }
-    None
+    target
 }
 
 /// **The round trip.** Ask the compositor where a line is drawn, click
@@ -351,12 +164,12 @@ fn the_gutter_moves_down_with_the_text_it_numbers() {
     let editor = editor();
 
     let mut plain = compositor(&gpu);
-    let plain_frame = compose_to_texture(&mut plain, &editor, 0.0, &gpu);
+    let plain_frame = frame(&mut plain, &editor, 0.0, &gpu);
     let plain_pixels = read_pixels(&gpu, &plain_frame);
 
     let mut inset = compositor(&gpu);
     inset.set_top_inset(10.0 + STRIP_HEIGHT);
-    let inset_frame = compose_to_texture(&mut inset, &editor, 0.0, &gpu);
+    let inset_frame = frame(&mut inset, &editor, 0.0, &gpu);
     let inset_pixels = read_pixels(&gpu, &inset_frame);
 
     let gutter = plain.gutter_width(60);
@@ -411,7 +224,7 @@ fn the_blame_ghost_text_stays_out_of_the_reserved_band() {
 
     let mut bare = compositor(&gpu);
     bare.set_top_inset(inset);
-    let bare_frame = compose_to_texture(&mut bare, &editor, INTO_THE_BAND, &gpu);
+    let bare_frame = frame(&mut bare, &editor, INTO_THE_BAND, &gpu);
     let bare_pixels = read_pixels(&gpu, &bare_frame);
 
     let mut blamed = compositor(&gpu);
@@ -419,7 +232,7 @@ fn the_blame_ghost_text_stays_out_of_the_reserved_band() {
     blamed
         .blame_data_mut()
         .insert(0, "committed by someone, a while ago".to_owned());
-    let blamed_frame = compose_to_texture(&mut blamed, &editor, INTO_THE_BAND, &gpu);
+    let blamed_frame = frame(&mut blamed, &editor, INTO_THE_BAND, &gpu);
     let blamed_pixels = read_pixels(&gpu, &blamed_frame);
 
     let band = pixel_to_index(inset).min(HEIGHT_USIZE);
@@ -501,28 +314,6 @@ fn a_nonsense_inset_leaves_the_previous_one_in_place() {
     assert!((compositor.top_inset() - 44.0).abs() < f32::EPSILON);
 }
 
-/// The page colour, sampled past the end of every line at the bottom right.
-///
-/// **Not** the top-left, which is the corner this test is about: under a top
-/// inset it is the first pixel of the reserved band, and a compositor that
-/// wrongly painted there would make the band's own colour the reference and
-/// hide the very defect being tested. Every line in [`editor`] is far shorter
-/// than the frame is wide, so the bottom-right pixel is page on every frame
-/// here.
-fn page_colour(pixels: &[u8]) -> [u8; 3] {
-    let offset = ((HEIGHT_USIZE - 1) * WIDTH_USIZE + (WIDTH_USIZE - 1)) * 4;
-    [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
-}
-
-/// The stock dark theme paints the gutter the same colour as the page, so a
-/// gutter background quad drawn inside the band would be *invisible* to a
-/// pixel test. This makes it vivid, so the quad has to be where it claims.
-fn loud_gutter_theme() -> iridium_editor::theme::Theme {
-    let mut theme = iridium_editor::theme::Theme::dark();
-    theme.editor.gutter = Color::new(0.85, 0.20, 0.65, 1.0);
-    theme
-}
-
 /// Nothing the document draws reaches into the reserved band — **at a
 /// scroll**, which is the case the X axis has no analogue for.
 ///
@@ -587,21 +378,17 @@ fn nothing_the_document_draws_reaches_into_the_reserved_band_at_a_scroll() {
             .insert(line, Color::new(0.95, 0.75, 0.10, 1.0));
     }
 
-    let frame = compose_to_texture(&mut compositor, &editor, scroll, &gpu);
+    let frame = frame(&mut compositor, &editor, scroll, &gpu);
     let pixels = read_pixels(&gpu, &frame);
-    let page = page_colour(&pixels);
+    let page = page(&pixels);
 
     let band = pixel_to_index(inset).min(HEIGHT_USIZE);
     assert!(band > 0, "there is no band; this test proves nothing");
 
     for row in 0..band {
         for column in 0..WIDTH_USIZE {
-            let offset = (row * WIDTH_USIZE + column) * 4;
-            let inked = (0..3).any(|channel| {
-                (i32::from(pixels[offset + channel]) - i32::from(page[channel])).abs() > 24
-            });
             assert!(
-                !inked,
+                !inked(&pixels, page, column, row),
                 "the document drew at ({column}, {row}), inside the {inset}-pixel band the \
                  face reserved"
             );
@@ -645,19 +432,15 @@ fn the_documents_own_quads_stay_out_of_the_reserved_band_at_a_scroll() {
             .insert(line, Color::new(0.95, 0.75, 0.10, 1.0));
     }
 
-    let frame = compose_to_texture(&mut compositor, &editor, scroll, &gpu);
+    let frame = frame(&mut compositor, &editor, scroll, &gpu);
     let pixels = read_pixels(&gpu, &frame);
-    let page = page_colour(&pixels);
+    let page = page(&pixels);
 
     let band = pixel_to_index(inset).min(HEIGHT_USIZE);
     for row in 0..band {
         for column in 0..WIDTH_USIZE {
-            let offset = (row * WIDTH_USIZE + column) * 4;
-            let inked = (0..3).any(|channel| {
-                (i32::from(pixels[offset + channel]) - i32::from(page[channel])).abs() > 24
-            });
             assert!(
-                !inked,
+                !inked(&pixels, page, column, row),
                 "the document drew at ({column}, {row}), inside the {inset}-pixel band the \
                  face reserved"
             );

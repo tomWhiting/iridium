@@ -25,29 +25,20 @@
 //! texture, and a missing adapter fails the run loudly rather than passing
 //! over work that never happened.
 
-use std::io::Write as _;
+mod support;
 
 use iridium_editor::Editor;
+use iridium_editor::render::FrameCompositor;
 use iridium_editor::render::units::{index_to_f32, pixel_to_index};
-use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
-use iridium_editor::theme::{Color, Theme};
+use iridium_editor::theme::Color;
 
-/// Offscreen frame width, chosen so `width * 4` is a multiple of wgpu's
-/// 256-byte row alignment.
-const WIDTH: u32 = 512;
+use support::frame::{Target, read_pixels};
+use support::gpu::{Gpu, HEIGHT_USIZE, WIDTH_USIZE};
+use support::pixels::{first_inked_column, inked, page};
+use support::scene::{NoHighlights, editor, loud_gutter_theme};
 
-/// Offscreen frame height.
-const HEIGHT: u32 = 384;
-
-/// The frame's dimensions as `usize`, for indexing the read-back pixels.
-const WIDTH_USIZE: usize = 512;
-const HEIGHT_USIZE: usize = 384;
-
-/// The face font, so shaping exercises real glyphs and real metrics.
-static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
-
-/// Font size in pixels, matching the faces' base size.
-const FONT_SIZE: f32 = 14.0;
+/// The name this harness reports failures and labels GPU objects under.
+const HARNESS: &str = "left_inset";
 
 /// The width a sidebar would claim down the left of the window.
 ///
@@ -56,223 +47,36 @@ const FONT_SIZE: f32 = 14.0;
 /// column in a 512-pixel frame.
 const SIDEBAR_WIDTH: f32 = 96.0;
 
-/// A highlight source that never has spans — the colour of the text is not
-/// what is under test.
-struct NoHighlights;
-
-impl HighlightSource for NoHighlights {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
-        None
-    }
-
-    fn language_active(&self) -> bool {
-        false
-    }
-
-    fn generation(&self) -> u64 {
-        0
-    }
-}
-
-struct Gpu {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-}
-
-/// A silently green test of nothing is worse than a red one.
+/// Reports a failure this harness cannot proceed past, naming itself.
 fn die(message: &str) -> ! {
-    let _ = writeln!(std::io::stderr(), "left_inset: {message}");
-    std::process::exit(1)
+    support::gpu::die(HARNESS, message)
 }
 
+/// The headless device this harness composes on.
 fn gpu() -> Gpu {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..Default::default()
-    });
-    let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    })) {
-        Ok(adapter) => adapter,
-        Err(error) => die(&format!("no headless GPU adapter is available: {error}")),
-    };
-    let (device, queue) =
-        match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("Iridium Left Inset Test Device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            ..Default::default()
-        })) {
-            Ok(pair) => pair,
-            Err(error) => die(&format!("the GPU device request failed: {error}")),
-        };
-    Gpu { device, queue }
+    support::gpu::gpu(HARNESS)
 }
 
+/// A compositor at the default frame size, font loaded.
 fn compositor(gpu: &Gpu) -> FrameCompositor {
-    let mut compositor = match FrameCompositor::new(
-        &gpu.device,
-        &gpu.queue,
-        wgpu::TextureFormat::Bgra8Unorm,
-        WIDTH,
-        HEIGHT,
-    ) {
-        Ok(compositor) => compositor,
-        Err(error) => die(&format!("the compositor could not be created: {error}")),
-    };
-    compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
-    compositor
+    support::gpu::compositor(gpu)
 }
 
-/// The stock dark theme paints the gutter the same colour as the page, so a
-/// gutter background left at the window's edge would be *invisible* to a
-/// pixel test. This makes it vivid, so the quad has to be where it claims.
-fn loud_gutter_theme() -> Theme {
-    let mut theme = Theme::dark();
-    theme.editor.gutter = Color::new(0.85, 0.20, 0.65, 1.0);
-    theme
-}
-
-/// A document of numbered lines, long enough to scroll and short enough that
-/// no line reaches the right of the frame.
-fn editor() -> Editor {
-    let mut editor = Editor::with_defaults();
-    let text = (0..60)
-        .map(|line| format!("line {line} of the document"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    editor.set_content(&text);
-    editor
-}
-
-/// One compose onto an offscreen texture, with the GPU work awaited so the
-/// between-frames caches this test reads are populated.
+/// One compose onto a fresh offscreen target, with the GPU work awaited so
+/// the between-frames caches these tests read are populated.
 fn compose(compositor: &mut FrameCompositor, editor: &Editor, gpu: &Gpu) {
-    let _ = compose_to_texture(compositor, editor, gpu);
+    let _ = frame(compositor, editor, gpu);
 }
 
-/// The same compose, keeping the texture so its pixels can be read back.
-fn compose_to_texture(
-    compositor: &mut FrameCompositor,
-    editor: &Editor,
-    gpu: &Gpu,
-) -> wgpu::Texture {
-    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Iridium Left Inset Target"),
-        size: wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let mut highlights = NoHighlights;
-    if let Err(error) = compositor.compose(
-        editor,
-        editor.fold_state(),
-        0.0,
-        &mut highlights,
-        FrameTarget {
-            view: &view,
-            device: &gpu.device,
-            queue: &gpu.queue,
-            width: WIDTH,
-            height: HEIGHT,
-        },
-    ) {
-        die(&format!("the frame did not compose: {error}"));
-    }
-    if let Err(error) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        die(&format!("the frame's GPU work did not complete: {error}"));
-    }
-    texture
-}
-
-/// The composed frame's pixels, row-major BGRA.
+/// The same compose, keeping the target so its pixels can be read back.
 ///
-/// [`WIDTH`] is chosen so `WIDTH * 4` is already a multiple of wgpu's 256-byte
-/// copy alignment, so the rows come back tightly packed and need no unpadding.
-fn read_pixels(gpu: &Gpu, texture: &wgpu::Texture) -> Vec<u8> {
-    let row_bytes = WIDTH * 4;
-    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Iridium Left Inset Readback"),
-        size: u64::from(row_bytes * HEIGHT),
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut encoder = gpu
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Iridium Left Inset Readback Encoder"),
-        });
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buffer,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(row_bytes),
-                rows_per_image: Some(HEIGHT),
-            },
-        },
-        wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
-    );
-    gpu.queue.submit(std::iter::once(encoder.finish()));
-
-    buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-    if let Err(error) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        die(&format!("the readback did not complete: {error}"));
-    }
-    let pixels = buffer.slice(..).get_mapped_range().to_vec();
-    buffer.unmap();
-    pixels
-}
-
-/// The page colour, sampled from the frame's bottom-right corner.
-///
-/// Not the top-left, which is the corner this file is about: under a left
-/// inset it is the first pixel of the reserved band, and a compositor that
-/// wrongly painted the gutter there would make the band's own colour the
-/// reference and hide the defect. The bottom-right is past the end of every
-/// line in [`editor`] and is page on every frame here.
-fn page(pixels: &[u8]) -> [u8; 3] {
-    let offset = ((HEIGHT_USIZE - 1) * WIDTH_USIZE + (WIDTH_USIZE - 1)) * 4;
-    [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
-}
-
-/// How far a channel must move from the page colour to count as ink.
-const INK: i32 = 24;
-
-/// Whether the pixel at `(column, row)` differs from the page.
-fn inked(pixels: &[u8], page: [u8; 3], column: usize, row: usize) -> bool {
-    let offset = (row * WIDTH_USIZE + column) * 4;
-    (0..3)
-        .any(|channel| (i32::from(pixels[offset + channel]) - i32::from(page[channel])).abs() > INK)
-}
-
-/// The first column of the frame carrying ink anywhere down its height, or
-/// `None` for a frame that drew nothing at all.
-fn first_inked_column(pixels: &[u8]) -> Option<usize> {
-    let page = page(pixels);
-    (0..WIDTH_USIZE).find(|&column| (0..HEIGHT_USIZE).any(|row| inked(pixels, page, column, row)))
+/// Nothing here scrolls: every X coordinate is computed once, from the inset,
+/// and either uses it or does not, which is the whole reason this axis is
+/// simpler than the vertical one.
+fn frame(compositor: &mut FrameCompositor, editor: &Editor, gpu: &Gpu) -> Target {
+    let target = support::frame::target(gpu);
+    support::frame::compose(compositor, editor, 0.0, &mut NoHighlights, gpu, &target);
+    target
 }
 
 /// **The round trip.** Ask the compositor where a column is drawn, click
@@ -367,7 +171,7 @@ fn nothing_the_document_draws_reaches_into_the_reserved_band() {
             .gutter_changes_mut()
             .insert(line, Color::new(0.20, 0.85, 0.45, 1.0));
     }
-    let frame = compose_to_texture(&mut inset, &editor, &gpu);
+    let frame = frame(&mut inset, &editor, &gpu);
     let pixels = read_pixels(&gpu, &frame);
     let page = page(&pixels);
 
@@ -396,13 +200,13 @@ fn the_gutter_moves_across_with_the_content_it_sits_beside() {
 
     let mut plain = compositor(&gpu);
     plain.set_theme(loud_gutter_theme());
-    let plain_frame = compose_to_texture(&mut plain, &editor, &gpu);
+    let plain_frame = frame(&mut plain, &editor, &gpu);
     let plain_pixels = read_pixels(&gpu, &plain_frame);
 
     let mut inset = compositor(&gpu);
     inset.set_theme(loud_gutter_theme());
     inset.set_left_inset(SIDEBAR_WIDTH);
-    let inset_frame = compose_to_texture(&mut inset, &editor, &gpu);
+    let inset_frame = frame(&mut inset, &editor, &gpu);
     let inset_pixels = read_pixels(&gpu, &inset_frame);
 
     let Some(before) = first_inked_column(&plain_pixels) else {
@@ -443,13 +247,13 @@ fn the_content_column_is_the_same_pixels_a_sidebars_width_across() {
 
     let mut plain = compositor(&gpu);
     plain.set_theme(loud_gutter_theme());
-    let plain_frame = compose_to_texture(&mut plain, &editor, &gpu);
+    let plain_frame = frame(&mut plain, &editor, &gpu);
     let plain_pixels = read_pixels(&gpu, &plain_frame);
 
     let mut inset = compositor(&gpu);
     inset.set_theme(loud_gutter_theme());
     inset.set_left_inset(SIDEBAR_WIDTH);
-    let inset_frame = compose_to_texture(&mut inset, &editor, &gpu);
+    let inset_frame = frame(&mut inset, &editor, &gpu);
     let inset_pixels = read_pixels(&gpu, &inset_frame);
 
     let shift = pixel_to_index(SIDEBAR_WIDTH);
@@ -518,7 +322,7 @@ fn the_content_starts_where_the_compositor_says_it_does() {
         let mut compositor = compositor(&gpu);
         compositor.set_theme(loud_gutter_theme());
         compositor.set_left_inset(inset);
-        let frame = compose_to_texture(&mut compositor, &editor, &gpu);
+        let frame = frame(&mut compositor, &editor, &gpu);
         let pixels = read_pixels(&gpu, &frame);
         let page = page(&pixels);
 

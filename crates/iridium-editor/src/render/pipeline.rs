@@ -139,6 +139,39 @@ impl RenderPipeline {
     ///
     /// This is the core initialization logic that can be awaited
     /// in async contexts or blocked on synchronously.
+    ///
+    /// # Why two lints are silenced on `wasm32` only
+    ///
+    /// `wgpu`'s `Adapter`, `Device` and `Queue` are `Send + Sync` natively and
+    /// are neither on `wasm32`, where the web backend wraps JavaScript objects
+    /// that cannot leave their thread. Same source, different lint verdict per
+    /// target — which is why the attribute is `cfg_attr`'d rather than
+    /// unconditional. `#[expect]` is strict in both directions, so an
+    /// unconditional one would itself be an unfulfilled-expectation warning on
+    /// every native build.
+    ///
+    /// Neither lint is describing a defect here:
+    ///
+    /// - `future_not_send` — nothing spawns this future onto a thread pool. It
+    ///   is driven by `pollster::block_on` in [`Self::with_config`] natively
+    ///   and by `wasm_bindgen_futures` in the browser, both single-threaded.
+    ///   This build has no shared-memory threading on `wasm32` at all, so the
+    ///   property the lint protects cannot be violated on the target where it
+    ///   fires.
+    /// - `arc_with_non_send_sync` — the suggestion is `Rc`, and taking it would
+    ///   fork [`RenderPipeline`]'s field types per target. The native path
+    ///   genuinely needs `Arc`; one struct cannot hold both. The cost of the
+    ///   atomic refcount on a single-threaded target is real and it is the
+    ///   price of one definition instead of two.
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            clippy::future_not_send,
+            clippy::arc_with_non_send_sync,
+            reason = "wgpu's handles are !Send + !Sync on wasm32 only, and this \
+    target is single-threaded; see the doc comment above"
+        )
+    )]
     async fn init_async(config: RenderConfig) -> Result<Self, IridiumError> {
         // Step 1: Create wgpu instance
         let instance = Instance::new(&InstanceDescriptor {
@@ -190,6 +223,18 @@ impl RenderPipeline {
     }
 
     /// Creates a detailed error message when no adapter is found.
+    ///
+    /// Carries the same `wasm32`-only exemption as [`Self::init_async`], and
+    /// for the same reason: it awaits `enumerate_adapters`, whose future holds
+    /// `!Send` wgpu handles on that target and only that target.
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            clippy::future_not_send,
+            reason = "wgpu's handles are !Send on wasm32 only, and this target \
+    is single-threaded; see `init_async`"
+        )
+    )]
     async fn create_adapter_error(
         instance: &Instance,
         error: wgpu::RequestAdapterError,

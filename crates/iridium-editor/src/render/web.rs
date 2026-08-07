@@ -101,6 +101,16 @@ mod wasm {
         /// # Errors
         ///
         /// Returns an error if WebGPU initialization fails.
+        ///
+        /// Unconditional rather than `cfg_attr`'d, unlike the equivalent on
+        /// `RenderPipeline::init_async`: this whole module is inside
+        /// `#[cfg(target_arch = "wasm32")] mod wasm`, so there is no
+        /// configuration in which it compiles and the lint does not fire.
+        #[expect(
+            clippy::future_not_send,
+            reason = "wgpu's handles are !Send on wasm32, which is the only \
+    target this module compiles on, and it is single-threaded"
+        )]
         pub async fn from_canvas(
             canvas: web_sys::HtmlCanvasElement,
             width: u32,
@@ -114,6 +124,18 @@ mod wasm {
         /// # Errors
         ///
         /// Returns an error if WebGPU initialization fails.
+        ///
+        /// Silences the same pair `RenderPipeline::init_async` does, and for
+        /// the reasons written out there. The `Arc`s below are what the rest of
+        /// the renderer expects to be handed; swapping them for `Rc` here would
+        /// diverge this surface's types from the native pipeline's for no gain
+        /// on a target with no threads.
+        #[expect(
+            clippy::future_not_send,
+            clippy::arc_with_non_send_sync,
+            reason = "wgpu's handles are !Send + !Sync on wasm32, which is the \
+    only target this module compiles on, and it is single-threaded"
+        )]
         pub async fn from_canvas_with_config(
             canvas: web_sys::HtmlCanvasElement,
             width: u32,

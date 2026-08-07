@@ -1705,11 +1705,53 @@ real. The test it needs is not "is the guard armed" but **"does anyone commit
 from this clone"**; `CI` / `GITHUB_ACTIONS` are the available proxies and the
 escape should be written down before main goes red, not after.
 
-**Still unanswered:** whether a `reference-transaction` hook reads a
-force-updated remote-tracking ref from `git fetch` as a rewrite. A
-`fetch --prune` against a rewritten upstream branch would surface as git being
-mysteriously broken rather than as the guard working. Asked twice; not yet
-said either way.
+#### The fetch question — answered, and I was wrong
+
+Measured on git 2.47.1, three ways:
+
+| operation | result |
+| --- | --- |
+| `git fetch` of a force-updated upstream | **allowed** — writes `refs/remotes/*`, outside the `refs/heads/*` filter |
+| `git fetch --prune` | **allowed** |
+| `git pull --rebase` onto a rewritten upstream | **REFUSED**, rc 128 |
+
+I raised the fetch case twice and it was unfounded — reasoning from the shape
+of the hook rather than from what it does. The real cost is the third line.
+
+⭐ **And it is live in this repo, not hypothetical.** Checked: `origin` is
+`github.com/tomWhiting/iridium.git` and `main` tracks `origin/main`. A
+catch-up after someone force-pushes upstream would be refused here. Tom should
+see that as a real cost. It goes rare-by-construction once force-push is
+blocked on the default branch, but that is not in place today.
+
+The CI objection was accepted and fixed by **splitting the assertion** rather
+than sniffing the machine: a default `--arming` mode for machines that
+originate commits, and an `--artefacts` mode that asserts only that the repo
+*ships* an armable guard — marker tracked, hook tracked, committed mode
+100755, committed blob carrying the sentinel — and never reads `hooksPath`. CI
+runs that one and cannot go red for being a clone. The `$CI`/`$GITHUB_ACTIONS`
+proxy I suggested was deliberately refused, correctly: it keys the control on
+an incidental property of the machine, which is the original mistake wearing a
+new subject.
+
+#### Open: disarming removes the detector along with the guard
+
+Raised by me, not yet measured. The sanctioned way to perform a rewrite you
+want is to remove the marker deliberately. But `--arming` fires on *marker
+present AND guard not armed* — **marker absent is not that state**, so removing
+the marker switches off the guard and the thing that would notice, in one move.
+
+⭐ It is demanded at the worst moment. The `pull --rebase` refusal lands when
+someone has force-pushed upstream and the seat is mid-incident trying to catch
+up. That is exactly when a marker gets removed, the pull finishes, and it never
+goes back — with nothing to say so, because the detector is keyed on the file
+just deleted.
+
+The signal already exists in the artefact half: the marker is **tracked**, so
+*absent from the working tree* and *absent from HEAD* are different states, and
+only the second means the repo never had a guard. Marker in HEAD but not in the
+working tree is a deliberate disarm in progress and should be loud. That is a
+third assertion, not a tweak to the first.
 
 Position unchanged: still recommend switching it on here. The clone hole is
 closed and the CI case is a placement problem, not a design problem.

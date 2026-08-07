@@ -237,6 +237,34 @@ which means a syntax query at type time. The kernel now has a retained tree
 this is the first typing-path consumer of it, and "typing never parses" is a
 claim with a benchmark behind it. **Price it before building it.**
 
+### S-6 — Enter expansion follows `newline`
+
+⭐ **Found after S-1 landed, by checking a claim S-1 left half-made.** §1.4
+said `bracket_close`'s fixed three "agrees with the manifests' `newline = true`
+rows *for every language checked*". Checking all of them, it does not:
+
+| language | expands per manifest | expanded before |
+| --- | --- | --- |
+| `gitcommit`, `regex`, `jsdoc`, `diff` | **nothing** | `{` `[` `(` |
+| `json`, `jsonc`, `yaml` | `{` `[` | `{` `[` `(` |
+| `gomod`, `gowork` | `(` | `{` `[` `(` |
+| `bash` | `{` `(` | `{` `[` `(` |
+| everything else | `{` `[` `(` | same |
+
+The commit-message row is the one worth naming: pressing Enter between `(` and
+`)` in a commit message grew a three-line indented block out of a parenthesis
+in prose.
+
+⭐ **Pure subtraction again, and provably so**: every language's `newline`
+set is a subset of `{ [ ( <`, and `<` is never paired, so no language gains an
+expansion. Same argument as S-1, same ruling (#66).
+
+⚠️ `close` and `newline` are **independent flags**, which the vendored data
+makes plain: Rust declares `<`→`>` as `close = false, newline = true` — *do
+not type the closer for me, but do expand the block if I typed it myself.*
+`close` defaults to true, `newline` defaults to false, and the manifests are
+written expecting exactly that asymmetry.
+
 ### S-5 — `autoclose_before`
 
 Only auto-close when the character *after* the caret is in the language's set
@@ -311,8 +339,39 @@ Nine green: **2,525 passed, 0 failed** (2,514 before, plus 11 here).
 
 - `<`→`>` stays unpaired everywhere, including Markdown, which declares it —
   that is S-2 and B-2.
-- Enter's bracket-block expansion still uses its own three-bracket table.
-  Every manifest's `newline = true` rows agree with it for the languages
-  checked, so nothing is wrong there; a wire-up would be S-3's business.
 - ⚠️ **No `not_in` handling.** A `"` inside a comment still pairs. That was
   true before and is unchanged.
+- ~~Enter's bracket-block expansion still uses its own three-bracket table.
+  Every manifest's `newline = true` rows agree with it for the languages
+  checked~~ — **this claim was wrong**, and checking it properly produced S-6
+  below. "For the languages checked" was doing load-bearing work in a sentence
+  that read like a clearance.
+
+## 5. S-6 — LANDED
+
+`AutoPairs` became `PairRules`, carrying two masks: which pairs close, and
+which Enter expands. `bracket_close` is gone; `Manifest::block_expand_pairs`
+reads `newline` the way `auto_close_pairs` reads `close`, through one shared
+filter so the two cannot drift.
+
+- **The silence rule is shared**: no language, no manifest, no `brackets` key
+  → both masks are the old fixed sets. `awl` is in that group.
+- **`expands` is intersected with the three brackets.** No manifest sets
+  `newline` on a quote, so the intersection removes nothing today; it is there
+  so one appearing in a vendor refresh is a decision rather than a surprise.
+- **`BRACKET_MASK` names positions in `PAIRS` by hand**, so a test asserts it
+  selects exactly `(`, `[`, `{` — reordering that array would otherwise start
+  expanding quote blocks silently.
+
+### The red proof
+
+Same method: restore the old behaviour verbatim (`expands: BRACKET_MASK`
+unconditionally) and re-run. **2 of the 4 new tests went red** —
+`a_commit_message_does_not_expand_a_bracket_block` (`fix (\n    \n)` where a
+plain break was wanted) and `json_expands_only_the_brackets_it_marks_newline`.
+The other 2 assert the expansions each language *keeps*, and pass both ways by
+design.
+
+### Gates
+
+Nine green: **2,530 passed, 0 failed** (2,525 after S-1, plus 5 here).

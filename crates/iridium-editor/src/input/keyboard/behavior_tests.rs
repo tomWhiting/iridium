@@ -1357,3 +1357,142 @@ fn skip_over_and_insertion_at_same_position_stay_distinct() {
         assert_eq!(columns, vec![2, 3], "primary_first={primary_first}");
     }
 }
+
+// ========== Enter expansion follows the language's `newline` flags ==========
+
+/// `BRACKET_MASK` names positions in `PAIRS` by hand, so a reordering of that
+/// array would silently start expanding quote blocks. This is the guard.
+#[test]
+fn the_bracket_mask_covers_exactly_the_three_brackets() {
+    let masked: Vec<char> = super::behaviors::PAIRS
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| super::behaviors::BRACKET_MASK & (1_u8 << index) != 0)
+        .map(|(_, &(open, _))| open)
+        .collect();
+    assert_eq!(masked, vec!['(', '[', '{']);
+}
+
+/// A git commit message declares brackets and sets `newline` on none of them:
+/// Enter between `(` and `)` must not grow a three-line block out of a
+/// parenthesis in prose.
+#[test]
+fn a_commit_message_does_not_expand_a_bracket_block() {
+    let mut doc = doc_in(Language::GitCommit, "fix ");
+    let mut cursor = cursors_at(&[(0, 4)]);
+    let mut handler = KeyboardHandler::new();
+
+    press(
+        &mut handler,
+        &ch('('),
+        &mut doc,
+        &mut cursor,
+        &EditorConfig::default(),
+    );
+    assert_eq!(doc.text(), "fix ()", "gitcommit does auto-close `(`");
+
+    press(
+        &mut handler,
+        &ENTER,
+        &mut doc,
+        &mut cursor,
+        &EditorConfig::default(),
+    );
+    assert_eq!(
+        doc.text(),
+        "fix (\n)",
+        "gitcommit sets `newline` on no row: a plain line break, not a block"
+    );
+}
+
+/// JSON declares `{` and `[` with `newline = true` and `(` without, so Enter
+/// expands the first two and not the third.
+#[test]
+fn json_expands_only_the_brackets_it_marks_newline() {
+    for (typed, closer, expanded) in [('{', '}', true), ('[', ']', true), ('(', ')', false)] {
+        let mut doc = doc_in(Language::Json, "");
+        let mut cursor = cursors_at(&[(0, 0)]);
+        let mut handler = KeyboardHandler::new();
+
+        press(
+            &mut handler,
+            &ch(typed),
+            &mut doc,
+            &mut cursor,
+            &EditorConfig::default(),
+        );
+        press(
+            &mut handler,
+            &ENTER,
+            &mut doc,
+            &mut cursor,
+            &EditorConfig::default(),
+        );
+
+        let want = if expanded {
+            format!("{typed}\n    \n{closer}")
+        } else {
+            format!("{typed}\n{closer}")
+        };
+        assert_eq!(doc.text(), want, "json, {typed:?}");
+    }
+}
+
+/// Rust marks all three `newline = true`, so nothing about the common case
+/// moved — the slice subtracts, it does not switch expansion off.
+#[test]
+fn rust_still_expands_every_bracket_block() {
+    for (typed, closer) in [('{', '}'), ('[', ']'), ('(', ')')] {
+        let mut doc = doc_in(Language::Rust, "");
+        let mut cursor = cursors_at(&[(0, 0)]);
+        let mut handler = KeyboardHandler::new();
+
+        press(
+            &mut handler,
+            &ch(typed),
+            &mut doc,
+            &mut cursor,
+            &EditorConfig::default(),
+        );
+        press(
+            &mut handler,
+            &ENTER,
+            &mut doc,
+            &mut cursor,
+            &EditorConfig::default(),
+        );
+
+        assert_eq!(
+            doc.text(),
+            format!("{typed}\n    \n{closer}"),
+            "rust {typed:?}"
+        );
+    }
+}
+
+/// A language that has not declared brackets keeps every expansion, the same
+/// silence rule the closing set uses.
+#[test]
+fn a_language_that_declares_no_brackets_still_expands_blocks() {
+    let mut doc = Document::new("");
+    doc.set_language(Some("awl".to_owned()));
+    let mut cursor = cursors_at(&[(0, 0)]);
+    let mut handler = KeyboardHandler::new();
+
+    press(
+        &mut handler,
+        &ch('{'),
+        &mut doc,
+        &mut cursor,
+        &EditorConfig::default(),
+    );
+    press(
+        &mut handler,
+        &ENTER,
+        &mut doc,
+        &mut cursor,
+        &EditorConfig::default(),
+    );
+
+    assert_eq!(doc.text(), "{\n    \n}");
+}

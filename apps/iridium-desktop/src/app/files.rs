@@ -75,10 +75,15 @@ impl DesktopApp {
             Ok(()) => {
                 self.message = Some(Message::notice(format!("wrote {}", file.display_name())));
                 document.file = Some(file);
-                // The name is what says what the document is written in, and
-                // until now there was no name.
-                if let Some(language) = language_of(path) {
-                    editor.set_language(language);
+                // The name is what says what the document is written in, so a
+                // new name is believed — including when it says nothing. This
+                // is the one path where a document changes what it is called
+                // without changing which editor holds it, so it is the one
+                // place a language can outlive the name that chose it:
+                // `a.rs` saved as `notes.log` would otherwise stay Rust.
+                match language_of(path) {
+                    Some(language) => editor.set_language(language),
+                    None => editor.clear_language(),
                 }
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),

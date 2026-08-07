@@ -4,7 +4,7 @@
 //! confirmation a modified buffer puts in the way of closing — the three
 //! places where a lost keystroke costs the user their work.
 
-use iridium_editor::{KeyCode, Modifiers};
+use iridium_editor::{Editor, KeyCode, Language, Modifiers};
 use iridium_file::TextFile;
 use iridium_file::test_support::TempDir;
 
@@ -164,5 +164,55 @@ fn a_read_only_document_refuses_to_save() {
     assert_eq!(
         std::fs::read_to_string(&path).expect("the file reads back"),
         "one"
+    );
+}
+
+/// A name that claims a different language is believed — including when it
+/// claims none.
+///
+/// `save_as` is the one path left where a document changes what it is called
+/// without changing which editor holds it. Opening a file makes a new tab with
+/// a fresh editor, so the language cannot carry over there; renaming reuses
+/// the editor, so it can.
+#[test]
+fn saving_under_a_name_no_grammar_claims_clears_the_language() {
+    let directory = TempDir::new("desktop-save-as-language");
+    let (mut app, _) = open(&directory, "a.rs", "fn main() {}\n");
+    assert_eq!(
+        app.workspace.active_editor().and_then(Editor::language),
+        Some(Language::Rust),
+        "the fixture must start out as Rust, or this test proves nothing"
+    );
+
+    assert_eq!(
+        app.save_as(&directory.path().join("notes.log")),
+        Flow::Running
+    );
+    assert_eq!(
+        app.workspace.active_editor().and_then(Editor::language),
+        None,
+        "a .log is not Rust, and the old language must not outlive the name"
+    );
+}
+
+/// The same path in the other direction: a rename that *does* name a language
+/// adopts it.
+#[test]
+fn saving_under_a_name_a_grammar_claims_adopts_that_language() {
+    let directory = TempDir::new("desktop-save-as-adopt");
+    let (mut app, _) = open(&directory, "a.log", "fn main() {}\n");
+    assert_eq!(
+        app.workspace.active_editor().and_then(Editor::language),
+        None,
+        "the fixture must start out with no language"
+    );
+
+    assert_eq!(
+        app.save_as(&directory.path().join("main.rs")),
+        Flow::Running
+    );
+    assert_eq!(
+        app.workspace.active_editor().and_then(Editor::language),
+        Some(Language::Rust)
     );
 }

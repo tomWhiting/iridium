@@ -625,6 +625,19 @@ impl IridiumEditor {
         })
     }
 
+    /// Returns the document to having no language at all.
+    ///
+    /// The counterpart of [`Self::set_language`], and the only way back: every
+    /// value `set_language` accepts names a grammar, so there is no argument
+    /// that means "plain text". A host that reuses one editor across documents
+    /// needs this the moment it opens a file whose name no grammar claims —
+    /// otherwise the previous document's language keeps highlighting the new
+    /// one, and keeps inserting its comment marker.
+    #[napi]
+    pub fn clear_language(&self) {
+        self.with_editor_mut(iridium_editor::Editor::clear_language);
+    }
+
     /// Gets the current language ID (if set).
     #[napi]
     pub fn get_language(&self) -> Option<String> {

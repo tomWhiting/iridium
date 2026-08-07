@@ -137,10 +137,14 @@ impl App {
             Ok(()) => {
                 self.message = Some(Message::notice(format!("wrote {}", file.display_name())));
                 self.file = Some(file);
-                // The name is what says what the document is written in, and
-                // until now there was no name.
-                if let Some(language) = language_of(path) {
-                    self.editor.set_language(language);
+                // The name is what says what the document is written in, so a
+                // new name is believed — including when it says nothing. This
+                // face holds one buffer for the session, so a rename from
+                // `a.rs` to `notes.log` would otherwise leave Rust
+                // highlighting a log file for as long as the program ran.
+                match language_of(path) {
+                    Some(language) => self.editor.set_language(language),
+                    None => self.editor.clear_language(),
                 }
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),

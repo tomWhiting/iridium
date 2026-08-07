@@ -45,7 +45,59 @@
 
 use std::path::PathBuf;
 
+use iridium_explorer::NodeId;
+
+use super::panel::FileExplorer;
 use super::plan::{EditedRow, Plan, Refusal, RowOrigin};
+
+impl FileExplorer {
+    /// The buffer for what is on screen right now.
+    pub(super) fn buffer(&self) -> Buffer {
+        Buffer::load(&self.source_rows())
+    }
+
+    /// The rows the panel is drawing, in the shape the buffer takes them.
+    ///
+    /// **The two row sources are read through the same two facts** — a node
+    /// and a depth — and that is the whole of why editing behaves identically
+    /// filtered and unfiltered without a second code path. It is also how the
+    /// filter comes to scope the diff: a row the query left off the screen is
+    /// not in the buffer, so nothing downstream has to be told to leave it
+    /// alone.
+    pub(super) fn source_rows(&self) -> Vec<SourceRow> {
+        if self.is_filtering() {
+            return self
+                .view
+                .rows
+                .iter()
+                .filter_map(|row| self.source_row(row.id, row.depth))
+                .collect();
+        }
+        (0..self.tree.len())
+            .filter_map(|index| self.tree.row(index))
+            .filter_map(|row| self.source_row(row.id, row.depth))
+            .collect()
+    }
+
+    /// One drawn row, or nothing when the arena has no record of the node.
+    ///
+    /// Dropping the row is the safe failure rather than a lucky one. A row the
+    /// buffer never saw cannot be edited, and if dropping it left a gap in the
+    /// depths, [`super::plan`] refuses every row below it — because a row's
+    /// drawn folder would no longer be the folder it lives in — instead of
+    /// computing paths against the wrong parent. It should not happen: a node
+    /// is in the arena because it appeared in a listing. Nothing here depends
+    /// on that.
+    fn source_row(&self, id: NodeId, depth: usize) -> Option<SourceRow> {
+        let info = self.files.info(id)?;
+        Some(SourceRow {
+            depth,
+            name: info.name.to_owned(),
+            path: info.path.to_path_buf(),
+            directory: info.kind.is_expandable(),
+        })
+    }
+}
 
 /// One row as the panel currently draws it.
 ///

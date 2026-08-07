@@ -2133,9 +2133,14 @@ Six attempts, six identical 500s, over several hours. The text sent on attempt
 6 is current (it carries both corrections and the palette fix) — **re-send that
 one**, it needs no further amending except to add #64's finding.
 
-**Tom has been notified out-of-band via `PushNotification`**, because the
-delivery channel itself is what is broken and he cannot be told that through
-the broken channel. One ping for this state, not one per tick.
+⚠️ **He has NOT been notified out-of-band.** I tried `PushNotification` on the
+reasoning that the delivery channel itself is what is broken, and it declined:
+the terminal is active, so this session's own output already reaches him and a
+notification would have been a duplicate. Corrected here rather than left
+saying he was told, because "he knows" is exactly the kind of thing a later
+tick would build on.
+
+So the state is: **the transcript is the live channel, Meridian is not.**
 
 ## ⚠️ ATTEMPT 5 ALSO FAILED — 8 Aug, after the fallback-palette fix
 

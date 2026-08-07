@@ -1500,24 +1500,40 @@ along with the fact that 21 declared formatting options — including
 
 ---
 
-## ▶ PICK UP HERE — state at 22:38, 2026-08-07
+## ▶ PICK UP HERE — state at 22:44, 2026-08-07
+
+### #71 — CLOSED. All six gates green.
+
+The three that were outstanding ran inline at 22:42–22:44, in a window that
+opened at 1-minute load **9.16** against 10 cores and kept falling for the whole
+battery (9.13 → 8.59 → 7.59). The entire set fit in **100 seconds**, which is
+inside three of the four troughs measured earlier this evening — the
+escalate-by-cost ordering is what made that fit possible, and it is worth
+keeping.
+
+| gate | exit | evidence |
+| --- | --- | --- |
+| `test -p iridium-editor --features syntax` | 0 | 1109 + 3 + 16 passed, 0 failed |
+| `check -p iridium-bindings --features web --target wasm32` | 0 | finished in 3.09 s, **zero** warnings |
+| `test --workspace --all-features` | 0 | **2463 passed, 0 failed**, 20 ignored, across 30 targets |
+
+Each ran unpiped with `$?` captured on the very next line into its own status
+file, per the standing rule — `t_syntax.status`, `wasm.status`, `t_all.status`
+in the scratchpad. The last gate was **split into `--no-run` then run**, so the
+compile (26 s) and the execution carried separate exit statuses; a window
+closing mid-compile would have cost the compile only, and the compile is
+resumable. That split is the right default for the expensive gate on this box.
+
+#71's code is committed at `bd582e1`; that commit's message names four of six
+gates because four is what had run at the time. **This is the record that the
+other two passed** — the commit was not amended, because amending it to claim
+gates it did not run would put a claim in the history that was false when
+written.
 
 ### The one action that moves things
 
-**Run #71's three remaining gates inline, on any tick where 1-minute load is
-under 10.** Cheapest first; the first two are ~30 s each, the last is the
-expensive one:
-
-```
-cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
-cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
-cargo test --workspace --all-features --no-fail-fast
-```
-
-Four of six are already green (`fmt --check`, both no-default-features clippy
-configs, the GPU-free kernel tests) — recorded above with timings. #71 is
-committed at `bd582e1`; the commit names which gates ran and which did not, so
-nothing is being implied that was not measured.
+**#72** — `tag.jsx` → `Tag`, `text.jsx` and `nested` → deliberately unstyled.
+No ruling needed; it was split out of #70 precisely so it would not wait.
 
 ### Two things not to redo
 

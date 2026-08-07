@@ -45,11 +45,36 @@ tsx               Tsx
 typescript        TypeScript
 yaml              Yaml
 
-# Vendored, carrying manifests and queries, and NOT YET LISTED — admitting them
-# is its own step, because the moment they appear here `Language::all()` grows
-# and every test that iterates it sees them:
+# Listed with NO grammar linked, which the paragraph above describes. Each one
+# claims files and three of them carry a comment token, so `Ctrl+/` works and
+# the file opens as itself — none of which needs a parser. They will not
+# highlight until a grammar is linked, and that is the expected state rather
+# than a defect.
 #
-#   diff  gitcommit  gomod  gowork  jsdoc  markdown-inline  regex
+#   diff        .diff, .patch
+#   gitcommit   COMMIT_EDITMSG, MERGE_MSG, TAG_EDITMSG, NOTES_EDITMSG,
+#               EDIT_DESCRIPTION — the file `git commit` opens in the editor
+#   gomod       go.mod
+#   gowork      go.work
+diff              Diff
+gitcommit         GitCommit
+gomod             GoMod
+gowork            GoWork
+
+# Vendored, carrying manifests and queries, and DELIBERATELY NOT LISTED:
+#
+#   jsdoc  markdown-inline  regex
+#
+# These three exist only to be *injected* into another language — jsdoc into a
+# comment, regex into a string literal, markdown-inline into a markdown block.
+# None declares a `path_suffixes`, so no file can ever open as one; none has a
+# grammar linked, so nothing could highlight it if one did; and Iridium does
+# not process injections at all — `QueryKind::Injections` has no consumer
+# outside tests. Listing them would add three `Language` values that nothing
+# can produce and nothing can use, in every table, count and picker.
+#
+# Admit them in the same commit that implements injections, not before. That
+# is one line each, which is the whole point of this file.
 #
 # `jsonc` is deliberately not among them and never will be. Its manifest is
 # still loaded, but its file associations resolve to `json` through

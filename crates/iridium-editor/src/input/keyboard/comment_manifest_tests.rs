@@ -59,6 +59,19 @@ const EXPECTED: &[CommentRow] = &[
     // its manifest lists only `// `, and the toggle cannot accidentally write
     // a doc comment.
     ("awl", Some("//"), None),
+    // The four listed with no grammar linked. A parser has nothing to do with
+    // commenting — these read their token from the same manifest every other
+    // language does, so `Ctrl+/` works in a `go.mod` and in the message
+    // `git commit` opens, neither of which Iridium can parse.
+    //
+    // `diff` is the first language in the table with NO comment syntax at all,
+    // in either direction. The diff format has no comment: a line starting `#`
+    // is content. `every_language_comments_the_way_the_table_says` branches on
+    // this rather than resolving, because resolving is what returns nothing.
+    ("diff", None, None),
+    ("gitcommit", Some("#"), None),
+    ("gomod", Some("//"), None),
+    ("gowork", Some("//"), None),
     ("rust", Some("//"), Some(("/*", "*/"))),
     ("python", Some("#"), None),
     ("typescript", Some("//"), Some(("/*", "*/"))),
@@ -98,6 +111,22 @@ fn every_language_comments_the_way_the_table_says() {
     let mut wrong = Vec::new();
 
     for &(id, line, block) in EXPECTED {
+        // A language claiming neither token resolves to nothing at all, which
+        // is a different outcome from a `CommentSyntax` with two empty fields —
+        // `resolve_comment_syntax` returns `None` and the toggle does nothing.
+        // Asserted here rather than folded into the comparison below, because
+        // `resolved` panics on exactly this case.
+        if line.is_none() && block.is_none() {
+            let config = EditorConfig {
+                line_comment_token: None,
+                ..EditorConfig::default()
+            };
+            if resolve_comment_syntax(&document_in(id), &config).is_some() {
+                wrong.push(format!("{id}: should have no comment syntax, resolved one"));
+            }
+            continue;
+        }
+
         let CommentSyntax {
             line: actual_line,
             block: actual_block,

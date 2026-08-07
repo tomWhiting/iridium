@@ -19,59 +19,67 @@ fn vendored_path(language: Language, kind: QueryKind) -> PathBuf {
         .join(kind.file_name())
 }
 
-/// Every `(language, kind)` pair with no vendored file.
-///
-/// Spelled out rather than derived so that a vendor refresh which adds or drops
-/// a file has to be acknowledged here, in a diff a reviewer can see.
-///
-/// The three upstream languages each miss exactly one kind. AWL misses four,
-/// because it is not an upstream language: its queries are written by hand in
-/// the aion repository and cover what AWL actually needs. A language shipping
-/// only some kinds is the normal case for a first-party grammar, not a gap
-/// waiting to be filled — the loader models every kind as optional, and the
-/// features keying off the missing four degrade to nothing rather than fail.
-const KNOWN_ABSENCES: &[(Language, QueryKind)] = &[
-    (Language::Json, QueryKind::Injections),
-    (Language::Yaml, QueryKind::Indents),
-    (Language::Bash, QueryKind::Outline),
-    (Language::Awl, QueryKind::Brackets),
-    (Language::Awl, QueryKind::TextObjects),
-    (Language::Awl, QueryKind::Injections),
-    (Language::Awl, QueryKind::Outline),
+/// Every query kind, for the ten languages that ship all of them.
+const EVERYTHING: &[QueryKind] = &[
+    QueryKind::Highlights,
+    QueryKind::Brackets,
+    QueryKind::TextObjects,
+    QueryKind::Indents,
+    QueryKind::Injections,
+    QueryKind::Outline,
 ];
 
-/// What specific languages ship, written out by hand.
+/// What every language ships, written out by hand — the one table.
 ///
-/// This is the check that survives the table being generated. Every other test
-/// here compares the table against the directory, and once `build.rs` builds
-/// the table *from* that directory both sides read the same source — such a
-/// comparison can catch a mangled table but never a file that quietly went
-/// away in a vendor refresh.
+/// This replaced a pair: a list of known absences and a separate list pinning
+/// what a few languages positively shipped. Two tables describing one fact is
+/// one table too many, and the split had a hole in it — a language could lose
+/// one file and gain another and the absence *count* would still balance.
 ///
-/// So these rows are asserted, not derived. They are a claim about what
-/// Iridium supports, and if a refresh makes one false the right outcome is a
-/// failing test naming the language, not a feature that silently stops.
-const PINNED: &[(Language, &[QueryKind])] = &[
-    // The reference language: everything present.
+/// **These rows are asserted, not derived, and that is the whole point.**
+/// Every other test here compares the generated table against the directory it
+/// was generated from, so both sides read the same source: such a comparison
+/// catches a mangled table but never a file that quietly went away in a vendor
+/// refresh. This is the third opinion. If a refresh makes a row false, the
+/// right outcome is a failing test naming the language and the kind, not a
+/// feature that silently stops.
+///
+/// A language shipping only some kinds is routine rather than a gap waiting to
+/// be filled — the loader models every kind as optional, and each feature
+/// degrades to nothing for a language that ships no query for it.
+const SHIPS: &[(Language, &[QueryKind])] = &[
+    // Hand-written queries from the aion repository, covering what AWL needs.
+    (Language::Awl, &[QueryKind::Highlights, QueryKind::Indents]),
+    // The four listed with no grammar linked. Each ships highlights it cannot
+    // yet run and an injections query nothing consumes; what makes them worth
+    // listing is the manifest beside them, not these.
     (
-        Language::Rust,
+        Language::Diff,
+        &[QueryKind::Highlights, QueryKind::Injections],
+    ),
+    (
+        Language::GitCommit,
+        &[QueryKind::Highlights, QueryKind::Injections],
+    ),
+    (
+        Language::GoMod,
+        &[QueryKind::Highlights, QueryKind::Injections],
+    ),
+    (
+        Language::GoWork,
+        &[QueryKind::Highlights, QueryKind::Injections],
+    ),
+    // Upstream languages, each missing exactly one kind.
+    (
+        Language::Bash,
         &[
             QueryKind::Highlights,
             QueryKind::Brackets,
             QueryKind::TextObjects,
             QueryKind::Indents,
             QueryKind::Injections,
-            QueryKind::Outline,
         ],
     ),
-    // The languages carrying a documented absence, pinned from the other side:
-    // what they *do* ship, so a refresh that dropped a second file is caught
-    // by more than the absence list alone.
-    //
-    // AWL matters most here. Its four absences mean the absence list alone
-    // would still pass if its highlights.scm vanished and its brackets.scm
-    // appeared — the count would balance. This says which two it ships.
-    (Language::Awl, &[QueryKind::Highlights, QueryKind::Indents]),
     (
         Language::Json,
         &[
@@ -92,40 +100,71 @@ const PINNED: &[(Language, &[QueryKind])] = &[
             QueryKind::Outline,
         ],
     ),
-    (
-        Language::Bash,
-        &[
-            QueryKind::Highlights,
-            QueryKind::Brackets,
-            QueryKind::TextObjects,
-            QueryKind::Indents,
-            QueryKind::Injections,
-        ],
-    ),
+    // Everything present.
+    (Language::C, EVERYTHING),
+    (Language::Cpp, EVERYTHING),
+    (Language::Css, EVERYTHING),
+    (Language::Go, EVERYTHING),
+    (Language::JavaScript, EVERYTHING),
+    (Language::Markdown, EVERYTHING),
+    (Language::Python, EVERYTHING),
+    (Language::Rust, EVERYTHING),
+    (Language::Tsx, EVERYTHING),
+    (Language::TypeScript, EVERYTHING),
 ];
 
 #[test]
-fn the_pinned_languages_ship_exactly_what_they_are_claimed_to() {
-    for &(language, kinds) in PINNED {
+fn every_language_ships_exactly_what_the_table_says() {
+    // Collected rather than asserted one at a time: a vendor refresh usually
+    // moves several files at once, and seeing all of them is what tells you
+    // whether a language changed or the refresh did.
+    let mut wrong = Vec::new();
+
+    for &(language, kinds) in SHIPS {
         for &kind in QueryKind::all() {
             let expected = kinds.contains(&kind);
-            assert_eq!(
-                source(language, kind).is_some(),
-                expected,
-                "{} should {} ship {kind}",
-                language.id(),
-                if expected { "" } else { "not" }
-            );
+            if source(language, kind).is_some() != expected {
+                wrong.push(format!(
+                    "{} should {}ship {kind}",
+                    language.id(),
+                    if expected { "" } else { "not " }
+                ));
+            }
         }
+    }
+
+    assert!(
+        wrong.is_empty(),
+        "the vendored queries no longer match what SHIPS claims:\n{}",
+        wrong.join("\n")
+    );
+}
+
+#[test]
+fn the_table_names_every_language_exactly_once() {
+    // Without this, a language added to `languages.txt` and forgotten here
+    // would ship whatever the directory happened to hold, unchecked.
+    assert_eq!(
+        SHIPS.len(),
+        Language::COUNT,
+        "a language was added without saying which queries it ships"
+    );
+    for &language in Language::all() {
+        assert_eq!(
+            SHIPS.iter().filter(|(l, _)| *l == language).count(),
+            1,
+            "{} appears in SHIPS other than exactly once",
+            language.id()
+        );
     }
 }
 
 #[test]
-fn a_pinned_query_carries_real_text_rather_than_an_empty_file() {
+fn a_shipped_query_carries_real_text_rather_than_an_empty_file() {
     // The generated table would happily carry an empty string, and every
     // presence check above would still pass. Highlights is the one kind
-    // nothing degrades gracefully without.
-    for &(language, _) in PINNED {
+    // nothing degrades gracefully without, and every language ships one.
+    for &(language, _) in SHIPS {
         let highlights = source(language, QueryKind::Highlights)
             .unwrap_or_else(|| panic!("{} ships no highlights.scm", language.id()));
         assert!(
@@ -153,7 +192,10 @@ fn the_table_agrees_with_the_files_on_disk() {
 }
 
 #[test]
-fn the_only_absences_are_the_ones_written_down() {
+fn the_absences_are_exactly_the_ones_the_table_accounts_for() {
+    // The other direction from `every_language_ships_exactly_what_the_table_
+    // says`, and not redundant with it: that test walks SHIPS, so a language
+    // missing from SHIPS entirely is invisible to it. This walks the registry.
     let absent: BTreeSet<(&str, QueryKind)> = Language::all()
         .iter()
         .flat_map(|&language| {
@@ -165,20 +207,25 @@ fn the_only_absences_are_the_ones_written_down() {
         })
         .collect();
 
-    let expected: BTreeSet<(&str, QueryKind)> = KNOWN_ABSENCES
+    let expected: BTreeSet<(&str, QueryKind)> = SHIPS
         .iter()
-        .map(|&(language, kind)| (language.id(), kind))
+        .flat_map(|&(language, kinds)| {
+            QueryKind::all()
+                .iter()
+                .filter(move |kind| !kinds.contains(kind))
+                .map(move |&kind| (language.id(), kind))
+        })
         .collect();
 
     assert_eq!(
         absent, expected,
         "the set of languages missing a query kind changed; \
-         update KNOWN_ABSENCES and the loader's documentation together"
+         update SHIPS and the loader's documentation together"
     );
 }
 
 #[test]
-fn the_table_carries_a_query_for_every_other_pairing() {
+fn the_table_carries_a_query_for_every_pairing_it_claims() {
     let pairings = Language::COUNT * QueryKind::COUNT;
     let present = Language::all()
         .iter()
@@ -188,11 +235,11 @@ fn the_table_carries_a_query_for_every_other_pairing() {
                 .filter(move |&&kind| source(language, kind).is_some())
         })
         .count();
+    let claimed: usize = SHIPS.iter().map(|(_, kinds)| kinds.len()).sum();
 
     assert_eq!(
-        present,
-        pairings - KNOWN_ABSENCES.len(),
-        "expected {pairings} pairings less {} absences",
-        KNOWN_ABSENCES.len()
+        present, claimed,
+        "the table carries {present} of {pairings} pairings, but SHIPS claims \
+         {claimed}"
     );
 }

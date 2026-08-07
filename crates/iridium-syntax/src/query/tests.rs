@@ -31,9 +31,15 @@ fn every_embedded_query_compiles_against_its_grammar() {
                     "{}/{kind} compiled to no patterns at all",
                     language.id()
                 ),
+                // Absence has two legitimate causes and this arm must accept
+                // both: the language ships no `.scm` of this kind, or it has no
+                // grammar to compile one against. What it must still reject is
+                // a language that has both and got nothing back, which is the
+                // cache dropping a query.
                 Ok(None) => assert!(
-                    source(language, kind).is_none(),
-                    "{}/{kind} has source but the cache reported it absent",
+                    source(language, kind).is_none() || !crate::grammar::has_grammar(language),
+                    "{}/{kind} has both source and a grammar but the cache \
+                     reported it absent",
                     language.id()
                 ),
                 Err(error) => failures.push(error.to_string()),
@@ -51,16 +57,74 @@ fn every_embedded_query_compiles_against_its_grammar() {
 }
 
 #[test]
-fn every_language_ships_the_highlights_query_the_highlighter_requires() {
+fn every_parseable_language_ships_the_highlights_query_the_highlighter_requires() {
+    // Scoped to languages with a grammar. `compiled` resolves a grammarless
+    // language to the same routine absence as one shipping no `.scm` — there is
+    // nothing to compile a query against — so requiring `Some` of every
+    // language would fail for `diff`, `gitcommit`, `gomod` and `gowork`, which
+    // are listed precisely because a language need not be parseable to be
+    // useful.
+    //
+    // The claim that survives is the one that matters: wherever a grammar
+    // exists, `Highlighter::new` must succeed.
+    let mut checked = 0_usize;
     for &language in Language::all() {
+        if !crate::grammar::has_grammar(language) {
+            continue;
+        }
+        checked += 1;
         assert!(
             compiled(language, QueryKind::Highlights)
                 .expect("highlights must compile")
                 .is_some(),
-            "{} has no highlights query, so Highlighter::new would fail for it",
+            "{} has a grammar but no highlights query, so Highlighter::new \
+             would fail for it",
             language.id()
         );
     }
+
+    // Guards the skip: if every grammar were unlinked, the loop above would
+    // pass having checked nothing.
+    assert!(
+        checked > 0,
+        "no language has a grammar linked, so this test proves nothing"
+    );
+}
+
+#[test]
+fn a_language_with_no_grammar_reports_absence_rather_than_an_error() {
+    // The behaviour the four grammarless languages depend on. A caller must be
+    // able to ask for any query of any language and get a routine `Ok(None)`
+    // back, so features degrade instead of erroring — see `grammar`'s module
+    // note. An `Err` here would surface as a broken editor for a `go.mod`.
+    let mut grammarless = 0_usize;
+    for &language in Language::all() {
+        if crate::grammar::has_grammar(language) {
+            continue;
+        }
+        grammarless += 1;
+        for &kind in QueryKind::all() {
+            // Matched rather than compared: `SyntaxError` is deliberately not
+            // `PartialEq` — it carries a message meant for a human — and
+            // deriving it to shorten a test would be the tail wagging the dog.
+            match compiled(language, kind) {
+                Ok(None) => {},
+                Ok(Some(_)) => panic!(
+                    "{}/{kind} compiled a query with no grammar to compile it against",
+                    language.id()
+                ),
+                Err(error) => panic!(
+                    "{}/{kind} errored instead of reporting a routine absence: {error}",
+                    language.id()
+                ),
+            }
+        }
+    }
+
+    assert!(
+        grammarless > 0,
+        "no language lacks a grammar, so this test proves nothing"
+    );
 }
 
 #[test]

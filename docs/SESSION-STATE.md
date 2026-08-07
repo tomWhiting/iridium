@@ -1215,3 +1215,37 @@ very next line, and read the status file.
   which hit `awl`, `cpp`, `css` and `go` — was fixed at the same time.
 - **#69** `custom_gutter_lines_miss_and_recompose_identically` is flaky under
   box load. Passed in the AWL battery; do not read one green run as a fix.
+
+## 🧪 THE RETAINED-SHAPING SUITE SPLIT — #65
+
+`crates/iridium-editor/tests/retained_shaping.rs` had grown to **1,062 lines**
+against the 500-line bar. It is now `tests/retained_shaping/` — one test
+binary still, because cargo takes `tests/<name>/main.rs` as a target, so no
+link time was added and no test was renamed.
+
+**The seam is which input of the shape key the row mutates**, which is the
+axis a defect appears along: a compositor that stopped keying the fold
+generation breaks the fold rows and nothing else.
+
+| file | lines | what it holds |
+| --- | --- | --- |
+| `main.rs` | 48 | the module doc and the declarations, nothing else |
+| `harness.rs` | 182 | the fixtures, and the single path every comparand is built by |
+| `hits.rs` | 140 | the inputs deliberately outside the key |
+| `typing.rs` | 176 | the miss side, stage 2a — the edit path |
+| `layout.rs` | 140 | scroll, target size, font face, font size |
+| `theme.rs` | 87 | the palette text and the fallback highlighter draw from |
+| `syntax.rs` | 217 | the language answer, the spans, their generation |
+| `gutter.rs` | 157 | folds, custom gutter lines, the digit rollover |
+
+**All 24 tests kept, none renamed, none rewritten — and that is checked, not
+claimed.** Concatenating the six modules from each one's first doc comment and
+diffing against `git show HEAD:…/retained_shaping.rs` lines 199–1062, with only
+the three now-redundant section banners removed, comes back **identical**. A
+green suite would not have proved this: a split that quietly weakened an
+assertion passes just as well.
+`support/` is reached with `#[path = "../support/mod.rs"]`, which leaves the
+other two GPU binaries untouched.
+
+⚠️ The flaky `custom_gutter_lines_miss_and_recompose_identically` (#69) is now
+in `gutter.rs`. Splitting did not touch it.

@@ -382,3 +382,37 @@ instrument when the other seats carry one, and not before.
 *"Whose run was this?"* was answered with log mtimes and a commit window
 because **git could not tell either party.** A seat trailer answers it in one
 command, at the time, with no forensics.
+
+## The trough record, and a refinement the data forced
+
+Four closed lulls measured on this box, 2026-08-07, threshold = 10 cores,
+30 s sampling. **All four CLOSED — no open reading is quoted here.**
+
+| opened | width | samples |
+| --- | --- | --- |
+| 19:56:49 | **450 s** | 16 |
+| 20:15:20 | **150 s** | 6 |
+| 20:33:21 | **601 s** | 21 |
+| 20:53:52 | **300 s** | 11 |
+
+Widest is **601 s**, and it closed like the rest. Four points is still not a
+distribution, and no span is adopted from it.
+
+### Scale the debounce to the duration of the run it gates
+
+The 20:53 window is the useful one, because work was done inside it.
+
+A fifteen-minute battery was **not** started on a 240 s-old window when the
+widest lull that later closed was 601 s. Instead the runs were escalated by
+cost: a 15 s `cargo check`, then a 0.00 s test run, then clippy. All four
+finished inside the window. **Load hit 31.80 within a minute of it closing.**
+
+⭐ **A long run needs confidence the quiet will persist; a short run mostly
+needs the quiet to exist.** The risk being managed is collision, and a run
+that finishes in fifteen seconds can barely collide with anything. Treating
+both under one debounce either blocks cheap work needlessly or admits
+expensive work recklessly — and the single-number rule does the second.
+
+This is the third time in one evening that the mid-run argument has arrived as
+evidence rather than as argument: a window that would have passed any
+entry-only precondition, followed by a spike the precondition could not see.

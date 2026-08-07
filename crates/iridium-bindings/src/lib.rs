@@ -337,40 +337,26 @@ pub fn get_language_for_extension(extension: String) -> Option<String> {
 ///
 /// const exts = getExtensionsForLanguage('typescript'); // Returns ['ts', 'mts', 'cts']
 /// ```
+///
+/// An unrecognised language name returns an empty array rather than an error:
+/// asking which files a language claims is a question with a legitimate answer
+/// of "none I know of".
+///
+/// This reads [`iridium_syntax::Language::extensions`] rather than carrying its
+/// own table. It used to carry one, and that copy was already wrong — it had
+/// never heard of `.jsonc`, and nothing could have told it so.
 #[napi]
 pub fn get_extensions_for_language(language: String) -> Vec<String> {
     use iridium_syntax::Language;
 
-    // Map language ID to known extensions
-    with_napi_str(language, |language| match Language::from_id(language) {
-        Some(Language::Rust) => vec!["rs".to_string()],
-        Some(Language::Python) => vec!["py".to_string(), "pyi".to_string(), "pyw".to_string()],
-        Some(Language::TypeScript) => {
-            vec!["ts".to_string(), "mts".to_string(), "cts".to_string()]
-        },
-        Some(Language::JavaScript) => vec![
-            "js".to_string(),
-            "mjs".to_string(),
-            "cjs".to_string(),
-            "jsx".to_string(),
-        ],
-        Some(Language::Tsx) => vec!["tsx".to_string()],
-        Some(Language::Go) => vec!["go".to_string()],
-        Some(Language::Json) => vec!["json".to_string()],
-        Some(Language::Yaml) => vec!["yaml".to_string(), "yml".to_string()],
-        Some(Language::Markdown) => vec!["md".to_string(), "markdown".to_string()],
-        Some(Language::Css) => vec!["css".to_string()],
-        Some(Language::Bash) => vec!["sh".to_string(), "bash".to_string(), "zsh".to_string()],
-        Some(Language::C) => vec!["c".to_string(), "h".to_string()],
-        Some(Language::Cpp) => vec![
-            "cpp".to_string(),
-            "cxx".to_string(),
-            "cc".to_string(),
-            "hpp".to_string(),
-            "hxx".to_string(),
-            "hh".to_string(),
-        ],
-        None => vec![],
+    with_napi_str(language, |language| {
+        Language::from_id(language).map_or_else(Vec::new, |language| {
+            language
+                .extensions()
+                .iter()
+                .map(|extension| (*extension).to_string())
+                .collect()
+        })
     })
 }
 

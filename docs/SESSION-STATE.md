@@ -827,10 +827,60 @@ an unfulfilled expectation is itself an error.
 
 ### Left open — decide, do not drift
 
-- **`.jsonc`**: the stub took it, the real one does not; `iridium-lang` follows
-  the real one, so no shipping behaviour changed. Whether tree-sitter-json
-  tolerates comments well enough to add it needs verifying, not guessing.
 - **`.h` is C, not C++** — asserted in a test so changing it is a decision.
+
+---
+
+## 🗒 `.jsonc` — SETTLED 7 Aug, verified against the grammar
+
+The stub had taken `.jsonc`, the real table had not, and collapsing the two took
+the real one's answer. That left `.jsonc` resolving to no language at all. The
+stub turned out to have been right.
+
+**What was checked, not guessed.** tree-sitter-json 0.24.8 lists `comment` in
+its `extras` (grammar.js:16, rule at :94, covering `//` and `/* */`), and the
+vendored `json/highlights.scm` already captures `(comment) @comment`. A
+commented document parses with **`has_error = false`** — no recovery, no error
+node — and both comment forms highlight, covering exactly their own text. Two
+tests in `iridium-syntax/src/highlight/tests.rs` pin that against a grammar
+bump: `jsonc_is_the_json_grammar_and_its_comments_parse` and
+`a_trailing_comma_costs_an_error_node_and_nothing_else`.
+
+**Trailing commas are the other half of JSONC and the grammar does reject
+them** — but the damage is *local*. Recovery marks one `MISSING` value and one
+`ERROR` node and carries on; every real token either side still highlights as
+itself, so nothing is mis-coloured. Wrong highlighting would have been worse
+than none; this is neither.
+
+**What this does not buy.** `Ctrl+/` in a `.jsonc` file is still a no-op,
+because `language_tokens(Json)` is `(None, None)` in `iridium-editor` and the
+config fallback defaults to `None`. Giving JSON a `//` token would give every
+`.json` file one too — commenting a line in `package.json` would silently break
+it. The two formats share a grammar but not a specification, and separating
+them means a `Language::Jsonc` variant, which collides with
+`distinct_languages_do_not_share_one_grammar` in `grammar.rs`. **That is Tom's
+call, not mine** — it is task #62, priced there.
+
+### The proxy this uncovered
+
+`get_extensions_for_language` in `iridium-bindings/src/lib.rs` was a
+**hand-written inverse** of `from_extension` — a second copy of one decision,
+and it went stale the instant `.jsonc` was added. Same shape as the two
+`Language` enums.
+
+The fix is the non-proxy one: `Language::extensions()` is now the **only**
+extension table, and `from_extension` *searches* it rather than restating it, so
+the two directions cannot disagree. The napi function is four lines reading that
+table. Three guards were added in `iridium-lang`:
+
+- `every_listed_extension_resolves_to_the_language_that_lists_it`
+- `no_extension_names_two_languages` — this is what makes the linear scan's
+  order irrelevant, asserted rather than assumed
+- `every_extension_is_lower_case_and_carries_no_dot` — an upper-case entry would
+  be unreachable, since `from_extension` lower-cases first
+
+The scan is a few dozen string comparisons on the path that opens a file, not on
+any path that runs per keystroke or per frame.
 
 ---
 

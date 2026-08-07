@@ -297,6 +297,16 @@ pub fn sanitize_pixel_ratio_js(ratio: f64) -> f32 {
 /// `pixel_ratio` is sanitised rather than trusted; see
 /// [`crate::display_scale`] for why a zero or `NaN` one is a real input and
 /// what it would otherwise do to the viewport.
+/// The `future_not_send` exemption is the same one carried by
+/// `RenderPipeline::init_async` and `WebSurface::from_canvas`, and for the same
+/// reason: wgpu's handles are `!Send` on `wasm32` because the web backend wraps
+/// JavaScript objects, and this target has no threads for a future to be sent
+/// between. `allow` rather than `expect` because `#[expect]` does not survive
+/// `#[wasm_bindgen]`'s expansion — see the note on [`WebEditor::is_read_only`].
+#[allow(
+    clippy::future_not_send,
+    reason = "wgpu handles are !Send on wasm32; the target is single-threaded"
+)]
 #[wasm_bindgen(js_name = createWebEditor)]
 pub async fn create_web_editor(
     canvas: HtmlCanvasElement,
@@ -485,8 +495,14 @@ impl WebEditor {
     /// no-op that still reports `"handled"`.
     // The five bools mirror the DOM KeyboardEvent modifier flags 1:1
     // (`alt_graph` is `getModifierState("AltGraph")`); a struct would not
-    // survive the wasm-bindgen boundary as ergonomically.
-    #[allow(clippy::fn_params_excessive_bools)]
+    // survive the wasm-bindgen boundary as ergonomically. `too_many_arguments`
+    // (8/7) is the same fact counted a second way: the arity is the DOM event's
+    // shape, not a design choice this side of the boundary can make differently.
+    #[allow(
+        clippy::fn_params_excessive_bools,
+        clippy::too_many_arguments,
+        reason = "the parameter list mirrors the DOM KeyboardEvent 1:1"
+    )]
     #[wasm_bindgen(js_name = handleKeyEvent)]
     pub fn handle_key_event(
         &mut self,
@@ -2162,10 +2178,10 @@ impl WebEditor {
 
     /// Categorizes a character for word boundary detection.
     /// Returns: 0 = whitespace, 1 = word (alphanumeric/_), 2 = punctuation
-    fn char_class(c: &char) -> u8 {
+    fn char_class(c: char) -> u8 {
         if c.is_whitespace() {
             0
-        } else if c.is_alphanumeric() || *c == '_' {
+        } else if c.is_alphanumeric() || c == '_' {
             1
         } else {
             2 // punctuation and other symbols
@@ -2186,9 +2202,8 @@ impl WebEditor {
         }
 
         // Get current line content
-        let line_content = match doc.line(pos.line) {
-            Some(l) => l,
-            None => return pos,
+        let Some(line_content) = doc.line(pos.line) else {
+            return pos;
         };
         let chars: Vec<char> = line_content.chars().collect();
 
@@ -2209,10 +2224,10 @@ impl WebEditor {
         }
 
         // Determine the class of character we're about to skip
-        let target_class = chars.get(col - 1).map_or(0, Self::char_class);
+        let target_class = chars.get(col - 1).copied().map_or(0, Self::char_class);
 
         // Skip characters of the same class going backwards
-        while col > 0 && chars.get(col - 1).map_or(0, Self::char_class) == target_class {
+        while col > 0 && chars.get(col - 1).copied().map_or(0, Self::char_class) == target_class {
             col -= 1;
         }
 
@@ -2225,9 +2240,8 @@ impl WebEditor {
         let line_count = doc.line_count();
 
         // Get current line content
-        let line_content = match doc.line(pos.line) {
-            Some(l) => l,
-            None => return pos,
+        let Some(line_content) = doc.line(pos.line) else {
+            return pos;
         };
         let chars: Vec<char> = line_content.chars().collect();
 
@@ -2242,10 +2256,12 @@ impl WebEditor {
         let mut col = pos.column;
 
         // Determine the class of the current character
-        let current_class = chars.get(col).map_or(0, Self::char_class);
+        let current_class = chars.get(col).copied().map_or(0, Self::char_class);
 
         // Skip characters of the same class going forwards
-        while col < chars.len() && chars.get(col).map_or(0, Self::char_class) == current_class {
+        while col < chars.len()
+            && chars.get(col).copied().map_or(0, Self::char_class) == current_class
+        {
             col += 1;
         }
 
@@ -2844,6 +2860,14 @@ impl WebEditor {
 }
 
 /// Check if WebGPU is supported in this browser.
+///
+/// Same `future_not_send` exemption as [`create_web_editor`]: the adapter
+/// request holds a `!Send` wgpu handle across the await, on a target with no
+/// threads to send it between.
+#[allow(
+    clippy::future_not_send,
+    reason = "wgpu handles are !Send on wasm32; the target is single-threaded"
+)]
 #[wasm_bindgen(js_name = isWebGPUSupported)]
 pub async fn is_webgpu_supported() -> bool {
     use wgpu::{Backends, Instance, InstanceDescriptor, InstanceFlags};

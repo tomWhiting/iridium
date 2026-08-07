@@ -996,8 +996,21 @@ them. Erroring would make normal operation fail.
 
 ## ⏸ WAITING ON TOM (nothing is blocked *behind* these)
 
+**IN FLIGHT, ASKED 7 Aug ~15:30:** #66 is started and parked one question
+short. The 21 vendored `config.toml` manifests reproduce the whole comment
+table exactly — see `docs/IN-FLIGHT-manifests.md`, which is complete and has
+the derivation, the `documentation_comment` fallback that four languages
+depend on, and the equality oracle to write. **The blocker:** those manifests
+live in `iridium-syntax`, the *optional* crate, and `comments.rs` must work
+with `syntax` off — reading them from there re-creates the exact defect #60
+removed. Three ways out priced in that file; **I recommended (b), a crate that
+owns the vendored tree outright.** Awaiting Tom's nod because it is workspace
+shape, not a detail in a file. **Nothing is half-written — no code was
+started.**
+
 | # | question |
 |---|---|
+| **#66** | **(a) move the tree to `iridium-lang`, (b) a new crate owns it, or (c) split it?** Recommended (b). |
 | **#63** | **L-0: which extensibility tier.** Tier 1 free, tier 2 measured at 6.6 MiB + 90 crates. Also: is AWL's grammar public or internal, and does it ship `.scm` files? |
 | **#63** | LSP: now or after languages? And depend on chiron's `lsp` crate or vendor it? |
 | #62 | Should `Ctrl+/` write a comment in a `.jsonc` file? Three options priced. |

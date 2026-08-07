@@ -4,7 +4,7 @@ use crate::harness::{
     ActiveLanguageNoSpans, WIDE_WIDTH, cold_pixels, compose, compositor, editor_over, gpu, pixels,
     target,
 };
-use crate::support::gpu::{FONT, HEIGHT, WIDTH};
+use crate::support::gpu::{FONT, FONT_SIZE, HEIGHT, WIDTH};
 use crate::support::pixels::assert_same_frame;
 
 /// A scroll that crosses a line boundary changes the viewport range: a full
@@ -150,5 +150,53 @@ fn a_font_size_change_misses_and_recomposes_identically() {
         &cold,
         WIDTH,
         "the resized-font frame must be byte-identical",
+    );
+}
+
+/// A font size change must move the *measured character width* with it.
+///
+/// ⚠️ **The test above cannot catch this, and the reason is worth stating.**
+/// It compares a warm compositor against a cold one, and both reach the new
+/// size the same way — load the font at 14, then set 16. So both carry the
+/// same stale character width, the frames agree, and a pixel-identity oracle
+/// is blind to a defect that is identical on both comparands.
+///
+/// This one uses an oracle that cannot share the staleness: a compositor whose
+/// font was loaded *at* the new size, which is correct by construction because
+/// `load_font` is a remeasuring path.
+///
+/// What rides on the number: `char_width` is what turns a column into an x
+/// coordinate and an x coordinate back into a column, so a stale one misplaces
+/// the caret by an error that grows with the column — and sizes the gutter
+/// wrongly by the same factor. It is not a cosmetic quantity.
+#[test]
+fn a_font_size_change_remeasures_the_character_width() {
+    let gpu = gpu();
+    let doubled = FONT_SIZE * 2.0;
+
+    // The oracle: size set first, font loaded second, so the measurement is
+    // taken at the size under test. This is the order `compositor` itself
+    // uses, and the order both faces use at startup.
+    let mut measured_at_the_new_size = compositor(&gpu);
+    measured_at_the_new_size.set_font_size(doubled);
+    measured_at_the_new_size.load_font(FONT.to_vec());
+    let honest = measured_at_the_new_size.char_width();
+
+    // The path a display change takes: a font is already loaded, and only the
+    // size changes. No face can reach it today only because no face can
+    // re-apply the scale at all — which is the whole of #35.
+    let mut resized_after_loading = compositor(&gpu);
+    assert!(
+        resized_after_loading.set_font_size(doubled),
+        "the doubled size must be inside the renderer's bounds, or this test \
+         proves nothing"
+    );
+
+    assert!(
+        (resized_after_loading.char_width() - honest).abs() < f32::EPSILON,
+        "a compositor resized after loading its font reports {} where the same \
+         font measured at the same size is {honest} — every column-to-x answer \
+         is out by that ratio",
+        resized_after_loading.char_width()
     );
 }

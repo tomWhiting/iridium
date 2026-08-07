@@ -27,19 +27,44 @@ impl FrameCompositor {
 
     /// Sets the font size in pixels (already scaled for DPI by the face).
     ///
-    /// Deliberately does not remeasure [`Self::char_width`]: before a font is
-    /// loaded there is nothing honest to measure, and the cached width keeps
-    /// its unloaded-font default until [`Self::load_font`] measures the real
-    /// glyphs.
+    /// Remeasures [`Self::char_width`], because it is a measurement *at a
+    /// size* and this call changes the size. Everything positional reads that
+    /// number — column to x, x back to column on the mouse path, the gutter's
+    /// width — so a stale one misplaces the caret by an error that grows with
+    /// the column rather than by a constant anybody would notice.
+    ///
+    /// ⚠️ An earlier revision deliberately did *not* remeasure, on the grounds
+    /// that "before a font is loaded there is nothing honest to measure". The
+    /// premise was right and the conclusion did not follow: the honest answer
+    /// for an unloaded font is not the *previous size's* width, it is this
+    /// size's fallback, and
+    /// [`TextRenderer::char_width`](crate::render::TextRenderer::char_width)
+    /// already produces exactly that — it falls back to `font_size * 0.6` when
+    /// shaping yields no glyphs. The protection was already one layer down, so
+    /// declining to remeasure bought nothing and cost correctness on the path
+    /// that changes size with a font already loaded. That path is what a
+    /// display change is: see `docs/IN-FLIGHT-35-hidpi.md`.
+    ///
+    /// Deliberately does **not** move `font_generation`. That counter exists
+    /// for inputs the retained-shaping key cannot see for itself, and the key
+    /// carries the font size in its own right (`ShapeKey::font_size`, in the
+    /// sibling `shape` module), so a size change is already a miss. Bumping
+    /// here would invalidate nothing extra and would make the counter mean two
+    /// things.
     ///
     /// Returns whether the size was accepted; a rejected size leaves the
-    /// previous one in place. The bound is
+    /// previous one in place — and, with it, the previous width, since the
+    /// remeasure happens only on the accepting branch. The bound is
     /// [`TextRenderer::set_font_size`](crate::render::TextRenderer::set_font_size)'s,
     /// and the reason it is forwarded rather than swallowed is that a face
     /// which scales the font by a display factor is exactly the caller that
     /// can supply a degenerate one and wants to know.
     pub fn set_font_size(&mut self, size: f32) -> bool {
-        self.text_renderer.set_font_size(size)
+        if !self.text_renderer.set_font_size(size) {
+            return false;
+        }
+        self.cached_char_width = self.text_renderer.char_width();
+        true
     }
 
     /// Updates the renderers' viewport uniforms for a resized surface.

@@ -125,10 +125,69 @@ pub fn sanitize_pixel_ratio(ratio: f32) -> Result<f32, (f32, PixelRatioFault)> {
     Ok(ratio)
 }
 
+/// The unscaled font size, in logical pixels, that the display scale factor
+/// multiplies.
+///
+/// Fourteen, matching the renderer's own default and the web demo's canvas
+/// CSS, so an editor on an unscaled display sits exactly where the renderer
+/// would have put it with no face involved.
+pub const BASE_FONT_SIZE: f32 = 14.0;
+
+/// A display scale factor resolved into everything derived from it.
+///
+/// One type rather than three return values because the three must not be
+/// used apart: the `ratio` a face logs and the `font_size` it applies have to
+/// come from the *same* sanitisation, and the `fault` is the only reason a
+/// face can report that they are not the ones it asked for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DisplayScale {
+    /// The usable scale factor — the supplied one, or [`FALLBACK_PIXEL_RATIO`]
+    /// if that was not usable. Always finite and within
+    /// `[MIN_PIXEL_RATIO, MAX_PIXEL_RATIO]`.
+    pub ratio: f32,
+    /// The physical font size that ratio calls for: [`BASE_FONT_SIZE`] times
+    /// [`Self::ratio`]. Guaranteed finite and strictly positive, because both
+    /// factors are and the bounds keep the product inside the renderer's own.
+    pub font_size: f32,
+    /// Why the supplied ratio was replaced, or `None` if it was taken as
+    /// given. Carried rather than swallowed: silently correcting the input is
+    /// how a misconfigured host stays misconfigured.
+    pub fault: Option<PixelRatioFault>,
+}
+
+impl DisplayScale {
+    /// Resolves a supplied scale factor, sanitising it on the way through.
+    ///
+    /// ⭐ **This is the only way to obtain a font size from a ratio, and that
+    /// is deliberate.** [`sanitize_pixel_ratio`] on its own is a guard a
+    /// caller can forget, and #35 is the shape of what happens when one does:
+    /// the web face sanitised at construction and then had no path at all for
+    /// re-applying a changed ratio, so the two halves of "read the ratio" and
+    /// "apply the ratio" drifted apart until only the first one existed.
+    /// Construction and re-application now go through this one function, so
+    /// they cannot disagree about what a usable ratio is or what font size it
+    /// implies.
+    #[must_use]
+    pub fn resolve(ratio: f32) -> Self {
+        match sanitize_pixel_ratio(ratio) {
+            Ok(usable) => Self {
+                ratio: usable,
+                font_size: BASE_FONT_SIZE * usable,
+                fault: None,
+            },
+            Err((fallback, fault)) => Self {
+                ratio: fallback,
+                font_size: BASE_FONT_SIZE * fallback,
+                fault: Some(fault),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        FALLBACK_PIXEL_RATIO, MAX_PIXEL_RATIO, MIN_PIXEL_RATIO, PixelRatioFault,
+        DisplayScale, FALLBACK_PIXEL_RATIO, MAX_PIXEL_RATIO, MIN_PIXEL_RATIO, PixelRatioFault,
         sanitize_pixel_ratio,
     };
 
@@ -324,5 +383,119 @@ mod tests {
                 .len(),
             "a log line must say which fault occurred"
         );
+    }
+
+    /// The duplicate above is now checkable, so it is checked.
+    ///
+    /// It predates the module-level constant and its comment said "if that
+    /// constant moves, this test should be the thing that notices" — which
+    /// was true and unenforceable while the real value lived in a `let` inside
+    /// `create_web_editor`. It has a name now, so the intent becomes an
+    /// assertion instead of a hope. The local copy stays: a test that imported
+    /// the constant it is pinning would pin nothing.
+    #[test]
+    fn the_local_copy_of_the_base_size_still_matches_the_real_one() {
+        const {
+            assert!(
+                BASE_FONT_SIZE == super::BASE_FONT_SIZE,
+                "the tests above reason about a base size the code no longer uses"
+            );
+        }
+    }
+
+    /// A good ratio arrives intact, with no fault to report.
+    #[test]
+    fn resolving_a_real_display_ratio_reports_no_fault() {
+        for ratio in [1.0_f32, 1.25, 1.5, 2.0, 3.0] {
+            let scale = DisplayScale::resolve(ratio);
+            assert_eq!(scale.ratio, ratio);
+            assert!(
+                (scale.font_size - BASE_FONT_SIZE * ratio).abs() < f32::EPSILON,
+                "the font size must be the base scaled by the ratio, and was {}",
+                scale.font_size
+            );
+            assert_eq!(scale.fault, None, "a real ratio has nothing to report");
+        }
+    }
+
+    /// A bad ratio yields a usable font size *and* says so.
+    ///
+    /// Both halves matter. The size keeps the editor legible; the fault is
+    /// what stops a host that is passing a DPI where a ratio belongs from
+    /// doing it forever.
+    #[test]
+    fn resolving_an_unusable_ratio_falls_back_and_names_the_fault() {
+        for (input, expected) in [
+            (0.0_f32, PixelRatioFault::NotPositive),
+            (f32::NAN, PixelRatioFault::NotFinite),
+            (f32::INFINITY, PixelRatioFault::NotFinite),
+            (-2.0, PixelRatioFault::NotPositive),
+            (f32::from_bits(1), PixelRatioFault::TooSmall),
+            (96.0, PixelRatioFault::TooLarge),
+        ] {
+            let scale = DisplayScale::resolve(input);
+            assert_eq!(scale.fault, Some(expected), "for input {input}");
+            assert_eq!(scale.ratio, FALLBACK_PIXEL_RATIO);
+            assert!(
+                (scale.font_size - BASE_FONT_SIZE * FALLBACK_PIXEL_RATIO).abs() < f32::EPSILON,
+                "an unusable ratio must still leave a legible editor, and gave {}",
+                scale.font_size
+            );
+        }
+    }
+
+    /// The contract, over the same inputs the sanitiser's own property test
+    /// uses — because a face applies [`DisplayScale::font_size`] directly and
+    /// never sees the ratio the guard worked on.
+    #[test]
+    fn a_resolved_font_size_is_always_finite_and_non_zero() {
+        let inputs = [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+            f32::MIN_POSITIVE,
+            f32::from_bits(1),
+            0.0,
+            -0.0,
+            -1.0,
+            0.1,
+            1.0,
+            1.5,
+            2.0,
+            3.0,
+            1e30,
+            -1e30,
+        ];
+        for input in inputs {
+            let scale = DisplayScale::resolve(input);
+            assert!(
+                scale.font_size.is_finite() && scale.font_size >= MIN_RENDERABLE_FONT_SIZE,
+                "resolving {input} gave a font size of {}, which the renderer refuses",
+                scale.font_size
+            );
+            assert!(
+                scale.ratio.is_finite()
+                    && (MIN_PIXEL_RATIO..=MAX_PIXEL_RATIO).contains(&scale.ratio),
+                "resolving {input} gave a ratio of {}",
+                scale.ratio
+            );
+        }
+    }
+
+    /// Resolving twice must give the same answer, since the re-apply path
+    /// runs on every display change while construction runs once.
+    #[test]
+    fn resolving_is_idempotent_in_its_own_output() {
+        for input in [2.0_f32, 0.0, f32::NAN, 96.0, 1.5] {
+            let once = DisplayScale::resolve(input);
+            let twice = DisplayScale::resolve(once.ratio);
+            assert_eq!(
+                once.ratio, twice.ratio,
+                "a resolved ratio must survive being resolved again"
+            );
+            assert_eq!(twice.fault, None, "and must have nothing left to report");
+        }
     }
 }

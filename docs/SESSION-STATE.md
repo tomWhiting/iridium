@@ -2127,6 +2127,16 @@ already told him that was wrong**, which is the worst kind of message to lose.
 
 **Retry this on the next tick.** DM `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`.
 
+## ⚠️ ATTEMPT 6 ALSO FAILED — 8 Aug ~04:20
+
+Six attempts, six identical 500s, over several hours. The text sent on attempt
+6 is current (it carries both corrections and the palette fix) — **re-send that
+one**, it needs no further amending except to add #64's finding.
+
+**Tom has been notified out-of-band via `PushNotification`**, because the
+delivery channel itself is what is broken and he cannot be told that through
+the broken channel. One ping for this state, not one per tick.
+
 ## ⚠️ ATTEMPT 5 ALSO FAILED — 8 Aug, after the fallback-palette fix
 
 Five attempts, five identical 500s. **Stop retrying within a turn** — one
@@ -2272,6 +2282,32 @@ The honest options:
   decision. ⭐ That is the pattern worth repeating — a blocked item is blocked
   on its **choices**, not necessarily on its **defects**.
 - **Stop and say so.** Three ticks of nothing means stop, not narrate.
+
+**6. Second ruling-free slice landed, and it was investigation not code** —
+`679e592`, in `docs/IN-FLIGHT-legacy-bindings.md`. #64's second question
+("what produces the live 2 MB bundle?") is **answered**: the same builder, the
+same run, one gzipped. Proved by gunzipping the live `"rust"` entry and
+matching its SHA-256 to the dead one's, byte for byte. The real defect is that
+`build.ts` has **lost** its gzip step and its gunzip loader template, so the
+live bundle is unreproducible — regenerate today and the browser payload
+silently goes 2.1 MB → 21.9 MB on a green build.
+
+⚠️ **Ordering, which is the opposite of the obvious one:** restore gzip →
+repoint `OUTPUT_DIR` → delete the tree. Deleting first breaks the builder;
+repointing first ships the tenfold payload.
+
+⚠️ **A NEW, SMALL GREEN LIGHT IS NEEDED** and it is not a ruling: restoring
+gzip cannot be verified without running the builder, which clones **nineteen
+grammar repositories** over the network onto a shared box. That is a resource
+call, not a design one. It is the only thing between here and a finished fix.
+
+**7. The pattern, now used twice.** ⭐ *A blocked item is blocked on its
+choices, not necessarily on its defects.* #31 gave a code fix (`9bb09df`);
+#64 gave an answered question (`679e592`). Both came from reading a blocked
+item's own design map for claims that hold whichever way the decision goes.
+That is where the remaining ruling-free work is — and note the second one was
+worth more than a code change, because it shrank the risk attached to Tom's
+ruling rather than working around it.
 
 ## The strip, corrected
 

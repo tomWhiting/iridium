@@ -534,6 +534,28 @@ mod tests {
     }
 
     #[test]
+    fn replace_all_whole_word_spares_a_word_that_only_looks_standalone_in_bytes() {
+        // The corruption case behind the byte-wise boundary test: whole-word
+        // "na" reported a match inside "naïve", because the byte after it is
+        // the lead byte of `ï` and no ASCII alphanumeric. Replace-all then
+        // wrote into the middle of a word. The standalone "na" must still be
+        // replaced, so this pins both directions at once.
+        let doc = Document::new("naïve na");
+        let mut search = SearchState::new();
+        search
+            .find_all("na", &SearchOptions::whole_word(), &doc)
+            .unwrap();
+        assert_eq!(search.match_count(), 1, "only the standalone `na`");
+
+        let cursor = CursorState::at(Position::zero());
+        let (cmd, result) = replace_all(&search, "NA", &doc, &cursor).unwrap();
+        assert_eq!(result.count, 1);
+
+        let (replaced, _) = apply_to(&doc, &cursor, &cmd);
+        assert_eq!(replaced.text(), "naïve NA");
+    }
+
+    #[test]
     fn replace_all_no_matches() {
         let doc = Document::new("foo bar");
         let search = setup_search(&doc, "xyz");

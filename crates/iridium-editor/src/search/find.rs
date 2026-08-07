@@ -29,6 +29,7 @@ use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{Document, Position, Range};
+use crate::input::keyboard::motions;
 
 /// Search options for find operations.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -231,9 +232,17 @@ impl SearchState {
                 let match_start = start + offset;
                 let match_end = match_start + query.len();
 
+                // Resume one *character* past the match start, never one byte.
+                // `start` indexes `text` directly on the next iteration, so a
+                // byte inside a multi-byte character panics there — searching
+                // "é" in "ééé" used to crash on the second iteration. The
+                // case-insensitive path below already advances this way; on
+                // ASCII the two are the same step, so the overlapping-match
+                // semantics are unchanged.
+                start = match_start + text[match_start..].chars().next().map_or(1, char::len_utf8);
+
                 // Check whole-word boundary if required
                 if options.whole_word && !Self::is_word_boundary(text, match_start, match_end) {
-                    start = match_start + 1;
                     continue;
                 }
 
@@ -244,8 +253,6 @@ impl SearchState {
                 ) {
                     self.matches.push(Range::new(start_pos, end_pos));
                 }
-
-                start = match_start + 1;
             }
             return Ok(());
         }
@@ -328,32 +335,31 @@ impl SearchState {
         Ok(())
     }
 
-    /// Checks if a match is at a word boundary.
+    /// Whether the match spanning `start..end` has a non-word character (or
+    /// nothing at all) on both sides.
+    ///
+    /// The neighbours are read as **characters**, through
+    /// [`motions::is_word_char`] — the editor's one definition of a word
+    /// character, the same one word motions and double-click use. This used to
+    /// inspect a single *byte* on each side and ask whether it was ASCII
+    /// alphanumeric, which is a proxy that agrees with the real answer only
+    /// while the neighbour is ASCII: every byte of a non-ASCII character is
+    /// `>= 0x80`, so `ï` read as "not a word character" and whole-word search
+    /// happily reported `na` as a whole word inside `naïve`. The error was one
+    /// directional — over-matching, never under-matching — which is why it
+    /// survived: it never hid a result the user was looking for, it just
+    /// offered ones that were not there.
+    ///
+    /// An offset that cannot slice `text` — out of range, or inside a
+    /// character — yields no neighbour and therefore reads as a boundary,
+    /// which is what the byte form's `unwrap_or(b' ')` did with the same
+    /// inputs. Every caller passes offsets that came out of a matcher, so the
+    /// case is unreachable rather than merely tolerable.
     pub(super) fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
-        let bytes = text.as_bytes();
+        let before = text.get(..start).and_then(|head| head.chars().next_back());
+        let after = text.get(end..).and_then(|tail| tail.chars().next());
 
-        // Check character before start
-        let at_word_start = if start == 0 {
-            true
-        } else {
-            let prev_char = bytes.get(start - 1).copied().unwrap_or(b' ');
-            !Self::is_word_char(prev_char)
-        };
-
-        // Check character after end
-        let at_word_end = if end >= bytes.len() {
-            true
-        } else {
-            let next_char = bytes.get(end).copied().unwrap_or(b' ');
-            !Self::is_word_char(next_char)
-        };
-
-        at_word_start && at_word_end
-    }
-
-    /// Returns true if the byte is a word character (alphanumeric or underscore).
-    const fn is_word_char(byte: u8) -> bool {
-        byte.is_ascii_alphanumeric() || byte == b'_'
+        !before.is_some_and(motions::is_word_char) && !after.is_some_and(motions::is_word_char)
     }
 
     /// Updates the search with new query, returning whether matches changed.
@@ -725,6 +731,44 @@ mod tests {
         assert_eq!(state.match_count(), 2);
         let slices = assert_matches_slice_cleanly(&state, &doc, text);
         assert_eq!(slices, vec!["aA", "Aa"]);
+    }
+
+    #[test]
+    fn find_case_sensitive_multibyte_query_resumes_on_a_character_boundary() {
+        // The case-sensitive literal path resumes one *byte* past each match
+        // start. When the match starts on a multi-byte character that byte is
+        // inside it, and the next `text[start..]` panics on a non-boundary
+        // index — a hard crash in the search path for any accented query.
+        let text = "ééé";
+        let doc = Document::new(text);
+        let mut state = SearchState::new();
+        state
+            .find_all("é", &SearchOptions::case_sensitive(), &doc)
+            .unwrap();
+
+        assert_eq!(state.match_count(), 3);
+        let slices = assert_matches_slice_cleanly(&state, &doc, text);
+        assert_eq!(slices, vec!["é", "é", "é"]);
+    }
+
+    #[test]
+    fn whole_word_reads_a_non_ascii_neighbour_as_part_of_the_word() {
+        // The boundary test inspects one *byte* on each side, so every
+        // non-ASCII neighbour reads as a non-word character and the match is
+        // reported as a whole word. `na` is not a word in `naïve`.
+        let doc = Document::new("naïve");
+        let mut state = SearchState::new();
+        state
+            .find_all("na", &SearchOptions::whole_word(), &doc)
+            .unwrap();
+        assert_eq!(state.match_count(), 0, "`na` is not a whole word here");
+
+        // The same divergence on the leading side: the character before `ve`
+        // is `ï`, which is as much a word character as `i` is.
+        state
+            .find_all("ve", &SearchOptions::whole_word(), &doc)
+            .unwrap();
+        assert_eq!(state.match_count(), 0, "`ve` is not a whole word here");
     }
 
     #[test]

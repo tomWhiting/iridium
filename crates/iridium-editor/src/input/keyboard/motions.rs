@@ -14,9 +14,18 @@ use crate::document::{CursorState, Document, Position, Selection};
 
 /// Returns true for characters that belong to a word (alphanumeric or `_`).
 ///
-/// This is the single word-character definition shared by word motions,
-/// word-wise deletion, and the auto-pair quote suppression in
-/// [`super::behaviors`].
+/// This is the single word-character definition in the editor, and every
+/// consumer of the idea reaches for it: word motions, word-wise deletion, the
+/// auto-pair quote suppression in [`super::behaviors`], double-click word
+/// selection in [`crate::input::mouse`], and whole-word search boundaries in
+/// [`crate::search`].
+///
+/// The last two are here because they were not. Search asked its own question
+/// of a single *byte* (`is_ascii_alphanumeric`), which reads every non-ASCII
+/// character as a non-word character and made `na` a whole word inside
+/// `naïve`; the mouse kept a character-wise copy of this body, which agreed
+/// but was free to stop agreeing. A definition that claims to be the only one
+/// has to be the only one.
 #[must_use]
 pub fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'

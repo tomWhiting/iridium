@@ -409,9 +409,23 @@ and asks for another frame while — and only while — `is_waiting` is true.
 Closing *drops* it (it owns a reader thread and an arena), unlike the other
 two which are hidden.
 
-Still open for Tom, deliberately not guessed: whether `Enter` on a directory
-should descend and re-root rather than toggle, and whether this replaces
-`Ctrl+O`.
+**RULED 7 Aug 2026 — `Enter` on a directory toggles.** Tom: *"Can you enter
+on a folder? I thought we just had unfold."* Descend-and-re-root is not a
+thing this panel does. The shipped behaviour was already the ruling, so
+nothing changed but the comment on `activate` and a test that now pins the
+*close* half of the toggle — the half that tells a toggle from a descend.
+
+**RULED 7 Aug 2026 — the explorer takes the open-a-file chord.** Tom: *"I
+would be happy for it to replace command O, or have it be option O or
+something like that."*
+
+**And ⌘O does not exist.** Checked, not assumed: `open_file` has exactly two
+callers — a drop (`files.rs::dropped`) and this panel (`keyboard.rs:151`).
+There is no file-open dialog and no `O` binding anywhere in the repo. A
+comment on `drive_explorer` claimed `Ctrl+O` was a third caller; it was
+wrong and has been corrected. So "replace ⌘O" costs nothing — there is
+nothing to displace, and the explorer is already the only keyboard route to
+opening a file.
 
 #### What `iridium-explorer` gives you
 
@@ -453,11 +467,14 @@ reads and break the stability the tree splices on.
 
 ### Deliberately not decided
 
-- Whether Enter on a directory descends in the popover or opens an Oil buffer
-  in a tab.
-- Whether this replaces `⌘O` or sits beside it.
-
-Both wait until something is on screen to react to.
+- ~~Whether Enter on a directory descends in the popover or opens an Oil
+  buffer in a tab.~~ **RULED 7 Aug 2026: it toggles.** A folder unfolds and
+  refolds in place. Neither descending nor opening an Oil buffer in a tab —
+  so the editable half, when it is built, edits the *popover's* rows rather
+  than materialising a tab.
+- ~~Whether this replaces `⌘O` or sits beside it.~~ **RULED 7 Aug 2026:** the
+  explorer takes the open-a-file chord. ⌘O turned out never to have been
+  bound, so there is nothing to replace.
 
 ## 🔎 POPOVER STEP 3 — FILTERING, landed 6 Aug, `1148e73`
 
@@ -1041,8 +1058,8 @@ started.**
 | **#63** | **L-0: which extensibility tier.** Tier 1 free, tier 2 measured at 6.6 MiB + 90 crates. Also: is AWL's grammar public or internal, and does it ship `.scm` files? |
 | **#63** | LSP: now or after languages? And depend on chiron's `lsp` crate or vendor it? |
 | #62 | Should `Ctrl+/` write a comment in a `.jsonc` file? Three options priced. |
-| #58 | `Enter` on a folder — descend-and-re-root, or toggle? **Asked four times.** |
-| — | Does the explorer replace ⌘O or sit beside it? |
+| ~~#58~~ | ~~`Enter` on a folder — descend-and-re-root, or toggle?~~ **RULED 7 Aug: toggle.** |
+| ~~—~~ | ~~Does the explorer replace ⌘O or sit beside it?~~ **RULED 7 Aug: it takes the chord. ⌘O was never bound.** |
 | — | The inactive tab close control's alpha (0.40); the wheel over the tab strip. |
 
 ---

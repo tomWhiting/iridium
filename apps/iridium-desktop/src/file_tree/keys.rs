@@ -224,11 +224,12 @@ impl FileExplorer {
     /// this folder" that leaves the panel somewhere the user can carry on
     /// from.
     ///
-    /// **The tree half is the placeholder of an undecided question** —
-    /// whether `Enter` on a directory should instead descend, re-rooting the
-    /// panel, is Tom's to rule on. Toggling is the answer that cannot
-    /// surprise anyone in the meantime: it is what `Right` already does, and
-    /// it never moves the ground under the selection.
+    /// **Toggling is the ruling, not a placeholder.** Whether `Enter` on a
+    /// directory should instead descend and re-root the panel was put to Tom
+    /// on 7 Aug 2026 and answered: *"I thought we just had unfold"*. A folder
+    /// unfolds; it never moves the ground under the selection. Re-rooting is
+    /// not a thing this panel does, so nothing downstream should assume the
+    /// selected row's ancestors can change under it.
     fn activate(&mut self) -> ExplorerOutcome {
         if self.is_filtering() {
             return self.activate_filtered();

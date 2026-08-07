@@ -99,6 +99,26 @@ fn enter_toggles_a_directory_and_opens_a_file() {
         "the expanded directory's children are on screen"
     );
 
+    // Enter again folds it back up. This is the half that tells a toggle
+    // apart from a descend, and it is Tom's ruling of 7 Aug 2026 — a folder
+    // unfolds and refolds, and the panel never re-roots itself onto it.
+    assert_eq!(
+        explorer.handle_key(&press(KeyCode::Enter)),
+        ExplorerOutcome::Handled,
+        "an open directory toggles shut rather than re-rooting the panel"
+    );
+    assert!(
+        !lines(&mut explorer)
+            .iter()
+            .any(|row| row.contains("inner.txt")),
+        "the children went away with the fold"
+    );
+    assert!(
+        lines(&mut explorer).iter().any(|row| row.contains("sub")),
+        "the folder itself is still on screen, still selectable — a descend \
+         would have replaced the view with its contents"
+    );
+
     // And on a file, Enter names the path for the host to open. The
     // panel does not touch the workspace itself — one open path, shared
     // with a drop and with Ctrl+O.

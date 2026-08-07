@@ -118,9 +118,14 @@ impl DesktopApp {
     /// Hands a key to the open file explorer and acts on the outcome.
     ///
     /// Opening a file goes through [`open_file`](Self::open_file) — the same
-    /// path a drop and `Ctrl+O` take — so the explorer cannot grow its own
-    /// idea of what opening means. The panel closes on the way, because the
-    /// thing it was for has happened.
+    /// path a drop takes — so the explorer cannot grow its own idea of what
+    /// opening means. The panel closes on the way, because the thing it was
+    /// for has happened.
+    ///
+    /// This comment used to name `Ctrl+O` as a third caller. There is no such
+    /// binding and never has been: `open_file` has exactly two entry points,
+    /// a drop and this panel. The explorer *is* how a file gets opened by
+    /// keyboard, which is why it is bound where a file-open dialog would be.
     ///
     /// The paste chord is intercepted first, for the reason it is intercepted
     /// for the palette: the panel is modal and has a text field, so a paste

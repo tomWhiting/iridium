@@ -1578,7 +1578,14 @@ unchanged.
 | `clippy -p iridium-editor` (no-default) | 0 | zero diagnostics |
 | `clippy -p iridium-editor --features syntax` | 0 | zero diagnostics |
 | `clippy --workspace --all-features --all-targets` | 0 | zero diagnostics |
-| **`test --workspace --all-features`** | — | **NOT RUN** |
+| **`test --workspace --all-features`** | **0** | **2465 passed, 0 failed, 20 ignored** |
+
+Ran at 23:37 in a window that opened at 1-minute load **9.31**, split `--no-run`
+(30 s) then run (30 s). ⭐ **2463 → 2465 is exactly the two tests added** —
+`jsx_intrinsic_elements_are_coloured_like_components_are` and
+`no_byte_range_carries_two_different_highlights` — so the count corroborates
+the change rather than merely failing to contradict it. **All eight gates are
+green on `c0f8bde` and `48d7bcd`.**
 
 Plus `check --workspace --all-features --all-targets` exit 0, whose only
 warning is the pre-existing `block v0.1.6` future-incompat note.
@@ -1596,18 +1603,44 @@ relaxation: it rebuilds the all-features test binaries. Load went 26.27 then
 17.1 and 14.4 — so the box is genuinely held by another seat, not just my own
 decaying burst.
 
+### #73 — closed, and measured rather than reasoned
+
+`rustfmt.toml` declared 21 options stable rustfmt silently ignores — **609**
+warning lines per `cargo fmt` run, which is where a real one would have hidden.
+What they would have done was measured: the whole workspace formatted by
+nightly rustfmt with `unstable_features = true`, diffed against the tree.
+
+- **19 changed nothing.** They restated behaviour already in effect.
+- **2 accounted for all of it** — `imports_granularity = "Crate"` and
+  `group_imports = "StdExternalCrate"`: **339 hunks, 2,681 lines.** Every one
+  of those lines is import organisation; no other option moved a character.
+
+The 19 are deleted; the 2 are preserved in the nightly block with their price
+attached. After: `cargo fmt --all --check` exits 0 with **zero** warnings, zero
+diffs and zero output, down from 64 KB, and `git status` showed `rustfmt.toml`
+as the only modified file — so no source formatting changed.
+
+⭐ Recorded rather than dropped: the 19 were no-ops **against this toolchain
+and style edition**. An option restating a default stops being a no-op the
+moment the default moves — the case in which deleting them would have mattered.
+
 ### The one action that moves things
 
-**Run the last gate, split into two commands so the compile carries its own
-exit status:**
+**#74 — nothing pins the Rust toolchain.** Found while measuring #73, and #73's
+own title had assumed a pin that does not exist: there is no
+`rust-toolchain.toml` and no `rust-toolchain` file anywhere. CI takes
+`dtolnay/rust-toolchain@stable`, the box takes the rustup default, and nothing
+makes those agree — or makes today's CI agree with tomorrow's.
 
-```
-cargo test --workspace --all-features --no-run
-cargo test --workspace --all-features --no-fail-fast
-```
+⭐ **Two of the eight gates are verdicts rendered by the toolchain, not by the
+code.** `clippy -- -D warnings` gains lints on new stable releases and
+`fmt --check` can change its mind across rustfmt revisions, so a PR green today
+can go red the morning a new stable lands with no commit in between — and the
+failure gets attributed to whatever was in flight. All the clippy-gate and
+500-line-bar work assumed a green gate means something durable. It does not yet.
 
-That split is the shape #71 proved out: a window closing mid-compile costs the
-compile alone, and the compile is resumable.
+Not done unilaterally: pinning changes the toolchain for everyone who builds
+this repo, and it interacts with #73's nightly-rustfmt question. Tom's ruling.
 
 ### Two things not to redo
 

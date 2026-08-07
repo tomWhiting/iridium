@@ -3145,3 +3145,70 @@ both are cheap to falsify.
 
 Load ~57, not this seat's. Disk **129 GB free** — 130 last tick, so the
 170 → 130 slide has **stopped**; it was not this seat and needs no `du`.
+
+---
+
+# Tick — 8 Aug ~09:35 — the uniqueness-claim sweep
+
+Meridian attempt **15**, succeeded (five in a row). Reported #80. **B-2** and
+**B-5** still open; said plainly that neither blocks me.
+
+## The sweep
+
+Rule D from last tick — *a claim of uniqueness is checkable* — turned into a
+sweep: `grep` for "the only place", "the single definition", "exactly one",
+"nothing else reads/writes/calls". Twenty-five hits. Four checked:
+
+| claim | verdict |
+| --- | --- |
+| `render/runs.rs:134` — "the top of the stack is the only place a duplicate can hide" | ✅ **sound.** Degenerate spans are retained out at :87 before the sort, which is the only thing that could pop the top and let a duplicate past. Clamping to `len` can *create* duplicates, and the first-wins rule handles them correctly. |
+| `editor/core.rs:288` — "the only place folds are recomputed" | ✅ **sound** for `EditorState`. Reached from both mutation paths (`apply_command_internal` :1037, history replay :1142), so the plan's stale-fold finding is closed. The web face's own `web_folds.rs:90` is a separate, documented fold state. |
+| `wasm.rs:1164` — "the single choke point every content mutation funnels through … exactly once per mutation" | ❌ **incomplete → #81** |
+| `motions::is_word_char` — "the single word-character definition" | ❌ closed last tick as #80 |
+
+## #81 — CLOSED (`edffe6e1`)
+
+`setContent` replaces the whole document and dropped two things derived from
+the old one — the pending edit, the parse tree — but not the third, the
+worker's highlight spans. `WebHighlightCache` is keyed on its own generation,
+never on a document revision, so nothing else noticed. The controller renders
+synchronously after `setContent` while the worker request is still in flight,
+so **opening a file painted it in the previous file's colours** at the
+previous file's offsets. With no syntax worker at all, indefinitely.
+
+⚠️ **No red test, and it is written down rather than skipped quietly.**
+`wasm.rs` is `target_arch = "wasm32"` only and its gate is a `check`, so
+nothing native can build a `WebEditor`. The crate's own answer is extraction
+(`web_span_index`, `web_highlight_cache` are gated `any(wasm32, test)` for
+exactly this) — but that structure is **#43**'s, and #43 is blocked. First
+thing to test when #43 lands. Write-up:
+`docs/IN-FLIGHT-stale-highlights-on-load.md`.
+
+## ⭐ Rule E
+
+**A choke point only funnels what is shaped like the thing it funnels.**
+`record_edit` takes an `EditSpan`. Every path that *edits* reaches it, so the
+enumeration in its doc is true and reads as exhaustive. The mutation that
+replaces the document produces no span, so it cannot arrive — and its absence
+looks like coverage. When a doc enumerates the callers of a choke point, ask
+what mutation the parameter type cannot express.
+
+## #82 — opened, needs Tom (same species as #64)
+
+`wasm.rs` carries a **second implementation of word motion** — `char_class`,
+`find_word_boundary_left/right` and six exports. Nothing calls them: the live
+controller declares all six on its interface and invokes none, because word
+motion goes through `handleKeyEvent` and the kernel. The only call sites are
+in the legacy `iridium-bindings/ts` that #64 is waiting to delete.
+
+Read side by side they agree on every reachable input; the single divergence
+(a caret past line end — kernel clamps and moves a word, the copy returns the
+line end) is unreachable today. So: not a live defect, a **trap** — a second
+definition of a kernel behaviour in the one file no test can reach.
+**Deleting public wasm exports is Tom's call, exactly as #64 is.** Recommend
+delete.
+
+## Box
+
+Load ~25. Disk **139 GB free**, up from 129 — the slide has reversed, nothing
+to chase.

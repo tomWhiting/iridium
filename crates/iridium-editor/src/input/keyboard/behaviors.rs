@@ -35,7 +35,7 @@ use super::motions;
 /// Python's `"""`, Rust's `r#"`, the `/* */` six languages declare — need
 /// longest-match against the text before the caret and a different skip-over
 /// rule, and are not here; `docs/design/AUTO-PAIR-MAP.md` slice S-3.
-const PAIRS: [(char, char); 6] = [
+pub(super) const PAIRS: [(char, char); 6] = [
     ('(', ')'),
     ('[', ']'),
     ('{', '}'),
@@ -44,27 +44,47 @@ const PAIRS: [(char, char); 6] = [
     ('`', '`'),
 ];
 
-/// Which of [`PAIRS`] the document's language actually auto-closes.
+/// What the document's language says about each of [`PAIRS`]: which it
+/// auto-closes, and which Enter expands into an indented block.
 ///
-/// ⭐ **The set is the language's, not this module's.** Every vendored
-/// manifest declares a `brackets` table, and they disagree with a fixed six in
+/// ⭐ **The rules are the language's, not this module's.** Every vendored
+/// manifest declares a `brackets` table, and they disagree with a fixed set in
 /// ways a user feels: Rust declares no `'`, because a lifetime is not a
 /// character literal, so a fixed table turns every `<'a>` into `<'a'>`. JSON
-/// and YAML declare no backtick; `go.mod` declares only `(`; Markdown
-/// declares its three quotes `close = false`, because an apostrophe in prose
-/// is an apostrophe.
+/// and YAML declare no backtick; `go.mod` declares only `(`; Markdown declares
+/// its three quotes `close = false`, because an apostrophe in prose is an
+/// apostrophe; and `gitcommit`, `regex`, `jsdoc` and `diff` set `newline` on
+/// nothing at all — a commit message is not a place to grow a three-line block
+/// out of a parenthesis.
 ///
-/// A bitmask over six positions rather than a set: it is `Copy`, it is one
-/// byte, and it is built once per keystroke rather than consulted per cursor.
+/// ⚠️ **The two answers are independent.** Rust declares `<`→`>` with
+/// `close = false, newline = true`: do not type the closer for me, but do
+/// expand the block if I typed it myself.
+///
+/// Two bitmasks over six positions rather than two sets: `Copy`, two bytes,
+/// and built once per keystroke rather than consulted per cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct AutoPairs(u8);
+pub(super) struct PairRules {
+    /// Which pairs typing the opener auto-closes.
+    closes: u8,
+    /// Which pairs Enter expands into an indented block.
+    expands: u8,
+}
 
-impl AutoPairs {
-    /// Every pair in [`PAIRS`] — what a document with no language, or a
-    /// language whose manifest says nothing about brackets, gets.
-    pub(super) const ALL: Self = Self((1 << PAIRS.len()) - 1);
+impl PairRules {
+    /// Every pair in [`PAIRS`] closes; the three brackets expand.
+    ///
+    /// What a document with no language, or a language whose manifest says
+    /// nothing about brackets, gets — which is exactly what every document
+    /// got before the manifests were read.
+    pub(super) const ALL: Self = Self {
+        closes: (1 << PAIRS.len()) - 1,
+        // Enter expansion has never applied to quotes, and no manifest asks it
+        // to: `newline = true` appears on no quote row anywhere in the tree.
+        expands: BRACKET_MASK,
+    };
 
-    /// The set for `document`'s language.
+    /// The rules for `document`'s language.
     ///
     /// [`Self::ALL`] when there is no language, no vendored manifest for it,
     /// or no `brackets` key in that manifest — three distinct ways of *not
@@ -72,58 +92,70 @@ impl AutoPairs {
     /// manifest that declares an empty table has said "none", and gets none;
     /// `diff` is the one that does.
     pub(super) fn for_document(document: &Document) -> Self {
-        let Some(declared) = document
+        let Some(manifest) = document
             .language()
             .and_then(Language::from_id)
             .and_then(Language::manifest)
-            .and_then(iridium_lang::manifest::Manifest::auto_close_pairs)
+        else {
+            return Self::ALL;
+        };
+        let (Some(closing), Some(expanding)) =
+            (manifest.auto_close_pairs(), manifest.block_expand_pairs())
         else {
             return Self::ALL;
         };
 
-        let mut mask = 0_u8;
-        for (open, close) in declared {
-            // Pairs this editor cannot type are skipped rather than
-            // approximated: `<`/`>` is declared by five languages and typing
-            // `<` must keep inserting a bare `<` until S-2 is ruled on.
-            if let Some(index) = PAIRS
-                .iter()
-                .position(|&(known_open, known_close)| known_open == open && known_close == close)
-            {
-                // The index came from `position` over a six-element array, so
-                // the shift is in range by construction.
-                mask |= 1_u8 << index;
-            }
+        Self {
+            closes: mask_of(closing),
+            // Intersected with the brackets because Enter expansion has never
+            // applied to quotes and this slice does not change that. No
+            // manifest sets `newline` on a quote, so the intersection removes
+            // nothing today; it is here so that one appearing upstream is a
+            // deliberate decision rather than a silent behaviour change.
+            expands: mask_of(expanding) & BRACKET_MASK,
         }
-        Self(mask)
     }
 
-    /// Whether the pair at `index` in [`PAIRS`] is active.
-    const fn has(self, index: usize) -> bool {
-        self.0 & (1_u8 << index) != 0
+    /// Whether the pair at `index` in [`PAIRS`] is in `mask`.
+    const fn has(mask: u8, index: usize) -> bool {
+        mask & (1_u8 << index) != 0
     }
 
-    /// The closing character for an auto-pair opener this language pairs.
+    /// The closing character for an auto-pair opener this language closes.
     ///
     /// `None` for every other character, including an opener the language
     /// declines to close.
     fn close(self, c: char) -> Option<char> {
+        Self::lookup(self.closes, c)
+    }
+
+    /// The closing bracket for an opener this language expands on Enter.
+    ///
+    /// Quotes never reach this — see [`Self::ALL`].
+    fn block_close(self, c: char) -> Option<char> {
+        Self::lookup(self.expands, c)
+    }
+
+    /// The closer paired with `c` when `c`'s pair is in `mask`.
+    fn lookup(mask: u8, c: char) -> Option<char> {
         PAIRS
             .iter()
             .enumerate()
-            .find_map(|(index, &(open, close))| (open == c && self.has(index)).then_some(close))
+            .find_map(|(index, &(open, close))| {
+                (open == c && Self::has(mask, index)).then_some(close)
+            })
     }
 
-    /// Whether `c` can close an active pair — the skip-over set.
+    /// Whether `c` can close a pair this language closes — the skip-over set.
     ///
-    /// Restricted by the same set as [`Self::close`], and deliberately: a
+    /// Restricted by the same mask as [`Self::close`], and deliberately: a
     /// closer this language never auto-inserts is a character the user typed,
     /// and stepping over it instead of writing it would drop input.
     fn is_closer(self, c: char) -> bool {
         PAIRS
             .iter()
             .enumerate()
-            .any(|(index, &(_, close))| close == c && self.has(index))
+            .any(|(index, &(_, close))| close == c && Self::has(self.closes, index))
     }
 
     /// Whether typing `c` engages auto-pair handling at all.
@@ -132,23 +164,34 @@ impl AutoPairs {
     }
 }
 
-/// Returns the closing bracket for `(`, `[`, or `{` (quotes excluded).
+/// The positions in [`PAIRS`] that are brackets rather than quotes.
+pub(super) const BRACKET_MASK: u8 = 0b0000_0111;
+
+/// Folds `(open, close)` pairs into a [`PAIRS`] bitmask, dropping any pair
+/// this editor cannot type.
 ///
-/// Bracket-block Enter expansion applies only to brackets, never to quotes.
-const fn bracket_close(c: char) -> Option<char> {
-    match c {
-        '(' => Some(')'),
-        '[' => Some(']'),
-        '{' => Some('}'),
-        _ => None,
+/// `<`/`>` is declared by five languages and is dropped here: typing `<` must
+/// keep inserting a bare `<` until the auto-pair map's S-2 is ruled on.
+fn mask_of(pairs: impl Iterator<Item = (char, char)>) -> u8 {
+    let mut mask = 0_u8;
+    for (open, close) in pairs {
+        if let Some(index) = PAIRS
+            .iter()
+            .position(|&(known_open, known_close)| known_open == open && known_close == close)
+        {
+            // The index came from `position` over a six-element array, so the
+            // shift is in range by construction.
+            mask |= 1_u8 << index;
+        }
     }
+    mask
 }
 
 /// Returns true for the three quote characters.
 ///
 /// Not language-scoped, and it should not be: this asks what kind of character
 /// `c` is, so that the apostrophe guard (`don't`) can fire. Which quotes are
-/// *paired* is [`AutoPairs`]'s question.
+/// *paired* is [`PairRules`]'s question.
 const fn is_quote(c: char) -> bool {
     matches!(c, '"' | '\'' | '`')
 }
@@ -331,11 +374,14 @@ pub(super) fn enter_edits(
     config: &EditorConfig,
 ) -> Vec<(CursorEdit, CaretPlacement)> {
     let line_ending = document.line_ending().as_str();
+    // The document's, not the cursor's, and one manifest lookup rather than
+    // one per cursor.
+    let pairs = PairRules::for_document(document);
     cursor
         .all_selections()
         .map(|sel| {
             if config.auto_indent {
-                enter_edit_for(document, sel, config, line_ending)
+                enter_edit_for(document, sel, config, line_ending, pairs)
             } else {
                 let text = line_ending.to_string();
                 let placement = CaretPlacement::collapsed(text.len());
@@ -346,11 +392,15 @@ pub(super) fn enter_edits(
 }
 
 /// Computes a single cursor's auto-indented Enter edit.
+///
+/// `pairs` decides which openers expand into a block — the language's
+/// `newline` flags, not a fixed three.
 fn enter_edit_for(
     document: &Document,
     sel: &Selection,
     config: &EditorConfig,
     line_ending: &str,
+    pairs: PairRules,
 ) -> (CursorEdit, CaretPlacement) {
     let start = sel.start();
     let end = sel.end();
@@ -375,7 +425,7 @@ fn enter_edit_for(
     }
 
     // Bracket-block expansion and opener indentation.
-    if let Some(close) = prefix.chars().last().and_then(bracket_close) {
+    if let Some(close) = prefix.chars().last().and_then(|c| pairs.block_close(c)) {
         let unit = indent_unit(config);
         if char_at(document, end) == Some(close) {
             // Opener directly before, matching closer directly after: expand
@@ -443,12 +493,12 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 ///   single quote instead.
 ///
 /// `pairs` is the document language's set, built once by the caller rather
-/// than per cursor — see [`AutoPairs::for_document`].
+/// than per cursor — see [`PairRules::for_document`].
 pub(super) fn auto_pair_char_edits(
     document: &Document,
     cursor: &CursorState,
     c: char,
-    pairs: AutoPairs,
+    pairs: PairRules,
 ) -> Vec<(CursorEdit, CaretPlacement)> {
     cursor
         .all_selections()
@@ -461,7 +511,7 @@ fn auto_pair_edit_for(
     document: &Document,
     sel: &Selection,
     c: char,
-    pairs: AutoPairs,
+    pairs: PairRules,
 ) -> (CursorEdit, CaretPlacement) {
     if !sel.is_collapsed() {
         if let Some(close) = pairs.close(c) {
@@ -524,7 +574,7 @@ pub(super) fn backspace_edits_with_pairs(
     // The same set the insertion used, so a pair this language never inserts
     // is never collapsed by one backspace either: in Rust `'a'` is a character
     // literal the user typed, and eating both quotes would delete input.
-    let pairs = AutoPairs::for_document(document);
+    let pairs = PairRules::for_document(document);
     cursor
         .all_selections()
         .map(|sel| {

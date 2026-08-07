@@ -30,16 +30,26 @@ struct CommentBlock {
 
 /// One row of a manifest's `brackets` table.
 ///
-/// The manifests also carry `newline` (whether Enter expands the block) and
-/// `not_in` (scopes the rule is suppressed in). Neither is read yet — see
-/// `docs/design/AUTO-PAIR-MAP.md` slices S-3 and S-4 — so neither is named,
-/// and serde ignores them.
+/// The manifests also carry `not_in` (scopes the rule is suppressed in),
+/// which is not read yet — see `docs/design/AUTO-PAIR-MAP.md` slice S-4 — so
+/// it is not named, and serde ignores it.
 #[derive(Debug, Clone, Deserialize)]
 struct Bracket {
     /// The opening delimiter: `{`, but also `r#"` and `"""`.
     start: String,
     /// The closing delimiter: `}`, `"#`, `"""`.
     end: String,
+    /// Whether pressing Enter between the two halves should expand them into
+    /// an indented block.
+    ///
+    /// ⚠️ **Absent means `false`**, the opposite of [`Bracket::close`], and
+    /// the manifests are written that way: every row that wants block
+    /// expansion says so. Four languages — `diff`, `gitcommit`, `jsdoc`,
+    /// `regex` — declare brackets and set this on none of them, which is a
+    /// deliberate statement that a commit message is not a place to grow a
+    /// three-line block out of a parenthesis.
+    #[serde(default)]
+    newline: bool,
     /// Whether typing `start` should insert `end` after the caret.
     ///
     /// ⚠️ **Absent means `true`**, and seventeen rows across the vendored tree
@@ -235,12 +245,37 @@ impl Manifest {
     /// callers wanting a set should build one.
     #[must_use]
     pub fn auto_close_pairs(&self) -> Option<impl Iterator<Item = (char, char)> + '_> {
-        Some(self.fields.brackets.as_ref()?.iter().filter_map(|bracket| {
-            if !bracket.close {
+        self.single_char_pairs(|bracket| bracket.close)
+    }
+
+    /// The single-character pairs this language expands into an indented block
+    /// when Enter is pressed between the halves, as `(open, close)`.
+    ///
+    /// The same `None`/`Some(empty)` distinction as [`Self::auto_close_pairs`],
+    /// and the same two structural filters. The flag read is `newline` rather
+    /// than `close`, and the two are independent: Rust declares `<`→`>` with
+    /// `close = false, newline = true` — do not type the closer for me, but do
+    /// expand the block if I typed it myself.
+    #[must_use]
+    pub fn block_expand_pairs(&self) -> Option<impl Iterator<Item = (char, char)> + '_> {
+        self.single_char_pairs(|bracket| bracket.newline)
+    }
+
+    /// The shared body of the two accessors above: every declared row whose
+    /// halves are each exactly one character and which passes `wanted`.
+    ///
+    /// Multi-character rows are dropped here rather than by a caller, because
+    /// a caller reaching for the first `char` of `r#"` would pair a bare `r`.
+    fn single_char_pairs<'a>(
+        &'a self,
+        wanted: impl Fn(&Bracket) -> bool + 'a,
+    ) -> Option<impl Iterator<Item = (char, char)> + 'a> {
+        Some(self.fields.brackets.as_ref()?.iter().filter_map(move |b| {
+            if !wanted(b) {
                 return None;
             }
-            let mut start = bracket.start.chars();
-            let mut end = bracket.end.chars();
+            let mut start = b.start.chars();
+            let mut end = b.end.chars();
             match (start.next(), start.next(), end.next(), end.next()) {
                 (Some(open), None, Some(close), None) => Some((open, close)),
                 _ => None,

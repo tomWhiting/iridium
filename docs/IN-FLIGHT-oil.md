@@ -208,8 +208,52 @@ remember to make and becomes one the kernel refuses. There is a test for it.
 `apply.rs` carries the same self-removing `cfg_attr(not(test), expect(dead_code))`
 as `plan.rs`.
 
-## Still to do
+## Step 3 — IN PROGRESS, UNCOMMITTED, DOES NOT COMPILE YET
 
-3. Panel mode + editable rows.
+`apps/iridium-desktop/src/file_tree/buffer.rs` is **written but never built**.
+Written immediately before a compaction; treat every claim below as intent,
+not as verified fact.
+
+### What it is
+
+The bridge between the panel's rows and `plan`, and **where the by-id rule is
+actually kept**: each row's origin is captured here, once, from the node it was
+drawn from, while the panel still holds its `NodeId`. Nothing downstream can
+re-match by name because nothing downstream sees a tree.
+
+Both row sources hand over the same pair — a node and a depth
+(`tree.row(i)` gives `{id, depth, has_children, expanded}`, `view.rows[i]`
+gives `FilterRow {id, depth, positions, score}`) — so the buffer does not care
+which is showing. That is what makes editing work while filtered with no
+second code path, and it is how ruling 4 ("the filter scopes the diff") falls
+out rather than being implemented.
+
+`SourceRow { depth, name, path, directory }` is deliberately **not** a
+`NodeId`: by the time a row reaches the buffer its identity is already resolved
+to the name and path it had, and keeping the id would invite something later to
+look it up again against a tree that has since moved.
+
+A row's **parent comes from the indentation** — the nearest row above it at a
+shallower depth, which is what the eye reads off the screen.
+
+### Known problems, unverified
+
+- **Not declared in `mod.rs`.** Needs `mod buffer;` and a `#[cfg(test)] mod
+  buffer_tests;`.
+- **`insert_below` has an unused binding** — `Some(row) if into_folder` never
+  reads `row`. Will warn under `-D warnings`. Use `Some(_)`.
+- Needs the same self-removing
+  `#![cfg_attr(not(test), expect(dead_code, …))]` as `plan.rs` and `apply.rs`
+  until a caller exists.
+- **No tests written at all.** The piece that most needs them is
+  `rows_from`'s parent derivation, and specifically **dedenting**: a row at
+  depth 1 following a subtree at depth 3 must attach to the last depth-0 row,
+  not to something stale. `last_at_depth.truncate(depth)` is meant to do that
+  and is unproven.
+- `insert_below` and `remove_typed` shift every later `parent` index. That
+  arithmetic is unproven and is exactly the sort of thing that silently
+  reparents a row into the wrong folder.
+
+## Still to do after step 3
 4. Confirmation view.
 5. `⌘O`, and the apply-or-discard prompt on a filter change.

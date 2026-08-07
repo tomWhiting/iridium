@@ -29,6 +29,36 @@ written. Check the code before repeating any claim from one, especially a
 claim that something is broken.
 
 
+## 🚦 CURRENT DIRECTION — Tom, 7 Aug: LANGUAGES MUST BE EXTENSIBLE
+
+*"Can we make sure that our language support is extensible? I don't want to be
+hyper-specialising and hard coding in keywords. We want a Zed-like extensibility
+system. We've got our own language that we work with, AWL, and we've got
+tree-sitter packages for that."*
+
+This **supersedes the assumption behind #61 and #62** — that adding a language
+means editing an enum. It does not invalidate what landed; it changes where the
+design is going.
+
+**The map is `docs/IN-FLIGHT-languages.md`.** Ground verified, three tiers
+priced, decisions L-0 to L-8 numbered for Tom. Read it before touching anything
+language-shaped. Headlines:
+
+- The Rust side is fully static, and `COMPILED[language.index()][kind.index()]`
+  is a **fixed-size array typed from `Language::COUNT`** — that is the
+  structural blocker, not the enum itself.
+- **The web face already loads wasm grammars at runtime.** The static half is
+  the *native* half, which is the reverse of what `embedded.rs`'s doc assumes.
+- **chiron is fully static too** — Tom named it as the source, and it is the
+  same closed enum, only wider. Its reusable idea is `build.rs` compiling
+  vendored `parser.c`, which is the answer to AWL having no published crate.
+- 21 Zed `config.toml` manifests are already vendored and **nothing reads them**,
+  though they carry three of the four hard-coded tables as data.
+
+**Do not start removing the enum before Tom rules on L-0** (which tier).
+
+---
+
 ## ✅ WHERE THINGS ARE — READ THIS FIRST
 
 **The tab strip is drawn and it works**, and **the compositor now reserves

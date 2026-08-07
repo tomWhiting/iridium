@@ -20,7 +20,6 @@
 //! separate chord. That is the right way round — a save is what the user just
 //! asked for, and the surprise belongs to the disk, not to them.
 
-use std::ffi::OsStr;
 use std::fmt;
 use std::path::Path;
 
@@ -201,9 +200,12 @@ impl App {
 
 /// The language a file name implies, if the kernel knows one for it.
 ///
-/// A name with no extension, or one no grammar claims, is not an error: the
-/// document is then edited without highlighting and without folds, which is
-/// what a plain text file is.
+/// Matches the whole name, not just the extension, because the vendored
+/// manifests claim files that have none — `flake.lock`, `tsconfig.json`,
+/// `.env`, `.bashrc`, `PKGBUILD`.
+///
+/// A name nothing claims is not an error: the document is then edited without
+/// highlighting and without folds, which is what a plain text file is.
 pub(super) fn language_of(path: &Path) -> Option<Language> {
-    Language::from_extension(path.extension().and_then(OsStr::to_str)?)
+    Language::for_path(path)
 }

@@ -56,6 +56,8 @@
 //! this crate no longer hand-maintains a single fact about a language that the
 //! vendored tree already states.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 pub mod manifest;
@@ -178,6 +180,28 @@ impl Language {
     #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
         crate::suffix::language_for_extension(ext)
+    }
+
+    /// Detects a language from a whole file name — `main.rs`, `flake.lock`,
+    /// `.bashrc`.
+    ///
+    /// Strictly more capable than [`Self::from_extension`], which it subsumes:
+    /// an extension is just the tail of a name after a dot. Prefer it wherever
+    /// a name is available, because the vendored manifests claim files that
+    /// have no extension for `Path::extension` to return — `.env`,
+    /// `flake.lock`, `bun.lock`, `tsconfig.json`, `PKGBUILD`, `.bashrc`.
+    #[must_use]
+    pub fn from_file_name(file_name: &str) -> Option<Self> {
+        crate::suffix::language_for_file_name(file_name)
+    }
+
+    /// Detects a language from a path, by its file name.
+    ///
+    /// This is what a face opening a file should call. Returns `None` for a
+    /// path with no file name at all, and for a name nothing claims.
+    #[must_use]
+    pub fn for_path(path: &Path) -> Option<Self> {
+        Self::from_file_name(path.file_name()?.to_str()?)
     }
 
     /// Every language, in the order that is this type's index space.

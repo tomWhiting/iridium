@@ -12,17 +12,21 @@
 //! capabilities and the recorded terminal state, so it is written against
 //! [`io::Write`](std::io::Write) and tested against a `Vec<u8>`:
 //!
-//! * [`frame::write_frame`] turns a [`Damage`](crate::cell::Damage) into the
+//! * [`frame::write_frame`](crate::driver::frame::write_frame) turns a
+//!   [`Damage`](crate::cell::Damage) into the
 //!   minimum cursor moves, SGR changes and text, wrapped in synchronized
 //!   output.
-//! * [`lifecycle::write_setup`] and [`lifecycle::write_teardown`] turn the
+//! * [`lifecycle::write_setup`](crate::driver::lifecycle::write_setup) and
+//!   [`lifecycle::write_teardown`](crate::driver::lifecycle::write_teardown) turn the
 //!   terminal-mode changes into bytes, and the second is provably the exact
 //!   undo of the first.
-//! * [`Negotiation`] decides truecolor versus 256 versus 16, and whether the
+//! * [`Negotiation`](crate::driver::capabilities::Negotiation) decides truecolor
+//!   versus 256 versus 16, and whether the
 //!   kitty keyboard protocol is available, from replies that a test can
 //!   construct by hand.
 //!
-//! What is left over — [`Driver`] itself — opens the terminal, flips termios,
+//! What is left over — [`Driver`](crate::driver::Driver) itself — opens the
+//! terminal, flips termios,
 //! blocks on `poll`, and hands those bytes to the functions above. It is the
 //! only part that cannot run in CI, and it is kept as small as that sentence
 //! suggests.
@@ -33,10 +37,13 @@
 //! restoring is not best-effort. `termina` restores the platform's termios
 //! state from both a panic hook and a `Drop` impl, but *application*-level
 //! state — the alternate screen, bracketed paste, focus reporting, the
-//! keyboard-enhancement stack, cursor visibility — is ours, and [`Driver`]
-//! undoes all of it from the same two places. [`TerminalState`] is what makes
+//! keyboard-enhancement stack, cursor visibility — is ours, and
+//! [`Driver`](crate::driver::Driver)
+//! undoes all of it from the same two places.
+//! [`TerminalState`](crate::driver::TerminalState) is what makes
 //! that possible: it records what is currently on, it is shared with the panic
-//! hook, and [`lifecycle::write_teardown`] undoes exactly what it says is on
+//! hook, and [`lifecycle::write_teardown`](crate::driver::lifecycle::write_teardown)
+//! undoes exactly what it says is on
 //! and nothing else.
 //!
 //! # The event loop

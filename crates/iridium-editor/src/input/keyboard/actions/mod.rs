@@ -10,7 +10,8 @@
 //!    table is the only place an id string is tied to behaviour, and it names
 //!    the ids through the constants in [`crate::commands::builtin`], so there is
 //!    no second transcription of the id text to drift.
-//! 2. [`KeyboardHandler::run_action`] matches on the token. Because the match is
+//! 2. [`KeyboardHandler`](super::KeyboardHandler)'s `run_action` matches on the
+//!    token. Because the match is
 //!    exhaustive over an enum, a command added to [`ACTIONS`](table::ACTIONS)
 //!    without an implementation is a compile error rather than a key that
 //!    silently does nothing.

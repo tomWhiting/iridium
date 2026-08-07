@@ -78,7 +78,7 @@
 //!   asked for, the window and GPU behind it, and the first tab.
 //! - [`handler`] — the winit seam. Every entry point below is reached from
 //!   here, and nothing here decides anything.
-//! - [`keyboard`], [`pointer`], [`menu`] — the three input surfaces, each
+//! - [`keyboard`], [`pointer`](mod@pointer), [`menu`] — the three input surfaces, each
 //!   owning its own modal ladder.
 //! - [`host_commands`], [`files`], [`clipboard`], [`tabs`] — what a resolved
 //!   verb actually does.

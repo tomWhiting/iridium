@@ -6,12 +6,14 @@
 //!
 //! # Architecture
 //!
-//! The [`SpanIndex`] wraps a [`rust_lapper::Lapper`] interval tree, which is
+//! The [`SpanIndex`](crate::span_index::SpanIndex) wraps a
+//! [`rust_lapper::Lapper`] interval tree, which is
 //! optimized for querying overlapping intervals. When highlights change, a new
 //! index is built (O(n log n)), but per-frame queries are O(log n + k) where
 //! k is the number of overlapping spans.
 //!
-//! The [`WindowedSpanCache`] is the shared cache both native faces build that
+//! The [`WindowedSpanCache`](crate::span_index::WindowedSpanCache) is the
+//! shared cache both native faces build that
 //! index through: it derives spans for a viewport-plus-overscan window of the
 //! document and rebuilds only when the parse generation moves or the viewport
 //! escapes the covered window — the parser-tax fix

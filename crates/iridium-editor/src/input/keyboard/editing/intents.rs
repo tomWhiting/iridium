@@ -58,7 +58,8 @@ pub fn backspace_edits(document: &Document, cursor: &CursorState, word: bool) ->
 /// caret; a caret already at column zero contributes an empty (no-op) edit.
 ///
 /// Two cursors on the same line contribute two overlapping deletes, which
-/// [`build_multi_cursor_command_placed`] clamps front to back, so the line's
+/// [`build_multi_cursor_command_placed`](super::build_multi_cursor_command_placed)
+/// clamps front to back, so the line's
 /// prefix is removed once.
 pub fn delete_to_line_start_edits(cursor: &CursorState) -> Vec<CursorEdit> {
     cursor

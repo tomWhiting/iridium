@@ -159,7 +159,7 @@ fn run(requests: &Receiver<Request>, responses: &Sender<Response>, ignores: &mut
 /// entries sorts in milliseconds, and milliseconds are the budget.
 ///
 /// An entry whose type cannot be determined is kept, as
-/// [`EntryKind::Other`](crate::EntryKind::Other). Dropping it would make a
+/// [`EntryKind::Other`]. Dropping it would make a
 /// file invisible for a reason that has nothing to do with the file.
 fn read_directory(
     path: &std::path::Path,

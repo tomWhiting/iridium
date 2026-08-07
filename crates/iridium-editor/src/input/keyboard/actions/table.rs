@@ -221,7 +221,8 @@ pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
 ///
 /// `None` is a legitimate outcome, not an error: a host may register commands of
 /// its own and bind them in a user keymap, and those are the host's to run. The
-/// keyboard handler reports such a key as [`KeyResult::Ignored`] so the host
+/// keyboard handler reports such a key as
+/// [`KeyResult::Ignored`](crate::input::KeyResult::Ignored) so the host
 /// sees it.
 ///
 /// # Cost

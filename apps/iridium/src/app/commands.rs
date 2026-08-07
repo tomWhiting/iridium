@@ -2,7 +2,8 @@
 //!
 //! # These are host commands, not a second dispatch
 //!
-//! Every verb here is a real entry in the kernel's [`CommandRegistry`], bound
+//! Every verb here is a real entry in the kernel's
+//! [`CommandRegistry`](iridium_editor::commands::CommandRegistry), bound
 //! in a [`Keymap`] layer pushed on top of the default one. A key resolves
 //! through the kernel's resolver like any other, the kernel reports it as
 //! [`EditorKeyResult::HostCommand`](iridium_editor::EditorKeyResult::HostCommand),

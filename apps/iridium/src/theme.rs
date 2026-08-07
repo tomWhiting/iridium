@@ -1,8 +1,11 @@
 //! Loading a theme, through the kernel's theme module and nothing else.
 //!
 //! Every format decision here is [`iridium_editor::theme`]'s:
-//! [`Theme::dark`], [`Theme::light`], [`Theme::from_json`] and
-//! [`Theme::from_vscode_json`] are the whole of it. This module reads a file
+//! [`Theme::dark`](iridium_editor::Theme::dark),
+//! [`Theme::light`](iridium_editor::Theme::light),
+//! [`Theme::from_json`](iridium_editor::Theme::from_json) and
+//! [`Theme::from_vscode_json`](iridium_editor::Theme::from_vscode_json) are the
+//! whole of it. This module reads a file
 //! and picks which of those four to call. It parses no colours, defines no
 //! fields, and supplies no defaults of its own — a face with its own theme
 //! format is a face whose themes stop working in the next one.

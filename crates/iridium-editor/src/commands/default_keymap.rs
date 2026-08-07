@@ -24,7 +24,8 @@
 //!   shadowing).
 //!
 //!   Two consequences follow, and both are the accepted price rather than
-//!   oversights. [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`] has no default key: it is
+//!   oversights. [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`](crate::commands::builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE)
+//!   has no default key: it is
 //!   still registered, still implemented, and now reachable *through the palette*,
 //!   which is the whole reason the palette was worth the key. And no layer — the
 //!   default's or a host's — can put a chord under `Ctrl+K` without unbinding it

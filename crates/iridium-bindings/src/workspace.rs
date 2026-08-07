@@ -3,7 +3,7 @@
 //!
 //! Deliberately **not** gated on `feature = "web"` or `feature = "napi"`.
 //! Everything here is plain functions over a borrowed
-//! [`Workspace`](iridium_editor::workspace::Workspace), so `cargo test`
+//! [`Workspace`], so `cargo test`
 //! exercises it on the host target; only the thin `#[wasm_bindgen]` and
 //! `#[napi]` adapters are face-specific. A conversion bug that can only be
 //! reproduced in a browser is a conversion bug nobody reproduces.

@@ -15,7 +15,7 @@
 //! the event loop is in this library and runs on the host with no terminal:
 //!
 //! * [`cli`] parses the command line and nothing else;
-//! * [`file`] reads and writes files, and decides whether one changed
+//! * [`file`](mod@file) reads and writes files, and decides whether one changed
 //!   underneath us;
 //! * [`theme`] loads a theme through the kernel's theme module;
 //! * [`app`] is the whole editor as a state machine — keys in, editor state and

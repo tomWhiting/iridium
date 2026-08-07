@@ -2,7 +2,8 @@
 //!
 //! Hand-written rather than derived, for two reasons that matter here: a
 //! dependency-free parser keeps start-up inside the plan's 50ms budget, and
-//! arguments are taken as [`OsString`] throughout so that a path this process
+//! arguments are taken as [`OsString`](std::ffi::OsString) throughout so that a
+//! path this process
 //! cannot decode as UTF-8 is still openable. A file name is not text — it is
 //! bytes the operating system gave us — and refusing to open one because it is
 //! not valid UTF-8 would be this program failing at its only job.

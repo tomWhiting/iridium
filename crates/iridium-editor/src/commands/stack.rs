@@ -267,7 +267,7 @@ impl KeymapStack {
     /// # The synthesized keypress is the one a hint promises
     ///
     /// Each stroke becomes the *minimal* keypress that satisfies it: every
-    /// [`ModifierState::Required`](super::ModifierState::Required) modifier held,
+    /// [`ModifierState::Required`] modifier held,
     /// every other one released — including
     /// [`Any`](super::ModifierState::Any), which accepts either.
     ///

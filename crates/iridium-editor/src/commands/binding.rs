@@ -203,7 +203,9 @@ impl KeyBinding {
 
     /// Collects the characters `presses` captured, in sequence order.
     ///
-    /// Only strokes declaring [`StrokeCapture::AnyChar`] contribute, so a binding
+    /// Only strokes declaring
+    /// [`StrokeCapture::AnyChar`](super::StrokeCapture::AnyChar) contribute, so a
+    /// binding
     /// with no wildcard stroke returns an empty vector without allocating — which
     /// is every binding in the default keymap.
     #[must_use]
@@ -236,7 +238,8 @@ impl KeyBinding {
 
     /// Total number of modifiers the sequence *requires*, the primary tie-break.
     ///
-    /// See [`ModifierPattern::required_count`] for why this is ranked above
+    /// See [`ModifierPattern::required_count`](super::ModifierPattern::required_count)
+    /// for why this is ranked above
     /// [`Self::specificity`].
     #[must_use]
     pub fn required_specificity(&self) -> u32 {
@@ -264,7 +267,8 @@ impl KeyBinding {
     /// Parses a space-separated key sequence, e.g. `"ctrl-k ctrl-c"`.
     ///
     /// The text form a configuration file or a rebinding UI works in; see
-    /// [`StrokePattern::from_str`] for the accepted chord grammar. The result is
+    /// [`StrokePattern`]'s `FromStr` impl for the accepted chord grammar. The
+    /// result is
     /// the `(first, rest)` pair the constructors take.
     ///
     /// # Errors

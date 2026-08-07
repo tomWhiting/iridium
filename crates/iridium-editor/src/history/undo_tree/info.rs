@@ -38,7 +38,8 @@ pub struct UndoNodeInfo {
     /// tree.
     ///
     /// This is a monotonic offset, not a wall-clock timestamp: the kernel
-    /// records edits with an [`Instant`], which has no epoch, and a monotonic
+    /// records edits with an [`Instant`](std::time::Instant), which has no epoch,
+    /// and a monotonic
     /// clock is the correct choice because it cannot run backwards when the
     /// system clock is adjusted mid-session.
     pub elapsed_ms: u64,

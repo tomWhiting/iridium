@@ -8,7 +8,8 @@
 //! # The kernel owns layout
 //!
 //! Which document lines are visible, and which row each one lands on, is the
-//! kernel's fold-aware [`Viewport`]. The terminal drives that same viewport in
+//! kernel's fold-aware [`Viewport`](iridium_editor::render::Viewport). The
+//! terminal drives that same viewport in
 //! **cell units** — `line_height = 1.0`, `width = columns` — so one cell is one
 //! unit and `screen_y_for_line` returns a row directly. There is no second
 //! layout model and no second fold model; a competing one is exactly why
@@ -17,7 +18,7 @@
 //!
 //! What is *not* the kernel's is the mapping from a document column to a screen
 //! cell. The kernel expresses a line's geometry in pixels against a fixed
-//! character width, and a terminal cannot: see [`line`] for the rules and
+//! character width, and a terminal cannot: see [`line`](mod@line) for the rules and
 //! [`text`] for what a cut through a glyph does.
 //!
 //! # What is drawn

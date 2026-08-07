@@ -613,6 +613,50 @@ Tests: 25 in the kernel, 9 in the panel. Three claims verified red first —
 bare `/` not filtering, an invalid pattern not crawling, and the message
 order.
 
+### STEP 4B — RE-ROOTING, landed 7 Aug — Tom's "one layer deep" report
+
+> "is there a way to sort of set a project root… when you're searching it
+> doesn't seem to go more than one layer deep"
+
+**Two reports, one cause, one fix.** The crawl was never depth-limited — a
+five-level fixture test proves it reaches the bottom, and a matching one
+proves regex does too. Both were added because *every crawl test before them
+used a two-level fixture*, so a crawl managing exactly one round of the
+frontier would have passed the entire suite. That is the gap that let the
+report be plausible.
+
+What Tom actually hit was **yesterday's crawl-off rule**: cold launch, no
+file, root at home, `crawl: false`, so searching covers only the root's own
+listing — which from the inside is indistinguishable from "one layer deep".
+The safety rule read as broken software, which is the signal that the trade
+was wrong as shipped.
+
+**The fix is his other request.** `⌘↓` roots at the selected folder, `⌘↑` at
+the folder above; `Ctrl+↓`/`Ctrl+↑` for a keyboard with no command key.
+macOS's own bindings for "open this folder" and "enclosing folder", so
+nothing to learn.
+
+- **`project::chosen_root(path)`** — a chosen directory **earns the crawl**.
+  That is the whole difference from `explorer_root`: a directory *this code
+  guessed* is not worth reading past, and a person who walked into one has
+  bounded it by walking into it. The filesystem root stays the exception —
+  nobody navigates there on purpose and no ignore file bounds it.
+- **`reroot` builds a whole new arena and reader thread** rather than
+  re-projecting the tree from a node inside the old one. `NodeId` is an index
+  into *this* arena, so every id the panel holds belongs to the tree being
+  replaced; and the ignore rules were compiled against the old root, so a
+  re-projection would keep applying a `.gitignore` from above a place the
+  user has left. Going up costs what going down costs, and that uniformity is
+  worth more than the milliseconds.
+- **`ExplorerOutcome::Failed(String)`** — the panel is modal, so a key that
+  was consumed and did nothing is indistinguishable from a dead one. The host
+  puts it on the prompt strip and leaves the panel open.
+- **Deliberately not `Enter`.** That is still Tom's open question; binding
+  these separately means whatever he rules only *adds* a way in.
+
+**Still not built, and Tom asked for it: settings, and configurable keymaps.**
+No config file exists in any face. That is the next real piece.
+
 ### The query field is deliberately caretless
 
 It takes printable characters, `Backspace` and paste — nothing else. `←`/`→`

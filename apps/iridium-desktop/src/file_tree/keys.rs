@@ -19,6 +19,8 @@
 //! | `Enter` | Open a file; toggle or reveal a folder |
 //! | `↑` `↓`, `Ctrl+P` `Ctrl+N` | Move the selection |
 //! | `←` `→` | Collapse and expand — the unfiltered tree only |
+//! | `⌘↓`, `Ctrl+↓` | Make the selected folder the root |
+//! | `⌘↑`, `Ctrl+↑` | Make the folder above the root the root |
 //! | `Home` `End` | First and last row |
 //! | `Backspace`, any printable key | Edit the query |
 
@@ -56,6 +58,14 @@ impl FileExplorer {
                 self.move_down();
                 ExplorerOutcome::Handled
             },
+            // Re-rooting. `⌘↓` and `⌘↑` are what macOS itself binds for
+            // "open this folder" and "enclosing folder", so the pair needs no
+            // learning; `Ctrl` is the same pair for a keyboard without a
+            // command key. **Not `Enter`**, which is a question still open
+            // with Tom — binding these separately means whatever he rules for
+            // `Enter` only adds a second way in, and takes nothing away.
+            (Chord::Meta | Chord::Ctrl, KeyCode::Down) => self.root_at_selection(),
+            (Chord::Meta | Chord::Ctrl, KeyCode::Up) => self.root_above(),
             (Chord::Plain, KeyCode::Home) => {
                 self.move_to_first();
                 ExplorerOutcome::Handled
@@ -92,6 +102,30 @@ impl FileExplorer {
             // document.
             _ => ExplorerOutcome::Handled,
         }
+    }
+
+    /// Makes the selected folder the root — "go in here".
+    ///
+    /// A file selected roots at the folder holding it, because that is the
+    /// only reading of the key that does anything, and a key that looks dead
+    /// half the time it is pressed is a key nobody trusts.
+    fn root_at_selection(&mut self) -> ExplorerOutcome {
+        let Some(directory) = self.selected_directory() else {
+            return ExplorerOutcome::Handled;
+        };
+        self.reroot(&directory)
+    }
+
+    /// Makes the folder above the current root the root — "go up".
+    ///
+    /// Silently does nothing at the top of the filesystem, which is the one
+    /// place there is genuinely nothing above. Saying so would be noise: the
+    /// row showing the root is right there and already says where you are.
+    fn root_above(&mut self) -> ExplorerOutcome {
+        let Some(parent) = self.parent_of_root() else {
+            return ExplorerOutcome::Handled;
+        };
+        self.reroot(&parent)
     }
 
     /// Inserts pasted text into the query, one character at a time.

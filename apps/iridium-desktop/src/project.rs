@@ -93,6 +93,27 @@ pub fn explorer_root(
     }
 }
 
+/// The root someone picked by hand, and how far a search there may reach.
+///
+/// **A chosen directory earns the crawl**, and that is the whole difference
+/// between this and [`explorer_root`]. The rule there is that a directory
+/// *this code guessed* is not worth reading past, because nothing bounds it
+/// and nobody asked. A person walking into a folder has bounded it themselves
+/// — that is what walking into it means — and a search that then refused to
+/// look inside would be answering a question nobody asked instead of the one
+/// they did.
+///
+/// The one exception is the top of the filesystem, which no `.gitignore`
+/// bounds and which nobody navigates to on purpose. It is shown, and it is
+/// not searched past.
+#[must_use]
+pub fn chosen_root(path: PathBuf) -> ExplorerRoot {
+    ExplorerRoot {
+        crawl: !is_filesystem_root(&path),
+        path,
+    }
+}
+
 /// The nearest ancestor of `directory`, itself included, that holds a `.git`.
 ///
 /// Walks up and stops at the first hit, which is what makes a file inside a
@@ -127,7 +148,7 @@ mod tests {
 
     use iridium_file::test_support::TempDir;
 
-    use super::{ExplorerRoot, explorer_root};
+    use super::{ExplorerRoot, chosen_root, explorer_root};
 
     /// A directory holding a `.git`, so it reads as a project.
     fn repository(name: &str) -> TempDir {
@@ -242,6 +263,27 @@ mod tests {
         );
         assert_eq!(chosen.path, PathBuf::from("/h"));
         assert!(!chosen.crawl);
+    }
+
+    #[test]
+    fn a_directory_someone_walked_into_is_searched_past() {
+        // The difference between a guess and a choice. `explorer_root` will
+        // not read past a directory nothing bounds; a person who navigated
+        // into one has bounded it by navigating into it, and a search that
+        // then refused to look would be answering a question nobody asked.
+        let chosen = chosen_root(PathBuf::from("/Users/someone/Documents"));
+        assert!(chosen.crawl);
+        assert_eq!(chosen.path, PathBuf::from("/Users/someone/Documents"));
+    }
+
+    #[test]
+    fn walking_up_to_the_top_of_the_filesystem_still_does_not_search_it() {
+        // Nobody navigates to `/` on purpose, no ignore file bounds it, and
+        // the whole reason this module exists is that rooting there sends a
+        // search across the disk. A choice does not make that a good idea.
+        let chosen = chosen_root(PathBuf::from("/"));
+        assert!(!chosen.crawl);
+        assert_eq!(chosen.path, PathBuf::from("/"));
     }
 
     #[test]

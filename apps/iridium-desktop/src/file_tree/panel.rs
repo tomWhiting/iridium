@@ -13,6 +13,7 @@ use iridium_explorer::{FileTree, NodeId};
 use iridium_tree::{Tree, TreeSource as _};
 
 use super::filter::{FilterView, filter};
+use crate::project::chosen_root;
 use crate::prompt::Entry;
 
 /// The query prompt, drawn before the field. The palette's, so the two panels
@@ -43,6 +44,14 @@ pub enum ExplorerOutcome {
     /// This file should be opened in a tab. The host decides what that
     /// means; the panel does not touch the workspace.
     Open(PathBuf),
+    /// The key was understood and could not be carried out, with something
+    /// to say about it.
+    ///
+    /// The panel is modal, so every key is consumed. A key that was consumed
+    /// and then did nothing at all is indistinguishable from a dead one, and
+    /// re-rooting is the first thing here that can fail for a reason worth
+    /// hearing.
+    Failed(String),
 }
 
 /// The file explorer.
@@ -152,6 +161,61 @@ impl FileExplorer {
             filtered: 0,
             crawl,
         })
+    }
+
+    /// Points the panel at `root`, throwing away everything that was about
+    /// the old one.
+    ///
+    /// **A whole new arena and a whole new reader thread**, rather than
+    /// re-projecting the tree from a node inside the one it has. Two reasons,
+    /// and the second is the load-bearing one. A [`NodeId`] is an index into
+    /// *this* arena, so every id the panel is holding — the selection, the
+    /// deferred expansion, every filter row — belongs to the tree being
+    /// replaced. And the ignore rules were compiled relative to the old root,
+    /// so a re-projection would keep applying a `.gitignore` from above a
+    /// place the user has now left.
+    ///
+    /// Going up therefore costs exactly what going down does, which is one
+    /// thread and one directory read. That uniformity is worth more than the
+    /// milliseconds: a panel with two notions of "root" is a panel where half
+    /// the operations are correct.
+    ///
+    /// Whether searching may read past the new root is
+    /// [`crate::project::chosen_root`]'s answer, not this function's — a
+    /// directory somebody walked into is a directory somebody bounded.
+    pub(super) fn reroot(&mut self, root: &Path) -> ExplorerOutcome {
+        let chosen = chosen_root(root.to_path_buf());
+        let opened = match Self::open(chosen.path, chosen.crawl) {
+            Ok(opened) => opened,
+            // The reader thread would not start. Nothing has been touched at
+            // this point, so the old root is still on screen and still works
+            // — which is the right thing to leave behind.
+            Err(error) => return ExplorerOutcome::Failed(format!("the file explorer: {error}")),
+        };
+        *self = opened;
+        ExplorerOutcome::Handled
+    }
+
+    /// The directory the selection names: itself if it is one, and the folder
+    /// holding it otherwise.
+    ///
+    /// A file is a perfectly sensible thing to have selected when you press
+    /// "go in here", and the folder it sits in is the only reading of that
+    /// which does anything. Refusing would make the key look broken half the
+    /// time it was pressed.
+    pub(super) fn selected_directory(&self) -> Option<PathBuf> {
+        let id = self.selected_node()?;
+        let info = self.files.info(id)?;
+        if info.kind.is_expandable() {
+            return Some(info.path.to_path_buf());
+        }
+        info.path.parent().map(Path::to_path_buf)
+    }
+
+    /// The directory holding the current root, if there is one above it.
+    pub(super) fn parent_of_root(&self) -> Option<PathBuf> {
+        let info = self.files.info(self.files.root())?;
+        info.path.parent().map(Path::to_path_buf)
     }
 
     /// Whether the rows come from the filter rather than from the tree.
@@ -316,8 +380,12 @@ impl FileExplorer {
 pub(super) enum Chord {
     /// No modifier that changes the meaning of the key.
     Plain,
-    /// Control alone — the `Ctrl+N` / `Ctrl+P` movement pair.
+    /// Control alone — the `Ctrl+N` / `Ctrl+P` movement pair, and the
+    /// non-mac spelling of the re-rooting pair.
     Ctrl,
+    /// Meta alone — `⌘↑` and `⌘↓`, which are what macOS itself uses for
+    /// "enclosing folder" and "open this one".
+    Meta,
     /// Control and Alt together — the toggle chord that closes the panel.
     CtrlAlt,
     /// Meta and Alt together — the mac spelling of the same toggle.
@@ -331,6 +399,7 @@ pub(super) const fn chord(modifiers: Modifiers) -> Chord {
     match (modifiers.ctrl, modifiers.alt, modifiers.meta) {
         (false, false, false) => Chord::Plain,
         (true, false, false) => Chord::Ctrl,
+        (false, false, true) => Chord::Meta,
         (true, true, false) => Chord::CtrlAlt,
         (false, true, true) => Chord::MetaAlt,
         _ => Chord::Other,

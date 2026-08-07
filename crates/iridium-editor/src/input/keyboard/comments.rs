@@ -53,68 +53,56 @@ pub(super) struct CommentSyntax {
     pub block: Option<(String, String)>,
 }
 
-/// The static comment tokens for a supported language: the line token and
-/// the block pair.
+/// Resolves the comment syntax for `document`.
 ///
-/// JSON deliberately has neither — the JSON specification has no comments,
-/// so toggling is a no-op for it (barring an explicit configuration
-/// fallback). Markdown and CSS have no line token; their line toggle wraps
-/// each line in the block pair instead.
+/// The document's language identifier wins when it names a language whose
+/// vendored manifest gives it comment syntax. Otherwise — unknown language, no
+/// language, or a language whose manifest declares neither token — the
+/// configuration's `line_comment_token` is used as a bare line token (trimmed;
+/// ignored when empty or containing line breaks, which could never form a valid
+/// line comment). Returns `None` when no comment syntax is available at all, in
+/// which case toggling must be a no-op.
+///
+/// # Where the tokens come from
+///
+/// `Manifest::line_comment` and `Manifest::block_comment`, read from the
+/// `config.toml` vendored beside each language's tree-sitter queries. This
+/// replaced a hand-written `match` over the thirteen languages; the two were
+/// asserted to agree, language by language, before the match was deleted (see
+/// `comment_manifest_tests`).
+///
+/// Markdown and CSS have no line token; their line toggle wraps each line in
+/// the block pair instead. No language currently reaches the third case — every
+/// one of the thirteen declares at least one token — but the branch is real:
+/// the manifests describe languages that declare neither, and the registry step
+/// brings them in.
 ///
 /// # Not gated on the `syntax` feature, and it used to be
 ///
-/// Which token comments a language is *pure data*: a match on an enum both
-/// feature configurations have, parsing nothing. Gating it meant the stub
-/// build answered "no comment syntax" for every language, so `Ctrl+/` on a
-/// Rust file inserted nothing — or silently fell back to
+/// Which token comments a language is *pure data*, parsing nothing. Gating it
+/// meant the stub build answered "no comment syntax" for every language, so
+/// `Ctrl+/` on a Rust file inserted nothing — or silently fell back to
 /// [`EditorConfig::line_comment_token`], which is worse, because a `#` in a
 /// Rust file looks like a decision somebody made.
 ///
 /// The gate survived because a comment on the stub asserted the path was
-/// unreachable — "`Language::from_id` always returns `None`" — which was
-/// simply untrue: the stub's `from_id` resolves every canonical id. Nothing
-/// caught it because the language tests were gated on the same feature, so
-/// the configuration that was broken was the one nothing exercised.
-///
-/// # Visibility
-///
-/// `pub(super)` only so `comment_manifest_tests` can compare it against the
-/// vendored manifest, which is the oracle for deleting it. Nothing outside this
-/// module calls it, and when the manifest replaces it both go together.
-#[allow(clippy::type_complexity)] // A pair of token options, not worth naming.
-pub(super) const fn language_tokens(
-    language: Language,
-) -> (Option<&'static str>, Option<(&'static str, &'static str)>) {
-    match language {
-        Language::Rust
-        | Language::TypeScript
-        | Language::JavaScript
-        | Language::Tsx
-        | Language::Go
-        | Language::C
-        | Language::Cpp => (Some("//"), Some(("/*", "*/"))),
-        Language::Python | Language::Yaml | Language::Bash => (Some("#"), None),
-        Language::Json => (None, None),
-        Language::Markdown => (None, Some(("<!--", "-->"))),
-        Language::Css => (None, Some(("/*", "*/"))),
-    }
-}
-
-/// Resolves the comment syntax for `document`.
-///
-/// The document's language identifier wins when it names a supported
-/// language with comment syntax. Otherwise — unknown language, no language,
-/// or a commentless language like JSON — the configuration's
-/// `line_comment_token` is used as a bare line token (trimmed; ignored when
-/// empty or containing line breaks, which could never form a valid line
-/// comment). Returns `None` when no comment syntax is available at all, in
-/// which case toggling must be a no-op.
+/// unreachable — "`Language::from_id` always returns `None`" — which was simply
+/// untrue: the stub's `from_id` resolves every canonical id. Nothing caught it
+/// because the language tests were gated on the same feature, so the
+/// configuration that was broken was the one nothing exercised. That history is
+/// why the manifests were moved into `iridium-lang`, which is always compiled:
+/// reading them from the optional crate would have rebuilt the same defect.
 pub(super) fn resolve_comment_syntax(
     document: &Document,
     config: &EditorConfig,
 ) -> Option<CommentSyntax> {
-    if let Some(language) = document.language().and_then(Language::from_id) {
-        let (line, block) = language_tokens(language);
+    if let Some(manifest) = document
+        .language()
+        .and_then(Language::from_id)
+        .and_then(Language::manifest)
+    {
+        let line = manifest.line_comment();
+        let block = manifest.block_comment();
         if line.is_some() || block.is_some() {
             return Some(CommentSyntax {
                 line: line.map(str::to_owned),

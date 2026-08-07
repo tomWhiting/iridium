@@ -1,153 +1,220 @@
-//! The oracle for replacing the hard-coded comment table with manifest data.
+//! What each language comments with, pinned independently of where it is read
+//! from.
 //!
-//! [`super::comments::language_tokens`] is a `match` over thirteen languages
-//! written by hand. The same facts are in the vendored `config.toml` beside
-//! each language's queries, and the plan is to delete the match and read the
-//! manifest instead. This module is what makes that safe: it asserts the two
-//! *already agree*, before either is touched, so the deletion is provably not a
-//! behaviour change rather than apparently not one.
+//! This module began as the oracle for #66 step 4: it held the hand-written
+//! `language_tokens` match against the vendored manifests and asserted the two
+//! agreed, language by language, so that deleting the match was provably not a
+//! behaviour change. That match is now gone, and with it the ability to compare
+//! two implementations.
 //!
-//! It lives here rather than in `iridium-lang` because the hard-coded table is
-//! here, and an oracle has to see both halves.
+//! What replaces it is the same guarantee stated as data. The table below is
+//! written out by hand, deliberately, and is *not* derived from the manifests —
+//! deriving it would make it agree with any manifest, including a broken one.
+//! It is the third opinion: if a vendor refresh silently changes what comments
+//! Rust, this fails, and it fails naming the language and both tokens.
 //!
-//! # The one difference, and why it is not a bug
+//! # The one row that changed
 //!
-//! Zed's `json/config.toml` carries `line_comments = ["// "]`. Iridium's table
-//! gives JSON nothing, on the grounds that the JSON specification has no
-//! comments. Both are defensible and the manifest's answer is the one that will
-//! win, so the difference is asserted explicitly, in both directions, rather
-//! than tolerated by a loose comparison — if a refresh ever makes the two
-//! agree, this fails and someone gets to notice.
+//! JSON. The deleted match gave it nothing, on the grounds that the JSON
+//! specification has no comments. Its manifest gives it `//`, and reading the
+//! manifest is what settles it — this is #62, answered by data rather than by
+//! a ruling. `Ctrl+/` now writes a comment in a `.json` file, which strict
+//! parsers reject and which JSONC, JSON5 and every editor-owned `.json` in
+//! practice accept.
 //!
 //! # What this does not cover
 //!
 //! Only languages that are `Language` variants. The manifests describe eight
-//! more, and the registry step is where those start to matter.
+//! more; the registry step is where those start to matter.
 
 #![allow(clippy::expect_used)]
 
 use iridium_lang::Language;
-use iridium_lang::manifest::Manifest;
 
-use super::comments::language_tokens;
+use super::comments::{CommentSyntax, resolve_comment_syntax};
+use crate::document::Document;
+use crate::editor::EditorConfig;
 
-/// The vendored manifest for a language, which every variant has.
-fn manifest(language: Language) -> &'static Manifest {
-    language
-        .manifest()
-        .expect("every Language variant has a vendored manifest")
+/// One row of [`EXPECTED`]: a language id, its line token, its block pair.
+type CommentRow = (
+    &'static str,
+    Option<&'static str>,
+    Option<(&'static str, &'static str)>,
+);
+
+/// What every language Iridium knows comments with.
+///
+/// Hand-written and not derived — see the module note on why that is the point.
+const EXPECTED: &[CommentRow] = &[
+    ("rust", Some("//"), Some(("/*", "*/"))),
+    ("python", Some("#"), None),
+    ("typescript", Some("//"), Some(("/*", "*/"))),
+    ("javascript", Some("//"), Some(("/*", "*/"))),
+    ("tsx", Some("//"), Some(("/*", "*/"))),
+    ("go", Some("//"), Some(("/*", "*/"))),
+    // The row #66 changed. See the module note.
+    ("json", Some("//"), None),
+    ("yaml", Some("#"), None),
+    ("markdown", None, Some(("<!--", "-->"))),
+    ("css", None, Some(("/*", "*/"))),
+    ("bash", Some("#"), None),
+    ("c", Some("//"), Some(("/*", "*/"))),
+    ("cpp", Some("//"), Some(("/*", "*/"))),
+];
+
+/// A document tagged with a language identifier and nothing else.
+fn document_in(id: &str) -> Document {
+    let mut document = Document::new("");
+    document.set_language(Some(id.to_owned()));
+    document
 }
 
-/// The whole point: twelve of thirteen derive exactly.
+/// Resolves through the real path a keypress takes, with no configuration
+/// fallback available — so anything this returns came from the manifest.
+fn resolved(id: &str) -> CommentSyntax {
+    let config = EditorConfig {
+        line_comment_token: None,
+        ..EditorConfig::default()
+    };
+    resolve_comment_syntax(&document_in(id), &config)
+        .unwrap_or_else(|| panic!("{id} resolved to no comment syntax at all"))
+}
+
 #[test]
-fn the_manifest_reproduces_the_hard_coded_comment_table() {
-    let mut divergences = Vec::new();
+fn every_language_comments_the_way_the_table_says() {
+    let mut wrong = Vec::new();
 
-    for &language in Language::all() {
-        if language == Language::Json {
-            // Asserted on its own terms below, with its reason.
-            continue;
-        }
+    for &(id, line, block) in EXPECTED {
+        let CommentSyntax {
+            line: actual_line,
+            block: actual_block,
+        } = resolved(id);
+        let expected_line = line.map(str::to_owned);
+        let expected_block = block.map(|(open, close)| (open.to_owned(), close.to_owned()));
 
-        let (line, block) = language_tokens(language);
-        let manifest = manifest(language);
-
-        if manifest.line_comment() != line {
-            divergences.push(format!(
-                "{}: table says line {line:?}, manifest says {:?}",
-                language.id(),
-                manifest.line_comment()
+        if actual_line != expected_line {
+            wrong.push(format!(
+                "{id}: line should be {expected_line:?}, resolved {actual_line:?}"
             ));
         }
-        if manifest.block_comment() != block {
-            divergences.push(format!(
-                "{}: table says block {block:?}, manifest says {:?}",
-                language.id(),
-                manifest.block_comment()
+        if actual_block != expected_block {
+            wrong.push(format!(
+                "{id}: block should be {expected_block:?}, resolved {actual_block:?}"
             ));
         }
     }
 
-    // Collected rather than asserted one at a time: a derivation rule that is
-    // subtly wrong breaks several languages at once, and seeing all of them is
-    // what tells you which rule it was.
+    // Collected rather than asserted one at a time: a bad derivation rule
+    // breaks several languages at once, and seeing all of them is what tells
+    // you which rule it was.
     assert!(
-        divergences.is_empty(),
-        "the manifest no longer derives the hard-coded comment table, so \
-         replacing it would change behaviour:\n{}",
-        divergences.join("\n")
+        wrong.is_empty(),
+        "what these languages comment with has changed:\n{}",
+        wrong.join("\n")
     );
 }
 
-/// JSON, stated in both directions so neither side can drift unnoticed.
 #[test]
-fn json_is_the_one_language_where_the_two_disagree() {
+fn the_table_covers_every_language_exactly_once() {
     assert_eq!(
-        language_tokens(Language::Json),
-        (None, None),
-        "Iridium's table gives JSON no comment syntax at all"
+        EXPECTED.len(),
+        Language::COUNT,
+        "a language was added without saying what it comments with"
     );
-    assert_eq!(
-        manifest(Language::Json).line_comment(),
-        Some("//"),
-        "Zed's manifest gives JSON a line comment; this is the single \
-         intentional difference, and reading the manifest is what settles it"
-    );
-    assert_eq!(
-        manifest(Language::Json).block_comment(),
-        None,
-        "and neither source gives JSON a block comment"
-    );
-}
-
-/// The four whose block pair exists only via the `documentation_comment`
-/// fallback, named individually.
-///
-/// The bulk oracle above would catch a regression here, but it would report it
-/// as four anonymous rows. This says which rule broke.
-#[test]
-fn the_four_languages_that_depend_on_the_fallback_still_have_their_block_pair() {
-    for language in [Language::Rust, Language::Go, Language::C, Language::Cpp] {
+    for &language in Language::all() {
         assert_eq!(
-            manifest(language).block_comment(),
-            Some(("/*", "*/")),
-            "{} has no block_comment key; its pair comes from \
-             documentation_comment, and losing the fallback loses block-comment \
-             toggling for it",
+            EXPECTED
+                .iter()
+                .filter(|(id, ..)| *id == language.id())
+                .count(),
+            1,
+            "{} appears in the table other than exactly once",
             language.id()
         );
-        assert_eq!(language_tokens(language).1, Some(("/*", "*/")));
     }
 }
 
-/// Languages that genuinely have no block comment must not acquire one.
+/// The four whose block pair exists only through the `documentation_comment`
+/// fallback, named so a regression says which rule broke.
 ///
-/// A fallback rule that reached one key too far would give Python and friends
-/// a `/* */` they do not have, and block toggling would start writing syntax
-/// errors.
+/// Rust, Go, C and C++ carry no `block_comment` key at all. The bulk test above
+/// would catch this, but it would report four anonymous rows.
 #[test]
-fn the_languages_with_no_block_comment_gain_none_from_the_manifest() {
-    for language in [
-        Language::Python,
-        Language::Yaml,
-        Language::Bash,
-        Language::Json,
-    ] {
+fn the_four_languages_with_no_block_comment_key_still_have_their_pair() {
+    for id in ["rust", "go", "c", "cpp"] {
         assert_eq!(
-            manifest(language).block_comment(),
-            None,
-            "{}",
-            language.id()
+            resolved(id).block,
+            Some(("/*".to_owned(), "*/".to_owned())),
+            "{id} has no block_comment key; its pair comes from \
+             documentation_comment, and losing that fallback loses block-comment \
+             toggling for it"
         );
-        assert_eq!(language_tokens(language).1, None, "{}", language.id());
     }
 }
 
-/// And the languages with no line comment must not acquire one.
+/// And the ones that must not acquire a pair they do not have.
+///
+/// A fallback rule that reached one key too far would give Python a `/* */`,
+/// and block toggling would start writing syntax errors into working files.
 #[test]
-fn the_languages_with_no_line_comment_gain_none_from_the_manifest() {
-    for language in [Language::Markdown, Language::Css] {
-        assert_eq!(manifest(language).line_comment(), None, "{}", language.id());
-        assert_eq!(language_tokens(language).0, None, "{}", language.id());
+fn the_languages_with_no_block_comment_do_not_gain_one() {
+    for id in ["python", "yaml", "bash", "json"] {
+        assert_eq!(resolved(id).block, None, "{id} gained a block comment");
     }
+}
+
+/// JSX's delimiters must not escape `[overrides.element]`.
+///
+/// `javascript` and `tsx` restate both comment keys under that table with JSX's
+/// values. A reader that took the last occurrence of a key would comment every
+/// line of a `.js` file with `{/*` — valid only inside JSX.
+#[test]
+fn jsx_delimiters_do_not_leak_into_the_language_itself() {
+    for id in ["javascript", "tsx"] {
+        let CommentSyntax { line, block } = resolved(id);
+        assert_eq!(line.as_deref(), Some("//"), "{id}");
+        assert_eq!(
+            block,
+            Some(("/*".to_owned(), "*/".to_owned())),
+            "{id} took JSX's block delimiters"
+        );
+    }
+}
+
+/// The row #66 changed, stated on its own so the change is impossible to miss.
+#[test]
+fn json_gained_a_line_comment_and_that_was_the_point() {
+    let json = resolved("json");
+    assert_eq!(
+        (json.line, json.block),
+        (Some("//".to_owned()), None),
+        "JSON's comment syntax now comes from its manifest; if this is ever \
+         reverted it must be reverted deliberately, not by a refresh"
+    );
+}
+
+/// An id no language claims still falls through to the configuration.
+///
+/// Worth pinning because that branch lost its only in-tree exercise when JSON
+/// gained a token: before #66, JSON was the commentless language every fallback
+/// test used.
+#[test]
+fn an_unknown_language_still_falls_back_to_the_configured_token() {
+    let config = EditorConfig {
+        line_comment_token: Some("%%".to_owned()),
+        ..EditorConfig::default()
+    };
+    let syntax = resolve_comment_syntax(&document_in("awl"), &config)
+        .expect("the configured token is available");
+    assert_eq!(syntax.line.as_deref(), Some("%%"));
+    assert_eq!(syntax.block, None);
+}
+
+#[test]
+fn an_unknown_language_with_no_configured_token_has_no_comment_syntax() {
+    let config = EditorConfig {
+        line_comment_token: None,
+        ..EditorConfig::default()
+    };
+    assert!(resolve_comment_syntax(&document_in("awl"), &config).is_none());
 }

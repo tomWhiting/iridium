@@ -1280,3 +1280,177 @@ trust.
 
 **This is not a fix for #69.** It is what makes the next occurrence
 diagnosable instead of another "it differed".
+
+---
+
+## #71 — the FrameTimer clock seam
+
+**Status: compiled, tested, three gates green, five gates outstanding.**
+Written during a window when the box would not permit a build; verified in a
+later window when it briefly would. The section below was written before the
+first compile and is kept as it stood — the verification results are recorded
+at the end of it.
+
+### What is on disk
+
+`crates/iridium-editor/src/view/frame_timer.rs` (506 lines, already over the
+500 bar) was **deleted** and replaced by a directory:
+
+| file | lines | holds |
+| --- | --- | --- |
+| `frame_timer/mod.rs` | 35 | declarations and re-exports only |
+| `frame_timer/budget.rs` | 61 | `FrameBudget`, `FrameStats`, the thresholds, `TARGET_*` |
+| `frame_timer/timer.rs` | ~330 | `FrameTimer` |
+| `frame_timer/delta.rs` | ~94 | `DeltaTime` |
+| `frame_timer/timer_tests.rs` | ~272 | timer tests |
+| `frame_timer/delta_tests.rs` | ~114 | delta tests |
+
+The public API through `view/mod.rs` and `lib.rs:95` is **unchanged**, so no
+re-export edits were needed. `FrameTimer` and `DeltaTime` have **no callers
+anywhere in the tree** — only those two re-export lines — so the API was free
+to change without breaking anything.
+
+### What the change is
+
+Every clock-dependent method gained an `_at(now: Instant)` twin, with the
+wall-clock method reduced to a one-line wrapper over it. `new_at`,
+`with_target_fps_at`, `begin_frame_at`, `end_frame_at`, `elapsed_at`,
+`remaining_at`, `time_until_next_frame_at`, `current_budget_at`,
+`has_budget_for_optional_work_at`; and on `DeltaTime`, `new_at` and
+`update_at`. This is the seam `render::cursor` already has.
+
+Six tests that asserted **upper bounds on wall-clock elapsed** were converted
+to synthetic instants and, in every case, strengthened from a bound to an
+equality. See `docs/IN-FLIGHT-box-gate.md` for the audit that found them.
+
+### Three defects found while doing it
+
+1. **`with_target_fps(0)` panicked.** `1.0 / 0.0` is infinite and
+   `Duration::from_secs_f64` panics on a non-finite value. A public
+   constructor could be made to panic by its argument. The divisor is now
+   floored at one, and `a_zero_target_fps_is_floored_rather_than_panicking`
+   pins it.
+2. **`delta_time_caps` did not test the cap.** It set a 50 ms maximum, slept
+   60 ms, and asserted `delta() <= 60ms` — a bound *above* the 50 ms the cap
+   should produce. Whether it caught a missing cap depended on `thread::sleep`
+   overshooting, which is to say on box load. Against a synthetic clock a
+   missing cap yields exactly 60 ms and **the old assertion passes outright**.
+   Now `assert_eq!(dt.delta(), 50ms)`.
+3. **Three of the four `FrameBudget` bands were untested**, because reaching
+   them meant sleeping through 7 ms and 8 ms thresholds. All four bands and
+   both sides of every boundary are now named exactly.
+
+### The gap I deliberately left, and covered
+
+Every `_at` test would still pass if a convenience wrapper stopped reading the
+clock — if `begin_frame` never called `begin_frame_at`. Two tests exist purely
+to catch that: `the_wall_clock_wrappers_read_the_clock` and
+`the_wall_clock_wrapper_reads_the_clock`. They sleep, deliberately, and assert
+**lower** bounds only, so load can only make them more true.
+
+### ⛔ What must happen before this is committed *(written pre-compile)*
+
+**It has never been compiled.** Load was 19.28, then 12.44, then 18.78, then
+**48.31** against 10 cores across the writing of it, so nothing was built.
+Self-review only. Run the full eight-gate battery before this lands, and treat
+a first compile as likely to surface something.
+
+Specific things I could not check by compiling. **Three of them have since
+been resolved by reading the vendored source**, which needed no build:
+
+| risk | resolved | where |
+| --- | --- | --- |
+| does `web_time::Instant` have `saturating_duration_since`? | **yes** | `web-time-1.1.0/src/time/instant.rs:55` |
+| is `start + Duration::from_millis(..)` valid? | **yes** | `impl Add<Duration> for Instant`, `:76` |
+| can `Instant` be passed by value and `now` reused? | **yes** | `#[derive(Clone, Copy, ..)]`, `:14` |
+
+Still unverified, both low risk: whether `pub const fn begin_frame_at(&mut
+self, ..)` is accepted — `set_max_delta` already ships as `pub const fn` with
+`&mut self`, so this toolchain takes `&mut` in a const fn — and inference of
+the loop index as `u32` in `frame_timer_records_frames`, which follows from
+`impl Mul<u32> for Duration`.
+
+**None of this substitutes for a compile.** It only means the first one is
+less likely to fail on the things I already knew to doubt.
+
+### The load observer
+
+`<scratchpad>/loadsample.sh` is running in the background writing
+`<scratchpad>/load.tsv` every 30 s for up to 4 hours. It **records and
+compares nothing** — Cally's distinction between a disclosure and a
+precondition. Two uses: knowing when the box is affordable, and deriving the
+≥300 s debounce from troughs measured *here* rather than inherited from
+another box's ~90 s observation.
+
+**I am not writing my own gate.** Cally's argument that 136 hand-rolled
+preflights would diverge is right, and the commitment holds in its honest
+form instead: batteries stay ungated and declared so, until a shared preflight
+exists.
+
+### ✅ Verification, in the 20:53 window
+
+Load fell under the 10-core threshold at 20:53:52. Rather than start a
+fifteen-minute battery on a 240 s window — when the widest lull measured on
+this box that later *closed* was 601 s — the runs were escalated by cost, on
+the reasoning that **a debounce should scale with the duration of the run it
+gates**: a long run needs confidence the quiet will persist, a 15 s check
+mostly needs it to exist.
+
+| gate | result | cost |
+| --- | --- | --- |
+| `cargo check -p iridium-editor --all-features --all-targets` | **exit 0**, 14.65 s | load 6.28 → 6.55 |
+| `cargo test -p iridium-editor --all-features --lib frame_timer` | **23 passed, 0 failed** | runs in ~0.00 s |
+| `cargo clippy -p iridium-editor --all-features --all-targets -- -D warnings` | **exit 0** | — |
+| `cargo fmt --all` | **exit 0** | — |
+
+**Every risk flagged before the compile held.** `saturating_duration_since`,
+`Add<Duration> for Instant`, `Instant: Copy`, `const fn` with `&mut self`, and
+the `u32` inference all compiled first time.
+
+#### Three defects the first runs found, all mine, none in the code
+
+1. **`every_frame_budget_band_is_reachable` was wrong about the Overrun
+   edge.** It used a literal `8_333 µs`, but `TARGET_FRAME_DURATION` is
+   `from_micros(8333)` while the timer *divides* —
+   `from_secs_f64(1.0 / 120.0)` is **8333.333 µs**. The literal sat 333 ns
+   below the real edge and landed in `Critical`. Now asks the timer for its
+   own target: writing the constant there tests the test's arithmetic, not the
+   band.
+2. **`time_until_next_frame_counts_from_the_last_frame_end` had my arithmetic
+   wrong** — expected 700 µs where the answer is 500 µs, because the wait
+   counts from the frame's *end* at +200 µs.
+3. **Clippy caught `unchecked_time_subtraction` twice**, on both new `Duration`
+   subtractions. Its suggested `checked_sub(..).unwrap()` collides with the
+   project's unwrap ban; `saturating_sub` gives the identical value with no
+   panic path.
+
+#### Discrimination proven, both fixes
+
+Both were temporarily reverted and the tests confirmed red before restoring:
+
+- `fps.max(1)` → `fps`: `a_zero_target_fps_is_floored_rather_than_panicking`
+  **FAILED**, panicking inside `core/src/time.rs:962` — `from_secs_f64`
+  rejecting the infinity, exactly as predicted.
+- `.min(self.max_delta)` removed: `delta_time_caps` **FAILED**, while
+  `an_interval_under_the_cap_passes_through_unchanged` **stayed green** — the
+  control that shows `delta_time_caps` is doing the discriminating rather than
+  the whole module falling over.
+
+### ⚠️ Five gates still outstanding
+
+Load returned to **11.78** before the battery could run. Not run, and the
+commit says so:
+
+```
+cargo test --workspace --all-features --no-fail-fast
+cargo test -p iridium-editor --no-default-features --no-fail-fast
+cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
+cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
+cargo clippy -p iridium-editor --no-default-features --all-targets -- -D warnings
+cargo clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings
+```
+
+Risk is low — `FrameTimer` and `DeltaTime` have **no callers anywhere**, the
+public API through `view/mod.rs` and `lib.rs:95` is unchanged, and the module
+depends on nothing but `std` and `web_time`. **Low is not zero.** Run these in
+the next window that permits them.

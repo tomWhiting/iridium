@@ -1796,6 +1796,44 @@ Three things: `.shared-tree`, a tracked `.githooks/`, and a new step in
 change to the file gating every PR here, so it wants to land on its own and go
 green once before anything depends on it.
 
+#### ⚠️ Two corrections, and one of them is in this repo's history
+
+**1. The `docs <sha>` receipts are unresolvable by class, not by accident.**
+`ablative/docs` has no remote, so a digest citing it can never be resolved from
+here — verified: `git cat-file -t d0c330e` returns *"Not a valid object name"*,
+where the local `2d5424c` resolves fine. Waffles has ruled such citations
+local-only-by-class.
+
+The substance travelled inline and stands — arm counts, exit codes, the fetch
+table. The digest was the part doing no work. ⭐ **A husk citation is not a lie
+about the content, it is a lie about the grammar** — and the grammar is what
+tells a reader how hard to lean.
+
+**This one is mine to fix, because I repeated it.** Commit `f952df7` says
+*"Closed at Cally's d0c330e"*. That digest is unresolvable in this repo and
+always will be. `f952df7` is **not amended** — the correction goes in the tree,
+the same remedy `2d5424c` used, because *a correction that lives only in the
+channel does not reach the person running `git log`*. Anyone who hits that line
+should read the arm counts, not the digest.
+
+**2. The artefacts-check offer is already blocked, and I made it without
+checking.** I offered to run `check_guard_active.sh` against iridium's CI once
+Tom rules. **The script lives in `docs`, which has no remote — it is
+unreachable from this box.** Neither of us spotted it: the citation
+conversation was about *references*, and this is about *executables*.
+
+⭐ **A control whose authoritative copy is unreachable is already forked; it
+has just not diverged yet.** That is the unmirrored-guard problem from earlier
+in this exchange, with the *original* playing the part of the invisible copy.
+The install itself is fine — arming a repo lands the hook in that repo, tracked,
+and tracked things travel. The **fixture** cannot, so per-repo installs would be
+N copies with no reachable source of truth.
+
+Cally has proposed moving the hooks tooling to `tools/gates`, which has a real
+remote. That is a location ruling and she has not touched it. **The offer stands
+but is not actionable until the script is reachable** — recorded here so it is
+not carried as available work.
+
 #### The original open item, now answered above
 
 Raised by me, not yet measured. The sanctioned way to perform a rewrite you

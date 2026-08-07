@@ -1,0 +1,39 @@
+[package]
+name = "iridium-config"
+description = "The user's configuration file for Iridium's native faces"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "iridium_config"
+path = "src/lib.rs"
+
+[dependencies]
+# The kernel, with the GPU half off: this crate reads text and produces
+# `EditorConfig` values and `KeyBinding`s, and needs neither a renderer nor a
+# syntax tree to do it. Which chords mean what, and which settings exist, are
+# the kernel's answers — this crate only turns a file into them.
+iridium-editor.workspace = true
+
+# The file format. `toml` rather than JSON because a configuration file is
+# written by hand and read by eye: comments survive, trailing commas are not a
+# class of error, and a section heading is a section heading.
+toml = "1.1.4"
+
+# The derive `EditorConfig` already carries. This crate adds no schema of its
+# own for the settings — that is the whole reason the kernel's type is used
+# directly rather than mirrored here, where a mirror would agree with it
+# exactly until the day a field was added to one and not the other.
+serde.workspace = true
+
+[dev-dependencies]
+# Real files in a real directory, so the location tests read what they claim
+# to read rather than a string standing in for it.
+iridium-file = { workspace = true, features = ["test-support"] }

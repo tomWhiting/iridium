@@ -4,7 +4,7 @@
 //! where tree-sitter is not available. It uses simple pattern matching for common
 //! language constructs like keywords, strings, comments, and numbers.
 
-use crate::theme::Color;
+use crate::theme::{Color, Theme};
 
 /// A highlighted span with text and color.
 #[derive(Debug, Clone)]
@@ -58,7 +58,15 @@ pub struct SyntaxColors {
 }
 
 impl SyntaxColors {
-    /// Creates dark theme syntax colors.
+    /// The palette a highlighter holds before any theme reaches it.
+    ///
+    /// The one remaining hard-coded preset, and it is a *default* rather than
+    /// a choice: [`SimpleHighlighter::new`] needs some palette before
+    /// [`Self::from_theme`] has been called, and this matches the compositor's
+    /// own default theme so a frame composed before the first `set_theme` is
+    /// not a surprise. Its light counterpart is gone — nothing selects a
+    /// palette by darkness any more, so a second preset had no way to be
+    /// reached and no reason to exist.
     #[must_use]
     pub const fn dark() -> Self {
         Self {
@@ -73,18 +81,35 @@ impl SyntaxColors {
         }
     }
 
-    /// Creates light theme syntax colors.
+    /// The bridge palette a theme calls for.
+    ///
+    /// ⚠️ **From the whole [`Theme`], not from
+    /// [`theme::SyntaxColors`](crate::theme::SyntaxColors)**, and the reason is
+    /// [`Self::text`]: it is the colour for tokens this highlighter could not
+    /// classify, and the theme's syntax colours have no such field. It comes
+    /// from `editor.foreground`, so the conversion needs both halves. Taking
+    /// only the syntax colours would have left unclassified text on a
+    /// hard-coded default — the same defect, one field smaller.
+    ///
+    /// # Why six of the theme's fields are dropped
+    ///
+    /// The theme states fourteen token colours; this palette has eight. The
+    /// missing six — `variable`, `operator`, `property`, `constant`, `tag`,
+    /// `attribute` — have no counterpart here because [`TokenType`] has eight
+    /// variants and this highlighter classifies by keyword table and character
+    /// class. It cannot tell a variable from a property, so there is no token
+    /// it could paint with those colours. Dropping them loses no information.
     #[must_use]
-    pub const fn light() -> Self {
+    pub const fn from_theme(theme: &Theme) -> Self {
         Self {
-            text: Color::rgb(0.231, 0.259, 0.322),        // #3B4252
-            keyword: Color::rgb(0.369, 0.506, 0.675),     // #5E81AC
-            string: Color::rgb(0.408, 0.616, 0.416),      // #689D6A
-            number: Color::rgb(0.694, 0.384, 0.525),      // #B16286
-            comment: Color::rgb(0.584, 0.647, 0.651),     // #93A1A1
-            type_name: Color::rgb(0.710, 0.537, 0.000),   // #B58900
-            function: Color::rgb(0.149, 0.545, 0.824),    // #268BD2
-            punctuation: Color::rgb(0.400, 0.451, 0.514), // #667380
+            text: theme.editor.foreground,
+            keyword: theme.syntax.keyword,
+            string: theme.syntax.string,
+            number: theme.syntax.number,
+            comment: theme.syntax.comment,
+            type_name: theme.syntax.type_name,
+            function: theme.syntax.function,
+            punctuation: theme.syntax.punctuation,
         }
     }
 
@@ -136,18 +161,16 @@ impl SimpleHighlighter {
     }
 
     /// Sets the syntax colors.
+    ///
+    /// The only way to change this palette, deliberately. It replaced a pair
+    /// of `set_dark_theme` / `set_light_theme` methods that installed the two
+    /// hard-coded presets — the mechanism by which the bridge's colours could
+    /// diverge from the theme's, since neither method took a theme and neither
+    /// caller could pass one. Callers now derive the palette with
+    /// [`SyntaxColors::from_theme`], so the only palette reachable at runtime
+    /// is the one the theme states.
     pub const fn set_colors(&mut self, colors: SyntaxColors) {
         self.colors = colors;
-    }
-
-    /// Sets dark theme colors.
-    pub const fn set_dark_theme(&mut self) {
-        self.colors = SyntaxColors::dark();
-    }
-
-    /// Sets light theme colors.
-    pub const fn set_light_theme(&mut self) {
-        self.colors = SyntaxColors::light();
     }
 
     /// Highlights a line of text, returning colored spans.

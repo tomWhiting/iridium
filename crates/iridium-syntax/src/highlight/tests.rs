@@ -169,6 +169,67 @@ fn a_namespace_capture_is_styled_rather_than_falling_through() {
 }
 
 #[test]
+fn a_real_awl_workflow_colours_more_than_one_way() {
+    // Parsing is not colouring, and the gates above only prove AWL's query
+    // compiles. A query that matched one catch-all pattern would satisfy every
+    // one of them and paint the whole file a single colour.
+    //
+    // The source is a real workflow, not an invention: the shape of
+    // `apps/meridian-tools-seat/p16.awl`.
+    let source = "workflow w\n\
+                  input xs: List(String)\n\
+                  output String\n\
+                  action first(x: String) -> String\n\
+                  step f\n  \
+                  do first(xs[0])\n  \
+                  as r\n\
+                  finish r\n";
+    let spans = spans_for(Language::Awl, source);
+
+    assert!(
+        !spans.is_empty(),
+        "a real AWL workflow produced no highlight spans at all"
+    );
+
+    let kinds: std::collections::HashSet<HighlightType> =
+        spans.iter().map(|span| span.highlight).collect();
+
+    // Named individually rather than as a count, so a regression says which
+    // meaning was lost. These eight lines produce eight distinct kinds; the
+    // three below are the ones whose absence would be obvious on screen.
+    for expected in [
+        HighlightType::Keyword,  // workflow, input, output, step, do, as, finish
+        HighlightType::Function, // first
+        HighlightType::Type,     // List
+    ] {
+        assert!(
+            kinds.contains(&expected),
+            "AWL produced no {expected:?} span; got {kinds:?}"
+        );
+    }
+
+    // A floor beneath the named three, set below the eight actually produced so
+    // that a grammar refresh reshuffling one capture does not fail the build,
+    // while a query collapsing to a catch-all still does.
+    assert!(
+        kinds.len() >= 5,
+        "AWL painted everything {} way(s), so the query has stopped \
+         discriminating between token kinds: {kinds:?}",
+        kinds.len()
+    );
+
+    // Every span must be non-degenerate and inside the source. A zero-width or
+    // out-of-range span reaches the renderer and is the shape of #34.
+    for span in &spans {
+        assert!(
+            span.start < span.end && span.end <= source.len(),
+            "AWL produced an unusable span {span:?} against {} bytes",
+            source.len()
+        );
+    }
+}
+
+#[test]
 fn test_highlighter_rust() {
     let language = Language::Rust;
     let source = "fn main() { let x = 42; }";

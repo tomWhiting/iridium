@@ -1,6 +1,25 @@
-# AWL — where it stands, 7 Aug 2026 18:0x
+# AWL — where it stands
 
-**Written immediately before a compaction. This is the live state of #68.**
+## ✅ LANDED — `6da7b89`, all eight gates green
+
+2347 workspace · 1002 parser-free kernel lib · 1097 kernel+syntax lib · wasm
+check · three clippy runs · `fmt --check`.
+
+⚠️ **Two gates failed on the first battery run and the notification said
+"exit code 0".** `clippy --workspace --all-features` and
+`clippy -p iridium-editor --features syntax` both exited 101 on
+`match_same_arms` — the new `namespace | module` arm duplicated the `type`
+arm's body. Merged into one pattern, which is the resolution this file already
+documents at the top of `from_capture_name`. **The background-task
+notification's exit code has now been wrong twice in this stint. Read the
+status file.**
+
+Remaining: none for AWL itself. See #70 for the unstyled-capture gap the work
+uncovered, and #63 step 5 for the seven grammarless languages.
+
+---
+
+*Everything below is the working record kept during the build.*
 
 ## Committed and green
 

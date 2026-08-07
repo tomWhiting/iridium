@@ -3088,3 +3088,60 @@ ticks ago** — the only writes from here are source files and cargo's
 incremental target dir, so something else is consuming it. Worth a `du` if it
 keeps falling. Working tree clean apart from `?? .claude/skills/`, untracked
 at session start and not mine.
+
+---
+
+# Tick — 8 Aug ~09:05 — #80, and the route that found it
+
+## Sent to Tom
+
+Meridian attempt **14**, succeeded (four in a row now). Carried **S-6** and
+asked **B-5**, and re-stated **B-2**. Both still open.
+
+## #80 — CLOSED (`815bec99`)
+
+Two defects in the search path, one root: **it asked a byte a question only a
+character can answer.**
+
+- **A — a panic.** `find_literal_matches`'s case-sensitive branch resumed at
+  `match_start + 1`. That byte is inside a multi-byte character, and the next
+  `text[start..]` panics. Case-sensitive search for `é` in `ééé` crashed the
+  editor.
+- **B — an over-match.** `is_word_boundary` read one byte per side and asked
+  `is_ascii_alphanumeric`. Every byte of a non-ASCII character is `>= 0x80`,
+  so `ï` read as a non-word character: whole-word search called `na` a whole
+  word inside `naïve`. `replace.rs` shares the check, so replace-all would
+  write into the middle of a word.
+
+Both proven red first. Nine gates green, **2,533 passed**. Full write-up in
+`docs/IN-FLIGHT-word-boundaries.md`.
+
+## ⭐ Two more rules, both paid for here
+
+**C. A fix applied to the path you are standing on is not a fix to the
+defect.** Twelve lines below the panic, the case-insensitive path *already*
+advanced by `char::len_utf8`, with a comment explaining that exact hazard.
+Someone met it, understood it, wrote it down, and hardened the branch they
+were looking at. When a hazard is found, ask **where else does this shape
+appear** — the answer is often three lines away.
+
+**D. A claim of uniqueness is checkable, so check it.** This started from
+`motions::is_word_char`'s own sentence: *"the single word-character definition
+shared by…"*. There were three. One was a harmless copy; one diverged. ⭐ This
+is the **hedge route's twin** — a hedge admits a gap, a uniqueness claim
+denies one. Both are load-bearing sentences a document wrote about itself, and
+both are cheap to falsify.
+
+## Left on the table, named
+
+- **`wasm.rs:2259 char_class`** — a *fourth* definition of "word character",
+  in the web face, for word motion. Character-wise and in agreement today, so
+  not a defect; but it is the shape #38 closed for `pixel_to_index`. Worth its
+  own item.
+- **`search/find.rs` 783 lines, `search/replace.rs` 878** — both over the
+  500-line bar, tests inline in each. Not acted on.
+
+## Box
+
+Load ~57, not this seat's. Disk **129 GB free** — 130 last tick, so the
+170 → 130 slide has **stopped**; it was not this seat and needs no `du`.

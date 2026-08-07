@@ -1454,3 +1454,46 @@ Risk is low — `FrameTimer` and `DeltaTime` have **no callers anywhere**, the
 public API through `view/mod.rs` and `lib.rs:95` is unchanged, and the module
 depends on nothing but `std` and `web_time`. **Low is not zero.** Run these in
 the next window that permits them.
+
+### #71 gates: four of six now green
+
+An opportunistic runner caught a window at 21:41 and spent it cheapest-first.
+It was killed by the harness partway through — along with the load observer, at
+the same moment, which is what makes it a reap rather than anything about the
+box — but the ordering meant the window still bought four gates in 51 seconds:
+
+| gate | exit | secs | load before → after |
+| --- | --- | --- | --- |
+| `cargo fmt --all --check` | **0** | 2 | 9.69 → 9.69 |
+| `clippy -p iridium-editor --no-default-features --all-targets -D warnings` | **0** | 12 | 9.69 → 9.22 |
+| `clippy … --no-default-features --features syntax --all-targets -D warnings` | **0** | 11 | 9.22 → 8.74 |
+| `test -p iridium-editor --no-default-features --no-fail-fast` | **0** | 26 | 8.74 → **11.16** |
+
+The window closed on the fourth gate — `t_kernel` ended above threshold. Had
+the expensive gate been ordered first it would have been the only one attempted
+and it would have been caught by the close.
+
+**Still outstanding, three:**
+
+```
+cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
+cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
+cargo test --workspace --all-features --no-fail-fast
+```
+
+⚠️ **Do not re-launch the runner as a background task.** Both background tasks
+were killed; a third attempt would be fighting the harness rather than reading
+it. Run the remaining three inline, on a tick where load permits.
+
+#### `fmt_check=0` was verified rather than trusted
+
+That gate wrote **65 KB** while exiting 0, which does not look like a pass. It
+is: the entire volume is `rustfmt.toml` declaring options that need nightly,
+warned **609 times**. No `Diff in` lines, no mention of the changed files, and
+an independent re-run reproduced exit 0 with byte-identical output.
+
+⭐ **609 repetitions of a benign warning is where a real one hides.** A genuine
+`Diff in <path>` would be invisible to anyone reading that log; only the
+separately-recorded exit status distinguishes pass from fail. Filed as **#73**,
+along with the fact that 21 declared formatting options — including
+`error_on_line_overflow` and `error_on_unformatted` — do nothing at all.

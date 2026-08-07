@@ -464,6 +464,31 @@ fn the_root_cannot_be_renamed_or_deleted_from_inside_itself() {
 }
 
 #[test]
+fn a_row_after_the_first_with_no_folder_above_it_is_refused() {
+    // Exactly one row is the mount point, and it is the first one. A later
+    // row with nothing above it is a row whose nesting could not be worked
+    // out — and accepting it as a *second* root quietly makes it unrenamable
+    // and undeletable, under a message calling it "the root". The user is
+    // looking straight at a row that is plainly not the root.
+    let mut rows = [
+        root(),
+        existing("a.rs", 0, "/project/a.rs"),
+        existing("b.rs", 0, "/project/b.rs"),
+    ];
+    rows[2].parent = None;
+    rows[2].name = "renamed.rs".to_owned();
+
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 2);
+    assert!(
+        !refusals[0].reason.contains("root"),
+        "a row that is plainly not the root was refused as one: {}",
+        refusals[0].reason
+    );
+}
+
+#[test]
 fn a_row_nested_under_one_that_comes_after_it_is_refused() {
     // The panel derives `parent` from indentation, so a bug there must be a
     // refusal rather than a path built from a target that does not exist yet.

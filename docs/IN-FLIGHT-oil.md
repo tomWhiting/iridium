@@ -293,6 +293,42 @@ take an existing file's row: rows loaded from the tree are parented by the
 indentation they arrived with, and nothing reparents them under something that
 was never on disk.
 
+## Step 3b — DONE. The panel actually feeds the buffer, 8 tests
+
+`Buffer::load` took `SourceRow`s that nothing built. `FileExplorer::buffer()`
+now builds them, and the claim the design map made — *both row sources hand
+over the same pair* — stopped being an assertion and became a function with
+two branches and one shared tail.
+
+Tested against real directories on the real reader thread. **Ruling 4 is not
+implemented anywhere**: a file the query took off the screen is not in the
+buffer, so nothing downstream has to be told to leave it alone. Ruling 8's
+other half is the same — a match drawn under its folder is nested under it,
+so a filtered rename lands inside `widgets/`, not beside it.
+
+### The oracle that looked stronger than it was
+
+The plan itself was used as the oracle: `plan` refuses a row whose drawn
+folder is not the folder it lives in, so an untouched real project planning
+`Ok` says the derivation agreed with the filesystem.
+
+That was checked rather than believed, by flattening every depth by one and
+re-running — and `a_real_project_is_nested_the_way_it_really_is` **passed
+it**. A row wrongly given *no* folder becomes its own target, so its subtree
+still resolves and the plan still says `Ok`. The proxy agreed with its target
+on the examined set; the divergence is a row promoted to root.
+
+Two things came out of that:
+
+- `the_root_is_the_only_row_with_no_folder_above_it` exists for that case,
+  and the module doc says so rather than leaving the hole unnamed.
+- **`plan` was treating *any* parentless row as the mount point.** Only the
+  first row may be. A later one is a row whose nesting could not be worked
+  out, and calling it "the root" — while refusing to rename it *because* it
+  is the root — is a message about a row the user can plainly see is not.
+  Not a data-loss bug: such a row is its own target, so paths below it stay
+  correct. A lying message, fixed because it lies.
+
 ## Still to do after step 3
 4. Confirmation view.
 5. `⌘O`, and the apply-or-discard prompt on a filter change.

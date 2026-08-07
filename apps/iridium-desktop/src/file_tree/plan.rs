@@ -229,7 +229,22 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
 
     for (index, row) in rows.iter().enumerate() {
         let Some(parent_index) = row.parent else {
-            // A root row. It cannot be renamed — its name is the mount point
+            // **Exactly one row may have nothing above it, and it is the
+            // first.** A later row with no folder is one whose nesting could
+            // not be worked out, and treating it as a second root would
+            // quietly make it unrenamable and undeletable while telling the
+            // user it is "the root" — about a row they can see is not.
+            if index > 0 {
+                refusals.push(Refusal {
+                    row: index,
+                    reason: "the folder this row is in could not be worked out from how it is \
+                             drawn"
+                        .to_owned(),
+                });
+                continue;
+            }
+
+            // The root row. It cannot be renamed — its name is the mount point
             // the panel was opened at, and changing it would rename a
             // directory nobody navigated into.
             match row.origin.as_ref() {
@@ -250,7 +265,9 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
                 },
                 None => refusals.push(Refusal {
                     row: index,
-                    reason: "this row has no parent and is not the root".to_owned(),
+                    reason: "the first row must be the folder the panel is showing, not one \
+                             that was typed"
+                        .to_owned(),
                 }),
             }
             continue;

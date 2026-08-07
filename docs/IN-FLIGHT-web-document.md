@@ -1,5 +1,19 @@
 # #43 — extracting `WebDocument`, and the two things in the way
 
+> ## ⚠️ STATUS, 8 Aug — step 1 done, blocker 2's stated cause is WRONG
+>
+> - **Step 1 (`WebHighlightCache`) landed** as #76, commit `daf1d56`. The
+>   sixteen fields below are now thirteen.
+> - **Blocker 2's diagnosis is corrected in place below.** It cited the plan's
+>   finding 3 — "the kernel's folds go stale after every edit" — which is
+>   **fixed** and has been for some time. The web face's second fold state has
+>   a different cause entirely, and the fix is one line in the web face rather
+>   than a kernel change. See the ⚠️ CORRECTED block in that section.
+>
+> The rule this cost, again: a map records what was true when it was written,
+> and this one inherited a claim from a *third* document without checking it.
+> A citation chain is not evidence; only the code is.
+
 Map only. **Nothing here has been compiled or run** — the box sat at load
 36.28 against 10 cores for this window, and the map is what the window was
 good for. Every claim below is source read at a named line.
@@ -144,6 +158,67 @@ read the kernel's folds like the desktop face does. If that ordering is not
 acceptable, the fallback is to move them and record explicitly that
 `WebDocument` knowingly holds a duplicate and why — but that is the worse
 answer and should be a deliberate choice, not a side effect of this task.
+
+### ⚠️ CORRECTED, 8 Aug — the cause above is not the cause
+
+Everything in the two paragraphs above about *why* the folds are duplicated is
+wrong. Verified by reading, at named lines:
+
+**1. The kernel's folds do not go stale.** `Editor::apply_command_internal`
+calls `self.state.refresh_syntax()` on every content change —
+`editor/core.rs:1037` — and the comment sitting on that call says so outright:
+*"Before this the editor's regions were correct only until the first
+keystroke."* `refresh_syntax` (`core.rs:292`) is documented as **the only place
+folds are recomputed**. The plan's finding 3 was fixed and the map inherited it
+unchecked.
+
+**2. So why does the web face still keep its own?** Because the kernel's copy
+is **inert in the browser**, and for a reason nothing in this map guessed:
+
+> ⭐ **`WebEditor` never tells its `Editor` what language it holds.**
+
+`grep set_language crates/iridium-bindings/src/` returns hits in `editor.rs`
+(the napi face) and in `web_folds.rs` — and **none in `wasm.rs`**.
+`create_web_editor` builds a bare `Editor::new(EditorConfig::default())`
+(`wasm.rs:381`) and the comment beside it states the limitation in as many
+words: *"The web surface has no way to declare a language yet."*
+
+`SyntaxState::sync` opens with `let tree = self.tree.as_mut()?;`
+(`editor/ast/state.rs:227`), and `self.tree` is `Some` only after
+`set_language`. With no language the `?` returns `None`, `refresh_syntax`
+returns `false` at `core.rs:293-295`, and the kernel's `fold_state` is never
+given regions at all.
+
+**The web face's second fold state is therefore not a duplicate of a working
+one — it is the only one that works in the browser.**
+
+**3. What this changes about the ordering.** The precondition for "let the web
+face read the kernel's folds like the desktop face does" is no longer a kernel
+fix scheduled behind a plan step. It is:
+
+> the web face must call `Editor::set_language`.
+
+That is the same one-line wiring `apps/iridium-desktop/src/app/files.rs:85-86`
+already does per opened file (`set_language` / `clear_language` on the
+extension). It is **not** free, and the cost must be named rather than
+assumed — the whole `Language` question is live under Tom's extensibility
+direction (`docs/IN-FLIGHT-languages.md`, decisions L-0..L-8, **unruled**), and
+`wasm.rs` currently hard-codes `Language::C` as a stand-in for "fold on braces"
+in two places (`:389`, `:398`). Choosing what the browser passes to
+`set_language` is a language-model question, not a fold question.
+
+**Revised recommendation, unchanged in outcome and corrected in reason:** still
+do not carry the fold fields into `WebDocument`. But the blocker is **L-0, not
+a kernel defect** — and #43 should not be the commit that decides how the
+browser names a language. The narrow, honest version stands: leave the folds on
+`WebEditor`, and record here that they stay because the web face has no
+language, not because the kernel is broken.
+
+**One thing checked and found NOT to be a defect**, recorded so nobody spends
+the window on it twice: I expected the kernel refresh and the web refresh to be
+brace-scanning the same document twice per keystroke. They are not — the
+kernel's path exits at the `None` above before it scans. There is one scan, not
+two.
 
 ## Blocker 3 — `KeyboardHandler` is half app, half document
 

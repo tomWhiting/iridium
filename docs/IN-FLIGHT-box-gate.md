@@ -297,14 +297,33 @@ run. It then happened:
 ```
 20:15:20   9.45  <   window opens
 20:15:50   7.88  <
-20:18:50  23.80      over again
+20:16:20   8.19  <
+20:16:50   9.75  <
+20:17:20   8.22  <
+20:17:50   6.76  <   window closes — 150 s wide, 6 samples
+20:18:20  20.56      over again
 20:21:20  30.23
+20:22:51  69.85
 ```
 
-A ~30 s window, then the box back to three times the threshold within six
-minutes. **Had the battery started when load first dipped under, it would have
-been six minutes into a spike.** It was not started, because the widest lull
-measured here is 450 s and a 30 s window does not clear it.
+A 150 s window, then the box back to three times the threshold within a
+minute and to **seven times** it within five. **Had the battery started when
+load first dipped under, it would have been running through all of that.** It
+was not started, because the widest lull measured here is 450 s and a 150 s
+window does not clear it.
 
-Two troughs so far — 450 s and ~30 s. **That is not yet a distribution and no
+⚠️ **Correction — the first version of this section said "~30 s, 2 samples",
+and that figure was wrong.** It was measured at 20:15:50, while the window was
+still open, and the trough ran another two minutes afterwards. The script
+labelled that reading `[OPEN]`; **I dropped the qualifier when I wrote the
+number down.** The conclusion did not depend on it — 150 s clears a 450 s lull
+no better than 30 s does — but the figure had already been sent to someone
+assembling a distribution from it.
+
+⭐ **A measurement taken while the thing is still happening is a lower bound,
+not a value.** Committed here in the document that catalogues the class, one
+section below a note on controls that cannot fail. The instrument reported its
+own incompleteness and the reporting discarded it.
+
+Two troughs so far — **450 s and 150 s**. **That is not a distribution and no
 span should be adopted from it.** Sampling continues.

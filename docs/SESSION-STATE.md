@@ -1628,7 +1628,50 @@ compute troughs across both**, the sampler was killed between them.
 | --- | --- | --- |
 | **#58** | three key rulings — edit / delete+create / apply. Suggested Tab, Ctrl+D, ⌘S | `IN-FLIGHT-oil.md` |
 | **#64** | ruling to delete the 21 MB legacy bindings tree. Recommend yes | `IN-FLIGHT-legacy-bindings.md` |
-| **#70** | six colour choices, six unstyled captures | `IN-FLIGHT-unstyled-captures.md` |
+| **#70** | six colour choices — now the *whole* of that task | `IN-FLIGHT-unstyled-captures.md` |
+| **hook** | whether to install Cally's history-rewrite guard in this repo. Recommend yes, with one gap to close first | below |
+
+### Cally's history-rewrite guard — Tom's call, 2026-08-07
+
+Cally asked permission to switch on a guard that refuses history rewrites in a
+shared working tree — the class that destroyed a commit here on the 5th
+(recorded at `2d5424c`). It watches the ref move rather than the command, so
+`--amend`, `reset --hard`, `rebase`, `branch -f`, `checkout -B` and
+`--no-verify` all land on it. Installing it needs two things committed here: a
+tracked `.shared-tree` marker at the root, and `core.hooksPath` pointed at a
+tracked, **relative** directory.
+
+**I declined to authorise it and referred it up.** It changes how git behaves
+for Tom and refuses rewrites he may want; the friction is his, not mine.
+
+**Recommend yes.** This seat is already banned from `reset`, `restore`,
+`checkout --`, `clean`, `stash` and `worktree` here, so the guard codifies an
+existing constraint rather than adding one, and the rebase cost is near zero
+because the work commits forward — `bd582e1` was deliberately left saying "four
+of six" rather than amended once the other two gates passed.
+
+⭐ **The gap I raised, and the reason it should be closed first.**
+`core.hooksPath` is repo-local config. `.git/config` is not cloned. So a fresh
+clone gets the tracked marker and the tracked hook scripts and **no
+`core.hooksPath`** — git falls back to `.git/hooks/` and the guard is silently
+inert, which is the exact failure class Cally cites as motivation. The tracked
+marker fixes the *move* case, not the *clone* case, because the thing that
+activates the hook is itself a config key.
+
+It is at least **detectable**, which a config-only design would not be:
+`.shared-tree` present AND `core.hooksPath` unset-or-wrong is a cheap
+assertion. It needs to be something that runs, not a README line.
+
+Two open questions, asked rather than asserted — the hook lives in Cally's tree
+and **I have not read it**: whether a `reference-transaction` hook reads a
+force-updated remote-tracking ref from `git fetch` as a rewrite, and whether
+Tom wants tracked executable hooks running on ordinary git operations in a repo
+whose guidelines open with *"mission-critical infrastructure for financial,
+legal, and healthcare settings"*.
+
+Verified: no `.shared-tree`, no `core.hooksPath`, no active hooks in this
+checkout. Nothing has moved. Waffles' reported 17/17 is taken as reported and
+verified by nobody here.
 
 **#72** (`tag.jsx` → `Tag`, `text.jsx` and `nested` → deliberately unstyled)
 needs **no ruling** — it was split out of #70 precisely so it would not wait.

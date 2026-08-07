@@ -34,8 +34,13 @@ which is the point of the registry.
 | `gomod` | `go.mod` | `//` |
 | `gowork` | `go.work` | `//` |
 
-Plus brackets and auto-pairs from each manifest. `gitcommit` carries six
-bracket pairs and `rewrap_prefixes`; `gomod`/`gowork` carry `autoclose_before`.
+⚠️ **This paragraph originally read "Plus brackets and auto-pairs from each
+manifest."** That was banked and never delivered — checked 8 Aug: the manifest
+reader deserializes seven keys and `brackets` is not among them, so the bracket
+tables `gitcommit`, `gomod` and `gowork` carry are on disk and unread, exactly
+like the rest. The editor's auto-pair table is six hard-coded characters, the
+same in every language. `docs/design/AUTO-PAIR-MAP.md` has the ground, the
+seven divergences and the slices.
 
 None of them highlights, and that is the expected state — `grammar()` returning
 `None` is exactly what the registry work made legal, and `query::compile`

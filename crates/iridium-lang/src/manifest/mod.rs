@@ -17,6 +17,15 @@
 //! Iridium believes about a language; the hard-coded tables are replaced one at
 //! a time, each against a test asserting the manifest agrees with what it
 //! replaces.
+//!
+//! ⚠️ **The reader is narrower than the file**, and the gap is worth stating so
+//! nobody assumes a key is honoured because the manifest declares it. `Fields`
+//! deserializes seven keys; `brackets`, `autoclose_before`, `collapsed_placeholder`
+//! and the rest are parsed past and dropped. Comment tokens have been replaced
+//! that way (#66). **Brackets have not** — the editor's auto-pair table is six
+//! hard-coded characters, the same in every language, and it disagrees with
+//! seventeen of the twenty manifests. `docs/design/AUTO-PAIR-MAP.md` names each
+//! divergence and prices the slices.
 
 mod embedded;
 mod schema;

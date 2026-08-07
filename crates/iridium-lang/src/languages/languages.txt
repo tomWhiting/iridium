@@ -27,8 +27,13 @@
 #
 # A language listed here with no grammar linked in `iridium-syntax` is a
 # supported language that cannot be parsed. That is a real and useful state:
-# file association, comment tokens, indent rules and auto-pairs all come from
-# the manifest, and none of them needs a parser.
+# file association and comment tokens come from the manifest, and neither needs
+# a parser.
+#
+# This paragraph used to add "indent rules and auto-pairs" to that list. It was
+# wrong: the manifests declare `brackets` and `autoclose_before`, but the reader
+# deserializes neither and the editor's auto-pair table is six hard-coded
+# characters, the same in every language. See docs/design/AUTO-PAIR-MAP.md.
 
 awl               Awl
 bash              Bash

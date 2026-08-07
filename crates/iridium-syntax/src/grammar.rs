@@ -19,10 +19,17 @@
 //!
 //! **A language with no grammar is a supported language that cannot be
 //! parsed**, which is a real and useful state rather than a defect. File
-//! association, comment tokens, indent rules and auto-pairs all come from the
-//! vendored manifest, and not one of them needs a parser — so `diff`, `go.mod`
-//! and a git commit message can be first-class here long before anyone links a
-//! grammar for them.
+//! association and comment tokens come from the vendored manifest and need no
+//! parser — so `diff`, `go.mod` and a git commit message can be first-class
+//! here long before anyone links a grammar for them.
+//!
+//! ⚠️ Indent rules and auto-pairs are **not** manifest-driven yet, though an
+//! earlier version of this paragraph said they were. The manifests declare
+//! `brackets` and `autoclose_before`; the reader does not deserialize either,
+//! and the editor's auto-pair table is six hard-coded characters identical in
+//! every language. `docs/design/AUTO-PAIR-MAP.md` has the ground and the
+//! slices. The claim about a parser still holds — none of it needs one — but
+//! the capability is owed, not delivered.
 //!
 //! Callers must degrade rather than fail. The one that matters is
 //! `query::compile`, where no grammar means there is nothing to compile a query

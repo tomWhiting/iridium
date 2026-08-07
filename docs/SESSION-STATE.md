@@ -2127,6 +2127,15 @@ already told him that was wrong**, which is the worst kind of message to lose.
 
 **Retry this on the next tick.** DM `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`.
 
+## ⚠️ ATTEMPT 4 ALSO FAILED — 8 Aug, after #35 landed
+
+Same error again. **Four attempts, four identical 500s.** Meridian has been
+unreachable for hours, not minutes.
+
+The queued text now also carries **#35's closure** (see below) — amend before
+sending, do not send a stale draft. The running rule stands: the channel being
+down never gates the work; the message waits and the backlog moves.
+
 ## ⚠️ ATTEMPT 3 ALSO FAILED — 8 Aug, post-compaction
 
 Same error, byte for byte. Three attempts, three
@@ -2184,6 +2193,21 @@ Two consequences, both already applied:
 > Genuinely unblocked and left: **#35** (HiDPI font scale on display change) and
 > **#31** (theme switch, which has his taste in it). Starting #35 now.
 >
+> **#35 closed** — and not where the title suggested. The **desktop face was
+> already correct** (`ScaleFactorChanged` → `rescaled`, which re-does exactly
+> the four calls startup derives from the scale factor). The bug is the web
+> face, with a kernel defect behind it: `FrameCompositor::cached_char_width`
+> was written only by `load_font`, so `set_font_size` gave a right line height
+> beside the previous size's character width — the number that turns a column
+> into an x and back. Proven red first at 8.428711 against an honest
+> 16.857422, exactly the 2x ratio. ⭐ The existing test could not catch it:
+> warm and cold *both* load at 14 then set 16, so both carry the same stale
+> width and a pixel-identity oracle is blind to it. Web half: `setPixelRatio`
+> export plus a re-arming `matchMedia` watcher, because dragging between
+> displays usually fires no resize event at all. Nine gates green, `deno check`
+> clean, bundle rebuilt and the export verified in it. Not verified: an actual
+> two-monitor drag — this box cannot stage it.
+>
 > Still waiting on him: **L-0..L-8** (blocks four items), #58, #64, #70, #74,
 > and Cally's hook.
 
@@ -2206,10 +2230,24 @@ pool acquire timed out` twice. The full text and the DM id are in the
 him #44 and #45 were unblocked and they are not — so it matters more than a
 status note. Under the delivery rule it has not happened until it sends.
 
-**2. Then start #35** — HiDPI: font scale never re-applied when a window moves
-between displays. It is the only genuinely unblocked item with no ruling in it.
-(#31, theme switch, is also unblocked but carries Tom's UI taste, so it is the
-weaker autonomous pick.)
+**2. ~~Then start #35~~ — DONE, closed at `cf7420c`.**
+Write-up in `docs/IN-FLIGHT-35-hidpi.md`. Two commits: `e2d47c9` (the kernel
+char-width defect, red test first) and `cf7420c` (the web re-apply path).
+
+**3. What is actually left that needs nobody.** With #35 closed the unblocked
+column is down to **#31** (theme switch), which carries Tom's UI taste — a
+weak autonomous pick, since guessing a light theme and being wrong wastes the
+work. Everything else is behind a ruling. ⚠️ **So the next tick should not
+manufacture a task.** The honest options, in order:
+
+- **#69** — only actionable at the next occurrence, and the diagnostic already
+  tells the next reader which of the two branches it is. Nothing to do until
+  it fires.
+- **#31** — could be started as *structure without taste*: the switch, the
+  command, the persistence, with the existing dark theme on both sides and the
+  light palette left as a one-value change for Tom. That is defensible and is
+  the strongest remaining autonomous move.
+- **Stop and say so.** Three ticks of nothing means stop, not narrate.
 
 ## The strip, corrected
 
@@ -2219,7 +2257,8 @@ weaker autonomous pick.)
 | #76, #42, #71, #72, #73 | ✅ closed earlier this session |
 | #43, #44, #45 | ⛔ **all three behind L-0**, verified `d6ff49e` |
 | #69 | 🔍 not reproduced in 160 runs; two mechanisms eliminated, one named |
-| #35, #31 | ▶ unblocked |
+| #35 | ✅ closed at `cf7420c` — see `docs/IN-FLIGHT-35-hidpi.md` |
+| #31 | ▶ unblocked, but carries Tom's UI taste |
 | #58, #64, #70, #74, Cally's hook, L-0..L-8 | ⏸ Tom's rulings |
 
 ## Loop

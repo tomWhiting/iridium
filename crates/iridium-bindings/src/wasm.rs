@@ -17,7 +17,8 @@ use crate::key_map::key_code_from_dom_key;
 use crate::palette;
 use crate::text_range::text_range;
 use crate::web_folds::WebFoldSyntax;
-use crate::web_span_index::{WebSpan, WebSpanIndex};
+use crate::web_highlight_cache::{JsHighlightSpan, WebHighlightCache};
+use crate::web_span_index::WebSpan;
 use iridium_editor::{
     CommandArgs, CommandId, Document, EditorConfig, Keymap, ModifierPattern, Position, Range,
     StrokePattern,
@@ -63,17 +64,6 @@ fn index_field(object: &JsValue, field: &str) -> Result<usize, JsValue> {
 /// The `line` property of a JavaScript object, as a line index.
 fn line_of(object: &JsValue) -> Result<usize, JsValue> {
     index_field(object, "line")
-}
-
-/// A highlight span from tree-sitter (passed from JavaScript).
-#[derive(Debug, Clone)]
-pub struct JsHighlightSpan {
-    /// Start byte offset
-    pub start: usize,
-    /// End byte offset
-    pub end: usize,
-    /// Highlight type as string (e.g., "keyword", "string", "comment")
-    pub highlight_type: String,
 }
 
 /// Byte-accurate description of a document edit, for incremental
@@ -196,18 +186,16 @@ pub struct WebEditor {
     fold_syntax: WebFoldSyntax,
     /// Vertical scroll offset in pixels
     scroll_y: f32,
-    /// Tree-sitter highlight spans from JavaScript (when available)
-    ts_highlights: Vec<JsHighlightSpan>,
-    /// Whether to use tree-sitter highlights from JS
-    use_ts_highlights: bool,
-    /// Span index for efficient viewport-based queries (O(log n + k))
-    span_index: WebSpanIndex,
-    /// The highlight generation reported to the compositor's
-    /// retained-shaping key: bumped by every mutation of the span state
-    /// above (worker spans arriving, spans cleared, spans shifted across an
-    /// edit), per the [`HighlightSource::generation`] contract — a span
-    /// change without a bump would leave stale colours on a retained frame.
-    highlight_generation: u64,
+    /// Worker-delivered tree-sitter spans, their query index, whether they
+    /// are in use, and the generation the compositor's retained-shaping key
+    /// reads.
+    ///
+    /// One field rather than four. The [`HighlightSource::generation`]
+    /// contract — a span change without a bump leaves stale colours on a
+    /// retained frame — used to be restated in prose beside each of the three
+    /// mutation sites; it is now enforced by [`WebHighlightCache`], whose
+    /// every mutating method bumps.
+    highlights: WebHighlightCache,
 
     // =========================================================================
     // Raw key event handling (the Rust core owns all editing behavior)
@@ -409,10 +397,7 @@ pub async fn create_web_editor(
         fold_state,
         fold_syntax: WebFoldSyntax::new(Language::C),
         scroll_y: 0.0,
-        ts_highlights: Vec::new(),
-        use_ts_highlights: false,
-        span_index: WebSpanIndex::empty(),
-        highlight_generation: 0,
+        highlights: WebHighlightCache::new(),
         // Raw key event handling
         keyboard_handler: KeyboardHandler::new(),
         palette_mru: CommandMru::new(),
@@ -1184,42 +1169,18 @@ impl WebEditor {
     /// correct color at the correct position or nothing at all for the
     /// handful of characters the edit itself touched. Never a wrong one.
     fn shift_highlight_spans(&mut self, span: EditSpan) {
-        if self.ts_highlights.is_empty() {
-            return;
-        }
-        self.ts_highlights.retain_mut(|highlight| {
-            match crate::highlight_span_shift::shift_span(
-                highlight.start,
-                highlight.end,
+        // The generation move, the index rebuild and the empty-cache early
+        // return all live in `retain_shifted`. This supplies only the per-span
+        // arithmetic, which is the part that is actually about editing.
+        self.highlights.retain_shifted(|start, end| {
+            crate::highlight_span_shift::shift_span(
+                start,
+                end,
                 span.start_byte,
                 span.old_end_byte,
                 span.new_end_byte,
-            ) {
-                Some((start, end)) => {
-                    highlight.start = start;
-                    highlight.end = end;
-                    true
-                },
-                None => false,
-            }
+            )
         });
-        let web_spans = self
-            .ts_highlights
-            .iter()
-            .map(|highlight| WebSpan {
-                start: highlight.start,
-                end: highlight.end,
-                highlight_type: highlight.highlight_type.clone(),
-            })
-            .collect();
-        self.span_index = WebSpanIndex::new(web_spans);
-        // The spans moved (and some may have been dropped): a subsequent
-        // resolution answers differently for identical content, so the
-        // generation moves with them. The edit that triggered this shift
-        // already misses the retained-shape key on the document revision,
-        // but the generation contract is about the resolver's answer, not
-        // about who else happens to invalidate the frame.
-        self.highlight_generation = self.highlight_generation.wrapping_add(1);
     }
 
     /// Records a conservative whole-document edit (used by undo/redo, where
@@ -1669,14 +1630,11 @@ impl WebEditor {
         // stay on this face; the compositor asks this resolver for them once
         // per frame.
         let mut highlights = WebHighlightSource {
-            span_index: &self.span_index,
-            ts_highlights: &self.ts_highlights,
-            use_ts_highlights: self.use_ts_highlights,
+            highlights: &self.highlights,
             document: &self.editor.state().document,
             fold_state: &self.fold_state,
             scroll_y: self.scroll_y,
             surface_height: u32_to_f32(height),
-            generation: self.highlight_generation,
         };
 
         let compositor = &mut self.compositor;
@@ -1777,15 +1735,9 @@ impl WebEditor {
             });
         }
 
-        // Build the WebSpanIndex for efficient viewport queries (O(n log n) once)
-        self.span_index = WebSpanIndex::new(web_spans);
-
-        // Keep legacy spans for fallback (will be removed in future)
-        self.ts_highlights = js_spans;
-        self.use_ts_highlights = true;
-        // New spans mean a new resolution answer: move the generation so the
-        // compositor's retained shapes recolour.
-        self.highlight_generation = self.highlight_generation.wrapping_add(1);
+        // New spans mean a new resolution answer; `set` moves the generation
+        // so the compositor's retained shapes recolour.
+        self.highlights.set(js_spans, web_spans);
         self.needs_redraw = true;
         Ok(())
     }
@@ -1830,18 +1782,18 @@ impl WebEditor {
     /// Clears tree-sitter highlights and falls back to simple highlighting.
     #[wasm_bindgen(js_name = clearTreeSitterHighlights)]
     pub fn clear_tree_sitter_highlights(&mut self) {
-        self.ts_highlights.clear();
-        self.use_ts_highlights = false;
-        // Clearing changes the resolution answer as surely as new spans do —
-        // the span-clearing half of the generation contract.
-        self.highlight_generation = self.highlight_generation.wrapping_add(1);
+        // Clearing changes the resolution answer as surely as new spans do.
+        // It also drops the query index, which the four-field version did not:
+        // that stale index was unreachable only because every read of it is
+        // guarded by the active flag.
+        self.highlights.clear();
         self.needs_redraw = true;
     }
 
     /// Returns whether tree-sitter highlighting is active.
     #[wasm_bindgen(js_name = isTreeSitterActive)]
     pub fn is_tree_sitter_active(&self) -> bool {
-        self.use_ts_highlights
+        self.highlights.is_active()
     }
 
     /// Gets the current cursor line (0-indexed).
@@ -2880,12 +2832,9 @@ impl WebEditor {
 /// the keyword fallback and the plain-text path live with the compositor,
 /// which owns that highlighter.
 struct WebHighlightSource<'a> {
-    /// Span index for efficient viewport-based queries (O(log n + k)).
-    span_index: &'a WebSpanIndex,
-    /// Legacy flat span list, the fallback when the index is empty.
-    ts_highlights: &'a [JsHighlightSpan],
-    /// Whether tree-sitter highlights from JS are in use at all.
-    use_ts_highlights: bool,
+    /// Worker spans, their index, the active flag and the generation — one
+    /// borrow, because they are one thing.
+    highlights: &'a WebHighlightCache,
     /// The document, for byte-range queries against its rope.
     document: &'a Document,
     /// Fold state, which the viewport byte-range query is aware of.
@@ -2894,15 +2843,11 @@ struct WebHighlightSource<'a> {
     scroll_y: f32,
     /// Surface height in physical pixels.
     surface_height: f32,
-    /// The owning [`WebEditor`]'s highlight generation when the frame
-    /// began. The resolver's other frame inputs (scroll, surface height)
-    /// are functions of the viewport range the compositor already keys.
-    generation: u64,
 }
 
 impl HighlightSource for WebHighlightSource<'_> {
     fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
-        if self.use_ts_highlights && !self.span_index.is_empty() {
+        if self.highlights.is_active() && !self.highlights.index().is_empty() {
             // Calculate viewport for efficient span query (T020)
             // Only query spans in the visible range instead of iterating all spans
             //
@@ -2944,18 +2889,18 @@ impl HighlightSource for WebHighlightSource<'_> {
             // This eliminates per-frame clone (T018) and sort (T019)
             Some(build_rich_spans_viewport(
                 context.content,
-                self.span_index.query(start_byte, end_byte),
+                self.highlights.index().query(start_byte, end_byte),
                 context.content_start_byte,
                 context.foreground,
                 context.syntax_theme,
             ))
-        } else if !self.ts_highlights.is_empty() {
+        } else if !self.highlights.spans().is_empty() {
             // Legacy fallback: use JsHighlightSpan when SpanIndex not available
             // PERF: This path clones ts_highlights to sort them. This is acceptable because:
             // 1. With WebSpanIndex, this path is rarely hit (only during transition)
             // 2. The clone happens only when span_index.is_empty() returns true
             // 3. Full optimization would require pre-sorted storage or sorted indices
-            let spans = self.ts_highlights.to_vec();
+            let spans = self.highlights.spans().to_vec();
             Some(build_rich_spans_from_ts(
                 context.content,
                 spans,
@@ -2979,7 +2924,7 @@ impl HighlightSource for WebHighlightSource<'_> {
     }
 
     fn generation(&self) -> u64 {
-        self.generation
+        self.highlights.generation()
     }
 }
 

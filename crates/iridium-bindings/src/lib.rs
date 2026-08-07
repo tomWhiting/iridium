@@ -96,6 +96,15 @@ mod wasm;
 #[cfg(all(feature = "web", any(target_arch = "wasm32", test)))]
 mod web_span_index;
 
+// The same reasoning, applied a second time. The highlight cache is four
+// fields and a generation counter over `web_span_index` — ordinary Rust with
+// no binding surface — so it carries the same gate and gets the same thing
+// from it: tests that actually run. It was extracted from `wasm.rs`, where
+// the rule binding those four fields together was written out three times in
+// prose because there was no type to put it in.
+#[cfg(all(feature = "web", any(target_arch = "wasm32", test)))]
+mod web_highlight_cache;
+
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub use wasm::*;
 

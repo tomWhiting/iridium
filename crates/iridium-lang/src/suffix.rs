@@ -1,4 +1,4 @@
-//! Resolving a file's extension to a language, from the vendored manifests.
+//! Resolving a file to a language, from the vendored manifests.
 //!
 //! Every language's `config.toml` carries `path_suffixes`, and that list is now
 //! the answer rather than a hand-written `match`. Two things about the vendored
@@ -7,11 +7,16 @@
 //! # `path_suffixes` is not all suffixes
 //!
 //! It carries whole file names too — `flake.lock`, `tsconfig.json`, `.env`,
-//! `pixi.lock`. This module handles **only the dotless entries**, which are
-//! extensions in the `Path::extension` sense. A dotted entry could never match
-//! an extension anyway (`Path::extension` of `flake.lock` is `lock`), so
-//! ignoring them here is not a loss — it is deferring them to whole-file-name
-//! matching, which is a separate behaviour with its own decisions.
+//! `pixi.lock` — and dotless entries that are not extensions either: `bashrc`,
+//! `zshrc` and `clang-format` exist to claim dotfiles for which
+//! `Path::extension` returns nothing at all.
+//!
+//! So there are two entry points and they are not the same. [`entry_claims`]
+//! has the single rule that covers every case — a name **equals** an entry or
+//! **ends with `.` followed by** it — and [`language_for_file_name`] is the
+//! capable one that faces should reach for. [`language_for_extension`] is the
+//! narrower view, for callers holding only an extension; it sees the dotless
+//! entries and nothing else.
 //!
 //! # Case is load-bearing, in exactly one place
 //!
@@ -85,19 +90,71 @@ fn is_extension(entry: &str) -> bool {
     !entry.contains('.')
 }
 
-/// The extensions a language claims: its manifest's, then any aliased onto it,
+/// Every entry a language claims: its manifest's, then any aliased onto it,
 /// then Iridium's own additions.
 ///
-/// Whole file names are excluded; see the module note.
-pub fn extensions_of(language: Language) -> impl Iterator<Item = &'static str> {
+/// Includes the whole file names; [`extensions_of`] is the filtered view.
+fn entries_of(language: Language) -> impl Iterator<Item = &'static str> {
     let local = LOCAL_EXTENSIONS
         .iter()
         .filter(move |(owner, _)| *owner == language)
         .map(|(_, extension)| *extension);
 
-    claimed_by(language)
-        .filter(|entry| is_extension(entry))
-        .chain(local)
+    claimed_by(language).chain(local)
+}
+
+/// The extensions a language claims: its manifest's, then any aliased onto it,
+/// then Iridium's own additions.
+///
+/// Whole file names are excluded; see the module note.
+pub fn extensions_of(language: Language) -> impl Iterator<Item = &'static str> {
+    entries_of(language).filter(|entry| is_extension(entry))
+}
+
+/// Whether a file name is claimed by one `path_suffixes` entry.
+///
+/// One rule covers both kinds of entry the manifests carry:
+///
+/// > the name **equals** the entry, or **ends with `.` followed by** it.
+///
+/// - `main.rs` ends with `.` + `rs`.
+/// - `flake.lock` equals `flake.lock`.
+/// - `.env` equals `.env`.
+/// - `.bashrc` ends with `.` + `bashrc` — which is why the dotless entries are
+///   not simply extensions: `bashrc`, `zshrc` and `clang-format` exist to claim
+///   dotfiles that have no extension at all in the `Path::extension` sense.
+///
+/// The leading dot is what makes this safe. A bare `ends_with` would let `sh`
+/// claim `splash`, and `c` claim `music`. Requiring the separator means an
+/// entry can only ever match a whole dot-delimited tail.
+fn entry_claims(file_name: &str, entry: &str) -> bool {
+    if file_name == entry {
+        return true;
+    }
+    // Indexing by byte is safe: `ends_with` has established the tail, and the
+    // byte before it can only equal `b'.'` if it is a whole ASCII character.
+    file_name.len() > entry.len()
+        && file_name.ends_with(entry)
+        && file_name.as_bytes()[file_name.len() - entry.len() - 1] == b'.'
+}
+
+/// The language claiming a whole file name — `main.rs`, `flake.lock`, `.env`.
+///
+/// Case-sensitive first, then case-insensitive, for the same reason as
+/// [`language_for_extension`]: `.C` and `.c` are different languages.
+pub fn language_for_file_name(file_name: &str) -> Option<Language> {
+    if let Some(language) = Language::all()
+        .iter()
+        .copied()
+        .find(|&language| entries_of(language).any(|entry| entry_claims(file_name, entry)))
+    {
+        return Some(language);
+    }
+
+    let lowered = file_name.to_lowercase();
+    Language::all().iter().copied().find(|&language| {
+        entries_of(language).any(|entry| entry_claims(&lowered, &entry.to_lowercase()))
+    })
 }
 
 /// The language claiming `ext`, which arrives without its leading dot.
@@ -124,7 +181,7 @@ pub fn language_for_extension(ext: &str) -> Option<Language> {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::{LOCAL_EXTENSIONS, extensions_of, language_for_extension};
+    use super::{LOCAL_EXTENSIONS, extensions_of, language_for_extension, language_for_file_name};
     use crate::Language;
 
     /// Everything the twelve languages Iridium named before #66 must keep
@@ -314,6 +371,97 @@ mod tests {
                 language.id()
             );
         }
+    }
+
+    /// Whole file names the manifests claim, which no extension could reach.
+    ///
+    /// `Path::extension` of `flake.lock` is `lock`, and of `.bashrc` is
+    /// nothing at all — so before whole-name matching every one of these opened
+    /// as plain text.
+    #[test]
+    fn a_whole_file_name_the_manifests_claim_now_resolves() {
+        for (name, expected) in [
+            ("flake.lock", Language::Json),
+            ("bun.lock", Language::Json),
+            ("tsconfig.json", Language::Json),
+            ("devcontainer.json", Language::Json),
+            ("pyrightconfig.json", Language::Json),
+            ("pixi.lock", Language::Yaml),
+            (".env", Language::Bash),
+            (".bashrc", Language::Bash),
+            (".zshrc", Language::Bash),
+            ("PKGBUILD", Language::Bash),
+            (".clang-format", Language::Yaml),
+        ] {
+            assert_eq!(
+                language_for_file_name(name),
+                Some(expected),
+                "{name} should be {}",
+                expected.id()
+            );
+        }
+    }
+
+    /// An ordinary name still resolves by its extension, because an extension
+    /// is only the tail of a name after a dot.
+    #[test]
+    fn an_ordinary_file_name_resolves_by_its_extension() {
+        assert_eq!(language_for_file_name("main.rs"), Some(Language::Rust));
+        assert_eq!(language_for_file_name("a.b.c.py"), Some(Language::Python));
+        assert_eq!(
+            language_for_file_name("README.MD"),
+            Some(Language::Markdown)
+        );
+        assert_eq!(language_for_file_name("vec.C"), Some(Language::Cpp));
+        assert_eq!(language_for_file_name("vec.c"), Some(Language::C));
+    }
+
+    /// The trap the leading dot exists to close.
+    ///
+    /// A bare `ends_with` would let `sh` claim `splash`, `c` claim `music`, and
+    /// `go` claim `cargo`. Requiring a `.` before the match means an entry can
+    /// only ever claim a whole dot-delimited tail.
+    #[test]
+    fn an_entry_cannot_claim_a_name_that_merely_ends_with_its_letters() {
+        for name in ["splash", "music", "cargo", "notmd", "flourish"] {
+            assert_eq!(
+                language_for_file_name(name),
+                None,
+                "{name} was claimed by an entry it only happens to end with"
+            );
+        }
+    }
+
+    /// A name that is exactly an entry is claimed, which is the point of the
+    /// dotless entries.
+    #[test]
+    fn a_name_equal_to_an_entry_is_claimed() {
+        assert_eq!(language_for_file_name("profile"), Some(Language::Bash));
+        assert_eq!(language_for_file_name("bashrc"), Some(Language::Bash));
+    }
+
+    #[test]
+    fn a_name_nothing_claims_resolves_to_nothing() {
+        for name in ["notes", "hello.awl", "", ".", "..", "archive.tar.gz"] {
+            assert_eq!(language_for_file_name(name), None, "{name}");
+        }
+    }
+
+    /// `for_path` reads the name off the path and nothing else.
+    #[test]
+    fn for_path_uses_the_file_name_not_the_directories() {
+        use std::path::Path;
+
+        assert_eq!(
+            Language::for_path(Path::new("/a/rs/deep/main.py")),
+            Some(Language::Python),
+            "a directory named `rs` must not make this Rust"
+        );
+        assert_eq!(
+            Language::for_path(Path::new("/etc/nixos/flake.lock")),
+            Some(Language::Json)
+        );
+        assert_eq!(Language::for_path(Path::new("/")), None);
     }
 
     /// Every language still claims at least one extension.

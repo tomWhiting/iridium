@@ -184,9 +184,12 @@ impl DesktopApp {
 
 /// The language a file name implies, if the kernel knows one for it.
 ///
-/// A name with no extension, or one no grammar claims, is not an error: the
-/// document is then edited without highlighting and without folds, which is
-/// what a plain text file is.
+/// Matches the whole name, not just the extension, because the vendored
+/// manifests claim files that have none — `flake.lock`, `tsconfig.json`,
+/// `.env`, `.bashrc`, `PKGBUILD`.
+///
+/// A name nothing claims is not an error: the document is then edited without
+/// highlighting and without folds, which is what a plain text file is.
 pub(super) fn language_of(path: &Path) -> Option<Language> {
-    Language::from_extension(path.extension().and_then(std::ffi::OsStr::to_str)?)
+    Language::for_path(path)
 }

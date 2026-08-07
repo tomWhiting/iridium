@@ -87,6 +87,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         # Denying, not reporting. `continue-on-error` used to sit here and
@@ -105,8 +106,14 @@ jobs:
         # still emitting the `block` future-incompat note.
         #
         # This covers `--all-features` only. The GPU-free and wasm
-        # configurations compile DIFFERENT code and are not gated here.
-        # Extending the gate to them is a burn-down, not a flag.
+        # configurations compile DIFFERENT code.
+        #
+        # UPDATE 2026-08-08: the wasm half IS now gated, by the step below —
+        # and the prediction in the line that used to sit here held exactly.
+        # "Extending the gate to them is a burn-down, not a flag" was right:
+        # it took 68 diagnostics across four commits, and the flag was the last
+        # thing added, not the first. The GPU-free kernel is still ungated and
+        # is still a burn-down.
         #
         # Counts, each with the invocation that produced it, because an
         # earlier revision of this comment said "17 and 110" with no
@@ -143,6 +150,33 @@ jobs:
         # a cache-hit run still printed `Checking` for six workspace crates
         # and `Compiling` for the seventh.
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+
+      - name: Clippy on the wasm target
+        # The gate the comment above says does not exist. It does now.
+        #
+        # `wasm.rs` is 3,160 lines behind
+        # `all(feature = "web", target_arch = "wasm32")`, and until this step
+        # the ONLY thing that compiled it was the `check` in the Check job —
+        # a check, not a lint. Everything clippy had to say about the browser
+        # face went unsaid.
+        #
+        # ⚠️ The count this closed was 68, not the 8 the backlog item claimed.
+        # `-D warnings` reports the FIRST unit that fails, and `iridium-editor`
+        # is a dependency here, so it aborted there with 8 and the 60 in
+        # `wasm.rs` were never reached. An error count from a denying run is an
+        # ordering artefact; measure with warnings left as warnings.
+        #
+        # `--all-targets` is deliberately absent: no extra target in this crate
+        # compiles for wasm32, so it changes nothing but the command's length.
+        # Verified 2026-08-08.
+        #
+        # `-D warnings` after `--`, never in RUSTFLAGS, for the same reason the
+        # step above says: RUSTFLAGS reaches dependency compilation and this
+        # graph carries `block v0.1.6`, flagged future-incompat, which would
+        # fail the job for code we do not own.
+        run: |
+          cargo clippy -p iridium-bindings --no-default-features --features web \
+            --target wasm32-unknown-unknown -- -D warnings
 
   fmt:
     name: Format

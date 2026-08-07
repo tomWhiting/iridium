@@ -61,7 +61,7 @@ pub mod problem;
 pub mod settings;
 pub mod suggest;
 
-pub use install::install;
+pub use install::{Refusal, install};
 pub use keys::KEYMAP_NAME;
 pub use load::UserConfig;
 pub use location::{CONFIG_DIRECTORY, CONFIG_FILE, config_path, user_config_path};

@@ -71,6 +71,9 @@
 //!
 //! - [`state`] — the fields, their documentation, and the questions asked of
 //!   them often enough to have no other home (dirtiness, the redraw request).
+//! - [`config`] — the user's configuration file, brought into a session: the
+//!   bindings pushed one refusal at a time, and everything that could not be
+//!   honoured written into a tab.
 //! - [`startup`] — bringing a session into existence: what the command line
 //!   asked for, the window and GPU behind it, and the first tab.
 //! - [`handler`] — the winit seam. Every entry point below is reached from
@@ -83,6 +86,7 @@
 //! - [`paint`], [`title`] — what the session puts on screen and on the window.
 
 mod clipboard;
+mod config;
 mod files;
 mod handler;
 mod host_commands;

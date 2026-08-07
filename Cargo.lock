@@ -1185,6 +1185,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "glyphon",
+ "iridium-config",
  "iridium-editor",
  "iridium-explorer",
  "iridium-file",

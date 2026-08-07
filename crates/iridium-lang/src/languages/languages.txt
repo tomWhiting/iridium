@@ -1,0 +1,57 @@
+# The languages Iridium knows about.
+#
+# HAND-EDITED, AND DELIBERATELY SO. `build.rs` reads this file rather than
+# scanning the directory beside it, because the set of languages must not
+# depend on what happens to be on disk: a vendor refresh that dropped a
+# directory would otherwise remove a language with no diff saying so. The
+# per-language *query files* are scanned — that is a fact about the directory —
+# but a language appearing or vanishing has to be a visible edit here.
+#
+# Two columns, whitespace separated:
+#
+#   <id>   <constant>
+#
+# `id` is the stable identifier: the directory name under `queries/`, the
+# spelling used in a configuration file, in a serialized document, and across
+# the boundary to TypeScript. It is also what `Language::id()` returns, so
+# changing one is a wire-format change.
+#
+# `constant` is the Rust name generated for it — `Language::Rust`. Spelled out
+# rather than derived from the id because no derivation gets all of them right:
+# `cpp` is `Cpp`, `tsx` is `Tsx`, `javascript` is `JavaScript`, and
+# `markdown-inline` is `MarkdownInline`.
+#
+# Order does not matter. `build.rs` sorts by id, so the index space — which the
+# compiled-query cache in `iridium-syntax` indexes by — is a function of the ids
+# alone and does not shift when a line moves.
+#
+# A language listed here with no grammar linked in `iridium-syntax` is a
+# supported language that cannot be parsed. That is a real and useful state:
+# file association, comment tokens, indent rules and auto-pairs all come from
+# the manifest, and none of them needs a parser.
+
+bash              Bash
+c                 C
+cpp               Cpp
+css               Css
+go                Go
+javascript        JavaScript
+json              Json
+markdown          Markdown
+python            Python
+rust              Rust
+tsx               Tsx
+typescript        TypeScript
+yaml              Yaml
+
+# Vendored, carrying manifests and queries, and NOT YET LISTED — admitting them
+# is its own step, because the moment they appear here `Language::all()` grows
+# and every test that iterates it sees them:
+#
+#   diff  gitcommit  gomod  gowork  jsdoc  markdown-inline  regex
+#
+# `jsonc` is deliberately not among them and never will be. Its manifest is
+# still loaded, but its file associations resolve to `json` through
+# `MANIFEST_ALIASES` in `suffix.rs` — the two manifests declare the same
+# comment token, the same brackets and the same indent size, so promoting it to
+# a language of its own would gain nothing and cost it the JSON grammar.

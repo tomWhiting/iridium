@@ -3,6 +3,16 @@
 //! A static table rather than a query file: fold detection asks one question of
 //! every node it visits, and a `&'static [&'static str]` membership test is the
 //! cheapest honest way to answer it.
+//!
+//! This table is Iridium's own invention — the vendored manifests carry
+//! `line_comments` and `brackets` but say nothing about which node kinds fold.
+//! Whether it should instead be derived from the vendored `outline.scm` is L-6
+//! in `docs/IN-FLIGHT-languages.md`, and is deliberately **not** settled here:
+//! the registry work has no business quietly changing how folds are decided.
+//!
+//! Matched on the identifier since [`Language`] stopped being a closed enum. A
+//! language with no row folds nothing, which is the right default — it is what
+//! a language whose grammar Iridium cannot parse would do anyway.
 
 use crate::Language;
 
@@ -18,9 +28,9 @@ pub struct FoldableNodeTypes {
 }
 
 impl FoldableNodeTypes {
-    pub const fn for_language(language: Language) -> Self {
-        match language {
-            Language::Rust => Self {
+    pub fn for_language(language: Language) -> Self {
+        match language.id() {
+            "rust" => Self {
                 blocks: &[
                     "function_item",
                     "impl_item",
@@ -43,7 +53,7 @@ impl FoldableNodeTypes {
                 comments: &["block_comment", "line_comment"],
                 imports: &["use_declaration"],
             },
-            Language::Python => Self {
+            "python" => Self {
                 blocks: &[
                     "function_definition",
                     "class_definition",
@@ -64,7 +74,7 @@ impl FoldableNodeTypes {
                 comments: &["comment"],
                 imports: &["import_statement", "import_from_statement"],
             },
-            Language::TypeScript | Language::JavaScript | Language::Tsx => Self {
+            "typescript" | "javascript" | "tsx" => Self {
                 blocks: &[
                     "function_declaration",
                     "function",
@@ -92,7 +102,7 @@ impl FoldableNodeTypes {
                 comments: &["comment"],
                 imports: &["import_statement", "import"],
             },
-            Language::Go => Self {
+            "go" => Self {
                 blocks: &[
                     "function_declaration",
                     "method_declaration",
@@ -113,7 +123,7 @@ impl FoldableNodeTypes {
                 comments: &["comment"],
                 imports: &["import_declaration", "import_spec"],
             },
-            Language::C | Language::Cpp => Self {
+            "c" | "cpp" => Self {
                 blocks: &[
                     "function_definition",
                     "struct_specifier",
@@ -136,12 +146,12 @@ impl FoldableNodeTypes {
                 comments: &["comment"],
                 imports: &["preproc_include"],
             },
-            Language::Json => Self {
+            "json" => Self {
                 blocks: &["object", "array"],
                 comments: &[],
                 imports: &[],
             },
-            Language::Yaml => Self {
+            "yaml" => Self {
                 blocks: &[
                     "block_mapping",
                     "block_sequence",
@@ -151,7 +161,7 @@ impl FoldableNodeTypes {
                 comments: &["comment"],
                 imports: &[],
             },
-            Language::Markdown => Self {
+            "markdown" => Self {
                 blocks: &[
                     "section",
                     "fenced_code_block",
@@ -163,7 +173,7 @@ impl FoldableNodeTypes {
                 comments: &["html_comment"],
                 imports: &[],
             },
-            Language::Css => Self {
+            "css" => Self {
                 blocks: &[
                     "rule_set",
                     "media_statement",
@@ -175,7 +185,7 @@ impl FoldableNodeTypes {
                 comments: &["comment"],
                 imports: &["import_statement"],
             },
-            Language::Bash => Self {
+            "bash" => Self {
                 blocks: &[
                     "function_definition",
                     "if_statement",
@@ -186,6 +196,18 @@ impl FoldableNodeTypes {
                     "subshell",
                 ],
                 comments: &["comment"],
+                imports: &[],
+            },
+
+            // A language with no row here folds nothing. Empty rather than a
+            // guess: node kind names are grammar-specific, so there is no
+            // plausible default set — `block` means something in one grammar
+            // and nothing in the next. Folding no regions is visibly inert,
+            // where folding the wrong ones would be a bug someone has to
+            // reproduce.
+            _ => Self {
+                blocks: &[],
+                comments: &[],
                 imports: &[],
             },
         }

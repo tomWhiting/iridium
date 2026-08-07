@@ -50,13 +50,25 @@ impl SyntaxTree {
     ///
     /// # Errors
     ///
-    /// [`SyntaxError::ParseError`] if the language's grammar is incompatible
-    /// with this build of tree-sitter. Every supported language has a grammar,
-    /// so this means a dependency moved, not that the language is unknown.
+    /// [`SyntaxError::UnsupportedLanguage`] if no grammar is linked for the
+    /// language. Since the language registry became data, that is a routine
+    /// state rather than a broken one — `diff`, `go.mod` and a git commit
+    /// message are supported languages with manifests and queries and no
+    /// parser — so a caller that merely wants to *know* should ask
+    /// [`crate::has_grammar`] rather than construct one of these and discard
+    /// the error.
+    ///
+    /// [`SyntaxError::ParseError`] if a grammar is linked but is incompatible
+    /// with this build of tree-sitter. That means a dependency moved, not that
+    /// the language is unknown, and the two are worth telling apart.
     pub fn new(language: Language) -> Result<Self, SyntaxError> {
+        let grammar = grammar(language).ok_or_else(|| SyntaxError::UnsupportedLanguage {
+            language: language.id().to_owned(),
+        })?;
+
         let mut parser = Parser::new();
         parser
-            .set_language(&grammar(language))
+            .set_language(&grammar)
             .map_err(|e| SyntaxError::ParseError {
                 message: format!("Failed to set language: {e}"),
             })?;

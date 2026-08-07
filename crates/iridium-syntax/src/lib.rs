@@ -40,6 +40,7 @@ pub mod query;
 mod tree;
 
 pub use folding::{FoldCache, FoldDetector, FoldKind, FoldRegion};
+pub use grammar::has_grammar;
 pub use highlight::{HighlightSpan, HighlightType, Highlighter};
 pub use query::QueryKind;
 pub use tree::{SyntaxTree, byte_point};

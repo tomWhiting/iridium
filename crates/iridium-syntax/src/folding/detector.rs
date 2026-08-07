@@ -38,9 +38,16 @@ pub struct FoldDetector {
 impl FoldDetector {
     /// Creates a fold detector for the given language.
     ///
-    /// Cannot fail: the rules are a static table, and every language has one.
+    /// Cannot fail: the rules are a static table, and a language with no row in
+    /// it gets the empty set — it folds nothing rather than failing to build.
+    ///
+    /// No longer `const`: the table is keyed by language identifier now that
+    /// the language set is data rather than a closed enum, and comparing
+    /// strings is not something a `const fn` can do. Nothing constructed one of
+    /// these in a constant, so this costs nothing — the lookup is a handful of
+    /// string comparisons, once per detector rather than once per node.
     #[must_use]
-    pub const fn new(language: Language) -> Self {
+    pub fn new(language: Language) -> Self {
         Self {
             language,
             node_types: FoldableNodeTypes::for_language(language),

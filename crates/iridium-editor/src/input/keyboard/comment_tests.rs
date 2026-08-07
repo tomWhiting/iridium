@@ -562,32 +562,66 @@ mod language_table {
         }
     }
 
+    /// JSON comments, and used not to.
+    ///
+    /// Before #66 this asserted the opposite: the hard-coded table gave JSON no
+    /// comment syntax at all, so both toggles were no-ops. Its vendored
+    /// manifest carries `line_comments = ["// "]`, and reading the manifest is
+    /// what settles it — the strict specification has no comments, but nothing
+    /// that edits `.json` in practice rejects them, and the answer now comes
+    /// from a data file rather than a `match` arm.
     #[test]
-    fn json_is_a_noop() {
-        let doc = doc_with_language("{\"a\": 1}", "json");
-        let cursor = cursors_at(&[(0, 2)]);
+    fn json_comments_with_the_token_its_manifest_gives_it() {
+        let mut doc = doc_with_language("{\"a\": 1}", "json");
+        let mut cursor = cursors_at(&[(0, 2)]);
         let mut handler = KeyboardHandler::new();
 
-        press_noop(
+        press(
             &mut handler,
             &LINE_TOGGLE,
-            &doc,
-            &cursor,
+            &mut doc,
+            &mut cursor,
             &EditorConfig::default(),
         );
-        press_noop(
+        assert_eq!(doc.text(), "// {\"a\": 1}");
+
+        press(
             &mut handler,
-            &BLOCK_TOGGLE,
-            &doc,
-            &cursor,
+            &LINE_TOGGLE,
+            &mut doc,
+            &mut cursor,
             &EditorConfig::default(),
         );
         assert_eq!(doc.text(), "{\"a\": 1}");
     }
 
+    /// JSON has a line token and no block pair, so the block toggle falls back
+    /// to the line toggle rather than doing nothing.
     #[test]
-    fn commentless_language_falls_back_to_config_token() {
-        let mut doc = doc_with_language("value", "json");
+    fn the_json_block_toggle_falls_back_to_its_line_token() {
+        let mut doc = doc_with_language("{\"a\": 1}", "json");
+        let mut cursor = cursors_at(&[(0, 2)]);
+        let mut handler = KeyboardHandler::new();
+
+        press(
+            &mut handler,
+            &BLOCK_TOGGLE,
+            &mut doc,
+            &mut cursor,
+            &EditorConfig::default(),
+        );
+        assert_eq!(doc.text(), "// {\"a\": 1}");
+    }
+
+    /// An id no language claims falls back to the configured token.
+    ///
+    /// This used to be spelled with `"json"`, which was the only commentless
+    /// language in the table. #66 gave JSON a token, so the fallback branch has
+    /// to be reached the way it is actually reached in the wild: a document
+    /// whose language nothing recognises.
+    #[test]
+    fn an_unrecognised_language_falls_back_to_config_token() {
+        let mut doc = doc_with_language("value", "awl");
         let mut cursor = cursors_at(&[(0, 0)]);
         let mut handler = KeyboardHandler::new();
 

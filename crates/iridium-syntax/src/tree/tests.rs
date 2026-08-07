@@ -214,11 +214,52 @@ fn byte_point_of_an_empty_document_is_the_origin() {
 }
 
 #[test]
-fn every_language_can_own_a_tree() {
+fn every_parseable_language_can_own_a_tree() {
+    // Scoped to languages with a grammar. `diff`, `gitcommit`, `gomod` and
+    // `gowork` are listed with none, so `SyntaxTree::new` correctly refuses
+    // them — a tree is the one thing that genuinely needs a parser.
+    let mut owned = 0_usize;
     for &language in Language::all() {
+        if !crate::grammar::has_grammar(language) {
+            continue;
+        }
+        owned += 1;
         let mut tree = SyntaxTree::new(language)
             .unwrap_or_else(|error| panic!("{} must be parseable: {error}", language.id()));
         tree.parse("")
             .unwrap_or_else(|| panic!("{} must parse an empty document", language.id()));
     }
+
+    assert!(
+        owned > 0,
+        "no language has a grammar, so this test proves nothing"
+    );
+}
+
+#[test]
+fn a_grammarless_language_is_refused_a_tree_rather_than_given_an_empty_one() {
+    // The other half, and the one a caller depends on: refusing must be an
+    // explicit error naming the language, not a `SyntaxTree` that silently
+    // parses everything to nothing. A silent empty tree would make every
+    // syntax-driven feature look like it ran and found nothing.
+    let mut refused = 0_usize;
+    for &language in Language::all() {
+        if crate::grammar::has_grammar(language) {
+            continue;
+        }
+        refused += 1;
+        let error = SyntaxTree::new(language)
+            .err()
+            .unwrap_or_else(|| panic!("{} has no grammar but was given a tree", language.id()));
+        assert!(
+            error.to_string().contains(language.id()),
+            "{} was refused with a message that does not name it: {error}",
+            language.id()
+        );
+    }
+
+    assert!(
+        refused > 0,
+        "every language has a grammar, so this test proves nothing"
+    );
 }

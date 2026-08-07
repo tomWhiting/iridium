@@ -954,6 +954,59 @@ still over; splitting it is **#65**.
 
 ---
 
+## 🩹 TWO BOUNDARY FIXES — landed 7 Aug, `44f85da` and `ccf4771`
+
+### A document can stop having a language (#39)
+
+`Language` has thirteen variants and every one names a grammar, so there was
+no way back to plain text. **Save As** is where that was live — the one path
+where a document changes what it is called without changing which editor holds
+it. `a.rs` saved as `notes.log` stayed Rust, in both faces.
+
+`EditorState::clear_language` clears **three** holders, and the third is the
+point: fold state, parse tree, and an id string on the document.
+`Editor::language` reports the first; **comment toggling reads the third.**
+Clearing only what `language()` can see gives a document that reports no
+language and still inserts `//`. Proven — with that one line removed the test
+fails with `left: "// fn main() {}"`.
+
+**#39's stated symptom was stale.** It said drag-and-drop left the previous
+file's language in force; `open_file` has since become open-in-a-new-tab and
+its own doc comment already says that class cannot arise. The kernel gap was
+real, the path had moved. *Check the code before repeating a claim from a task.*
+
+### A JavaScript number is checked before it becomes an index (#40)
+
+Five sites in `wasm.rs` narrowed an `f64` from JS with a bare `as usize`.
+**`as` saturates**: `-1.0` → `0`, `NaN` → `0`, `1e30` → `usize::MAX`. So a bad
+line number was not an error — it drew on **line zero**, a real line, wrong,
+and the message named nothing.
+
+The policy lives in `crate::js_index`, which **compiles for the host and is
+tested there**. That split is the whole design: nothing in `wasm.rs` is
+reachable by a native test, so a check written inline is a check nothing can
+exercise. Refused: negative, `NaN`, both infinities, past 2^53, and fractions.
+
+**Deliberately not refused: a valid line past the end of the document.** That
+is a race, not a mistake — a host computes spans against a revision that has
+since moved, which is ordinary, and the renderer already draws nothing for
+them. Erroring would make normal operation fail.
+
+---
+
+## ⏸ WAITING ON TOM (nothing is blocked *behind* these)
+
+| # | question |
+|---|---|
+| **#63** | **L-0: which extensibility tier.** Tier 1 free, tier 2 measured at 6.6 MiB + 90 crates. Also: is AWL's grammar public or internal, and does it ship `.scm` files? |
+| **#63** | LSP: now or after languages? And depend on chiron's `lsp` crate or vendor it? |
+| #62 | Should `Ctrl+/` write a comment in a `.jsonc` file? Three options priced. |
+| #58 | `Enter` on a folder — descend-and-re-root, or toggle? **Asked four times.** |
+| — | Does the explorer replace ⌘O or sit beside it? |
+| — | The inactive tab close control's alpha (0.40); the wheel over the tab strip. |
+
+---
+
 ## ▶️ WHAT IS LEFT ON THE STRIP (small, none of it blocking)
 
 - **The close control's alpha is 0.40**, nearly invisible on an inactive tab.

@@ -119,12 +119,30 @@ struct Entry {
 ///
 /// The revision is carried as well, on the reasoning that a mutation reaching
 /// the document without reaching the tree must not leave last parse's colours
-/// on screen. **That half is unproven.** Probing it found `Document::revision`
-/// reporting `0` both before and after a whole-content replacement that moved
-/// the parse count from 2 to 3, so no test here discriminates on it: breaking
-/// the revision comparison alone changes nothing observable. It is kept as
-/// defence in depth rather than deleted, and this comment says so rather than
-/// implying a guarantee the tests do not back.
+/// on screen.
+///
+/// ⚠️ **This paragraph used to say that half was unproven**, citing a probe
+/// that found `Document::revision` reporting `0` both before and after a
+/// whole-content replacement. That is not what the code does.
+/// [`Document::continuing_from`](crate::document::Document::continuing_from)
+/// exists precisely so a replacement continues the counter instead of
+/// restarting it, `EditorState::set_content` uses it, and
+/// `replacing_the_content_does_not_replay_a_revision_the_old_text_already_used`
+/// in `editor/core.rs` pins exactly that. The probe was measuring a document
+/// built with `Document::new`, which does restart at zero — a different
+/// question from the one the comment answered. Left standing, it read as an
+/// invitation to delete the revision comparison as dead weight, and deleting
+/// it would reintroduce the bug `continuing_from` was written to prevent.
+///
+/// What is true is narrower, and worth stating exactly. Within one
+/// [`Editor`], the parse counters and the revision are both monotonic and
+/// move together on every content change, so the revision comparison alone
+/// decides nothing there. It becomes the load-bearing half the moment one
+/// cache is shown a *different* `Editor`: parse counts are per-`SyntaxState`
+/// and two documents can easily present the same one, while revisions are
+/// not shared at all. Nothing in this type enforces one-cache-per-document —
+/// the desktop face gets it right by keeping the cache in its per-document
+/// payload, which is a face's discipline, not this type's guarantee.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Generation {
     /// Full plus incremental parses the kernel has run.

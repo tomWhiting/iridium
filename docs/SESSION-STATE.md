@@ -2306,7 +2306,28 @@ gzip cannot be verified without running the builder, which clones **nineteen
 grammar repositories** over the network onto a shared box. That is a resource
 call, not a design one. It is the only thing between here and a finished fix.
 
-**7. The pattern, now used twice.** ⭐ *A blocked item is blocked on its
+**6b. Third slice: #58 step 4b's logic landed** — `28b49a4`,
+`file_tree/mode.rs` with 19 tests. Browse → Edit → Confirm, buffer held inside
+the variants that have one, and the rule that a dirty buffer is never dropped
+without being asked. **No key is named anywhere in it**, so the three rulings
+cost one table row each.
+
+⚠️ `mod mode;` carries a scoped, self-removing `#[allow(dead_code)]` — it has
+no caller until `keys` can be written. That is the honest cost of splitting a
+ruling-blocked item, and it is recorded rather than hidden. **If a later tick
+sees that allow, the fix is to wire `keys`, not to widen the allow.**
+
+⚠️ **The three questions are now the highest-value thing Tom can answer**, and
+he was at the terminal at 04:20 — they were put to him again in the transcript
+rather than only in Meridian, since Meridian is down:
+1. What enters edit mode? (`Tab` is unbound here; no letter can work, every
+   plain character goes to the filter.)
+2. How is a row marked deleted, and how is one created? (`Ctrl+D` to strike
+   through; `Ctrl+N` is taken by *move down*, so "new row" needs another key —
+   this is the one where I have no good suggestion.)
+3. What applies? (`⌘S` reads as "save this buffer".)
+
+**7. The pattern, now used three times.** ⭐ *A blocked item is blocked on its
 choices, not necessarily on its defects.* #31 gave a code fix (`9bb09df`);
 #64 gave an answered question (`679e592`). Both came from reading a blocked
 item's own design map for claims that hold whichever way the decision goes.

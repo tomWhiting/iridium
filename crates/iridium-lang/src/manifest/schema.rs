@@ -28,6 +28,36 @@ struct CommentBlock {
     end: String,
 }
 
+/// One row of a manifest's `brackets` table.
+///
+/// The manifests also carry `newline` (whether Enter expands the block) and
+/// `not_in` (scopes the rule is suppressed in). Neither is read yet — see
+/// `docs/design/AUTO-PAIR-MAP.md` slices S-3 and S-4 — so neither is named,
+/// and serde ignores them.
+#[derive(Debug, Clone, Deserialize)]
+struct Bracket {
+    /// The opening delimiter: `{`, but also `r#"` and `"""`.
+    start: String,
+    /// The closing delimiter: `}`, `"#`, `"""`.
+    end: String,
+    /// Whether typing `start` should insert `end` after the caret.
+    ///
+    /// ⚠️ **Absent means `true`**, and seventeen rows across the vendored tree
+    /// rely on that. A row with `close = false` is a *matching* rule — it says
+    /// the two delimiters belong together for highlighting and navigation —
+    /// and explicitly not an auto-close rule. Rust's `<`, Markdown's `*` and
+    /// bash's `do`/`then`/`in` are all of that kind, and reading the row
+    /// without this flag would auto-close every one of them.
+    #[serde(default = "default_close")]
+    close: bool,
+}
+
+/// Serde default for [`Bracket::close`]: a row that does not say is a row that
+/// auto-closes.
+const fn default_close() -> bool {
+    true
+}
+
 /// One language's vendored manifest.
 ///
 /// Constructed only by this module's `embedded` sibling, which owns the `include_str!`
@@ -79,6 +109,14 @@ struct Fields {
     /// `block_comment` at all, and this is where their `/* */` lives.
     #[serde(default)]
     documentation_comment: Option<CommentBlock>,
+    /// The delimiter pairs this language declares.
+    ///
+    /// `None` and `Some(vec![])` are different answers and both occur in the
+    /// vendored tree: `awl` and `markdown-inline` carry no `brackets` key at
+    /// all, while `diff` carries an empty one. A language that has not said
+    /// keeps the editor's defaults; a language that said "none" gets none.
+    #[serde(default)]
+    brackets: Option<Vec<Bracket>>,
     /// Whether this language exists only to be injected into another.
     ///
     /// `jsdoc`, `regex` and `markdown-inline` are hidden: they have queries and
@@ -168,5 +206,45 @@ impl Manifest {
             .as_ref()
             .or(self.fields.documentation_comment.as_ref())
             .map(|block| (block.start.as_str(), block.end.as_str()))
+    }
+
+    /// The single-character delimiter pairs this language auto-closes, as
+    /// `(open, close)`.
+    ///
+    /// `None` when the manifest declares no `brackets` key — the language has
+    /// not said, and a caller should keep whatever default it had.
+    /// `Some(empty)` when it declares an empty table or one containing no
+    /// qualifying row: the language has said "none", which `diff` does.
+    ///
+    /// Three filters, each for a stated reason:
+    ///
+    /// - **`close != false`** — a row that does not auto-close is a matching
+    ///   rule for highlighting and navigation, not a typing rule. Rust's `<`,
+    ///   Markdown's `*` and bash's `do` are of that kind.
+    /// - **one `char` on each side** — multi-character openers (`"""`, `r#"`,
+    ///   `/*`) need longest-match against the text before the caret and a
+    ///   different skip-over rule, which is its own piece of work (the
+    ///   auto-pair map's S-3). Reporting them here would invite a caller to
+    ///   take the first `char` of `r#"` and pair a bare `r`.
+    /// - **nothing about `not_in`** — suppressing a pair inside a string or a
+    ///   comment needs to know what the caret is inside, which is S-4. A
+    ///   caller gets the unconditional rule or none.
+    ///
+    /// Order follows the manifest, which orders by how the language's authors
+    /// think about its delimiters rather than by anything a consumer needs;
+    /// callers wanting a set should build one.
+    #[must_use]
+    pub fn auto_close_pairs(&self) -> Option<impl Iterator<Item = (char, char)> + '_> {
+        Some(self.fields.brackets.as_ref()?.iter().filter_map(|bracket| {
+            if !bracket.close {
+                return None;
+            }
+            let mut start = bracket.start.chars();
+            let mut end = bracket.end.chars();
+            match (start.next(), start.next(), end.next(), end.next()) {
+                (Some(open), None, Some(close), None) => Some((open, close)),
+                _ => None,
+            }
+        }))
     }
 }

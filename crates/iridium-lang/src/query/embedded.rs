@@ -43,9 +43,16 @@ macro_rules! query {
 
 /// Returns the source text of a vendored query, if the language ships one.
 ///
+/// This is the uncompiled `.scm`. Reach for it when the text itself is what is
+/// wanted — a diagnostic, a test, a face that compiles queries with its own
+/// tree-sitter build. Anything that *runs* a query should go through
+/// `iridium_syntax::query::compiled` instead, so the compilation is paid for
+/// once per process rather than once per reader.
+///
 /// `None` means the language genuinely has no query of that kind — it is not
 /// an error, and callers should treat the corresponding feature as unavailable
 /// for that language rather than failing.
+#[must_use]
 pub const fn source(language: Language, kind: QueryKind) -> Option<&'static str> {
     match (language, kind) {
         // The three pairings with no vendored file. Grouped rather than left

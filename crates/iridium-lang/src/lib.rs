@@ -38,8 +38,21 @@
 //! `language_tokens` in `iridium-editor`, where the comment-syntax table was
 //! gated on the same feature and answered "this language has no comments" for
 //! every language in the parser-free build.
+//!
+//! # What else lives here
+//!
+//! The vendored `languages/` tree, and [`query`], which serves its `.scm`
+//! files as text. That is data about languages, not a parser — this crate
+//! still depends on nothing that parses anything — and it is here for the same
+//! reason the enum is: the `config.toml` manifests sitting beside those
+//! queries describe comment syntax, brackets and file associations, all of
+//! which the parser-free build needs. Splitting the directory so only the
+//! manifests came along would leave one vendored upstream tree owned by two
+//! crates, and the next refresh would have to know that.
 
 use serde::{Deserialize, Serialize};
+
+pub mod query;
 
 /// A language a document can be written in.
 ///

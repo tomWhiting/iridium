@@ -35,7 +35,6 @@
 mod folding;
 mod grammar;
 mod highlight;
-pub mod languages;
 pub mod navigate;
 pub mod query;
 mod tree;

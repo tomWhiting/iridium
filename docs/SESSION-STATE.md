@@ -2023,3 +2023,88 @@ from anyone. Then #44, #45, #69, #31, #35.
 
 **#43 is now blocked on L-0**, not on a kernel fix. That is a change from what
 the strip said.
+
+---
+
+# ▶▶ #75 CLOSED — 8 Aug, ~03:30
+
+**The wasm clippy gate is armed and green.** `dc6a67f`. This supersedes the
+"#75 is the strongest next pick" line in the section above.
+
+```
+cargo clippy -p iridium-bindings --no-default-features --features web \
+    --target wasm32-unknown-unknown -- -D warnings
+→ exit 0
+```
+
+Count went **68 → 60 → 20 → 14 → 0** across `c1bf4b0`, `97725aa`, `729286c`,
+`94953ef`, with the gate landing last at `dc6a67f` — the order
+`IN-FLIGHT-wasm-clippy.md` argued for and `ci.yml`'s own comment argues for
+generally. Full retrospective at the end of that file; the four things worth
+carrying:
+
+1. ⭐ **`--fix` was zero, then 28 — the order is the trick.** It applied all 40
+   "machine-applicable" suggestions, failed to recompile because 12 made
+   `#[wasm_bindgen]` methods `const`, and rolled the whole file back. Suppress
+   the unsound ones *first* and the same command does 60% of the task.
+2. ⭐ **`#[expect]` does not survive `#[wasm_bindgen]`.** It silences the lint
+   *and* reports `unfulfilled_lint_expectations` — twelve warnings become
+   twelve different warnings. Those sites are `allow`, with the lost strictness
+   written down.
+3. ⭐ **The suppression boundary must match the reason's boundary.** One
+   attribute on the `impl` block would have been wrong: twenty private helpers
+   live in it and on those the lint is right — `bump` took its advice correctly
+   in `f08c888`, one commit earlier the same night.
+4. ⭐ **A lint that is vacuous today is a claim about your build configuration,
+   not your code.** 13 casts could not truncate on `wasm32` (`usize` is 32 bits
+   there). Obeying cheaply via `try_from` beat proving vacuity via `allow`,
+   because the vacuity was a fact about the *target* and `wasm64` exists.
+
+**Only the GPU-free kernel configuration is now ungated.** Still a burn-down,
+not a flag.
+
+## ⚠️ THE BOX FILLED UP MID-TICK — resolved, but it will recur
+
+`/System/Volumes/Data` hit **623 MB free of 926 GB**. Writes failed for
+everything including the harness's own task-output files. Not solely mine —
+my whole lane was 25 GB of the 897 GB used — but this session's builds
+contributed ~5 GB.
+
+**Freed by deleting `target/debug/incremental` only** (12.6 GB), which took it
+to **29 GB free**. Deliberately surgical:
+
+| | size |
+| --- | --- |
+| `target/` | 23.5 GB |
+| `target/debug/incremental` | **12.6 GB — deleted** |
+| `target/debug/deps` | 8.8 GB — kept |
+| `target/release` | 0.98 GB — kept |
+| `target/wasm32-unknown-unknown` | 0.83 GB — kept |
+
+⭐ **`incremental` is the right thing to cut and `deps` is not.** Incremental
+state only speeds up rebuilds *after an edit*; `deps` holds compiled
+dependencies and costs a full rebuild to recreate. Cutting the larger, cheaper
+half fixed the emergency and kept every compiled dependency.
+
+Nothing outside this lane was touched. **Expect this back** — a full workspace
+test run regenerates several GB of incremental data, so it is worth checking
+`df` before a battery rather than after a failure.
+
+## Gates on the current tree
+
+Ran green: `test --workspace --all-features` (**2475 passed, 0 failed** — +3 on
+2472, the new `js_index` tests), `clippy --workspace --all-features
+--all-targets -D warnings`, the wasm clippy gate, the wasm `check` (0 warnings),
+`fmt --all --check`.
+
+**Not re-run, and verified not to need it rather than assumed:** gates 2/3/6/7
+are all `-p iridium-editor --no-default-features`, and `render/mod.rs` gates
+`mod pipeline` and `mod web` behind `#[cfg(feature = "render")]`. Nothing they
+compile has changed since their green at `f08c888`, and they never compile
+`iridium-bindings`.
+
+## Backlog after this
+
+**#43 blocked on L-0** (see the 8 Aug section above). Unblocked and unclaimed:
+**#44**, **#45**, **#69**, **#31**, **#35**. Still Tom's: #58, #64, #70, #74,
+Cally's hook, and L-0..L-8.

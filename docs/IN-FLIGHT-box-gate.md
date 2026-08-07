@@ -416,3 +416,50 @@ expensive work recklessly — and the single-number rule does the second.
 This is the third time in one evening that the mid-run argument has arrived as
 evidence rather than as argument: a window that would have passed any
 entry-only precondition, followed by a spike the precondition could not see.
+
+## A multi-window gate never clears on this box
+
+Measured over 142 samples, 71 minutes, 30 s interval, 10 cores, threshold =
+core count:
+
+| window | samples under threshold |
+| --- | --- |
+| 1-minute | 54 / 142 — **38 %** |
+| 5-minute | 6 / 142 — **4 %** |
+| **15-minute** | **0 / 142 — 0 %** |
+| 1m AND 5m | 6 / 142 — 4 % |
+| **1m AND 5m AND 15m** | **0 / 142** |
+
+**The 15-minute average never came under 10.** A long run gated on it is
+refused permanently — not conservatively, *permanently* — and it fails closed
+silently, which is the shape that reads as a working gate. Even 1m AND 5m
+leaves about three usable minutes in seventy-one.
+
+### The threshold cannot be `cores` for every window
+
+⭐ **The longer the averaging window, the less `load == cores` means "busy
+now."** A 1-minute average at cores says the box is saturated this instant. A
+15-minute average at cores says it was busy *at some point in the last quarter
+hour*, which on a shared box with several active seats is very nearly always
+true. **One number applied across different windows measures different
+things** — so it is not conservatism, it is a category error that happens to
+point in the refusing direction.
+
+Each window past the first needs a threshold **derived for that window**, not
+inherited from the core count.
+
+⚠️ **Caveat:** these 71 minutes include another seat's legitimate battery, so
+the 15-minute figure was genuinely elevated. One box, one evening, one heavy
+neighbour. **That is the condition a preflight has to decide well in** — a
+gate that only works on a quiet box is not doing anything a quiet box needed.
+
+### The same instrument, two readings, opposite correct answers
+
+| time | reading | run | correct? |
+| --- | --- | --- | --- |
+| 20:55 | `1m=5.55 5m=13.28 15m=17.12` | 15 s `cargo check` — moved load 6.28 → 6.55 | **refusing it would be wrong** |
+| 20:58 | `1m=9.45 5m=11.18 15m=15.47` | 15-minute battery | **refusing it was right** — load hit 31.80 minutes later |
+
+Near-identical readings. The only thing separating them is **how long the run
+was going to take**. Duration is not a refinement of the gate; without it the
+gate cannot distinguish these two cases at all.

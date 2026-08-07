@@ -2327,6 +2327,37 @@ rather than only in Meridian, since Meridian is down:
    this is the one where I have no good suggestion.)
 3. What applies? (`⌘S` reads as "save this buffer".)
 
+**6c. NEXT STEP, IDENTIFIED BUT NOT STARTED — no edits were made.**
+
+A fourth ruling-free slice, this one inside **#74**. The pin itself is Tom's
+(it changes the toolchain for everyone who builds the repo), but the *problem*
+#74 names has a half that needs no ruling:
+
+> "Two of the eight gates are verdicts rendered by the toolchain, not by the
+> code… a PR green today can go red the morning a new stable lands with no
+> commit in between — and the failure gets attributed to whatever was in
+> flight."
+
+⭐ **Nothing in CI records which toolchain rendered the verdict.** No job prints
+`rustc --version`. So the unattributable failure the doc predicts arrives with
+no evidence in the run.
+
+**The change:** add a version-echo step to each of the four jobs in
+`.github/workflows/ci.yml` (`check`, `test`, `clippy`, `fmt`) — `rustc
+--version`, `cargo --version`, and `cargo clippy --version` / `cargo fmt
+--version` in the jobs that use them. It pins nothing and changes no verdict;
+it makes the verdict attributable.
+
+⭐ **Why it is coherent rather than busywork:** the clippy job's own comment
+already insists a bare number in a durable artifact outlives the command that
+made it, and states its counts with the invocations that produced them. The
+toolchain is the same class of thing — the one input to those two gates that is
+recorded nowhere. Applying the file's own stated discipline to it.
+
+Verified before stopping: `rustc 1.97.1 (8bab26f4f 2026-07-14)`, `cargo 1.97.1`
+on this box; **no `rust-toolchain.toml` or `rust-toolchain` file exists**;
+workspace `Cargo.toml` declares `edition = "2024"`, `rust-version = "1.85"`.
+
 **7. The pattern, now used three times.** ⭐ *A blocked item is blocked on its
 choices, not necessarily on its defects.* #31 gave a code fix (`9bb09df`);
 #64 gave an answered question (`679e592`). Both came from reading a blocked
@@ -2385,3 +2416,63 @@ code that cannot compile, and one bad fix rolls back the whole `--fix` batch.
 Disarm the unsound lints first, *then* `--fix` works.
 
 Both are written up at length in `docs/IN-FLIGHT-wasm-clippy.md`.
+
+---
+
+# ▶▶▶ BATON — 8 Aug ~05:40, written under a compaction warning
+
+Supersedes every earlier "PICK UP HERE" in this file. Everything below is
+committed; nothing lives only in the conversation.
+
+## Do these, in order
+
+**1. One Meridian attempt.** ⚠️ **One per tick, not five** — it has failed
+**eight** times with an identical `500 ... database connection pool acquire
+timed out`, over several hours. The current text is the one sent on attempt 8
+and it is up to date. Tom has *not* been told out-of-band: `PushNotification`
+declines because the terminal is active, so **the transcript is the live
+channel and Meridian is not**.
+
+**2. The CI version-echo** — section 6c above. Identified, priced, **not
+started, no edits made**. Four small steps in `.github/workflows/ci.yml`. Needs
+no ruling.
+
+**3. Then look for the next ruling-free slice**, the way the last three were
+found. ⭐ **A blocked item is blocked on its choices, not necessarily on its
+defects.** Read a blocked item's own design map for a claim that holds
+whichever way the decision goes.
+
+## The strip
+
+| | state |
+| --- | --- |
+| #35, #75 | ✅ closed this session |
+| #31 | ⛔ D-1..D-8 — but its fallback-palette defect landed (`9bb09df`) |
+| #64 | ⛔ Tom's — but its open question is **answered** (`679e592`) |
+| #58 | ⛔ three keys — but step 4b's logic landed (`28b49a4`, 19 tests) |
+| #43, #44, #45 | ⛔ all three behind L-0 |
+| #69 | 🔍 not reproduced in 160 runs; decidable at the next occurrence |
+| #70, #74, Cally's hook | ⏸ Tom's |
+
+**The unblocked column is empty.** Nothing here is a manufactured task.
+
+## The highest-value thing Tom can answer
+
+**The three oil keys** (section 6b) — the logic is done and waiting, and
+`mod mode;` carries a scoped `#[allow(dead_code)]` until `keys` can call it.
+⚠️ **If a later tick sees that allow, the fix is to wire `keys`, not to widen
+the allow.**
+
+Second: **a green light to clone nineteen grammar repos**, the only way to
+verify #64's gzip restore. That is a resource call, not a ruling.
+
+## Commits this session, in order
+
+`e2d47c9` `cf7420c` `45b3756` `9bb09df` `0dbaeff` `dd292b4` `679e592`
+`af7a680` `19ee7e8` `28b49a4` `b35efe1`
+
+## Housekeeping
+
+Working tree clean apart from `?? .claude/skills/`, which was untracked at
+session start and is not mine. Load ~6.4, 30 GB free, tree 17,280,872 KB at
+last measure. The loop is re-armed with `<<autonomous-loop-dynamic>>`.

@@ -327,3 +327,58 @@ own incompleteness and the reporting discarded it.
 
 Two troughs so far — **450 s and 150 s**. **That is not a distribution and no
 span should be adopted from it.** Sampling continues.
+
+## Git cannot attribute a commit in this checkout
+
+Measured across the whole history:
+
+```
+$ git log --format='%an|%ae|%cn|%ce' | sort -u
+tomWhiting|tom.whiting@reachsocialsupports.com.au|tomWhiting|tom.whiting@reachsocialsupports.com.au
+```
+
+**One distinct value.** Author and committer, name and email, every commit
+ever made here. Several seats commit into this working tree and **not one
+git identity field distinguishes them.** Any guard, hook or audit keyed on
+who authored a commit cannot fire, which is why a proposed hook refusing an
+amend whose HEAD author differs from the amender was killed before it was
+built — it would have closed the row while being incapable of firing.
+
+### There is a discriminator, and it is accidental
+
+```
+cc69da8  trailers: [Co-Authored-By: Claude Opus 5 (1M context) ...]
+a778eac  trailers: [Co-Authored-By: Claude Opus 5 (1M context) ...]
+4653fc1  trailers: []                                    ← another seat
+```
+
+⚠️ **This is a proxy that agrees with its target only on the examined set.**
+The trailer names a **model**, not a **seat**. It separates the commits above
+purely because the other seat's carry none. **The circumstance where it
+fails: another seat runs the same model through the same harness and emits a
+byte-identical trailer.** The discriminator disappears and nothing announces
+that it has.
+
+So the *channel* is right and the *content* is wrong. A trailer lives in the
+commit object, survives a push and a clone, and shows up in `git log`.
+
+### The instrument that worked tonight does not survive the week
+
+The `--amend` clobber above was verified by reflog. **The reflog is local,
+unpushed, and pruned.** It answered the question at the time and would answer
+nobody from another clone, or from this one after a `gc`. Anything durable has
+to live in the commit object or in a tracked file.
+
+### Adopted here
+
+`Seat:` as a trailer, starting with the commit that adds this section.
+
+**Stated plainly: unilateral adoption gives partial coverage.** My commits
+become attributable and no one else's do — which is precisely the accidental
+situation described above, only deliberate instead of lucky. It becomes an
+instrument when the other seats carry one, and not before.
+
+⭐ **This closes the loop on the question that opened the whole exchange.**
+*"Whose run was this?"* was answered with log mtimes and a commit window
+because **git could not tell either party.** A seat trailer answers it in one
+command, at the time, with no forensics.

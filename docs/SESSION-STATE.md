@@ -3212,3 +3212,61 @@ delete.
 
 Load ~25. Disk **139 GB free**, up from 129 — the slide has reversed, nothing
 to chase.
+
+---
+
+# Tick — 8 Aug ~10:05 — the sweep continues, four sound, one wrong
+
+Meridian attempt **16**, succeeded (six in a row). Carried #81, asked #82,
+and reported the desktop check that came back clean.
+
+## Claims checked this tick
+
+| claim | verdict |
+| --- | --- |
+| `commands/binding.rs:15` — "deserialization is the only path that can violate [the non-empty sequence]" | ✅ **sound.** All three constructors go through `build_sequence(first, rest)`, no mutator drains the vec, and `KeyBinding` derives `Serialize` only — `Deserialize` is on `BindingData` behind a `TryFrom` that rejects empty. |
+| `input/keyboard/types.rs:235` — AST verbs performed "in exactly one place, reached identically by a keystroke and by a command from the palette" | ✅ **sound.** `handle_key` (`core.rs:561`) and `run_command` (`:629`) both end in `consume_key_result`. |
+| `apps/iridium-desktop/src/app/viewport.rs:215` — "`load_font` is the only path that remeasures" | ✅ harmless. Slightly loose (the strip reads the *overlay*'s measurement and `overlay.set_font` is the call that moves it) but `sync_top_inset()` runs after both, so the ordering it exists to protect holds. |
+| `iridium-tui/src/frame/geometry.rs:55` | ✅ not a claim about today — a note for TUI mouse hit testing, which does not exist yet. |
+| `span_index/windowed.rs:120` — "**That half is unproven**" | ❌ **wrong → `dc72b23c`** |
+
+## The desktop check that came back clean — worth recording
+
+#81 was *a replaced document leaves stale colours behind*, so the obvious
+question is whether switching tabs on the desktop does the same. **It does
+not.** `HighlightCache` lives on `DesktopDocument`, the workspace's
+per-document payload (#41), so every file has its own and it dies when the
+last tab onto that file closes. Had it been an app-wide field, the reuse gate
+in `WindowedSpanCache::refresh_windowed` — `(language, parses, revision,
+covered window)`, with **no document identity in it** — would happily hand
+file B the spans derived from file A: two freshly opened files of the same
+language present identical tuples.
+
+⭐ Recorded because *the absence of a bug is worth writing down when it is
+structural.* The desktop is right for a reason, not by luck, and the reason
+is one field's location.
+
+## `dc72b23c` — a comment that told the next reader not to look
+
+`Generation`'s doc claimed the revision half of the cache key was unproven,
+citing a probe that found `Document::revision` reporting `0` either side of a
+whole-content replacement. The code does the opposite:
+`Document::continuing_from` exists precisely so a replacement *continues* the
+counter, `set_content` uses it, and
+`replacing_the_content_does_not_replay_a_revision_the_old_text_already_used`
+already pins it. The probe was measuring a `Document::new`.
+
+Left alone it read as an invitation to delete the guard, and deleting it
+would reintroduce the bug `continuing_from` was written to prevent.
+
+⭐ **Rule F: a comment saying a guard is untested is worse than no comment —
+it stops the next reader looking for the test that exists.** The correction
+also states the narrower truth: within one `Editor` parses and revision move
+together so the revision decides nothing, and it becomes load-bearing the
+moment one cache meets a *different* `Editor` — which nothing in the type
+prevents.
+
+## Box
+
+Load ~49. Disk **121 GB free** (139 last tick, 129 the one before) — it
+oscillates with something else on the box, not this seat. No action.

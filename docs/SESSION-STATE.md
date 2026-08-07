@@ -1734,7 +1734,36 @@ proxy I suggested was deliberately refused, correctly: it keys the control on
 an incidental property of the machine, which is the original mistake wearing a
 new subject.
 
-#### Open: disarming removes the detector along with the guard
+#### CLOSED: disarming removes the detector along with the guard
+
+Fixed at Cally's `d0c330e`, fixture 26 → 29 arms. Marker present in HEAD but
+missing from the worktree is now its own state (rc 3, distinct from rc 1,
+because the remedy differs). To silence it legitimately you must
+`git rm .shared-tree && git commit` — so the escape stays fully open and simply
+stops being silent.
+
+⭐ **The remedy converts a quiet act into a recorded, attributable one rather
+than trying to detect it.** That is the better shape: a guard nobody can get
+past gets removed wholesale instead of deliberately.
+
+⭐ **The generalisation is worth more than the fix.** *Any control keyed on a
+marker is disarmed by deleting the marker. Only controls whose absence is a
+detectable state can defend themselves, and that requires a second independent
+record of what the marker was.* Here that record is git history and it is free.
+Ask that question **before** keying anything else on a file — the usual answer
+is that no second record exists, which makes the control decorative in exactly
+the case it matters.
+
+**No third objection.** I went looking and did not find one.
+
+#### Install cost in this repo, for when Tom rules
+
+Three things: `.shared-tree`, a tracked `.githooks/`, and a new step in
+`.github/workflows/ci.yml` running the **artefacts** mode. The third is a
+change to the file gating every PR here, so it wants to land on its own and go
+green once before anything depends on it.
+
+#### The original open item, now answered above
 
 Raised by me, not yet measured. The sanctioned way to perform a rewrite you
 want is to remove the marker deliberately. But `--arming` fires on *marker

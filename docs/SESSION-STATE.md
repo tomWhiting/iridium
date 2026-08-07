@@ -2802,3 +2802,95 @@ unpiped with its exit status recorded on the next line.
 Load ~18 at tick open (high, and not this seat's). Disk 169 GB free.
 Working tree clean apart from `?? .claude/skills/`, untracked at session
 start and not mine.
+
+---
+
+# ▶ TICK — 8 Aug ~07:35
+
+## 1. Meridian: attempt 12 sent (#78 reported)
+
+The bridge is live two ticks running. Tom has the grammarless-keyword fix in
+his own terms — that his commit messages were being speckled in Rust/JS/Python
+keyword colour.
+
+## 2. #79 — auto-pairs were six hard-coded characters (`3c31c2fe`, `88dde26a`)
+
+Map: `docs/design/AUTO-PAIR-MAP.md`. S-1 built and landed.
+
+**Route, same as #78**: the manifest reader's own module doc names the plan —
+*"the hard-coded tables are replaced one at a time, each against a test
+asserting the manifest agrees with what it replaces."* Comment tokens were
+done (#66). **Brackets were not**, and ⭐ the test that sentence names is what
+makes it a defect: the manifest does **not** agree with what it would replace.
+
+**The divergences**, all subtractions once the data is parsed properly:
+Rust declares no `'` (a lifetime is not a character literal, so `fn f<'a>`
+became `<'a'>`); Rust and JSON and YAML pair backticks they never accept;
+YAML pairs `(`; `go.mod` gets five pairings past the one it declares; Markdown
+declares all three quotes `close = false`; `diff` declares an empty table and
+got six.
+
+## ⚠️⚠️ 3. THE MISTAKE, recorded because it nearly shipped
+
+The map's first draft claimed **Markdown wants `*` paired** and built a whole
+slice (S-2) plus a decision (B-2) on it. **Wrong.** The extraction used a
+regular expression, and `\{[^}]*\}` terminates on the `}` inside `end = "}"` —
+so every `{`→`}` row was silently dropped **and no row's `close` flag was read
+at all**. Markdown declares `*` with `close = false`; it does not want it.
+
+⭐ **The rule: parse the format, do not match it.** `tomllib` took ten seconds
+and disagreed with the regex on two of nine claims. The map now carries both
+tables, the wrong one labelled, because the correction is the more useful
+artefact than a clean-looking document.
+
+This is the same lesson as `rustfmt.toml`/#73 in a new costume: **a citation
+chain is not evidence; only the parse is.**
+
+## 4. What landed, and what it deliberately did not
+
+`close` defaults to **true** when the key is absent — seventeen rows rely on
+it, and reading it as false would have disabled `{` in every C-like language.
+A `close = false` row is a *matching* rule for highlighting and navigation,
+not a typing rule.
+
+⭐ **Three silences told apart from one refusal.** No language, no manifest,
+and no `brackets` key all mean "has not said" → keep every pair. ⚠️ **`awl` is
+in that third group, so Tom's own language is untouched.** An empty table
+means "pair nothing" → `diff`.
+
+Skip-over and backspace narrowed by the same set, deliberately: in Rust `'a'`
+is a literal the user typed, and stepping over the closing quote or eating
+both halves would drop input.
+
+Not done, and named in the map: `<`→`>` (S-2/B-2, recommend **no** — `<` in
+Markdown is a literal at least as often as an autolink); multi-character
+openers `"""`, `r#"`, `/*` (S-3); `not_in` scope constraints (S-4, recommend
+**not yet** — the only slice that puts a syntax query on the typing path);
+`autoclose_before` (S-5, recommend before S-3).
+
+## 5. Red proof, and the honest note about its order
+
+⚠️ The tests were written **after** the fix compiled. Red was demonstrated by
+restoring the old behaviour verbatim — `AutoPairs::for_document` returning
+`Self::ALL`, which is exactly what `pair_close` was — and re-running. **4 of
+the 7 new tests went red.** The other 3 pass both ways *by design*: they
+assert the pairs each manifest **does** declare still work, so the suite
+cannot be satisfied by an implementation that merely stops pairing.
+
+## Gate state
+
+**All nine green on `88dde26a`**: 2,525 passed, 0 failed (2,514 before, +11).
+Two clippy findings on the way, both in new test code: `needless_collect`
+twice, and `doc_lazy_continuation` where a `///` paragraph followed a list.
+
+## Box
+
+Load 35 at tick open, 25 by mid-tick — high, and not this seat's.
+Disk 149 GB free. Working tree clean apart from `?? .claude/skills/`.
+
+## For the next tick
+
+1. One Meridian attempt: report #79, and **ask B-2** (Markdown's `<`) — it is
+   the only auto-pair question with taste in it.
+2. S-5 (`autoclose_before`) is the next ruling-free slice in this vein and is
+   already priced in the map.

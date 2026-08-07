@@ -996,8 +996,35 @@ them. Erroring would make normal operation fail.
 
 ## ⏸ WAITING ON TOM (nothing is blocked *behind* these)
 
-**IN FLIGHT, ASKED 7 Aug ~15:30:** #66 is started and parked one question
-short. The 21 vendored `config.toml` manifests reproduce the whole comment
+### ✅ RULED 7 Aug ~15:27 — TOM GAVE THE GO-AHEAD, TAKE THE RECOMMENDATIONS
+
+*"You've got the go ahead to go do everything you need to do there. I'll take
+your recommendations. You can find the AWL grammar. You might need to message
+**Vesper Lynd** — they are responsible for **Aeon**, so they will have all the
+answers you need."*
+
+So the recommendations are now the decisions. **Nothing below is still waiting
+on him.**
+
+- **L-0 → Tier 1 now.** Nothing hard-coded; grammars vendored, queries and
+  per-language behaviour as data. No wasmtime, no 6.6 MiB. Tier 2 stays a
+  later, strictly additive step.
+- **#66 crate question → (b).** A new crate owns the vendored `languages/`
+  tree; `iridium-lang` and `iridium-syntax` both depend on it. Nothing reaches
+  backwards, one owner for one directory. **Consider folding `iridium-lang`
+  into it** — the registry step has to answer what that crate is for anyway.
+- **#62 → answered by data.** Reading the manifests gives JSON `line_comments
+  = ["// "]`, so `Ctrl+/` starts working in `.jsonc` and `.json`. Zed's call,
+  overridable in a file. Close #62 when #66 lands.
+- **LSP → after languages**, so the server registry falls out of the language
+  registry rather than being built twice.
+- **AWL → ask Vesper Lynd.** They own **Aeon**. Needed: is the tree-sitter
+  package public or internal, and does it ship `highlights.scm` and friends or
+  only the grammar? Send with the Meridian `send` tool using `to: "Vesper
+  Lynd"` — this seat has no DM id for them yet.
+
+**IN FLIGHT, ASKED 7 Aug ~15:30, NOW ANSWERED:** #66 is started and was parked
+one question short. The 21 vendored `config.toml` manifests reproduce the whole comment
 table exactly — see `docs/IN-FLIGHT-manifests.md`, which is complete and has
 the derivation, the `documentation_comment` fallback that four languages
 depend on, and the equality oracle to write. **The blocker:** those manifests

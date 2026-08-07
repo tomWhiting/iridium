@@ -8,6 +8,7 @@ use crate::harness::{
     ActiveLanguageNoSpans, compose, compositor, editor_over, gpu, pixels, target,
 };
 use crate::support::gpu::{HEIGHT, WIDTH};
+use crate::support::pixels::assert_same_frame;
 
 /// An identical frame, a sub-line scroll, a blink-phase frame and every
 /// per-frame presentation input are hits — and the hit frame's pixels are
@@ -31,9 +32,11 @@ fn steady_frames_hit_and_reproduce_the_cold_frame_exactly() {
         "an identical frame is a hit"
     );
     let hot = pixels(&gpu, &tgt);
-    assert!(
-        hot == cold,
-        "the hit frame must be byte-identical to the cold one"
+    assert_same_frame(
+        &hot,
+        &cold,
+        WIDTH,
+        "the hit frame must be byte-identical to the cold one",
     );
 
     // A sub-line scroll: the viewport line range is unchanged, only the
@@ -132,5 +135,10 @@ fn an_empty_document_composes_and_hits() {
     compose(&mut compositor, &editor, 0.0, &mut highlights, &gpu, &tgt);
     assert_eq!(compositor.shape_rebuilds(), 1, "the empty frame hits too");
     let hot = pixels(&gpu, &tgt);
-    assert!(hot == cold, "the empty hit frame must be byte-identical");
+    assert_same_frame(
+        &hot,
+        &cold,
+        WIDTH,
+        "the empty hit frame must be byte-identical",
+    );
 }

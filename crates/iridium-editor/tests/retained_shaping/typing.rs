@@ -7,6 +7,7 @@ use crate::harness::{
     press, target,
 };
 use crate::support::gpu::{HEIGHT, WIDTH};
+use crate::support::pixels::assert_same_frame;
 
 /// A one-character keystroke is a miss served by per-line diffing: exactly
 /// one line reshapes, and the diffed frame is byte-identical to a fresh
@@ -36,9 +37,11 @@ fn a_one_character_edit_reshapes_one_line_and_recomposes_identically() {
     assert!(after != before, "the edit must be visible");
 
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        after == cold,
-        "the diffed frame must be byte-identical to a cold compose of the same state"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the diffed frame must be byte-identical to a cold compose of the same state",
     );
 
     // A second consecutive keystroke diffs against a diffed buffer — the
@@ -53,9 +56,11 @@ fn a_one_character_edit_reshapes_one_line_and_recomposes_identically() {
     );
     let second = pixels(&gpu, &tgt);
     let second_cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        second == second_cold,
-        "diff-after-diff must stay byte-identical"
+    assert_same_frame(
+        &second,
+        &second_cold,
+        WIDTH,
+        "diff-after-diff must stay byte-identical",
     );
 }
 
@@ -88,9 +93,11 @@ fn a_plain_text_edit_diffs_one_line_and_recomposes_identically() {
             fresh.set_syntax_enabled(false);
         },
     );
-    assert!(
-        after == cold,
-        "the plain-text diffed frame must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the plain-text diffed frame must be byte-identical",
     );
 }
 
@@ -117,9 +124,11 @@ fn a_multibyte_edit_diffs_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
 
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        after == cold,
-        "the multibyte diffed frame must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the multibyte diffed frame must be byte-identical",
     );
 }
 
@@ -141,9 +150,11 @@ fn an_edit_that_adds_a_line_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
 
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        after == cold,
-        "the line-inserting diff must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the line-inserting diff must be byte-identical",
     );
 }
 
@@ -165,8 +176,10 @@ fn an_edit_that_changes_wrapping_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
 
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        after == cold,
-        "the wrap-changing diff must be byte-identical"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the wrap-changing diff must be byte-identical",
     );
 }

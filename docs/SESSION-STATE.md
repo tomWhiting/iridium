@@ -1249,3 +1249,34 @@ other two GPU binaries untouched.
 
 ⚠️ The flaky `custom_gutter_lines_miss_and_recompose_identically` (#69) is now
 in `gutter.rs`. Splitting did not touch it.
+
+## 🔬 THE PIXEL ASSERTIONS NOW SAY *HOW* THEY DIFFER — #69 groundwork
+
+`custom_gutter_lines_miss_and_recompose_identically` is flaky under box load.
+It did **not** reproduce in 12 consecutive runs on an idle box, which matches
+the report and means the useful move was not to chase it.
+
+Every one of the 25 pixel-identity comparisons in the retained-shaping suite
+was `assert!(a == b, "the X frame must be byte-identical")` — a bare bool. A
+glyph edge off by one and a frame composed from the wrong document produced
+**the same message**, so when this flake fired it left nothing behind to work
+from.
+
+`support::pixels::assert_same_frame` replaces all 25. On failure it now says:
+
+```
+the custom-gutter frame must be byte-identical
+  1 of 393216 pixels differ; the first at column 3, row 2; they span
+  columns 3..=3 and rows 2..=2; the largest single channel difference is 23
+```
+
+Count, position, area and magnitude — which is the difference between "the
+glyph atlas packed differently" and "this is a regression". The message is
+only formatted on failure, so the scan costs nothing on the passing path.
+
+Four pure tests pin the helper itself, including that it reports the
+magnitude — a diagnostic nobody has proved is a diagnostic nobody should
+trust.
+
+**This is not a fix for #69.** It is what makes the next occurrence
+diagnosable instead of another "it differed".

@@ -7,6 +7,7 @@ use crate::harness::{
     editor_over, gpu, pixels, target,
 };
 use crate::support::gpu::{HEIGHT, WIDTH};
+use crate::support::pixels::assert_same_frame;
 
 /// Toggling syntax highlighting switches the whole fill path.
 #[test]
@@ -35,7 +36,12 @@ fn a_syntax_toggle_misses_and_recomposes_identically() {
             fresh.set_syntax_enabled(false);
         },
     );
-    assert!(after == cold, "the plain frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the plain frame must be byte-identical",
+    );
 }
 
 /// The no-language ruling at the compositor's own seam: a source that
@@ -62,9 +68,11 @@ fn a_language_less_source_composes_the_plain_frame() {
             fresh.set_syntax_enabled(false);
         },
     );
-    assert!(
-        composed == plain,
-        "no language must render the plain frame, never the keyword fallback"
+    assert_same_frame(
+        &composed,
+        &plain,
+        WIDTH,
+        "no language must render the plain frame, never the keyword fallback",
     );
 
     let bridged = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
@@ -88,9 +96,11 @@ fn a_set_language_without_spans_keeps_the_keyword_fallback() {
     let bridged = pixels(&gpu, &tgt);
 
     let fallback = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        bridged == fallback,
-        "a language-active source with no spans is exactly the fallback frame"
+    assert_same_frame(
+        &bridged,
+        &fallback,
+        WIDTH,
+        "a language-active source with no spans is exactly the fallback frame",
     );
 
     let plain = cold_pixels(
@@ -141,18 +151,22 @@ fn a_language_set_or_unset_misses_and_recomposes_identically() {
         &mut ToggleLanguage { active: false },
         |_| {},
     );
-    assert!(
-        unlanguaged == cold,
-        "the language-less frame must be byte-identical to a cold compose"
+    assert_same_frame(
+        &unlanguaged,
+        &cold,
+        WIDTH,
+        "the language-less frame must be byte-identical to a cold compose",
     );
 
     source.active = true;
     compose(&mut warm, &editor, 0.0, &mut source, &gpu, &tgt);
     assert_eq!(warm.shape_rebuilds(), 3, "setting it back is a miss too");
     let rebridged = pixels(&gpu, &tgt);
-    assert!(
-        rebridged == bridged,
-        "the returned language must reproduce the fallback frame exactly"
+    assert_same_frame(
+        &rebridged,
+        &bridged,
+        WIDTH,
+        "the returned language must reproduce the fallback frame exactly",
     );
 }
 
@@ -186,7 +200,12 @@ fn a_highlight_generation_bump_misses_and_recolors_identically() {
         generation: 7,
     };
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut cold_source, |_| {});
-    assert!(after == cold, "the recolored frame must be byte-identical");
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "the recolored frame must be byte-identical",
+    );
 }
 
 /// The raw `syntax_theme_mut` accessor bumps its generation on every
@@ -210,8 +229,10 @@ fn a_syntax_theme_borrow_misses_and_recomposes_identically() {
     let after = pixels(&gpu, &tgt);
 
     let cold = cold_pixels(&gpu, &tgt, &editor, 0.0, &mut ActiveLanguageNoSpans, |_| {});
-    assert!(
-        after == cold,
-        "an unchanged map still recomposes identically"
+    assert_same_frame(
+        &after,
+        &cold,
+        WIDTH,
+        "an unchanged map still recomposes identically",
     );
 }

@@ -69,8 +69,13 @@ impl FoldCache {
     ///
     /// Empty is the honest starting point: no tree has been seen, so no region
     /// has been detected. The first [`FoldCache::rebuild`] fills it.
+    ///
+    /// No longer `const`, following [`FoldDetector::new`], which stopped being
+    /// one when the fold table began keying on the language identifier. Nothing
+    /// built one of these in a constant, and the cost is a handful of string
+    /// comparisons once per cache.
     #[must_use]
-    pub const fn new(language: Language) -> Self {
+    pub fn new(language: Language) -> Self {
         Self {
             detector: FoldDetector::new(language),
             tracked: Vec::new(),

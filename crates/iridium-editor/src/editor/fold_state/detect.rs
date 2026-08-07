@@ -53,8 +53,14 @@ pub(super) struct Folds {
 
 impl Folds {
     /// Creates an empty producer for `language`.
+    ///
+    /// Not `const`, following `FoldCache::new`, which stopped being one when
+    /// the foldable-node table began keying on the language identifier rather
+    /// than matching a closed enum. The feature-off variant below was never
+    /// `const` either, so the two now agree — which is the state a
+    /// feature-gated pair should be in.
     #[cfg(feature = "syntax")]
-    pub(super) const fn new(language: Language) -> Self {
+    pub(super) fn new(language: Language) -> Self {
         Self {
             cache: FoldCache::new(language),
         }

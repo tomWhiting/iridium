@@ -29,6 +29,97 @@ const KNOWN_ABSENCES: &[(Language, QueryKind)] = &[
     (Language::Bash, QueryKind::Outline),
 ];
 
+/// What specific languages ship, written out by hand.
+///
+/// This is the check that survives the table being generated. Every other test
+/// here compares the table against the directory, and once `build.rs` builds
+/// the table *from* that directory both sides read the same source — such a
+/// comparison can catch a mangled table but never a file that quietly went
+/// away in a vendor refresh.
+///
+/// So these rows are asserted, not derived. They are a claim about what
+/// Iridium supports, and if a refresh makes one false the right outcome is a
+/// failing test naming the language, not a feature that silently stops.
+const PINNED: &[(Language, &[QueryKind])] = &[
+    // The reference language: everything present.
+    (
+        Language::Rust,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    // The three carrying a documented absence, pinned from the other side:
+    // what they *do* ship, so a refresh that dropped a second file is caught
+    // by more than the absence list alone.
+    (
+        Language::Json,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::Yaml,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::TextObjects,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::Bash,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Injections,
+        ],
+    ),
+];
+
+#[test]
+fn the_pinned_languages_ship_exactly_what_they_are_claimed_to() {
+    for &(language, kinds) in PINNED {
+        for &kind in QueryKind::all() {
+            let expected = kinds.contains(&kind);
+            assert_eq!(
+                source(language, kind).is_some(),
+                expected,
+                "{} should {} ship {kind}",
+                language.id(),
+                if expected { "" } else { "not" }
+            );
+        }
+    }
+}
+
+#[test]
+fn a_pinned_query_carries_real_text_rather_than_an_empty_file() {
+    // The generated table would happily carry an empty string, and every
+    // presence check above would still pass. Highlights is the one kind
+    // nothing degrades gracefully without.
+    for &(language, _) in PINNED {
+        let highlights = source(language, QueryKind::Highlights)
+            .unwrap_or_else(|| panic!("{} ships no highlights.scm", language.id()));
+        assert!(
+            highlights.contains('('),
+            "{}'s highlights.scm carries no s-expression, so it is not a query",
+            language.id()
+        );
+    }
+}
+
 #[test]
 fn the_table_agrees_with_the_files_on_disk() {
     for &language in Language::all() {

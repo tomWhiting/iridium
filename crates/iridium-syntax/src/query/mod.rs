@@ -101,7 +101,17 @@ fn compile(language: Language, kind: QueryKind) -> Compiled {
         return Compiled::Absent;
     };
 
-    match Query::new(&grammar(language), source) {
+    // A language with no linked grammar is a supported language that cannot be
+    // parsed — see `grammar`'s module note. There is nothing to compile the
+    // query against, so it resolves to the same routine absence as a language
+    // that ships no `.scm` of this kind, and callers degrade the feature
+    // exactly as they already do. Emphatically not an error: a language reaches
+    // here with queries and a manifest and no grammar entirely legitimately.
+    let Some(grammar) = grammar(language) else {
+        return Compiled::Absent;
+    };
+
+    match Query::new(&grammar, source) {
         Ok(query) => Compiled::Ready(query),
         Err(error) => Compiled::Broken(format!(
             "{}/{} does not compile against the {} grammar: {} at offset {}",

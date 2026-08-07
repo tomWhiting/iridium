@@ -29,6 +29,9 @@
 //!   here that writes anything.
 //! - `plan` — turning an edited list of rows into a validated, ordered list
 //!   of filesystem operations. Pure; touches no disk.
+//! - `buffer` — the rows as loaded and as they now read, and the one place a
+//!   row's origin is captured from the node it was drawn from.
+//! - `confirm` — what is shown before any of it happens.
 //! - `rows` — composing one row: indent, disclosure, name, error.
 //! - `tests` — the panel's own suite, against real directories and the real
 //!   reader thread.
@@ -36,6 +39,7 @@
 mod apply;
 mod buffer;
 mod compose;
+mod confirm;
 mod filter;
 mod keys;
 mod panel;
@@ -47,6 +51,9 @@ mod apply_tests;
 
 #[cfg(test)]
 mod buffer_tests;
+
+#[cfg(test)]
+mod confirm_tests;
 
 #[cfg(test)]
 mod plan_tests;

@@ -113,10 +113,60 @@ flat, ordered, non-overlapping run list with gaps marked, where the innermost
 span owns each byte. Each face keeps only its own payload→colour mapping, which
 is the part that genuinely differs (an enum against a `HashMap<String, Color>`).
 
-## Status
+## Status — LANDED
 
 - [x] Kernel probe run; 37 containments inventoried across 5 languages.
 - [x] Both resolvers read and the skip confirmed at named lines.
-- [ ] `runs.rs` in the kernel + unit tests.
-- [ ] Desktop resolver rewired, red test first.
-- [ ] Web resolver rewired (compiler-checked only, by construction).
+- [x] `crates/iridium-editor/src/render/runs.rs` — `flatten_spans`, 12 tests.
+- [x] Desktop resolver rewired; its red test proved red first.
+- [x] **Three** web resolvers rewired — the viewport path, the legacy fallback,
+      and the clone the fallback no longer needs.
+- [x] Nine gates green.
+
+### The red test, and what red looked like
+
+`an_interpolation_inside_a_template_literal_keeps_its_own_colours`, in
+`apps/iridium-desktop/src/highlight.rs`, over `const a = \`x${y}z\`;`.
+
+```
+assertion `left == right` failed: the interpolated variable was swallowed by
+the string span around it
+  left: None
+ right: Some(Color { r: 0.6117647, g: 0.8627451, b: 0.99607843, a: 1.0 })
+```
+
+⭐ `None`, not a wrong colour. There was no run for `y` **at all** — the
+literal was a single slice and the interpolation had no existence downstream of
+the resolver. That is the shape of this defect: not a mis-colouring to be
+spotted, an absence.
+
+### Two things fixed on the way, both in the lines being rewritten
+
+1. ⚠️ **A panic path in the browser.** `snap_down` — clamp an offset down to a
+   character boundary before slicing — existed only in the desktop face. Both
+   web resolvers sliced the raw offset. Span offsets are document bytes while
+   the content is the compositor's fold-collapsed extraction, so the two drift
+   by the placeholder's length, and the first drift landing inside a multi-byte
+   character would have panicked in the browser. The guard is in the kernel now
+   and all three resolvers use it.
+2. **A per-frame clone of the whole span set**, in the legacy fallback. It was
+   there because the callee sorted in place, and carried three bullet points
+   arguing it was affordable. `flatten_spans` sorts its own ranges, so the
+   parameter is a slice and the clone and the argument for it are both gone.
+
+### The 500-line bar
+
+`apps/iridium-desktop/src/highlight.rs` is 843 lines, up from 806. ⚠️ **It was
+already over before this change** and this did not push it over; recorded so the
+next reader does not attribute it here. The split is its own piece of work — the
+seam is the windowed-cache handle against the per-frame resolver, and the tests
+divide the same way.
+
+### What is deliberately not covered by a test
+
+`wasm.rs` has no `#[cfg(test)]` blocks and nothing executes it; its two
+resolvers are verified by the compiler and by the fact that the rule they now
+call is tested in the kernel. ⭐ That asymmetry is the whole argument for where
+`flatten_spans` lives. Gates 1 and 5 are native and never compile `wasm.rs`
+(`cfg(all(feature = "web", target_arch = "wasm32"))`, `lib.rs:88`); gates 4 and
+8 are its gates, and both were re-run after the last edit to it.

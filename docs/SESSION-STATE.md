@@ -1910,3 +1910,116 @@ onward. Four closed troughs measured before the sampler died — **450 / 150 /
 601 / 300 s** — and every battery-scale run this evening was declined on that
 basis. Full reasoning, including why a multi-window gate never clears here, is
 in `docs/IN-FLIGHT-box-gate.md`.
+
+---
+
+# ▶▶ PICK UP HERE — 8 Aug 2026, ~02:10
+
+**This supersedes the "PICK UP HERE — 22:44, 2026-08-07" section above.**
+
+## The eight-gate battery is GREEN, and it found something
+
+Commits: `f08c888` (the fix + the full battery), `aea724d` (docs).
+
+| gate | exit | evidence |
+| --- | --- | --- |
+| `test --workspace --all-features --no-fail-fast` | 0 | **2472 passed, 0 failed**, 20 ignored |
+| `test -p iridium-editor --no-default-features` | 0 | 1033 passed, 0 failed |
+| `test -p iridium-editor --no-default-features --features syntax` | 0 | 1128 passed, 0 failed |
+| `check -p iridium-bindings --features web --target wasm32` | 0 | zero warnings |
+| `clippy --workspace --all-features --all-targets -D warnings` | 0 | **red first — see below** |
+| `clippy -p iridium-editor --no-default-features --all-targets` | 0 | |
+| `clippy -p iridium-editor --no-default-features --features syntax` | 0 | |
+| `fmt --all --check` | 0 | |
+
+Each ran unpiped with `$?` read on the very next line. **2472 is +7 on the 2465
+at `322a14a`** — exactly the seven cache tests #76 added. The count is a
+cross-check, not a decoration.
+
+⭐ **Gate 5 was red.** `daf1d56` landed #76 with the battery unrun and said so
+in its own message; running it produced
+
+    error: this could be a `const fn`
+      --> crates/iridium-bindings/src/web_highlight_cache.rs:154:5
+
+One character. The part worth keeping is *which* gate caught it: it fires on
+the `lib test` target, which `web_highlight_cache` reaches only because #76
+gave it the `any(target_arch = "wasm32", test)` gate. The wasm gate is a
+`check`, not clippy; the clippy gates are native. **The module is linted for
+the same reason it is tested, and both follow from the same decision.**
+
+Not amended into `daf1d56`. A commit that admits a gate is unrun is not the
+same as one that passes it, and the record should show the gate found
+something.
+
+## #76 is CLOSED
+
+Four highlight fields → one `WebHighlightCache`, seven real tests, and
+`WebEditor` is down from sixteen fields to thirteen. `docs/IN-FLIGHT-76-handoff.md`
+has been **deleted** — it described an uncommitted, non-compiling tree that no
+longer exists, and leaving it would have been a husk. Everything durable in it
+is in `daf1d56`'s message or in the #43 map.
+
+## ⚠️ #43's fold blocker had the WRONG CAUSE — corrected at `aea724d`
+
+`docs/IN-FLIGHT-web-document.md` said the web face duplicates folds because the
+kernel's folds go stale after every edit (the plan's finding 3). **Both halves
+are false**, and the map inherited the claim from a third document without
+checking it.
+
+- `apply_command_internal` calls `refresh_syntax()` on every content change —
+  `editor/core.rs:1037`, with a comment saying so. Finding 3 is fixed.
+- ⭐ The real cause: **`WebEditor` never tells its `Editor` what language it
+  holds.** `set_language` appears in `editor.rs` and `web_folds.rs` and
+  **nowhere in `wasm.rs`**; `create_web_editor` builds a bare `Editor::new(...)`
+  (`wasm.rs:381`) and the comment there says *"The web surface has no way to
+  declare a language yet."* `SyntaxState::sync` opens with `self.tree.as_mut()?`
+  (`editor/ast/state.rs:227`), so with no language it returns `None`,
+  `refresh_syntax` returns `false`, and the kernel's `fold_state` never gets
+  regions.
+
+**The web face's second fold state is not a duplicate of a working one — it is
+the only one that works in the browser.**
+
+So the precondition for "read the kernel's folds like the desktop face does" is
+not a kernel fix behind a plan step; it is one `set_language` call. But *what*
+the browser passes is an **L-0 question** — live and unruled in
+`docs/IN-FLIGHT-languages.md` — and `wasm.rs` hard-codes `Language::C` as a
+stand-in for "fold on braces" in two places (`:389`, `:398`).
+
+**Recommendation unchanged, reason corrected:** do not carry the folds into
+`WebDocument`, and do not let #43 be the commit that decides how the browser
+names a language.
+
+Checked and found NOT to be a defect, recorded so nobody spends a window on it
+twice: I expected the kernel and web refreshes to brace-scan the same document
+twice per keystroke. They do not — the kernel's path exits at that `None`
+before it scans. One scan.
+
+⭐ **The rule, twice over now:** a citation chain is not evidence. Both this and
+the stale-plan note at the top of this file are the same failure — a document
+repeating a claim from another document. Only the code is evidence.
+
+## The rule this session keeps re-earning
+
+**A gate that has not run is not a gate that passed**, and the honest move when
+the box is loaded is to say which ones are outstanding rather than to round up.
+`daf1d56` did that, and the outstanding one is the one that was red.
+
+## Still blocked on Tom — unchanged, five items
+
+**#58** (Oil, three key rulings) · **#64** (delete the 21 MB legacy bindings
+tree — recommend yes) · **#70** (six colour choices) · **#74** (pin the Rust
+toolchain — recommend a `rust-toolchain.toml`) · **Cally's hook** (install —
+recommend yes). Plus **L-0..L-8** in `IN-FLIGHT-languages.md`, which #43 now
+depends on.
+
+## Unblocked backlog
+
+**#75** (clippy never lints the wasm target — 8 errors hiding in
+`render/pipeline.rs` and `render/web.rs`) is the strongest next pick: it is the
+same shape as the gap gate 5 just caught, one layer out, and it needs no ruling
+from anyone. Then #44, #45, #69, #31, #35.
+
+**#43 is now blocked on L-0**, not on a kernel fix. That is a change from what
+the strip said.

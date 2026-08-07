@@ -1567,12 +1567,47 @@ the `frame_timer/` pattern into `mod.rs` / `capture.rs` / `highlighter.rs` /
 `capture.rs` / `span.rs`. Everything is under 500 and the public paths are
 unchanged.
 
+### Gates on `c0f8bde` — seven of eight green
+
+| gate | exit | evidence |
+| --- | --- | --- |
+| `fmt --all --check` | 0 | no diffs |
+| `test -p iridium-editor` (no-default) | 0 | 1014 + 3 + 16 passed |
+| `test -p iridium-editor --features syntax` | 0 | 1109 + 3 + 16 passed |
+| `check -p iridium-bindings --features web --target wasm32` | 0 | clean |
+| `clippy -p iridium-editor` (no-default) | 0 | zero diagnostics |
+| `clippy -p iridium-editor --features syntax` | 0 | zero diagnostics |
+| `clippy --workspace --all-features --all-targets` | 0 | zero diagnostics |
+| **`test --workspace --all-features`** | — | **NOT RUN** |
+
+Plus `check --workspace --all-features --all-targets` exit 0, whose only
+warning is the pre-existing `block v0.1.6` future-incompat note.
+
+⭐ **A gate threshold has to be scaled to the run it gates.** These seven were
+started at 1-minute loads of 10.1–13.2 — above the <10 bar written for the #71
+battery — and that was a deliberate, stated relaxation, not drift. Each
+finished in 5–20 seconds against a warm cache. The bar exists to stop a
+multi-minute run from being started into a closing trough; applying it
+unchanged to a five-second gate would refuse work for no benefit.
+
+The one gate left is the expensive one, and it does **not** get that
+relaxation: it rebuilds the all-features test binaries. Load went 26.27 then
+28.25 immediately after the workspace clippy, with 5- and 15-minute averages at
+17.1 and 14.4 — so the box is genuinely held by another seat, not just my own
+decaying burst.
+
 ### The one action that moves things
 
-**Run the eight-gate battery on this change** — `-p iridium-syntax` is green at
-112 tests, but the split moved public items and nothing has yet compiled the
-desktop face, the bindings, or the wasm target against it. Load was 12–17
-throughout the window this was written in, so the battery has not been started.
+**Run the last gate, split into two commands so the compile carries its own
+exit status:**
+
+```
+cargo test --workspace --all-features --no-run
+cargo test --workspace --all-features --no-fail-fast
+```
+
+That split is the shape #71 proved out: a window closing mid-compile costs the
+compile alone, and the compile is resumable.
 
 ### Two things not to redo
 

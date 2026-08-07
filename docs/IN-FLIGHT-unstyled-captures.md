@@ -1,11 +1,18 @@
 # #70 — the nine unstyled captures, each traced to its query site
 
+> **STATUS.** The three that needed no ruling have **landed** (#72) — see the
+> correction below and `IN-FLIGHT-span-precedence.md`, which is where running
+> them led. `KNOWN_UNSTYLED_GAP` is now **six** names, all of them the colour
+> choices below, all still Tom's call. The rest of this document is the
+> analysis as originally written, corrected in place where execution
+> contradicted it.
+
 Analysis only. **Nothing here has been compiled or run** — the box was above
 its load threshold for the whole window this was written in (see
 `IN-FLIGHT-box-gate.md`), so this is source reading and the implementation is
 still to come.
 
-`KNOWN_UNSTYLED_GAP` in `crates/iridium-syntax/src/highlight/tests.rs:71` lists
+`KNOWN_UNSTYLED_GAP` in `crates/iridium-syntax/src/highlight/tests/capture.rs` lists
 nine capture names that produce no span, so the tokens they match reach the
 screen in the plain foreground. The list was deliberately left as a ratchet
 rather than fixed, on the grounds that choosing a colour is a presentation
@@ -16,7 +23,7 @@ what the capture actually matches, with no colour to choose.
 
 ## The constraint every fix here respects
 
-`highlight.rs:130-139` sets the rule already: ride along with an existing
+`highlight/capture.rs` sets the rule already: ride along with an existing
 `HighlightType` rather than add a variant, because `SyntaxColors` is a fixed
 struct of concrete colours and **a new variant means a new field in every
 theme and in the TUI palette.** `namespace` and `module` ride with `Type` on
@@ -52,6 +59,18 @@ Uppercase **components** fall to the unpredicated pattern and map to `Type`,
 so they render styled. `<Foo>` is coloured and `<div>` is not, in the same
 file, on the same line. There is no reading of that as intentional.
 
+> ⚠️ **CORRECTED — the sentence above is wrong, and was wrong when written.**
+> `<div>` was *not* unstyled. The pattern at `:389` is unpredicated, so it
+> matches lowercase names too: `div` was captured by both patterns and rendered
+> as a `Type`. A third, earlier pattern captures it as `Variable` as well.
+>
+> The claim came from reading the `.scm`, and reading shows which patterns
+> exist, not which fire together on one node. Running it exposed a defect in
+> every language — several mapped spans over identical byte ranges, with no
+> rule anywhere deciding which colour wins. Full account, inventory and fix in
+> `IN-FLIGHT-span-precedence.md`. The recommendation itself survives: `tag.jsx`
+> → `Tag` is right, and it has landed.
+
 ### `text.jsx` → deliberately unstyled
 
 `(jsx_text) @text.jsx` is the prose between elements. `DELIBERATELY_UNSTYLED`
@@ -82,12 +101,19 @@ block's own labels are then highlighted by the same top-level pattern matching
 again.
 
 ⭐ **It must never carry a colour, because it matches a whole
-`statement_block`.** `highlight.rs:454-463` emits a span over the captured
-node's full byte range — `node.start_byte()..node.end_byte()` — and `:468-471`
-only sorts and dedups; **there is no overlap resolution in that function.**
-Mapping `nested` would therefore emit a span covering an entire
-brace-delimited region, competing with every token span inside it. That is not
-a token span, and mapping it would be a defect rather than a fix.
+`statement_block`.** `highlight/highlighter.rs` emits a span over the captured
+node's full byte range — `node.start_byte()..node.end_byte()`. Mapping `nested`
+would therefore emit a span covering an entire brace-delimited region,
+competing with every token span inside it. That is not a token span, and
+mapping it would be a defect rather than a fix.
+
+The claim this paragraph originally carried — *"there is no overlap resolution
+in that function"* — was true when written and is no longer. `spans_with` now
+resolves identical ranges by keeping the first span emitted. It still does not
+resolve **nested** ranges of different extents, which is what matters here: a
+`statement_block` span and the token spans inside it have different extents, so
+nothing would collapse them and the argument above stands unchanged. See
+`IN-FLIGHT-span-precedence.md`.
 
 So `nested` belongs in `DELIBERATELY_UNSTYLED` **with that reason recorded** —
 it is the same category as the `_`-prefixed predicate operands, differing only

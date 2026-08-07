@@ -1,16 +1,11 @@
-//! Syntax highlighting: parse tree in, coloured spans out.
+//! Capture names in, highlight categories out.
 //!
-//! The rules come from the bundled query files (.scm) vendored from the Zed
-//! editor; the tree comes from [`crate::SyntaxTree`], which this module reads
-//! and never owns.
-
-use std::ops::Range;
+//! The vendored Zed queries name captures far more finely than any theme
+//! colours them — `@keyword.control`, `@function.method`, `@type.builtin`
+//! — so this is where that vocabulary collapses onto the fixed set of
+//! categories a `SyntaxColors` can paint.
 
 use serde::{Deserialize, Serialize};
-use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
-
-use crate::SyntaxError;
-use crate::query::{self, QueryKind};
 
 /// Types of syntax highlights.
 ///
@@ -164,7 +159,16 @@ impl HighlightType {
             "attribute" | "decorator" | "annotation" => Some(Self::Attribute),
 
             // Tags (HTML/XML)
-            "tag" | "tag.name" => Some(Self::Tag),
+            //
+            // `tag.jsx` is listed rather than reached by a `tag` prefix arm,
+            // and deliberately so. Every other family here has a prefix arm,
+            // but a prefix would also swallow names that are not tags: several
+            // grammars capture `@tag.attribute` for an attribute *name*, which
+            // would silently take the tag colour and never surface in
+            // `every_vendored_capture_maps_to_a_highlight_type` — the test
+            // that found this gap in the first place. Listing costs one line
+            // per vendor refresh and keeps the ratchet.
+            "tag" | "tag.name" | "tag.jsx" => Some(Self::Tag),
 
             // Embedded content
             "embedded" => Some(Self::Embedded),
@@ -258,221 +262,3 @@ impl HighlightType {
         None
     }
 }
-
-/// A highlighted span of text.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HighlightSpan {
-    /// Start byte offset
-    pub start: usize,
-    /// End byte offset
-    pub end: usize,
-    /// The highlight type
-    pub highlight: HighlightType,
-}
-
-impl HighlightSpan {
-    /// Creates a new highlight span.
-    #[must_use]
-    pub const fn new(start: usize, end: usize, highlight: HighlightType) -> Self {
-        Self {
-            start,
-            end,
-            highlight,
-        }
-    }
-}
-
-impl PartialOrd for HighlightSpan {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for HighlightSpan {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.start
-            .cmp(&other.start)
-            .then_with(|| self.end.cmp(&other.end))
-    }
-}
-
-/// Maps a parse tree's nodes to highlight spans, for one language.
-///
-/// The highlighter owns no parser and no tree. It holds the rules — a compiled
-/// `highlights.scm` and the capture-name mapping — and reads a [`Tree`] someone
-/// else parsed, so there is no second copy of the document's structure that
-/// could disagree with the first. See [`crate::SyntaxTree`] for the owner.
-///
-/// The query itself is borrowed from the process-wide cache in [`crate::query`]:
-/// `highlights.scm` runs to thousands of patterns, and every open buffer of a
-/// language compiling its own copy put that cost on the path that opens a file.
-pub struct Highlighter {
-    language: crate::Language,
-    query: &'static Query,
-    capture_names: Vec<Option<HighlightType>>,
-}
-
-impl std::fmt::Debug for Highlighter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Highlighter")
-            .field("language", &self.language)
-            .field("captures", &self.capture_names.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Highlighter {
-    /// Creates a highlighter for the given language.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the language's bundled `highlights.scm` does not
-    /// compile against its grammar. Every supported language ships one, so this
-    /// is never routine — it means a dependency moved underneath a vendored
-    /// file.
-    pub fn new(language: crate::Language) -> Result<Self, SyntaxError> {
-        let query = query::compiled(language, QueryKind::Highlights)?.ok_or_else(|| {
-            SyntaxError::QueryError {
-                message: format!("No highlights query for language: {}", language.id()),
-            }
-        })?;
-
-        // Pre-compute capture name mappings for performance
-        let capture_names = query
-            .capture_names()
-            .iter()
-            .map(|name| HighlightType::from_capture_name(name))
-            .collect();
-
-        Ok(Self {
-            language,
-            query,
-            capture_names,
-        })
-    }
-
-    /// Creates a highlighter that will work without crashing, even if the
-    /// language isn't fully supported. Returns None for unsupported languages.
-    #[must_use]
-    pub fn try_new(language: crate::Language) -> Option<Self> {
-        Self::new(language).ok()
-    }
-
-    /// Returns the language this highlighter is configured for.
-    #[must_use]
-    pub const fn language(&self) -> crate::Language {
-        self.language
-    }
-
-    /// Returns the highlight spans for `tree`, sorted by position.
-    ///
-    /// `source` must be the exact text `tree` was parsed from: every span is a
-    /// byte range into it, and a mismatch would colour the wrong characters.
-    ///
-    /// Spans may overlap where one capture nests inside another; the renderer
-    /// decides precedence.
-    ///
-    /// # Cost
-    ///
-    /// This walks the *entire* tree — O(document), tens of milliseconds on a
-    /// 10k-line file at Rust token density — so it has no place on a
-    /// per-keystroke path. A caller answering for a viewport wants
-    /// [`Self::spans_in_range`], which restricts the walk to the bytes it
-    /// will actually paint; this whole-document form is for callers that
-    /// genuinely need every span at once.
-    #[must_use]
-    pub fn spans_in(&self, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
-        self.spans_with(QueryCursor::new(), tree, source)
-    }
-
-    /// Returns the highlight spans for the part of `tree` overlapping
-    /// `range`, sorted by position — [`Self::spans_in`] restricted to a byte
-    /// window via tree-sitter's `QueryCursor::set_byte_range`.
-    ///
-    /// `source` must still be the *whole* text `tree` was parsed from: node
-    /// offsets are document-absolute and query predicates read source bytes
-    /// wherever their captures land, so a window of the text would colour the
-    /// wrong characters or mis-evaluate predicates.
-    ///
-    /// # Boundary contract
-    ///
-    /// Tree-sitter's own contract for `ts_query_cursor_set_byte_range`
-    /// (vendored 0.26.3): the cursor returns every match that *intersects*
-    /// the byte range. Three consequences, stated so callers need not guess:
-    ///
-    /// - A captured node straddling a range edge is yielded **whole**, with
-    ///   its full extents unclamped — a multi-line string crossing the window
-    ///   edge arrives with its real `start` and `end`, possibly both outside
-    ///   the range. Nothing here clamps; the faces' resolvers already clamp
-    ///   spans to the content they paint.
-    /// - A match that only partially overlaps the range may carry captures
-    ///   lying **entirely outside** it — the whole match is returned once any
-    ///   part of it touches the range.
-    /// - Spans wholly inside the range are exactly the spans
-    ///   [`Self::spans_in`] would produce for them: same extents, same types,
-    ///   same ordering.
-    ///
-    /// An empty `range` (`start >= end`) yields no spans. That case is
-    /// answered here rather than forwarded: tree-sitter treats an end byte of
-    /// `0` as "unbounded" and leaves the cursor unrestricted on an inverted
-    /// range, either of which would silently degrade to the whole-document
-    /// walk this method exists to avoid.
-    #[must_use]
-    pub fn spans_in_range(
-        &self,
-        tree: &Tree,
-        source: &str,
-        range: Range<usize>,
-    ) -> Vec<HighlightSpan> {
-        if range.start >= range.end {
-            return Vec::new();
-        }
-        let mut cursor = QueryCursor::new();
-        cursor.set_byte_range(range);
-        self.spans_with(cursor, tree, source)
-    }
-
-    /// The walk shared by [`Self::spans_in`] and [`Self::spans_in_range`]:
-    /// runs the compiled query through `cursor` — already restricted, or not
-    /// — then maps, sorts and dedups the captures.
-    fn spans_with(&self, mut cursor: QueryCursor, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
-        let mut spans = Vec::new();
-
-        // Note: tree-sitter 0.26 uses StreamingIterator instead of Iterator
-        let mut matches = cursor.matches(self.query, tree.root_node(), source.as_bytes());
-
-        while let Some(match_) = matches.next() {
-            for capture in match_.captures {
-                let capture_idx = capture.index as usize;
-
-                // Skip captures that don't map to a highlight type
-                let Some(Some(highlight_type)) = self.capture_names.get(capture_idx).copied()
-                else {
-                    continue;
-                };
-
-                let node = capture.node;
-                let start = node.start_byte();
-                let end = node.end_byte();
-
-                // Skip empty spans
-                if start >= end {
-                    continue;
-                }
-
-                spans.push(HighlightSpan::new(start, end, highlight_type));
-            }
-        }
-
-        // Sort by start position, then by end position
-        spans.sort();
-
-        // Remove duplicates (same start/end/type)
-        spans.dedup();
-
-        spans
-    }
-}
-
-#[cfg(test)]
-mod tests;

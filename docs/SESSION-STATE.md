@@ -1530,10 +1530,49 @@ other two passed** — the commit was not amended, because amending it to claim
 gates it did not run would put a claim in the history that was false when
 written.
 
+### #72 — landed, and it was not the small one
+
+All three captures are resolved: `tag.jsx` → `Tag`, `text.jsx` and `nested` →
+`DELIBERATELY_UNSTYLED`. `KNOWN_UNSTYLED_GAP` is down from nine names to six,
+and those six are exactly #70's colour choices, still Tom's call.
+
+**It was billed as needing only a build. It needed a defect fix in every
+language.** Full account in `IN-FLIGHT-span-precedence.md`; the short version:
+
+- The write-up's claim that `<div>` renders unstyled was **wrong**. It rendered
+  as a `Type` — the unpredicated `@type` pattern matches lowercase names too,
+  and a third pattern captures it as `Variable`. Reading a `.scm` shows which
+  patterns exist, not which fire together on one node.
+- Chasing that exposed **fifteen byte ranges carrying two highlights** across
+  five one-line sources, in TSX, TypeScript, JavaScript and Rust —
+  reproduced on **unmodified code**. `fn main()` is one of them: `main` is
+  captured as both `FunctionDefinition` and `Variable`.
+- Nothing downstream could break the tie. `HighlightSpan`'s `Ord` ignores the
+  highlight, so the pair compares equal, and the desktop resolver sorts with
+  `sort_unstable` before taking the first claim on each byte. The right colour
+  was on screen only because `sort_unstable` happens to preserve order below
+  ~20 elements — which is *not* an ordinary line of code.
+- Fixed in `spans_with`: stable `sort`, then `dedup_by` on the range alone,
+  keeping the first span emitted. By construction it changes no colour that is
+  currently stable; it makes today's appearance a guarantee rather than a
+  coincidence.
+
+Two other precedence rules were tried and rejected, both recorded with the
+reason. Lowest-pattern-index made a token's colour depend on the byte range
+being queried — it would have changed colour on scroll.
+
+`highlight.rs` went 478 → 517 lines carrying that reasoning, so it was split on
+the `frame_timer/` pattern into `mod.rs` / `capture.rs` / `highlighter.rs` /
+`span.rs`, and `tests.rs` — **already** over at 622 — into `tests/mod.rs` /
+`capture.rs` / `span.rs`. Everything is under 500 and the public paths are
+unchanged.
+
 ### The one action that moves things
 
-**#72** — `tag.jsx` → `Tag`, `text.jsx` and `nested` → deliberately unstyled.
-No ruling needed; it was split out of #70 precisely so it would not wait.
+**Run the eight-gate battery on this change** — `-p iridium-syntax` is green at
+112 tests, but the split moved public items and nothing has yet compiled the
+desktop face, the bindings, or the wasm target against it. Load was 12–17
+throughout the window this was written in, so the battery has not been started.
 
 ### Two things not to redo
 

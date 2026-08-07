@@ -32,7 +32,8 @@
 //!
 //! **3. A refused binding is reported, never swallowed.** The kernel validates
 //! a keymap layer whole and refuses the whole thing, which would mean one
-//! mistyped command id costing every binding in the file. [`install`] drops the
+//! mistyped command id costing every binding in the file. [`install`](fn@install)
+//! drops the
 //! binding the refusal names, records why, and offers the rest again — see that
 //! module for what is deliberately *not* done on the user's behalf.
 //!

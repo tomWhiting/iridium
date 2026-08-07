@@ -53,7 +53,7 @@ pub enum HighlightType {
     TypeInterface,
     /// Operators (+, -, *, etc.)
     Operator,
-    /// Punctuation brackets ({, }, [, ], (, ))
+    /// Punctuation brackets — `{`, `}`, `[`, `]`, `(`, `)`.
     PunctuationBracket,
     /// Punctuation delimiters (., ,, ;, ::)
     PunctuationDelimiter,

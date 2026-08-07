@@ -31,7 +31,7 @@ impl FrameCompositor {
     /// `highlights` is consulted only when syntax highlighting is enabled.
     ///
     /// The shaped buffers are retained across frames behind a
-    /// [`ShapeKey`](super::shape::ShapeKey) of every input they depend on: a
+    /// [`ShapeKey`] of every input they depend on: a
     /// frame whose key matches the last one skips content extraction,
     /// highlight resolution and all shaping, and pays only what a frame
     /// legitimately owes — cursor walk, quads, glyph preparation and the

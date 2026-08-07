@@ -1,6 +1,7 @@
 //! Many open documents, and the nested groups that organise them.
 //!
-//! See `docs/WORKSPACE-DESIGN.md` for why this owns whole [`Editor`]s
+//! See `docs/WORKSPACE-DESIGN.md` for why this owns whole
+//! [`Editor`](crate::editor::Editor)s
 //! rather than splitting [`EditorState`](crate::editor::EditorState) into
 //! per-document and per-window halves, and what that choice costs.
 //!

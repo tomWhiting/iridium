@@ -75,7 +75,7 @@ impl From<KeymapError> for Refusal {
 /// Pushes the user's bindings, dropping and reporting each one refused.
 ///
 /// `push` is whatever the face uses to install a layer —
-/// [`Workspace::push_keymap`](iridium_editor::Workspace::push_keymap) or
+/// [`Workspace::push_keymap`](iridium_editor::workspace::Workspace::push_keymap) or
 /// [`Editor::push_keymap`](iridium_editor::Editor::push_keymap) — with its
 /// error mapped onto [`Refusal`]. It **must** leave the stack untouched when
 /// it refuses, which both of those do; a `push` that half-applied would make

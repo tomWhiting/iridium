@@ -17,7 +17,8 @@
 //!
 //! # Leaving the terminal
 //!
-//! [`Driver`] restores everything it turned on from [`Drop`] and from the panic
+//! [`Driver`](iridium_tui::driver::Driver) restores everything it turned on from
+//! [`Drop`] and from the panic
 //! hook, so a crash cannot leave a shell that echoes nothing. It is still
 //! closed explicitly here, because `Drop` has nowhere to report a failure to
 //! restore and this does. The loop's own error wins when both fail: it is what
@@ -25,7 +26,8 @@
 //!
 //! # Nothing is printed with `println!`
 //!
-//! Help, version and errors are written through [`io::Write`] so that a failure
+//! Help, version and errors are written through [`io::Write`](std::io::Write) so
+//! that a failure
 //! to write them is an outcome rather than a panic. `println!` panics on a
 //! broken pipe, and `iridium --help | head` is a broken pipe.
 

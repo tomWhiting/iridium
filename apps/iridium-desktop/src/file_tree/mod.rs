@@ -1,7 +1,8 @@
 //! The file explorer panel.
 //!
 //! An [`iridium_tree::Tree`] over an [`iridium_explorer::FileTree`], composed
-//! into the same [`PanelContent`] the palette and the undo tree use, so it
+//! into the same [`PanelContent`](crate::overlay::PanelContent) the palette and
+//! the undo tree use, so it
 //! inherits their chrome, their placement and their focus discipline rather
 //! than growing a third answer to any of it.
 //!

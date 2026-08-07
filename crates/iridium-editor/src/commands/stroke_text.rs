@@ -42,7 +42,8 @@ impl FromStr for StrokePattern {
     /// [`ModifierState::Forbidden`], so `ctrl+k` is an exact chord and carries the
     /// `AltGr` guard without the author writing it. The key `{char}` is the
     /// capture wildcard; the literal keys `-` and space are spelled `minus` and
-    /// `space`. [`KeyCode::Char`] is normalized, so letter case is irrelevant on
+    /// `space`. [`KeyCode::Char`](crate::input::KeyCode::Char) is normalized, so
+    /// letter case is irrelevant on
     /// both sides.
     ///
     /// # Errors

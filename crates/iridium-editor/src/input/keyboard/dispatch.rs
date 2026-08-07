@@ -5,7 +5,7 @@
 //! command palette. It is now three steps, none of which knows what key was
 //! pressed except the first:
 //!
-//! 1. [`KeymapResolver`] turns the keypress into a
+//! 1. [`KeymapResolver`](crate::commands::KeymapResolver) turns the keypress into a
 //!    [`Resolution`] against the handler's [`KeymapStack`](crate::KeymapStack) —
 //!    a command id, a pending multi-key sequence, an abort, or no match;
 //! 2. [`action_for`] turns the id into a [`KeyboardAction`], which

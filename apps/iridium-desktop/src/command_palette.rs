@@ -8,7 +8,7 @@
 //!
 //! Nothing in this module matches, scores, ranks or remembers. Every
 //! keystroke re-runs
-//! [`palette::search_text`](iridium_editor::commands::palette::search_text)
+//! [`palette::search_text`]
 //! against the kernel's own registry — the same matcher, the same recency
 //! bonus, the same total order every face uses, so the same query can never
 //! put a different command first here than in the terminal. What is here is a

@@ -1,7 +1,8 @@
 //! The whole editor as a state machine: keys in, editor state and a cell
 //! buffer out.
 //!
-//! There is no terminal here. [`App`] is driven by [`TerminalInput`] values and
+//! There is no terminal here. [`App`] is driven by
+//! [`TerminalInput`](iridium_tui::input::TerminalInput) values and
 //! draws into a [`Surface`](iridium_tui::cell::Surface), both of which a test
 //! can construct, so everything this program decides — what a key does, when a
 //! save is refused, what the statusline says — runs on the host. What is left
@@ -9,7 +10,8 @@
 //!
 //! The three modules beside this one extend the same [`App`] rather than
 //! introducing another type, which is how the kernel splits its own editor:
-//! [`commands`] is the verbs this face contributes and their keys, `document`
+//! [`commands`](crate::app::commands) is the verbs this face contributes and
+//! their keys, `document`
 //! is what it does to a file, and `view` is what reaches the screen.
 //!
 //! # The kernel owns every verb
@@ -21,9 +23,10 @@
 //! clipboard command the kernel hands back, or through a kernel method named by
 //! a binding. The verbs this face *adds* — save, reload, quit, go-to-line, the
 //! fold commands — are registered as host commands and bound in a keymap layer;
-//! see [`commands`]. `App::run_host_command` is the only place they are
+//! see [`commands`](crate::app::commands). `App::run_host_command` is the only
+//! place they are
 //! dispatched, and it is reached only because the kernel reported
-//! [`EditorKeyResult::HostCommand`].
+//! [`EditorKeyResult::HostCommand`](iridium_editor::EditorKeyResult::HostCommand).
 //!
 //! # Scrolling costs more than it should
 //!
@@ -45,7 +48,8 @@
 //!
 //! # The clipboard is this process's
 //!
-//! [`ClipboardOperation`] hands the host text to keep and asks for text back.
+//! [`ClipboardOperation`](iridium_editor::input::ClipboardOperation) hands the
+//! host text to keep and asks for text back.
 //! There is no system clipboard behind it: this crate depends on the kernel and
 //! the face and nothing else, and the terminal answer — OSC 52 — is a byte
 //! sequence only the driver may write, which exposes no hook for one. So a copy

@@ -51,7 +51,8 @@ impl KeyboardHandler {
     /// carrying them across could complete a sequence the user never typed.
     ///
     /// A binding naming a command this handler does not implement is not an
-    /// error: that key is reported as [`KeyResult::HostCommand`], naming the id,
+    /// error: that key is reported as
+    /// [`KeyResult::HostCommand`](crate::input::KeyResult::HostCommand), naming the id,
     /// so a host command can own it. Use [`Self::push_validated_keymap`] (or
     /// [`KeymapStack::validate`] against a registry) at load time to turn a *typo*
     /// into a diagnostic instead.
@@ -64,7 +65,8 @@ impl KeyboardHandler {
     ///
     /// Prefer [`Self::push_validated_keymap`] for anything loaded from
     /// configuration: this method performs no checks, so a typo'd command id
-    /// becomes a key that reports [`KeyResult::HostCommand`] for a command nobody
+    /// becomes a key that reports
+    /// [`KeyResult::HostCommand`](crate::input::KeyResult::HostCommand) for a command nobody
     /// implements, and every matched binding clones an owned id on the keystroke
     /// path.
     pub fn push_keymap(&mut self, keymap: Keymap) {

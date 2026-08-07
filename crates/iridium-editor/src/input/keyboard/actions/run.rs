@@ -29,7 +29,8 @@ impl KeyboardHandler {
     /// interpretation that used to live in the guards now expressed by the
     /// binding that selected the command. `Ctrl+Left` no longer means "word
     /// left because `ctrl` is set"; it means
-    /// [`builtin::CURSOR_WORD_LEFT`], and the keymap decided that.
+    /// [`builtin::CURSOR_WORD_LEFT`](crate::commands::builtin::CURSOR_WORD_LEFT),
+    /// and the keymap decided that.
     pub(in crate::input::keyboard) fn run_action(
         &mut self,
         action: KeyboardAction,

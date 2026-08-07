@@ -30,7 +30,7 @@ struct CommentBlock {
 
 /// One language's vendored manifest.
 ///
-/// Constructed only by [`super::embedded`], which owns the `include_str!`
+/// Constructed only by this module's `embedded` sibling, which owns the `include_str!`
 /// table; `id` is the directory the file came out of rather than anything in
 /// the file, which is why this type cannot be deserialized on its own.
 #[derive(Debug, Clone)]

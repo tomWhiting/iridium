@@ -352,11 +352,7 @@ pub fn get_extensions_for_language(language: String) -> Vec<String> {
 
     with_napi_str(language, |language| {
         Language::from_id(language).map_or_else(Vec::new, |language| {
-            language
-                .extensions()
-                .iter()
-                .map(|extension| (*extension).to_string())
-                .collect()
+            language.extensions().map(str::to_owned).collect()
         })
     })
 }

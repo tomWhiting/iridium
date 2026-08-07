@@ -24,7 +24,8 @@
 //!   `.jsonc` and the real one did not. Collapsing the two took the real one's
 //!   answer, which left `.jsonc` resolving to nothing at all; the grammar was
 //!   then checked and it turned out the stub had been right, so `.jsonc` is
-//!   back — see the note on it in [`Language::extensions`];
+//!   back — see `MANIFEST_ALIASES` in the crate's `suffix` module for how
+//!   it resolves now;
 //! - the real enum derived `Serialize`/`Deserialize` and the stub did not, so
 //!   a value that round-tripped through a configuration in one build would not
 //!   compile in the other.
@@ -49,11 +50,17 @@
 //! which the parser-free build needs. Splitting the directory so only the
 //! manifests came along would leave one vendored upstream tree owned by two
 //! crates, and the next refresh would have to know that.
+//!
+//! [`manifest`] reads those files; a private `suffix` module turns their file
+//! associations into an answer to "what language is this path?". Between them they are why
+//! this crate no longer hand-maintains a single fact about a language that the
+//! vendored tree already states.
 
 use serde::{Deserialize, Serialize};
 
 pub mod manifest;
 pub mod query;
+mod suffix;
 
 /// A language a document can be written in.
 ///
@@ -146,68 +153,31 @@ impl Language {
         }
     }
 
-    /// Every file extension that names this language, without the leading dot.
+    /// The file extensions this language claims, without leading dots.
     ///
-    /// This is the *only* extension table. [`Self::from_extension`] searches it
-    /// rather than restating it, so the forward and reverse directions cannot
-    /// disagree — a hand-written inverse is a second copy of a decision, and a
-    /// second copy is a thing that drifts. The web face's
-    /// `get_extensions_for_language` was exactly such a copy, and it went stale
-    /// the moment `.jsonc` was added here.
+    /// Read from the language's vendored manifest rather than written out here
+    /// — see the crate's `suffix` module for what that entails, including the whole file
+    /// names the manifest also carries and the one case-sensitivity that
+    /// matters.
     ///
-    /// Entries are lower-case, because `from_extension` lower-cases its input
-    /// before comparing; `every_extension_is_lower_case` holds that.
-    #[must_use]
-    pub const fn extensions(self) -> &'static [&'static str] {
-        match self {
-            Self::Rust => &["rs"],
-            Self::Python => &["py", "pyi", "pyw"],
-            Self::TypeScript => &["ts", "mts", "cts"],
-            // JSX is the JavaScript grammar; there is no separate one.
-            Self::JavaScript => &["js", "mjs", "cjs", "jsx"],
-            Self::Tsx => &["tsx"],
-            Self::Go => &["go"],
-            // `.jsonc` is the JSON grammar and not a mistake: tree-sitter-json
-            // carries `comment` in its `extras`, covering both `//` and
-            // `/* */`, and the vendored `json/highlights.scm` already captures
-            // `(comment)`. A commented document parses with no error node at
-            // all. See `jsonc_is_the_json_grammar_and_its_comments_parse` in
-            // `iridium-syntax`, which pins that against a grammar bump.
-            //
-            // Highlighting is all this mapping buys. Whether `Ctrl+/` writes a
-            // comment is decided by the comment-token table in
-            // `iridium-editor`, where JSON deliberately has no token — so the
-            // toggle stays a no-op here. Giving JSON one would give every
-            // `.json` file one too, which is a separate call: the two formats
-            // share a grammar but not a specification.
-            Self::Json => &["json", "jsonc"],
-            Self::Yaml => &["yaml", "yml"],
-            Self::Markdown => &["md", "markdown"],
-            Self::Css => &["css"],
-            Self::Bash => &["sh", "bash", "zsh"],
-            // `.h` is ambiguous in reality and the choice here is C.
-            Self::C => &["c", "h"],
-            Self::Cpp => &["cpp", "cxx", "cc", "hpp", "hxx", "hh"],
-        }
+    /// Returns an iterator rather than a slice because the list is assembled
+    /// from up to three sources and no longer exists as one contiguous array.
+    pub fn extensions(self) -> impl Iterator<Item = &'static str> {
+        crate::suffix::extensions_of(self)
     }
 
     /// Detects a language from a file extension, without the leading dot.
     ///
-    /// Case-insensitive over the whole string rather than ASCII-only, so a
-    /// file named `README.MD` on a case-preserving filesystem is Markdown.
+    /// Case-sensitive first and case-insensitive second, so `README.MD` is
+    /// Markdown while `.C` stays C++ and `.c` stays C. The crate's `suffix`
+    /// module has the reason that ordering is load-bearing, not incidental.
     ///
     /// The search is linear over [`Self::all`], which is a few dozen string
     /// comparisons on the path that opens a file — not on any path that runs
-    /// per keystroke or per frame. Its result does not depend on the order of
-    /// that scan, because no extension belongs to two languages; that is
-    /// asserted rather than assumed, in `no_extension_names_two_languages`.
+    /// per keystroke or per frame.
     #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
-        let lowered = ext.to_lowercase();
-        Self::all()
-            .iter()
-            .copied()
-            .find(|language| language.extensions().contains(&lowered.as_str()))
+        crate::suffix::language_for_extension(ext)
     }
 
     /// Every language, in the order that is this type's index space.
@@ -329,13 +299,18 @@ mod tests {
     }
 
     #[test]
-    fn header_extensions_split_between_c_and_cpp_as_written() {
-        // `.h` is C and `.hpp`/`.hxx`/`.hh` are C++. `.h` is ambiguous in
-        // reality and the choice is C; it is asserted so that changing it is a
-        // decision rather than a drift.
-        assert_eq!(Language::from_extension("h"), Some(Language::C));
+    fn header_extensions_belong_to_cpp() {
+        // `.h` used to be C here, with a comment conceding the ambiguity. The
+        // vendored manifests give it to C++ — its `cpp` claims `h` and its `c`
+        // does not — and that is also the better answer, because the C++
+        // grammar is a superset: it parses a C header, where the C grammar
+        // fails on a template or a namespace. See `suffix::tests` for the
+        // `.C` / `.c` pair, which is the case where one letter is two
+        // languages.
+        assert_eq!(Language::from_extension("h"), Some(Language::Cpp));
         assert_eq!(Language::from_extension("hpp"), Some(Language::Cpp));
         assert_eq!(Language::from_extension("hh"), Some(Language::Cpp));
+        assert_eq!(Language::from_extension("c"), Some(Language::C));
     }
 
     #[test]
@@ -353,7 +328,7 @@ mod tests {
         assert_eq!(Language::Json.id(), "json");
     }
 
-    /// The forward and reverse directions of the one extension table agree.
+    /// The forward and reverse directions agree.
     ///
     /// `from_extension` searches `extensions()`, so this cannot fail by
     /// construction today. It is written down anyway because the day someone
@@ -374,13 +349,15 @@ mod tests {
 
     #[test]
     fn no_extension_names_two_languages() {
-        // This is what makes the scan order in `from_extension` irrelevant. If
-        // it ever fails, the fix is to decide which language owns the
-        // extension, not to reorder `all()`.
+        // This is what makes the scan order in `from_extension` irrelevant.
+        // Compared exactly, not case-folded: `cpp` claims `"C"` and `c` claims
+        // `"c"`, which are two extensions rather than one. `suffix::tests`
+        // holds the separate guarantee that every case-folding clash is
+        // resolved before the case-insensitive pass runs.
         let mut seen: Vec<(&str, Language)> = Vec::new();
         for &language in Language::all() {
             for extension in language.extensions() {
-                if let Some((_, owner)) = seen.iter().find(|(name, _)| name == extension) {
+                if let Some((_, owner)) = seen.iter().find(|(name, _)| *name == extension) {
                     panic!("{extension:?} is claimed by both {owner:?} and {language:?}");
                 }
                 seen.push((extension, language));
@@ -389,25 +366,21 @@ mod tests {
     }
 
     #[test]
-    fn every_extension_is_lower_case_and_carries_no_dot() {
-        // `from_extension` lower-cases its input before comparing, so an
-        // upper-case entry here would be unreachable. A leading dot would be
-        // the same mistake in a different spelling: callers pass what
-        // `Path::extension` returns, which never includes one.
+    fn every_extension_carries_no_dot() {
+        // Callers pass what `Path::extension` returns, which never includes a
+        // leading dot and never contains one. Case is *not* asserted: the
+        // manifests carry `"C"`, `"H"` and `"MD"` deliberately, and
+        // `from_extension` matches exactly before it folds case.
         for &language in Language::all() {
             assert!(
-                !language.extensions().is_empty(),
+                language.extensions().next().is_some(),
                 "{language:?} claims no extension, so no file can ever select it"
             );
             for extension in language.extensions() {
-                assert_eq!(
-                    *extension,
-                    extension.to_lowercase(),
-                    "{language:?} lists {extension:?} in a case `from_extension` cannot match"
-                );
                 assert!(
-                    !extension.starts_with('.'),
-                    "{language:?} lists {extension:?} with a leading dot"
+                    !extension.contains('.'),
+                    "{language:?} lists {extension:?}, which is a file name rather \
+                     than an extension"
                 );
             }
         }

@@ -14,7 +14,7 @@ use std::fmt;
 /// One kind of tree-sitter query, named by the file that carries it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum QueryKind {
-    /// Maps syntax nodes to highlight types. Drives [`crate::Highlighter`].
+    /// Maps syntax nodes to highlight types. Drives `iridium_syntax::Highlighter`.
     Highlights,
     /// Pairs of delimiters that open and close a construct.
     Brackets,

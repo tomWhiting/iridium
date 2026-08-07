@@ -2694,3 +2694,111 @@ Load ~9. Disk **170 GB free** — it was 29 GB at the start of this tick, so
 something outside this seat freed ~140 GB. Tree 18.7 GB at last `du -sk`.
 Working tree clean apart from `?? .claude/skills/`, untracked at session start
 and not mine.
+
+---
+
+# ▶ TICK — 8 Aug ~07:15
+
+## 1. Meridian: attempt 11 **SENT**
+
+⭐ After **ten** consecutive `500 … database connection pool acquire timed
+out`, the bridge came back. Tom now has, in one message: the appearance
+change in `63aa7fc` and why I judged it taste-free; the two defects fixed in
+the same lines; the `cargo doc` decision pair (allow per crate root, and
+whether to gate it in CI — with the warning that unlike the version-echo a
+doc gate can turn a green PR red); the closed list; and the full blocked
+column. It also says outright that it is attempt 11 and why he may be reading
+it cold.
+
+**Cadence stays one attempt per tick.** The channel being live once is not
+evidence it is live twice.
+
+## 2. #78 — a file with no grammar wore another language's keywords
+
+Full write-up: `docs/IN-FLIGHT-grammarless-bridge.md`. Landed `71da0da`.
+
+**How it was found**, because the route is the reusable part: `has_grammar`
+is `pub use`d from `iridium-syntax`'s crate root and **called by nothing
+outside the crate**. Its own doc says it is *"the question a caller usually
+wants answered before deciding a syntax-driven feature is available."* ⭐ **An
+exported answer nobody asks is either dead API or a missing wire-up** — and
+the second is a defect wearing the costume of the first.
+
+**The chain, all read at named lines, none inferred:**
+
+1. `windowed.rs:162` set `language_active = language().is_some()`.
+2. `Highlighter::try_new` answers `None` for a grammarless language, so the
+   cache takes its *"the query did not compile"* path — entry empty,
+   **`language_active` still true**.
+3. `shaping.rs:234` and `:280` read that pair and run the keyword bridge:
+   `SimpleHighlighter`, whose `is_keyword` is the **union of the Rust,
+   JavaScript, TypeScript and Python keyword sets**.
+
+⚠️ **The worst case is the file `git commit` opens.** A commit message is
+prose, and that union contains `for`, `in`, `as`, `if`, `else`, `match`,
+`type`, `new`, `from`, `try`, `with`, `where`, `case`, `return`, `use`.
+
+⭐ **The proxy and its divergence.** `language().is_some()` proxies for *"spans
+are owed but have not arrived this frame"*. It agrees with its target for
+every language that has a grammar — including the case the path was written
+for, a grammar whose `highlights.scm` fails to compile. It diverges for the
+four `R-1` admitted with no grammar: `diff`, `gitcommit`, `gomod`, `gowork`.
+Nothing is owed to them ever, so the bridge is not a bridge, it is permanent.
+
+⭐ **Why it needed no ruling.** The rule was already written **twice by the
+code breaking it** — `HighlightSource::language_active`'s *"a file without a
+grammar must never wear another language's keyword colors"*, and
+`refresh_windowed`'s own restatement. Both sentences say **grammar**; both
+were implemented as **language**. `iridium-lang`'s `languages.txt` makes the
+same claim from the other end: *"They will not highlight until a grammar is
+linked."* They highlighted.
+
+**Red looked like this**, and the detail matters:
+
+```
+diff has no grammar: there is nothing to bridge to, and a file without a
+grammar must never wear another language's keyword colours
+```
+
+⭐ It failed on the **second** assertion — `index().is_none()` already passed.
+The spans genuinely never existed, so the fix removes colour that came from
+nowhere, not colour that came from somewhere better.
+
+**The fix is one line** plus the three docs that stated the grammar rule while
+implementing the language rule. `span_index` is `#[cfg(feature = "syntax")]`,
+so no stub counterpart and the parser-free kernel is untouched. Both native
+faces inherit it through the one shared cache (parser-tax R2); the terminal
+face has no keyword bridge at all, so this makes the two agree.
+
+**Left behind, named not fixed:** the web face answers `language_active` true
+unconditionally (`wasm.rs:3079`). That is its host's notion of a set language,
+documented on the trait, and changing it means deciding what TypeScript knows
+about grammar linkage — L-0 territory.
+
+## 3. Leads checked this tick and found NOT to be defects
+
+Recorded so nobody spends a window on them twice.
+
+- **`SyntaxState` with a grammarless language.** I expected `note_edit`'s
+  early return (no tree) to starve the brace-scan fold detector of the deltas
+  it needs. It does not: the **stub `SyntaxTree::new` never fails**
+  (`syntax_stubs.rs:105-112`, and it says so), so the feature-off build always
+  has a tree and always records. Feature-*on* with a grammarless language,
+  `refresh_syntax` returns false before folds are touched — folds are absent
+  rather than stale, and those four languages have no braces to fold anyway.
+- **The light preset's surfaces.** `EditorColors::light()` states `ffffff`,
+  `f5f5f5`, `f5f5f5` — all opaque, so the 6e22cbe class of bug is not live.
+  ⚠️ Worth knowing: `the_dark_preset_surfaces_are_opaque` has **no light
+  counterpart**. That is a missing fence, not a defect, and any #31 variant
+  must clear it — `classic.rs` already pins it for the three candidates.
+
+## Gate state
+
+**All nine green on `71da0da`**: 2,514 passed, 0 failed. Every gate was run
+unpiped with its exit status recorded on the next line.
+
+## Box
+
+Load ~18 at tick open (high, and not this seat's). Disk 169 GB free.
+Working tree clean apart from `?? .claude/skills/`, untracked at session
+start and not mine.

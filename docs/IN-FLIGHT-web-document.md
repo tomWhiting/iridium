@@ -72,6 +72,58 @@ authoritative.
 `WebHighlightCache` is independently verifiable, needs no decision from anyone,
 and shrinks the thing #43 then has to move from eight document fields to five.
 
+### The evidence, from the 34 call sites
+
+Counted: `ts_highlights` 12, `use_ts_highlights` 8, `span_index` 9,
+`highlight_generation` 6.
+
+⭐ **The code already has the concept. What it does not have is a type.**
+
+Two independent pieces of evidence, neither of which is "these feel related":
+
+**1. The consumer already groups them.** `wasm.rs:2882` declares
+
+```rust
+struct WebHighlightSource<'a> {
+    span_index: &'a WebSpanIndex,
+    ts_highlights: &'a [JsHighlightSpan],
+    use_ts_highlights: bool,
+    document: &'a Document,
+    fold_state: &'a FoldState,
+}
+```
+
+built fresh each frame at `:1672-1679` from borrows of exactly these fields
+plus the generation. So the bundle exists at the point of use; only ownership
+is scattered.
+
+**2. The invariant is written out three times in prose.** `highlight_generation`
+is bumped at `:1222`, `:1788` and `:1837`, and each site carries its own
+comment explaining the same rule — *"New spans mean a new resolution answer"*,
+*"Clearing changes the resolution answer as surely as new spans do — the
+span-clearing half of the generation contract"*, *"the generation contract is
+about the resolver's answer"*.
+
+Three careful restatements of one rule is a rule the type system should be
+carrying. ⭐ **Name the circumstance in which it fails:** a fourth path that
+mutates `ts_highlights` or `span_index` and does not bump. Nothing prevents it
+— the only thing holding the contract is that all three existing sites
+remembered. Consumers keyed on the generation would then serve a stale colour
+resolution, and highlight staleness in this face is a bug class that has
+already bitten once (#34, degenerate spans).
+
+### Therefore the shape
+
+`WebHighlightCache` owning all four, exposing the three mutations as methods —
+set-from-JS, clear, retain-shifted — each bumping the generation **internally**.
+That converts "remember to increment" into something a caller cannot get wrong,
+which is the same move #42 made: replace a hand-maintained agreement with a
+single owner.
+
+The four fields become one, `WebHighlightSource` borrows the cache rather than
+four separate fields, and the three prose restatements collapse to one place
+where the contract is enforced instead of described.
+
 ## Blocker 2 — the folds are a genuine duplicate, and it is a known defect
 
 `fold_state` and `fold_syntax` duplicate state the kernel already owns. This is

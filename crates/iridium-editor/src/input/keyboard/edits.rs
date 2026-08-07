@@ -79,10 +79,16 @@ impl KeyboardHandler {
         cursor: &CursorState,
         config: &EditorConfig,
     ) -> KeyResult {
-        if config.auto_pairs && behaviors::is_auto_pair_trigger(c) {
-            let edits = behaviors::auto_pair_char_edits(document, cursor, c);
-            return editing::build_multi_cursor_command_placed(document, cursor, edits)
-                .map_or(KeyResult::Handled, KeyResult::Command);
+        if config.auto_pairs {
+            // Built once here rather than inside the per-cursor loop: it costs
+            // a manifest lookup, and the answer is the document's, not the
+            // cursor's.
+            let pairs = behaviors::AutoPairs::for_document(document);
+            if pairs.is_trigger(c) {
+                let edits = behaviors::auto_pair_char_edits(document, cursor, c, pairs);
+                return editing::build_multi_cursor_command_placed(document, cursor, edits)
+                    .map_or(KeyResult::Handled, KeyResult::Command);
+            }
         }
 
         Self::insert_text(&c.to_string(), document, cursor)

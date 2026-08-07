@@ -300,3 +300,71 @@ fn the_display_name_is_not_the_id() {
     );
     assert_eq!(by_id("cpp").map(super::Manifest::name), Some("C++"));
 }
+
+// ========== brackets ==========
+
+/// The three filters `auto_close_pairs` applies, each on a manifest that
+/// actually exercises it.
+#[test]
+fn auto_close_pairs_reads_only_the_rows_it_can_honour() {
+    let rust = by_id("rust").expect("vendored");
+    let pairs: Vec<_> = rust
+        .auto_close_pairs()
+        .expect("rust declares brackets")
+        .collect();
+
+    // `<` is declared `close = false` — a matching rule, not a typing one.
+    // `r#"`, `r##"`, `r###"` and `/*` are multi-character.
+    assert_eq!(pairs, vec![('{', '}'), ('[', ']'), ('(', ')'), ('"', '"')]);
+    assert!(
+        !pairs.iter().any(|&(open, _)| open == '\''),
+        "Rust declares no single quote — a lifetime is not a character literal"
+    );
+}
+
+/// `close` absent means `close = true`, which seventeen rows across the
+/// vendored tree rely on. Reading it as `false` would silently disable the
+/// most common pair in the estate.
+#[test]
+fn a_bracket_row_with_no_close_key_still_auto_closes() {
+    let c = by_id("c").expect("vendored");
+    assert!(
+        c.auto_close_pairs()
+            .expect("c declares brackets")
+            .any(|pair| pair == ('{', '}')),
+        "`{{` is declared with no `close` key in every C-like manifest"
+    );
+}
+
+/// An absent `brackets` key and an empty one are different answers, and both
+/// occur in the vendored tree.
+#[test]
+fn no_brackets_key_and_an_empty_one_are_told_apart() {
+    let awl = by_id("awl").expect("vendored");
+    assert!(
+        awl.auto_close_pairs().is_none(),
+        "awl declares no brackets key at all — it has not said"
+    );
+
+    let diff = by_id("diff").expect("vendored");
+    assert_eq!(
+        diff.auto_close_pairs()
+            .expect("diff declares an empty brackets table")
+            .count(),
+        0,
+        "diff has said: pair nothing"
+    );
+}
+
+/// Exactly two vendored manifests carry no `brackets` key, and they are named
+/// rather than counted — a count would go stale silently on a vendor refresh,
+/// and *which* language has not said is the fact a caller depends on.
+#[test]
+fn only_awl_and_markdown_inline_declare_no_brackets_key() {
+    let silent: Vec<&str> = super::all()
+        .iter()
+        .filter(|manifest| manifest.auto_close_pairs().is_none())
+        .map(super::Manifest::id)
+        .collect();
+    assert_eq!(silent, vec!["awl", "markdown-inline"]);
+}

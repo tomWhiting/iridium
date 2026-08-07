@@ -18,6 +18,8 @@
 
 use std::collections::BTreeSet;
 
+use iridium_lang::Language;
+
 use crate::document::{CursorState, Document, Position, Range, Selection};
 use crate::editor::EditorConfig;
 
@@ -26,17 +28,107 @@ use super::motions;
 
 // ========== Character classes and pair tables ==========
 
-/// Returns the closing character for an auto-pair opener.
+/// Every delimiter pair this editor knows how to type, in bit order.
 ///
-/// Openers are the three brackets and the three quotes (which close with
-/// themselves). Returns `None` for every other character.
-const fn pair_close(c: char) -> Option<char> {
-    match c {
-        '(' => Some(')'),
-        '[' => Some(']'),
-        '{' => Some('}'),
-        '"' | '\'' | '`' => Some(c),
-        _ => None,
+/// Six because that is the whole single-character set: three brackets and
+/// three quotes, which close with themselves. Multi-character openers —
+/// Python's `"""`, Rust's `r#"`, the `/* */` six languages declare — need
+/// longest-match against the text before the caret and a different skip-over
+/// rule, and are not here; `docs/design/AUTO-PAIR-MAP.md` slice S-3.
+const PAIRS: [(char, char); 6] = [
+    ('(', ')'),
+    ('[', ']'),
+    ('{', '}'),
+    ('"', '"'),
+    ('\'', '\''),
+    ('`', '`'),
+];
+
+/// Which of [`PAIRS`] the document's language actually auto-closes.
+///
+/// ⭐ **The set is the language's, not this module's.** Every vendored
+/// manifest declares a `brackets` table, and they disagree with a fixed six in
+/// ways a user feels: Rust declares no `'`, because a lifetime is not a
+/// character literal, so a fixed table turns every `<'a>` into `<'a'>`. JSON
+/// and YAML declare no backtick; `go.mod` declares only `(`; Markdown
+/// declares its three quotes `close = false`, because an apostrophe in prose
+/// is an apostrophe.
+///
+/// A bitmask over six positions rather than a set: it is `Copy`, it is one
+/// byte, and it is built once per keystroke rather than consulted per cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct AutoPairs(u8);
+
+impl AutoPairs {
+    /// Every pair in [`PAIRS`] — what a document with no language, or a
+    /// language whose manifest says nothing about brackets, gets.
+    pub(super) const ALL: Self = Self((1 << PAIRS.len()) - 1);
+
+    /// The set for `document`'s language.
+    ///
+    /// [`Self::ALL`] when there is no language, no vendored manifest for it,
+    /// or no `brackets` key in that manifest — three distinct ways of *not
+    /// having said*, all of which leave behaviour exactly as it was. A
+    /// manifest that declares an empty table has said "none", and gets none;
+    /// `diff` is the one that does.
+    pub(super) fn for_document(document: &Document) -> Self {
+        let Some(declared) = document
+            .language()
+            .and_then(Language::from_id)
+            .and_then(Language::manifest)
+            .and_then(iridium_lang::manifest::Manifest::auto_close_pairs)
+        else {
+            return Self::ALL;
+        };
+
+        let mut mask = 0_u8;
+        for (open, close) in declared {
+            // Pairs this editor cannot type are skipped rather than
+            // approximated: `<`/`>` is declared by five languages and typing
+            // `<` must keep inserting a bare `<` until S-2 is ruled on.
+            if let Some(index) = PAIRS
+                .iter()
+                .position(|&(known_open, known_close)| known_open == open && known_close == close)
+            {
+                // The index came from `position` over a six-element array, so
+                // the shift is in range by construction.
+                mask |= 1_u8 << index;
+            }
+        }
+        Self(mask)
+    }
+
+    /// Whether the pair at `index` in [`PAIRS`] is active.
+    const fn has(self, index: usize) -> bool {
+        self.0 & (1_u8 << index) != 0
+    }
+
+    /// The closing character for an auto-pair opener this language pairs.
+    ///
+    /// `None` for every other character, including an opener the language
+    /// declines to close.
+    fn close(self, c: char) -> Option<char> {
+        PAIRS
+            .iter()
+            .enumerate()
+            .find_map(|(index, &(open, close))| (open == c && self.has(index)).then_some(close))
+    }
+
+    /// Whether `c` can close an active pair — the skip-over set.
+    ///
+    /// Restricted by the same set as [`Self::close`], and deliberately: a
+    /// closer this language never auto-inserts is a character the user typed,
+    /// and stepping over it instead of writing it would drop input.
+    fn is_closer(self, c: char) -> bool {
+        PAIRS
+            .iter()
+            .enumerate()
+            .any(|(index, &(_, close))| close == c && self.has(index))
+    }
+
+    /// Whether typing `c` engages auto-pair handling at all.
+    pub(super) fn is_trigger(self, c: char) -> bool {
+        self.close(c).is_some() || self.is_closer(c)
     }
 }
 
@@ -52,21 +144,13 @@ const fn bracket_close(c: char) -> Option<char> {
     }
 }
 
-/// Returns true for the three auto-paired quote characters.
+/// Returns true for the three quote characters.
+///
+/// Not language-scoped, and it should not be: this asks what kind of character
+/// `c` is, so that the apostrophe guard (`don't`) can fire. Which quotes are
+/// *paired* is [`AutoPairs`]'s question.
 const fn is_quote(c: char) -> bool {
     matches!(c, '"' | '\'' | '`')
-}
-
-/// Returns true for characters that can close an auto-pair (closing brackets
-/// and quotes), i.e. the characters eligible for skip-over.
-const fn is_pair_closer(c: char) -> bool {
-    matches!(c, ')' | ']' | '}') || is_quote(c)
-}
-
-/// Returns true when typing `c` engages auto-pair handling at all (it is an
-/// opener, a closer, or a quote).
-pub(super) const fn is_auto_pair_trigger(c: char) -> bool {
-    pair_close(c).is_some() || is_pair_closer(c)
 }
 
 // ========== Config helpers ==========
@@ -357,14 +441,18 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 ///   with the caret between the halves. Quotes do not pair when the caret is
 ///   directly after a word character (apostrophes inside words), inserting a
 ///   single quote instead.
+///
+/// `pairs` is the document language's set, built once by the caller rather
+/// than per cursor — see [`AutoPairs::for_document`].
 pub(super) fn auto_pair_char_edits(
     document: &Document,
     cursor: &CursorState,
     c: char,
+    pairs: AutoPairs,
 ) -> Vec<(CursorEdit, CaretPlacement)> {
     cursor
         .all_selections()
-        .map(|sel| auto_pair_edit_for(document, sel, c))
+        .map(|sel| auto_pair_edit_for(document, sel, c, pairs))
         .collect()
 }
 
@@ -373,9 +461,10 @@ fn auto_pair_edit_for(
     document: &Document,
     sel: &Selection,
     c: char,
+    pairs: AutoPairs,
 ) -> (CursorEdit, CaretPlacement) {
     if !sel.is_collapsed() {
-        if let Some(close) = pair_close(c) {
+        if let Some(close) = pairs.close(c) {
             // Wrap the selection, preserving the selected text and the
             // selection's orientation inside the pair.
             let inner = document.slice(sel.range());
@@ -393,7 +482,7 @@ fn auto_pair_edit_for(
     }
 
     // Skip over an existing closer instead of inserting a duplicate.
-    if is_pair_closer(c) && char_at(document, sel.head) == Some(c) {
+    if pairs.is_closer(c) && char_at(document, sel.head) == Some(c) {
         let target = Position::new(sel.head.line, sel.head.column + 1);
         return (
             CursorEdit::replace(Range::new(target, target), String::new()),
@@ -401,7 +490,7 @@ fn auto_pair_edit_for(
         );
     }
 
-    if let Some(close) = pair_close(c) {
+    if let Some(close) = pairs.close(c) {
         // Quotes stay single directly after a word character (don't, it's).
         if is_quote(c) && char_before(document, sel.head).is_some_and(motions::is_word_char) {
             return plain_char_edit(sel, c);
@@ -432,6 +521,10 @@ pub(super) fn backspace_edits_with_pairs(
     document: &Document,
     cursor: &CursorState,
 ) -> Vec<CursorEdit> {
+    // The same set the insertion used, so a pair this language never inserts
+    // is never collapsed by one backspace either: in Rust `'a'` is a character
+    // literal the user typed, and eating both quotes would delete input.
+    let pairs = AutoPairs::for_document(document);
     cursor
         .all_selections()
         .map(|sel| {
@@ -439,7 +532,7 @@ pub(super) fn backspace_edits_with_pairs(
                 return CursorEdit::delete(sel.range());
             }
             let between_pair = char_before(document, sel.head)
-                .and_then(pair_close)
+                .and_then(|before| pairs.close(before))
                 .is_some_and(|close| char_at(document, sel.head) == Some(close));
             if between_pair {
                 CursorEdit::delete(Range::new(

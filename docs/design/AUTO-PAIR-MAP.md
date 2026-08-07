@@ -72,6 +72,14 @@ parameter, not a lookup, not a stub.
 
 ### 1.2 What the manifests declare
 
+⚠️ **The first extraction below was wrong and is corrected in §1.2a.** It was
+taken with a regular expression, and `\{[^}]*\}` terminates on the `}` inside
+`end = "}"` — so every `{`→`}` row was truncated and silently dropped, and no
+row's `close` flag was read at all. §1.2a is the same data through
+`tomllib`. The table here is kept because its *starts* are accurate and it is
+what the divergence list was first written against; **read §1.2a for the
+facts that matter.** A citation chain is not evidence; only the parse is.
+
 Extracted from `crates/iridium-lang/src/languages/queries/*/config.toml`:
 
 | language | `brackets` openers | `autoclose_before` |
@@ -96,10 +104,41 @@ Each entry also carries `end`, `close` (whether to auto-close at all),
 `newline` (whether Enter expands the block), and often
 `not_in = ["string", "comment"]`.
 
-### 1.3 ⚠️ The seven divergences, each with its symptom
+### 1.2a The same data, parsed rather than matched — **this is the authority**
 
-Not a list of nice-to-haves. Each line is a thing the editor does today that
-the language says it should not.
+`close` defaults to `true` when the key is absent (17 rows rely on that).
+"Auto-close set" below is every row whose `start` and `end` are each exactly
+one character and whose `close` is not `false`.
+
+| language | auto-close set | declared but `close = false` | multi-character rows |
+| --- | --- | --- | --- |
+| rust | `{` `[` `(` `"` | `<` | `r#"` `r##"` `r###"` `/*` |
+| c, cpp | `{` `[` `(` `"` `'` | — | `/*` |
+| go | `{` `[` `(` `"` `'` `` ` `` | — | `/*` |
+| javascript, typescript, tsx | `{` `[` `(` `"` `'` `` ` `` | `<` | `/*` |
+| python | `{` `[` `(` `"` `'` | — | `f"` `f'` `b"` `b'` `u"` `u'` `r"` `r'` `rb"` `rb'` `t"` `t'` `"""` `'''` |
+| json, jsonc | `{` `[` `(` `"` | — | — |
+| yaml | `{` `[` `"` `'` | — | — |
+| css | `{` `[` `(` `"` `'` | — | — |
+| markdown | `{` `[` `(` `<` | `"` `'` `` ` `` `*` | — |
+| bash | `{` `[` `(` `"` `'` | `do` `then` `in` | `do` `then` `in` |
+| gitcommit | `{` `[` `(` `"` `'` `` ` `` | — | — |
+| gomod, gowork | `(` | — | — |
+| regex | `{` `[` `(` | — | — |
+| jsdoc | `{` `[` | — | — |
+| diff | **empty list** | — | — |
+| awl, markdown-inline | **no `brackets` key at all** | — | — |
+
+⚠️ `diff` declaring an **empty** list and `awl` declaring **no key** are
+different states and are treated differently below: an empty declaration is a
+language saying "pair nothing", an absent one is a language that has not said.
+
+### 1.3 ⚠️ The divergences, each with its symptom
+
+Each line is a thing the editor does today that the language says it should
+not. ⭐ **Every single-character divergence is a subtraction** — once the data
+is parsed correctly, there is no single-character pairing a language wants and
+does not get. That is what makes the first slice clean.
 
 1. ⭐ **Rust: `'` is paired and must not be.** Rust's table has no single
    quote — lifetimes are why. Typing `<` then `'` in `fn f<'a>` yields
@@ -113,13 +152,21 @@ the language says it should not.
 4. **YAML: `(` and `` ` `` are paired.** YAML's table declares neither.
 5. **`gomod` / `gowork`: five of the six are paired.** Their tables declare
    `(` and nothing else.
-6. **Markdown: `*` is not paired and the manifest says it should be.** Typing
-   `*` for emphasis does not close. The one divergence in the *other*
-   direction — a pairing the language wants and does not get.
-7. **Every language's multi-character openers are unreachable.** The table is
-   keyed by `char`, so Python's `"""`, `f"` and `rb'`, Rust's `r#"`, the
-   `/* */` that six languages declare, and bash's `do` / `then` / `in` cannot
-   be expressed in it at all.
+6. ⚠️ **Markdown wants *fewer* pairings, not more** — corrected from this
+   map's first draft, which claimed Markdown wanted `*` paired. It does not:
+   `*` is declared `close = false`, and so are `"`, `'` and `` ` ``. Markdown
+   auto-closes `{ [ ( <` and nothing else. Prose is the reason — an
+   apostrophe in Markdown is an apostrophe. The editor pairs all three quotes
+   there today.
+7. **`diff` declares an empty bracket list and gets all six.**
+8. **Every language's multi-character openers are unreachable.** The table is
+   keyed by `char`, so Python's `"""`, `f"` and `rb'`, Rust's `r#"`, and the
+   `/* */` six languages declare cannot be expressed in it at all. (bash's
+   `do`/`then`/`in` are `close = false` — they are matching hints, not
+   auto-close rows, so they are not part of this.)
+9. **Markdown declares `<`→`>` with `close = true`** and the editor never
+   pairs `<`. The **one** single-character addition anywhere in the set, and
+   it is deliberately out of the first slice — see S-2.
 
 ⚠️ **The apostrophe guard is a proxy, and this is where it diverges.** The
 `is_word_char` check exists to keep `don't` from becoming `don''t`. It is a
@@ -164,12 +211,16 @@ none was.
   source of truth for language facts, and every change is the removal of a
   pairing the language declares it does not want.
 
-### S-2 — additions
+### S-2 — the one addition
 
-Markdown's `*`. Divergence 6, and the only one that makes a pairing appear
-where none was. One character, one language, and a user typing `*text*` in
-Markdown is the case it helps. **Wants a ruling** — it is the only slice
-where someone could reasonably prefer today's behaviour.
+Markdown's `<`→`>`, divergence 9 — the only single-character pairing any
+language declares that the editor does not offer. One character, one language.
+**Wants a ruling**, because it is the only slice that makes a pairing appear
+where none was, and because `<` in Markdown is as often a literal `<` as it is
+an autolink.
+
+⚠️ This slice was originally written as "Markdown's `*`", from the broken
+extraction. Markdown declares `*` with `close = false`; it does not want it.
 
 ### S-3 — multi-character openers
 
@@ -201,9 +252,10 @@ per language (`;:.,=}])>` for C-likes, `,]}` for JSON and YAML, `)` for
 
 - **B-1 — S-1 now?** Recommend **yes**: pure subtraction, manifest-sourced,
   and it removes a stray quote from every lifetime a Rust user types. I read
-  this as ruling-free under #66 and will build it unless told otherwise.
-- **B-2 — S-2, Markdown's `*`.** Recommend **yes**, but it is the one slice
-  with taste in it, so it is asked rather than assumed.
+  this as ruling-free under #66 and built it — see §4.
+- **B-2 — S-2, Markdown's `<`.** Recommend **no** for now: `<` in Markdown is
+  a literal at least as often as it is an autolink, and it is the only
+  addition in the whole set. Asked rather than assumed either way.
 - **B-3 — S-3 and S-5 order.** Recommend **S-5 before S-3**: `autoclose_before`
   is a smaller change that improves every language, where multi-char openers
   mostly serve Python and Rust raw strings.
@@ -213,5 +265,54 @@ per language (`;:.,=}])>` for C-likes, `,]}` for JSON and YAML, `)` for
 
 ⚠️ **None of B-1..B-4 blocks the doc corrections**, which are unambiguous:
 three module docs currently state that auto-pairs come from the manifest, and
-they do not. Those are being corrected in the same commit as this map, so no
+they do not. Those were corrected in the same commit as this map, so no
 reader is told a capability exists before it does.
+
+---
+
+## 4. S-1 — LANDED
+
+- **`iridium-lang`**: `Bracket` deserialized, with `close` defaulting to
+  `true` — seventeen rows across the tree omit the key, and reading it as
+  `false` would have disabled `{` in every C-like language.
+  `Manifest::auto_close_pairs` returns `Option<impl Iterator<Item = (char, char)>>`:
+  `None` for a manifest with no `brackets` key, `Some(empty)` for one that
+  declares an empty table.
+- **`iridium-editor`**: `AutoPairs`, a one-byte bitmask over the six pairs
+  this editor can type, built once per keystroke in `handle_char_input` and
+  again in `backspace_edits_with_pairs`. `pair_close` and `is_pair_closer`
+  are gone; `is_quote` stays, because the apostrophe guard asks what kind of
+  character `'` is, not whether this language pairs it.
+- **The skip-over and backspace sets are narrowed too**, deliberately: in
+  Rust `'a'` is a character literal the user typed, and stepping over the
+  closing quote or eating both halves on one backspace would drop input.
+
+### The red proof
+
+The tests were written after the fix compiled, so red was demonstrated by
+restoring the old behaviour exactly — `AutoPairs::for_document` returning
+`Self::ALL`, which is what `pair_close` was — and re-running:
+
+```
+rust pairs '\'' and its manifest does not declare it
+  left: "''"
+ right: "'"
+```
+
+**4 of the 7 new behaviour tests went red**; the other 3 pass both ways by
+design — they assert the pairs each manifest *does* declare still work, so
+the suite cannot be satisfied by an implementation that merely stops pairing.
+
+### Gates
+
+Nine green: **2,525 passed, 0 failed** (2,514 before, plus 11 here).
+
+### What S-1 deliberately did not do
+
+- `<`→`>` stays unpaired everywhere, including Markdown, which declares it —
+  that is S-2 and B-2.
+- Enter's bracket-block expansion still uses its own three-bracket table.
+  Every manifest's `newline = true` rows agree with it for the languages
+  checked, so nothing is wrong there; a wire-up would be S-3's business.
+- ⚠️ **No `not_in` handling.** A `"` inside a comment still pairs. That was
+  true before and is unchanged.

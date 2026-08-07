@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use iridium_editor::Modifiers;
+use iridium_editor::pattern::Pattern;
 use iridium_explorer::{FileTree, NodeId};
 use iridium_tree::{Tree, TreeSource as _};
 
@@ -88,6 +89,17 @@ pub struct FileExplorer {
     /// nothing else. Giving it caret motions would cost `←` and `→`, which
     /// are how the tree is opened and closed.
     pub(super) query: Entry,
+    /// [`Self::query`] read as the thing it means — fuzzy, or a regular
+    /// expression after a leading `/`.
+    ///
+    /// **Held rather than parsed per filter, and that is load-bearing.**
+    /// Compiling a regular expression costs orders of magnitude more than
+    /// testing one string with it, and the rows are re-filtered every time a
+    /// directory listing lands — dozens of times a second while the crawl
+    /// runs. Parsing there would compile the same pattern once per read.
+    /// Rebuilt by [`requery`](Self::requery), which is the only place the
+    /// query text changes.
+    pub(super) pattern: Pattern,
     /// The filtered rows, recomputed when the query changes and when a
     /// directory read lands. Empty whenever the query is.
     ///
@@ -135,15 +147,20 @@ impl FileExplorer {
             scroll: 0,
             wanted: Some(root_id),
             query: Entry::new(),
+            pattern: Pattern::Unfiltered,
             view: FilterView::default(),
             filtered: 0,
             crawl,
         })
     }
 
-    /// Whether a query is narrowing the rows.
-    pub(super) fn is_filtering(&self) -> bool {
-        !self.query.text().is_empty()
+    /// Whether the rows come from the filter rather than from the tree.
+    ///
+    /// Asked of the *pattern*, not of the text: `/` on its own is a keystroke
+    /// saying a regular expression is coming, and the tree stays on screen
+    /// until one arrives.
+    pub(super) const fn is_filtering(&self) -> bool {
+        self.pattern.is_narrowing()
     }
 
     /// Collects any directory reads that finished, and reports whether the
@@ -157,7 +174,12 @@ impl FileExplorer {
     /// has opened without one keystroke queueing the whole disk. See
     /// [`CRAWL_PER_FRAME`], and [`Self::crawl`] for when it runs at all.
     pub fn poll(&mut self) -> bool {
-        let crawling = self.crawl && self.is_filtering() && self.files.crawl(CRAWL_PER_FRAME) > 0;
+        // `can_match`, not `is_filtering`: a pattern still being typed —
+        // `/[` on the way to `/[a-z]` — narrows the rows to none but cannot
+        // match anything, and reading the disk on its behalf is work whose
+        // result is discarded by construction.
+        let crawling =
+            self.crawl && self.pattern.can_match() && self.files.crawl(CRAWL_PER_FRAME) > 0;
         if !self.files.drain() {
             // A posted read is a reason to come back even though nothing has
             // landed yet: `is_waiting` will now say so, and the host repaints
@@ -237,7 +259,7 @@ impl FileExplorer {
     #[must_use]
     pub fn is_waiting(&self) -> bool {
         self.files.is_waiting()
-            || (self.crawl && self.is_filtering() && !self.files.is_fully_crawled())
+            || (self.crawl && self.pattern.can_match() && !self.files.is_fully_crawled())
     }
 
     /// The node under the selection, from whichever list is showing.
@@ -255,10 +277,25 @@ impl FileExplorer {
         self.files.info(id).map(|info| info.path)
     }
 
+    /// Re-reads the query text and rebuilds the view from it.
+    ///
+    /// The only place [`Self::pattern`] changes, and therefore the only place
+    /// a regular expression is compiled. Called from the key handlers that
+    /// touch the field, never from [`poll`](Self::poll): a directory landing
+    /// changes the rows, not what the user asked for.
+    ///
+    /// The selection is not held across it. A different query is a different
+    /// question, and keeping the previous answer selected under it would put
+    /// the selection somewhere the new query did not put it.
+    pub(super) fn requery(&mut self) {
+        self.pattern = Pattern::parse(self.query.text());
+        self.refilter(None);
+    }
+
     /// Rebuilds the filtered view, landing the selection on `held` if that
     /// node is still a result and on the best match otherwise.
     pub(super) fn refilter(&mut self, held: Option<NodeId>) {
-        self.view = filter(&self.files, self.query.text());
+        self.view = filter(&self.files, &self.pattern);
         self.filtered = held
             .and_then(|id| {
                 self.view

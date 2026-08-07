@@ -56,7 +56,7 @@ impl FileExplorer {
     }
 
     /// The selected row's index within the list under the query.
-    fn selected_row(&self) -> Option<usize> {
+    const fn selected_row(&self) -> Option<usize> {
         if self.is_filtering() {
             Some(self.filtered)
         } else {
@@ -88,33 +88,39 @@ impl FileExplorer {
 
     /// What an empty result list says.
     ///
-    /// **Four different statements, because they mean four different
-    /// things.** A search still reading directories has not failed to find
-    /// anything — it has not looked everywhere yet, and saying "no matching
-    /// files" while the crawl is running is a lie that resolves itself a
-    /// second later, which is exactly long enough for someone to have given
-    /// up. A search that stopped at its limit has genuinely not looked
-    /// everywhere and never will, and that is worth saying out loud rather
-    /// than passing off as an answer. A panel that will not crawl at all has
-    /// searched exactly what is open, and the honest answer names that scope
-    /// rather than implying the file is not on the disk.
+    /// **Five different statements, because they mean five different
+    /// things.** A pattern that does not compile has not searched at all — it
+    /// is a query halfway through being typed, and the useful thing to show
+    /// is why it was rejected. A search still reading directories has not
+    /// failed to find anything either; it has not looked everywhere yet, and
+    /// saying "no matching files" while the crawl is running is a lie that
+    /// resolves itself a second later, which is exactly long enough for
+    /// someone to have given up. A search that stopped at its limit has
+    /// genuinely not looked everywhere and never will, and that is worth
+    /// saying out loud rather than passing off as an answer. A panel that
+    /// will not crawl at all has searched exactly what is open, and the
+    /// honest answer names that scope rather than implying the file is not on
+    /// the disk.
     ///
-    /// The crawl-off answer comes first and is what makes the other three
-    /// safe to write in terms of the crawl's own state: with the crawl off
-    /// the frontier never drains, so `is_fully_crawled` is permanently
-    /// `false` and "Searching…" would otherwise be the only thing this ever
-    /// said.
-    fn nothing_found_yet(&self) -> &'static str {
+    /// **The order is load-bearing, and the two cases at the top are why.**
+    /// Neither a bad pattern nor a crawl-off panel ever drains the frontier,
+    /// so `is_fully_crawled` stays `false` under both of them for good.
+    /// Checked in any other order, "Searching…" is the only thing this
+    /// function would ever say in either case.
+    fn nothing_found_yet(&self) -> String {
+        if let Some(reason) = self.pattern.invalid_reason() {
+            return format!("Bad pattern — {reason}");
+        }
         if !self.crawl {
-            return "No matches in what is open";
+            return "No matches in what is open".to_owned();
         }
         if !self.files.is_fully_crawled() {
-            return "Searching…";
+            return "Searching…".to_owned();
         }
         if self.files.crawl_hit_its_limit() {
-            return "No matches — the search stopped at its limit";
+            return "No matches — the search stopped at its limit".to_owned();
         }
-        "No matching files"
+        "No matching files".to_owned()
     }
 
     /// One row of whichever list is showing.

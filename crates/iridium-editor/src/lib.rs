@@ -52,6 +52,7 @@ pub mod editor;
 pub mod fuzzy;
 pub mod history;
 pub mod input;
+pub mod pattern;
 pub mod render;
 pub mod search;
 #[cfg(feature = "syntax")]

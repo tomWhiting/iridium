@@ -1,5 +1,9 @@
 //! Narrowing the tree to what a query matches, without flattening it.
 //!
+//! *What* a query matches is [`iridium_editor::pattern`]'s question — fuzzy
+//! by default, a regular expression after a leading `/`, and the same answer
+//! in every face. This module is only about where the survivors are drawn.
+//!
 //! # Why the hierarchy survives the filter
 //!
 //! A ranked flat list is the easier thing to build and the wrong thing to
@@ -31,7 +35,7 @@
 //! chain cannot trip [`iridium_tree::TreeSource`]'s fourth rule, and needs no
 //! deferred-intent machinery.
 
-use iridium_editor::fuzzy::{Query, match_path};
+use iridium_editor::pattern::Pattern;
 use iridium_explorer::{FileTree, NodeId};
 
 /// One row of the filtered view.
@@ -45,7 +49,7 @@ pub struct FilterRow {
     ///
     /// Empty for a folder kept only because something inside it matched, and
     /// also for a hit whose characters all landed in the directory chain —
-    /// see [`iridium_editor::fuzzy::PathMatch::matched_in_name`].
+    /// see [`iridium_editor::pattern::Hit::positions`].
     pub positions: Vec<u32>,
     /// The weighted score, or `None` for a row kept only as context.
     ///
@@ -112,20 +116,25 @@ struct Visit {
     positions: Vec<u32>,
 }
 
-/// Narrows `files` to the nodes matching `query`, keeping their ancestors.
+/// Narrows `files` to the nodes matching `pattern`, keeping their ancestors.
 ///
-/// `query` is taken as text and normalized here, so a caller holding a text
-/// field does not have to know about [`Query`]. An empty query returns an
-/// empty view: "show everything" is the unfiltered tree, which is a different
-/// code path and a different set of rows.
+/// The pattern arrives already parsed, and that is not an accident of the
+/// signature: compiling a regular expression costs orders of magnitude more
+/// than testing one string with it, and this runs again every time a
+/// directory listing lands — many times a second while a crawl is on. The
+/// caller holds the parsed pattern across those reads and rebuilds it only
+/// when the text it came from changes.
+///
+/// A pattern that narrows nothing returns an empty view: "show everything" is
+/// the unfiltered tree, which is a different code path and a different set of
+/// rows.
 #[must_use]
-pub fn filter(files: &FileTree, query: &str) -> FilterView {
-    let query = Query::new(query);
-    if query.is_empty() {
+pub fn filter(files: &FileTree, pattern: &Pattern) -> FilterView {
+    if !pattern.is_narrowing() {
         return FilterView::default();
     }
 
-    let visits = walk(files, &query);
+    let visits = walk(files, pattern);
     let keep = keep_flags(&visits);
 
     let mut rows = Vec::new();
@@ -163,7 +172,7 @@ pub fn filter(files: &FileTree, query: &str) -> FilterView {
 /// Iterative rather than recursive: a directory tree's depth is bounded by the
 /// filesystem in practice, but "in practice" is not a bound, and a stack
 /// overflow is not an error anything can catch.
-fn walk(files: &FileTree, query: &Query) -> Vec<Visit> {
+fn walk(files: &FileTree, pattern: &Pattern) -> Vec<Visit> {
     let root = files.root();
     let mut visits: Vec<Visit> = Vec::new();
     // `(node, depth, parent visit index)`. Children are pushed in reverse so
@@ -189,20 +198,21 @@ fn walk(files: &FileTree, query: &Query) -> Vec<Visit> {
             },
         };
 
+        // The root is never a result. Its name is where the search starts
+        // from rather than something the search distinguishes, and a pattern
+        // that matched it would select the row every other row hangs under.
         let found = if relative.is_empty() {
             None
         } else {
-            match_path(query, &relative)
+            pattern.find(&relative)
         };
         visits.push(Visit {
             id,
             depth,
             parent,
             relative,
-            score: found.map(|matched| matched.score),
-            positions: found
-                .map(|matched| matched.matched_in_name().to_vec())
-                .unwrap_or_default(),
+            score: found.as_ref().map(|hit| hit.score),
+            positions: found.map(|hit| hit.positions).unwrap_or_default(),
         });
 
         for &child in files.listed_children(id).iter().rev() {

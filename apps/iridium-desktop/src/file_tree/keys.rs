@@ -22,6 +22,7 @@
 //! | `Home` `End` | First and last row |
 //! | `Backspace`, any printable key | Edit the query |
 
+use iridium_editor::pattern::Pattern;
 use iridium_editor::{KeyCode, KeyEvent};
 use iridium_explorer::NodeId;
 
@@ -77,13 +78,13 @@ impl FileExplorer {
             },
             (Chord::Plain, KeyCode::Backspace) => {
                 if self.query.backspace() {
-                    self.refilter(None);
+                    self.requery();
                 }
                 ExplorerOutcome::Handled
             },
             (Chord::Plain, KeyCode::Char(character)) => {
                 if self.query.insert(character) {
-                    self.refilter(None);
+                    self.requery();
                 }
                 ExplorerOutcome::Handled
             },
@@ -103,13 +104,14 @@ impl FileExplorer {
             changed |= self.query.insert(character);
         }
         if changed {
-            self.refilter(None);
+            self.requery();
         }
     }
 
     /// Drops the query and returns to the tree the user had open.
     fn clear_query(&mut self) {
         self.query = Entry::new();
+        self.pattern = Pattern::Unfiltered;
         self.view = FilterView::default();
         self.filtered = 0;
         self.scroll = 0;

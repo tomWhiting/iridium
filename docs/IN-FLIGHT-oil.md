@@ -165,13 +165,51 @@ delete · a row nested under a later row · one bad row refuses the whole buffer
 the non-test build because the tests do use every item. When a caller lands,
 that expectation becomes unfulfilled and the build warns, so it removes itself.
 
+## Step 2 — DONE. `apply.rs`, 13 tests
+
+### `std::fs::rename` silently replaces the destination
+
+That is its documented Unix behaviour, and it is the single most dangerous
+fact in this feature. The obvious implementation — check `to.exists()`, then
+rename — leaves a window in which a rename destroys a file. Small window,
+total consequence.
+
+So **every operation uses a primitive that fails when its target exists**
+rather than one that checks and then acts:
+
+| operation | primitive | atomic? |
+| --- | --- | --- |
+| create file | `create_new` | yes |
+| create directory | `create_dir` | yes, already fails on an existing path |
+| rename | `renamex_np(RENAME_EXCL)` on macOS | yes |
+| rename | check-then-rename elsewhere | **no**, and the doc comment says so |
+
+**Proven, not asserted.** Swapping `renamex_np` for `std::fs::rename` makes
+**four tests fail**, including
+`a_rename_refuses_to_overwrite_rather_than_destroying_what_is_there`. The
+platform code is doing real work.
+
+This also *dissolves* the note the design map left for this step. `plan` can
+only avoid temporary names it knows about, and a real directory may already
+hold one — with a no-replace rename that stops being a check this module must
+remember to make and becomes one the kernel refuses. There is a test for it.
+
+### Two other things the tests pin
+
+- **Deleting a symlink removes the link, not its target.** `symlink_metadata`
+  rather than `metadata`, because `remove_dir_all` on a followed symlink would
+  take the target's contents with it — the difference between removing a
+  shortcut and removing somebody's home directory.
+- **A failure stops the run and reports how far it got.** No rollback, and
+  deliberately: a delete cannot be undone, and undoing half a directory rename
+  by guessing turns a bad situation into an unrecoverable one. The caller
+  re-reads the directory and shows the truth.
+
+`apply.rs` carries the same self-removing `cfg_attr(not(test), expect(dead_code))`
+as `plan.rs`.
+
 ## Still to do
 
-2. **`apply.rs`** — executing a plan, re-checking every operation against the
-   disk immediately before it runs, because the plan was computed earlier.
-   **The temporary must be checked for existence too** — `plan` can only avoid
-   colliding with names it knows about, and a real directory may already hold
-   one.
 3. Panel mode + editable rows.
 4. Confirmation view.
 5. `⌘O`, and the apply-or-discard prompt on a filter change.

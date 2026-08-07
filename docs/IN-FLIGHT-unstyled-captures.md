@@ -59,17 +59,41 @@ already carries `text` with the justification *"markdown prose, which should
 render in the plain foreground"*. JSX text is the same thing in another
 grammar, and the existing entry's reasoning applies unchanged.
 
-### `nested` — recommended unstyled, but flagged
+### `nested` — resolved, and it was never a gap
 
-`typescript/highlights.scm:98` is `(statement_block) @nested`, inside a larger
-alternation, under the comment `;; match a nested statement block`. It reads
-as a **structural capture used to scope a pattern**, the same species as the
-`_`-prefixed predicate operands already listed — but it does not carry the `_`
-prefix, and I have not traced the enclosing pattern far enough to be certain
-it is never meant to colour anything.
+Initially flagged as needing the enclosing pattern read before landing. Read,
+and it settles decisively.
 
-⚠️ **This is the one of the nine I would not land without reading the whole
-enclosing pattern first.** Recommending it as unstyled on shape, not on proof.
+The pattern at `typescript/highlights.scm:70-99` hijacks `statement_block` to
+highlight the pseudo-TypeScript snippets an LSP returns, which are not valid
+TypeScript in totality. Inside a `labeled_statement` it captures
+`label: @property.name` and then alternates on the body:
+
+```
+body: [
+  (expression_statement [ ... @type.name / @property.name ... ])
+  (statement_block) @nested        ;; match a nested statement block
+]
+```
+
+`@nested` is the **recursion arm**: it lets the alternation succeed when the
+body is a nested block, so the outer `label:` capture fires, and the inner
+block's own labels are then highlighted by the same top-level pattern matching
+again.
+
+⭐ **It must never carry a colour, because it matches a whole
+`statement_block`.** `highlight.rs:454-463` emits a span over the captured
+node's full byte range — `node.start_byte()..node.end_byte()` — and `:468-471`
+only sorts and dedups; **there is no overlap resolution in that function.**
+Mapping `nested` would therefore emit a span covering an entire
+brace-delimited region, competing with every token span inside it. That is not
+a token span, and mapping it would be a defect rather than a fix.
+
+So `nested` belongs in `DELIBERATELY_UNSTYLED` **with that reason recorded** —
+it is the same category as the `_`-prefixed predicate operands, differing only
+in that its author did not use the `_` convention.
+
+**The gap is eight, not nine.** The list overstated it by one.
 
 ## Six that are genuinely Tom's call
 

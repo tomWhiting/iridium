@@ -71,10 +71,14 @@ impl QueryKind {
 
     /// This kind's position in [`QueryKind::all`].
     ///
-    /// Used to index the compiled-query cache. Written as a match rather than
-    /// a search so it stays constant-time and cannot silently disagree with
-    /// `all()` — the test module asserts the two agree.
-    pub(crate) const fn index(self) -> usize {
+    /// Used to index the compiled-query cache, which lives in `iridium-syntax`
+    /// — hence public rather than crate-private: the order is a contract
+    /// between the two crates, not an implementation detail of this one.
+    /// Written as a match rather than a search so it stays constant-time and
+    /// cannot silently disagree with `all()` — the test module asserts the two
+    /// agree.
+    #[must_use]
+    pub const fn index(self) -> usize {
         match self {
             Self::Highlights => 0,
             Self::Brackets => 1,

@@ -8,8 +8,9 @@
 //!
 //! # What the vendored queries actually offer
 //!
-//! Five captures, and no more — verified against the files in
-//! `src/languages/queries/`, not assumed from what other editors ship:
+//! Five captures, and no more — verified against the vendored files, which
+//! live in `iridium-lang` under `src/languages/queries/`, not assumed from
+//! what other editors ship:
 //! `@function.inside`, `@function.around`, `@class.inside`, `@class.around`
 //! and `@comment.around`. There is **no** parameter, argument, block or call
 //! text object, and no `@comment.inside`. Anything richer means authoring new

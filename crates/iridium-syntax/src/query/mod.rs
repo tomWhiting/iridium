@@ -20,16 +20,13 @@
 //! # Failure modes, and which of them is an error
 //!
 //! - The language ships no query of that kind: `Ok(None)`. Routine — see
-//!   [`embedded`] for the three that are genuinely absent. Callers should
-//!   degrade the feature for that language, not fail.
+//!   `iridium_lang::query` for the three that are genuinely absent. Callers
+//!   should degrade the feature for that language, not fail.
 //! - The query is present but does not compile against the grammar:
 //!   `Err(SyntaxError::QueryError)`. That is a build-time defect that escaped —
 //!   almost always a grammar bump whose node kinds no longer match a vendored
 //!   pattern — and the test module compiles every entry so it cannot escape
 //!   twice.
-
-mod embedded;
-mod kind;
 
 use std::sync::OnceLock;
 
@@ -37,7 +34,12 @@ use tree_sitter::Query;
 
 use crate::{Language, SyntaxError, grammar::grammar};
 
-pub use kind::QueryKind;
+// The `.scm` text and the kinds it comes in live with the vendored tree, in
+// `iridium-lang`, so that the manifests beside them are reachable from builds
+// that carry no parser. Re-exported here because compiling a query is what
+// this module is for, and a caller should not have to name two crates to do
+// it.
+pub use iridium_lang::query::{QueryKind, source};
 pub use textobject::{Direction, TextObject, Variant};
 
 /// Number of languages the cache has a row for.
@@ -69,17 +71,6 @@ enum Compiled {
 static COMPILED: [[OnceLock<Compiled>; KIND_COUNT]; LANGUAGE_COUNT] =
     [const { [const { OnceLock::new() }; KIND_COUNT] }; LANGUAGE_COUNT];
 
-/// Returns the source text of a vendored query, if the language ships one.
-///
-/// This is the uncompiled `.scm`. Reach for it when the text itself is what is
-/// wanted — a diagnostic, a test, a face that compiles queries with its own
-/// tree-sitter build. Everything that runs a query should call [`compiled`]
-/// instead, so the compilation is paid for once.
-#[must_use]
-pub const fn source(language: Language, kind: QueryKind) -> Option<&'static str> {
-    embedded::source(language, kind)
-}
-
 /// Returns the compiled query for a language and kind, compiling it once.
 ///
 /// `Ok(None)` means the language ships no query of that kind, which is a
@@ -106,7 +97,7 @@ pub fn compiled(
 
 /// Compiles one vendored query against its grammar.
 fn compile(language: Language, kind: QueryKind) -> Compiled {
-    let Some(source) = embedded::source(language, kind) else {
+    let Some(source) = source(language, kind) else {
         return Compiled::Absent;
     };
 

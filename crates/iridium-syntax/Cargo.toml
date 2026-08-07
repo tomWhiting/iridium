@@ -12,9 +12,11 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-# Which language a document is in. Its own crate because the parser-free build
-# of `iridium-editor` needs the same answer without any of the below — see
-# that crate for the divergence that made two copies untenable.
+# Which language a document is in, and the vendored `.scm` text this crate
+# compiles. Its own crate because the parser-free build of `iridium-editor`
+# needs the same answers without any of the below — see that crate for the
+# divergence that made two copies untenable, and for why the vendored tree
+# stays whole rather than being split across the feature boundary.
 iridium-lang.workspace = true
 
 # Syntax parsing

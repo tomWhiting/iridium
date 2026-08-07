@@ -1,35 +1,20 @@
-//! Tests for the embedded query table and the compile-once cache.
+//! Tests for the compile-once query cache.
 //!
 //! The load-bearing one is [`every_embedded_query_compiles_against_its_grammar`]:
 //! a vendored `.scm` is only checked when something runs it, so without this
 //! test a grammar bump that invalidates a pattern would ship, and would surface
 //! as a language that silently stops highlighting.
+//!
+//! The table those queries come out of is checked against the files on disk in
+//! `iridium-lang`, which owns them. Compiling needs a grammar, so it can only
+//! be checked here.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
 use tree_sitter::Query;
 
-use super::{COMPILED, KIND_COUNT, LANGUAGE_COUNT, QueryKind, compiled, source};
+use super::{COMPILED, QueryKind, compiled, source};
 use crate::Language;
-
-/// The absolute path a language's query file would occupy on disk.
-fn vendored_path(language: Language, kind: QueryKind) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("src/languages/queries")
-        .join(language.id())
-        .join(kind.file_name())
-}
-
-/// The three `(language, kind)` pairs with no vendored file.
-///
-/// Spelled out rather than derived so that a vendor refresh which adds or drops
-/// a file has to be acknowledged here, in a diff a reviewer can see.
-const KNOWN_ABSENCES: &[(Language, QueryKind)] = &[
-    (Language::Json, QueryKind::Injections),
-    (Language::Yaml, QueryKind::Indents),
-    (Language::Bash, QueryKind::Outline),
-];
 
 #[test]
 fn every_embedded_query_compiles_against_its_grammar() {
@@ -62,67 +47,6 @@ fn every_embedded_query_compiles_against_its_grammar() {
         failures.len(),
         if failures.len() == 1 { "y" } else { "ies" },
         failures.join("\n")
-    );
-}
-
-#[test]
-fn the_table_agrees_with_the_files_on_disk() {
-    for &language in Language::all() {
-        for &kind in QueryKind::all() {
-            let path = vendored_path(language, kind);
-            assert_eq!(
-                source(language, kind).is_some(),
-                path.exists(),
-                "the table and the tree disagree about {}/{kind}: {} on disk",
-                language.id(),
-                if path.exists() { "present" } else { "missing" }
-            );
-        }
-    }
-}
-
-#[test]
-fn the_only_absences_are_the_three_that_were_never_vendored() {
-    let absent: BTreeSet<(&str, QueryKind)> = Language::all()
-        .iter()
-        .flat_map(|&language| {
-            QueryKind::all()
-                .iter()
-                .map(move |&kind| (language, kind))
-                .filter(|&(language, kind)| source(language, kind).is_none())
-                .map(|(language, kind)| (language.id(), kind))
-        })
-        .collect();
-
-    let expected: BTreeSet<(&str, QueryKind)> = KNOWN_ABSENCES
-        .iter()
-        .map(|&(language, kind)| (language.id(), kind))
-        .collect();
-
-    assert_eq!(
-        absent, expected,
-        "the set of languages missing a query kind changed; \
-         update KNOWN_ABSENCES and the loader's documentation together"
-    );
-}
-
-#[test]
-fn the_table_carries_a_query_for_every_other_pairing() {
-    let pairings = LANGUAGE_COUNT * KIND_COUNT;
-    let present = Language::all()
-        .iter()
-        .flat_map(|&language| {
-            QueryKind::all()
-                .iter()
-                .filter(move |&&kind| source(language, kind).is_some())
-        })
-        .count();
-
-    assert_eq!(
-        present,
-        pairings - KNOWN_ABSENCES.len(),
-        "expected {pairings} pairings less {} absences",
-        KNOWN_ABSENCES.len()
     );
 }
 

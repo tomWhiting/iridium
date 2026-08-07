@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::Command;
+use crate::input::keyboard::motions;
 use crate::render::Viewport;
 use crate::render::units::pixel_to_index;
 
@@ -596,8 +597,9 @@ impl MouseHandler {
 
         let col = position.column.min(chars.len().saturating_sub(1));
 
-        // Determine if we're on a word character
-        let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+        // The shared definition, not a local copy of it: a double-click must
+        // select exactly the run a word motion would step over.
+        let is_word_char = motions::is_word_char;
 
         // Find word boundaries
         let mut start = col;

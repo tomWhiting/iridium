@@ -7,7 +7,7 @@ use crate::theme::{Color, SyntaxColors};
 
 // Re-export core syntax types
 pub use iridium_syntax::{
-    HighlightSpan, HighlightType, Highlighter, Language, SyntaxError, SyntaxTree,
+    HighlightSpan, HighlightType, Highlighter, Language, SyntaxError, SyntaxTree, has_grammar,
 };
 
 /// Converts a `HighlightType` to a `Color` using the theme's syntax colors.

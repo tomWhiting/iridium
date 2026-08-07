@@ -28,7 +28,7 @@ use std::ops::Range;
 use crate::document::Document;
 use crate::editor::Editor;
 use crate::span_index::SpanIndex;
-use crate::syntax::{Highlighter, Language};
+use crate::syntax::{Highlighter, Language, has_grammar};
 
 /// How far past the requested viewport, in document lines each direction, a
 /// span rebuild derives — the parser-tax map's R1 margin.
@@ -66,14 +66,31 @@ pub struct WindowedSpanCache {
     /// where it answered spans. So this moves on every span rebuild *and*
     /// on every path that empties the entry while it held spans.
     generation: u64,
-    /// Whether the kernel had a language set at the last refresh.
+    /// Whether spans are *owed* for the document at the last refresh.
     ///
-    /// It is what separates the bridge (a language is set, spans not
-    /// available — a face may fall back to keyword colours) from the void
-    /// (no language — content renders in the plain foreground). Deliberately
-    /// about the *language*, not the entry: a language whose highlight query
-    /// fails to compile still counts as set, and degrades to the bridge
-    /// rather than to plain.
+    /// It is what separates the bridge (spans are owed but not available — a
+    /// face may fall back to keyword colours) from the void (nothing is owed
+    /// — content renders in the plain foreground).
+    ///
+    /// Deliberately not "a language is set". Two states answer differently
+    /// and only one of them is a bridge:
+    ///
+    /// - **A language with a grammar whose highlight query fails to compile**
+    ///   is owed spans it did not get this refresh. That is the bridge, and
+    ///   it degrades to keyword colours rather than to plain.
+    /// - **A language with no grammar linked** — `diff`, `gitcommit`,
+    ///   `gomod`, `gowork` — is owed nothing, ever. It is a supported
+    ///   language that cannot be parsed
+    ///   (`iridium_lang`'s `languages.txt` says so outright), and
+    ///   [`HighlightSource::language_active`](crate::render::HighlightSource::language_active)
+    ///   states the consequence: *a file without a grammar must never wear
+    ///   another language's keyword colours.* Reported inactive, so it does
+    ///   not.
+    ///
+    /// ⚠️ The two were indistinguishable while this asked only whether a
+    /// language was set: both leave the entry empty, because both make
+    /// `Highlighter::try_new` answer `None`. Only
+    /// [`has_grammar`](crate::syntax::has_grammar) tells them apart.
     language_active: bool,
 }
 
@@ -145,13 +162,14 @@ impl WindowedSpanCache {
     /// it can, deriving spans for `viewport_lines` (document lines, half-open)
     /// widened by [`OVERSCAN_LINES`] each way.
     ///
-    /// With no language set the cache empties and reports the language
-    /// inactive — the face renders the plain foreground, because a file
-    /// without a grammar must not wear another language's keyword colours. A
-    /// language whose bundled highlight query does not compile empties the
-    /// cache but keeps the language active: it degrades to a face's keyword
-    /// bridge, since unhighlighted text is a degraded editor and a missing
-    /// frame is no editor at all. Otherwise the spans are rebuilt only when
+    /// With no language set — **or a language with no grammar linked** — the
+    /// cache empties and reports inactive: the face renders the plain
+    /// foreground, because a file without a grammar must not wear another
+    /// language's keyword colours. A language that *has* a grammar but whose
+    /// bundled highlight query does not compile empties the cache and stays
+    /// active: it degrades to a face's keyword bridge, since unhighlighted
+    /// text is a degraded editor and a missing frame is no editor at all.
+    /// Otherwise the spans are rebuilt only when
     /// the parse count or document revision moved *or* the requested viewport
     /// escaped the covered window — a scroll within the overscan is a
     /// comparison, not a rebuild — and the compiled highlighter survives
@@ -159,7 +177,7 @@ impl WindowedSpanCache {
     pub fn refresh_windowed(&mut self, editor: &Editor, viewport_lines: Range<usize>) {
         let had_entry = self.entry.is_some();
         let state = editor.state();
-        self.language_active = state.syntax.language().is_some();
+        self.language_active = state.syntax.language().is_some_and(has_grammar);
         let Some(language) = state.syntax.language() else {
             self.entry = None;
             if had_entry {
@@ -233,8 +251,9 @@ impl WindowedSpanCache {
         self.generation
     }
 
-    /// Whether the kernel had a language set at the last refresh — the
-    /// bridge/void split, see the field documentation.
+    /// Whether the document was owed spans at the last refresh — the
+    /// bridge/void split, see the field documentation. A language with no
+    /// grammar linked is owed none and answers `false`.
     #[must_use]
     pub const fn language_active(&self) -> bool {
         self.language_active
@@ -464,6 +483,41 @@ mod tests {
             "and no language to bridge to — the face renders plain"
         );
         assert_eq!(cache.rebuilds(), 0);
+    }
+
+    /// The four languages the registry admits with no grammar linked —
+    /// `diff`, `gitcommit`, `gomod`, `gowork`. Each claims files and opens as
+    /// itself; none can ever produce a span.
+    #[test]
+    fn a_language_with_no_grammar_is_reported_inactive() {
+        for (language, source) in [
+            (Language::Diff, "--- a/file\n+++ b/file\n@@ -1 +1 @@\n"),
+            (
+                Language::GitCommit,
+                "Move the import for the new type\n\nUse a match where we used to try.\n",
+            ),
+            (Language::GoMod, "module example.com/m\n\ngo 1.22\n"),
+            (Language::GoWork, "go 1.22\n\nuse ./a\n"),
+        ] {
+            let mut editor = Editor::with_defaults();
+            editor.set_content(source);
+            editor.set_language(language);
+            let mut cache = WindowedSpanCache::new();
+            cache.refresh(&editor);
+
+            assert!(
+                cache.index().is_none(),
+                "{} cannot be parsed, so it can never have spans",
+                language.id()
+            );
+            assert!(
+                !cache.language_active(),
+                "{} has no grammar: there is nothing to bridge to, and a file \
+                 without a grammar must never wear another language's keyword \
+                 colours",
+                language.id()
+            );
+        }
     }
 
     #[test]

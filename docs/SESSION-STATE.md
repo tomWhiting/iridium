@@ -2560,10 +2560,29 @@ There is no taste in it: no new colour, no theme field, no capture remapped,
 every affected byte moving from a less specific answer to a more specific one
 the grammar already gave. But it is visible, and it is in the queued message.
 
-⚠️ `apps/iridium-desktop/src/highlight.rs` is **843 lines, up from 806 — and it
-was already over the 500 bar before this change.** Recorded so a later reader
-does not attribute it here. The split is its own piece of work; the seam is the
-windowed-cache handle against the per-frame resolver.
+⚠️ `apps/iridium-desktop/src/highlight.rs` was **843 lines, up from 806 — and
+already over the 500 bar before this change.**
+
+**3b. So it was split, `6c2b536`**, on the seam named above and not one invented
+for a line count: the tests divided along a banner comment already in the file
+marking exactly that boundary.
+
+| file | lines |
+| --- | --- |
+| `highlight/mod.rs` | 84 — prose, declarations, re-exports |
+| `highlight/cache.rs` | 115 |
+| `highlight/resolve.rs` | 89 |
+| `highlight/tests/mod.rs` | 43 |
+| `highlight/tests/frame.rs` | 307 |
+| `highlight/tests/window.rs` | 271 |
+
+⭐ **Five intra-doc links broke on the move** — items in scope in one file and
+not in another. Found by *running* `cargo doc -p iridium-desktop --no-deps
+--document-private-items`, not by reading, and fixed with explicit paths. ⚠️
+**That run reports 29 remaining warnings, none in this module** — pre-existing,
+elsewhere in the desktop crate, and a real (small) piece of work nobody has
+picked up. `cargo doc` is **not** one of the nine gates, which is why they
+accumulated.
 
 **4. One lead checked and found NOT to be a defect**, recorded so nobody spends
 a window on it twice. `IN-FLIGHT-web-document.md`'s **blocker 3** warns that a

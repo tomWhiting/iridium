@@ -40,20 +40,28 @@
 //! # What a frame's resolution promises
 //!
 //! The runs cover the visible content exactly — gaps take the theme
-//! foreground — and are flat: where spans nest, the first span to claim a
-//! byte keeps it (at equal starts the innermost, i.e. shortest, wins, which
-//! is the ordering [`HighlightSpan`]'s own `Ord` produces). Span offsets are
-//! document-absolute while the content is the compositor's fold-collapsed
-//! extraction, so offsets past a collapsed fold can drift by the placeholder
-//! text's length; they are clamped and snapped to character boundaries, never
-//! trusted — the same honesty clause the web face's resolver carries.
+//! foreground — and are flat: where spans nest, **the innermost span owns the
+//! byte** and the span around it keeps everything the inner one does not take.
+//! That collapse is the kernel's
+//! [`flatten_spans`](iridium_editor::render::flatten_spans), not this face's,
+//! because the web face needs the identical rule and had the identical bug.
+//!
+//! Span offsets are document-absolute while the content is the compositor's
+//! fold-collapsed extraction, so offsets past a collapsed fold can drift by the
+//! placeholder text's length; they are clamped and snapped to character
+//! boundaries, never trusted. That guard is the kernel's
+//! [`snap_down`](iridium_editor::render::snap_down) now, for the same reason —
+//! the web resolvers did not have it and would have panicked on the first fold
+//! drift over non-ASCII text.
 
 use std::ops::Range;
 
 use iridium_editor::Editor;
-use iridium_editor::render::{HighlightContext, HighlightSource};
+use iridium_editor::render::{
+    HighlightContext, HighlightSource, SpanRun, flatten_spans, snap_down,
+};
 use iridium_editor::span_index::{SpanIndex, WindowedSpanCache};
-use iridium_editor::syntax::{HighlightSpan, highlight_to_color};
+use iridium_editor::syntax::highlight_to_color;
 use iridium_editor::theme::{Color, SyntaxColors};
 
 // The kernel's overscan margin, re-exported so this face's viewport docs
@@ -205,48 +213,32 @@ fn rich_spans<'a>(
     let start_byte = context.content_start_byte;
     let end_byte = start_byte.saturating_add(visible.len());
 
-    let mut spans: Vec<HighlightSpan> = index.query(start_byte, end_byte).collect();
-    // `HighlightSpan`'s order: start ascending, then end ascending — so at
-    // equal starts the innermost span comes first and wins the flat run.
-    spans.sort_unstable();
+    // Snapped here rather than inside the flattening: the drift is this face's
+    // (document offsets against fold-collapsed content), and the kernel's rule
+    // is about which span owns a byte, not about where a byte begins. A span
+    // that snapping empties is discarded by `flatten_spans` along with any the
+    // window handed over degenerate.
+    let spans: Vec<SpanRun<_>> = index
+        .query(start_byte, end_byte)
+        .map(|span| SpanRun {
+            start: snap_down(visible, span.start.saturating_sub(start_byte)),
+            end: snap_down(visible, span.end.saturating_sub(start_byte)),
+            payload: span.highlight,
+        })
+        .collect();
 
-    let mut runs = Vec::with_capacity(spans.len().saturating_mul(2).saturating_add(1));
-    let mut last_end = 0_usize;
-    for span in spans {
-        let span_start = snap_down(visible, span.start.saturating_sub(start_byte));
-        let span_end = snap_down(visible, span.end.saturating_sub(start_byte));
-        // Flat runs: a byte already claimed stays claimed, and a span that
-        // clamping or fold drift emptied contributes nothing.
-        if span_start < last_end || span_start >= span_end {
-            continue;
-        }
-        if span_start > last_end {
-            runs.push((&visible[last_end..span_start], context.foreground));
-        }
-        runs.push((
-            &visible[span_start..span_end],
-            highlight_to_color(span.highlight, colors),
-        ));
-        last_end = span_end;
-    }
-    if last_end < visible.len() {
-        runs.push((&visible[last_end..], context.foreground));
-    }
-    runs
-}
-
-/// Clamps `index` into `content` and moves it down to the nearest character
-/// boundary.
-///
-/// Span offsets are document bytes; with folds collapsed the content past a
-/// placeholder no longer lines up with them, so an offset landing inside a
-/// multi-byte character is possible and must slice nothing rather than panic.
-fn snap_down(content: &str, index: usize) -> usize {
-    let mut index = index.min(content.len());
-    while index > 0 && !content.is_char_boundary(index) {
-        index -= 1;
-    }
-    index
+    // Order is left as the index yields it: `flatten_spans` sorts stably and
+    // resolves identical ranges in favour of the first, which is the rule
+    // `Highlighter::spans_with` already applied when the spans were emitted.
+    flatten_spans(spans, visible.len())
+        .into_iter()
+        .map(|run| {
+            let colour = run.payload.map_or(context.foreground, |highlight| {
+                highlight_to_color(highlight, colors)
+            });
+            (&visible[run.start..run.end], colour)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -327,6 +319,58 @@ mod tests {
         assert!(
             runs.iter().any(|(_, colour)| *colour == foreground),
             "gaps between captures take the foreground"
+        );
+    }
+
+    /// ⭐ A span nested inside another must keep its own colour.
+    ///
+    /// The grammar captures the whole template literal as a string *and* the
+    /// `${...}` inside it as embedded code, both correctly. Before
+    /// `flatten_spans` the resolver walked the spans in start order and skipped
+    /// any that began inside a range already claimed — so the literal, which
+    /// starts first, took all of it and every span within was discarded. The
+    /// whole interpolation rendered as string.
+    ///
+    /// Asserted on the run's exact text rather than on a colour count: the
+    /// symptom is that no run for `y` exists at all.
+    #[test]
+    fn an_interpolation_inside_a_template_literal_keeps_its_own_colours() {
+        let source = "const a = `x${y}z`;\n";
+        let mut editor = Editor::with_defaults();
+        editor.set_content(source);
+        editor.set_language(Language::TypeScript);
+        let mut cache = HighlightCache::new();
+        cache.refresh(&editor);
+
+        let theme = Theme::default();
+        let syntax_theme = HashMap::new();
+        let viewport = ViewportConfig::default();
+        let foreground = theme.editor.foreground;
+        let context = context_over(source, &syntax_theme, &viewport, foreground);
+        let runs = cache
+            .resolver(&theme.syntax)
+            .resolve(&context)
+            .expect("a parsed TypeScript document resolves spans");
+
+        let rebuilt: String = runs.iter().map(|(text, _)| *text).collect();
+        assert_eq!(
+            rebuilt, source,
+            "the runs must still cover the content exactly"
+        );
+
+        let interpolated = runs
+            .iter()
+            .find(|(text, _)| *text == "y")
+            .map(|(_, colour)| *colour);
+        assert_eq!(
+            interpolated,
+            Some(theme.syntax.variable),
+            "the interpolated variable was swallowed by the string span around it"
+        );
+        assert!(
+            runs.iter()
+                .any(|(text, colour)| text.contains('x') && *colour == theme.syntax.string),
+            "and the literal's own text must still paint as a string"
         );
     }
 
@@ -524,18 +568,11 @@ mod tests {
         assert_eq!(rebuilt, visible, "the runs stop where the content stops");
     }
 
-    #[test]
-    fn snap_down_lands_on_character_boundaries() {
-        let text = "a🦀b";
-        assert_eq!(super::snap_down(text, 0), 0);
-        assert_eq!(super::snap_down(text, 2), 1, "inside the crab snaps back");
-        assert_eq!(super::snap_down(text, 5), 5);
-        assert_eq!(
-            super::snap_down(text, 99),
-            text.len(),
-            "past the end clamps"
-        );
-    }
+    // `snap_down`'s own unit test went with it into the kernel, where the web
+    // face's use of it is covered too. What stays here is the face-level
+    // guarantee it exists for —
+    // `multibyte_content_is_covered_without_splitting_characters`, above, which
+    // asserts it through the resolver rather than at the function.
 
     // =====================================================================
     // The windowed derive (docs/design/PARSER-TAX-MAP.md stage 1)

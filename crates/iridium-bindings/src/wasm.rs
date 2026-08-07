@@ -30,7 +30,8 @@ use iridium_editor::{
         KeyboardHandler, Modifiers, SearchAction,
     },
     render::{
-        FrameCompositor, FrameTarget, HighlightContext, HighlightSource, Viewport, WebSurface,
+        FrameCompositor, FrameTarget, HighlightContext, HighlightSource, SpanRun, Viewport,
+        WebSurface, flatten_spans, snap_down,
         units::{pixel_to_index, u32_to_f32},
     },
     theme::Color,
@@ -3055,15 +3056,16 @@ impl HighlightSource for WebHighlightSource<'_> {
                 context.syntax_theme,
             ))
         } else if !self.highlights.spans().is_empty() {
-            // Legacy fallback: use JsHighlightSpan when SpanIndex not available
-            // PERF: This path clones ts_highlights to sort them. This is acceptable because:
-            // 1. With WebSpanIndex, this path is rarely hit (only during transition)
-            // 2. The clone happens only when span_index.is_empty() returns true
-            // 3. Full optimization would require pre-sorted storage or sorted indices
-            let spans = self.highlights.spans().to_vec();
+            // Legacy fallback: use JsHighlightSpan when SpanIndex not available.
+            //
+            // This used to clone the whole span set every frame, because the
+            // callee sorted in place, and carried three bullet points arguing
+            // the clone was affordable. `flatten_spans` sorts its own copy of
+            // the ranges and never needs the caller's, so the argument and the
+            // clone are both gone: the slice is borrowed.
             Some(build_rich_spans_from_ts(
                 context.content,
-                spans,
+                self.highlights.spans(),
                 context.foreground,
                 context.syntax_theme,
             ))
@@ -3091,9 +3093,22 @@ impl HighlightSource for WebHighlightSource<'_> {
 /// Converts highlight spans (from `WebSpanIndex` query) to colored text spans
 /// for rendering.
 ///
-/// This is the optimized version that works with [`WebSpan`] from the
-/// `WebSpanIndex`. The spans are collected, sorted, and processed only for
-/// the visible viewport.
+/// This is the version that works with [`WebSpan`] from the `WebSpanIndex`:
+/// spans are collected and flattened for the visible viewport only.
+///
+/// # Nesting
+///
+/// ⭐ The collapse from possibly-nested spans to flat runs is the kernel's
+/// [`flatten_spans`], not this function's. **The innermost span owns the byte**,
+/// and the span around it keeps whatever the inner one does not take — so an
+/// interpolation inside a template literal renders as code between two pieces
+/// of string, rather than the whole literal rendering as one colour.
+///
+/// This used to walk the spans in start order and skip any beginning inside a
+/// claimed range, which handed every nested span to its container. The desktop
+/// resolver had the same loop and the same defect; the rule lives in the kernel
+/// now because this file has no tests and nothing executes it, so an algorithm
+/// here can only ever be checked by reading it.
 ///
 /// # Arguments
 ///
@@ -3109,67 +3124,31 @@ fn build_rich_spans_viewport<'a>(
     foreground: Color,
     syntax_theme: &HashMap<String, Color>,
 ) -> Vec<(&'a str, Color)> {
-    let mut result = Vec::new();
-    let mut last_end = 0;
-    let content_end_byte = content_start_byte + content.len();
+    let queried: Vec<WebSpan> = spans.collect();
 
-    // Collect and sort spans by start position
-    let mut sorted_spans: Vec<WebSpan> = spans.collect();
-    sorted_spans.sort_by_key(|s| s.start);
+    // Snapped, not merely clamped: these offsets are document bytes while
+    // `content` is the compositor's fold-collapsed extraction, so an offset can
+    // land inside a multi-byte character and slicing there would panic. Spans
+    // that snapping empties, and any the query returned degenerate, are
+    // discarded by `flatten_spans`.
+    let runs: Vec<SpanRun<&str>> = queried
+        .iter()
+        .map(|span| SpanRun {
+            start: snap_down(content, span.start.saturating_sub(content_start_byte)),
+            end: snap_down(content, span.end.saturating_sub(content_start_byte)),
+            payload: span.highlight_type.as_str(),
+        })
+        .collect();
 
-    for span in &sorted_spans {
-        // Calculate span positions relative to content
-        let span_start = span.start.saturating_sub(content_start_byte);
-        let span_end = span.end.saturating_sub(content_start_byte);
-
-        // Skip spans that are completely outside content
-        if span.end <= content_start_byte || span.start >= content_end_byte {
-            continue;
-        }
-
-        // Clamp to content bounds
-        let span_start = span_start.min(content.len());
-        let span_end = span_end.min(content.len());
-
-        // Skip empty or invalid spans
-        if span_start >= span_end {
-            continue;
-        }
-
-        // Add gap before this span if needed
-        if span_start > last_end {
-            let gap_text = &content[last_end..span_start];
-            if !gap_text.is_empty() {
-                result.push((gap_text, foreground));
-            }
-        }
-
-        // Skip overlapping spans
-        if span_start < last_end {
-            continue;
-        }
-
-        // Get the color for this highlight type (using string-based lookup)
-        let color = color_for_highlight_type(syntax_theme, foreground, &span.highlight_type);
-
-        // Add the highlighted span
-        let text = &content[span_start..span_end];
-        if !text.is_empty() {
-            result.push((text, color));
-        }
-
-        last_end = span_end;
-    }
-
-    // Add remaining text after last span
-    if last_end < content.len() {
-        let remaining = &content[last_end..];
-        if !remaining.is_empty() {
-            result.push((remaining, foreground));
-        }
-    }
-
-    result
+    flatten_spans(runs, content.len())
+        .into_iter()
+        .map(|run| {
+            let color = run.payload.map_or(foreground, |highlight_type| {
+                color_for_highlight_type(syntax_theme, foreground, highlight_type)
+            });
+            (&content[run.start..run.end], color)
+        })
+        .collect()
 }
 
 /// Converts tree-sitter highlight spans to colored text spans for rendering.
@@ -3177,58 +3156,45 @@ fn build_rich_spans_viewport<'a>(
 ///
 /// Maps tree-sitter capture names to theme colors and handles gaps between
 /// highlighted regions with default foreground color.
+///
+/// Nesting is resolved by [`flatten_spans`] on the same rule as
+/// [`build_rich_spans_viewport`] — innermost wins — because a fallback that
+/// coloured differently from the main path would be a second appearance for the
+/// same document, visible as a flicker when the index filled.
+///
+/// ⚠️ Two behaviours here changed with that, both toward the main path: a span
+/// reaching past the content is now **clamped rather than dropped**, and every
+/// offset is snapped to a character boundary. The old bounds test admitted
+/// offsets that were inside a multi-byte character, and the slice below would
+/// have panicked on one.
 fn build_rich_spans_from_ts<'a>(
     content: &'a str,
-    mut sorted_spans: Vec<JsHighlightSpan>,
+    // Not an owned, sorted `Vec` any more, and neither half of that is an
+    // accident: nothing here sorts, `flatten_spans` does not need it sorted,
+    // and with the in-place sort gone there is nothing left to own — so the
+    // caller's per-frame clone of the whole span set goes with it.
+    spans: &[JsHighlightSpan],
     foreground: Color,
     syntax_theme: &HashMap<String, Color>,
 ) -> Vec<(&'a str, Color)> {
-    let mut result = Vec::new();
-    let mut last_end = 0;
+    let runs: Vec<SpanRun<&str>> = spans
+        .iter()
+        .map(|span| SpanRun {
+            start: snap_down(content, span.start),
+            end: snap_down(content, span.end),
+            payload: span.highlight_type.as_str(),
+        })
+        .collect();
 
-    // Sort spans by start position
-    sorted_spans.sort_by_key(|s| s.start);
-
-    for span in &sorted_spans {
-        // Skip spans that are out of bounds
-        if span.start >= content.len() || span.end > content.len() {
-            continue;
-        }
-
-        // Add gap before this span if needed
-        if span.start > last_end {
-            let gap_text = &content[last_end..span.start];
-            if !gap_text.is_empty() {
-                result.push((gap_text, foreground));
-            }
-        }
-
-        // Skip overlapping spans
-        if span.start < last_end {
-            continue;
-        }
-
-        // Get the color for this highlight type
-        let color = color_for_highlight_type(syntax_theme, foreground, &span.highlight_type);
-
-        // Add the highlighted span
-        let text = &content[span.start..span.end];
-        if !text.is_empty() {
-            result.push((text, color));
-        }
-
-        last_end = span.end;
-    }
-
-    // Add remaining text after last span
-    if last_end < content.len() {
-        let remaining = &content[last_end..];
-        if !remaining.is_empty() {
-            result.push((remaining, foreground));
-        }
-    }
-
-    result
+    flatten_spans(runs, content.len())
+        .into_iter()
+        .map(|run| {
+            let color = run.payload.map_or(foreground, |highlight_type| {
+                color_for_highlight_type(syntax_theme, foreground, highlight_type)
+            });
+            (&content[run.start..run.end], color)
+        })
+        .collect()
 }
 
 /// Maps a tree-sitter highlight type to a theme color.

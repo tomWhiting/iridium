@@ -21,6 +21,7 @@ mod cursor;
 mod gutter;
 mod highlight;
 mod minimap;
+mod runs;
 mod simple_highlight;
 /// Public, and it took two restatements to earn that.
 ///
@@ -76,6 +77,7 @@ pub use minimap::{
     MinimapDimensions, MinimapDragState, MinimapInteraction, MinimapLine, MinimapPosition,
     MinimapRect, MinimapRenderer, MinimapSegment, ViewportIndicator,
 };
+pub use runs::{FlatRun, SpanRun, flatten_spans, snap_down};
 pub use simple_highlight::{HighlightSpan, SimpleHighlighter, SyntaxColors, TokenType};
 pub use viewport::{Viewport, ViewportConfig};
 

@@ -20,8 +20,21 @@ use crate::render::{DEFAULT_MINIMAP_WIDTH, MinimapPosition};
 ///     ..EditorConfig::default()
 /// };
 /// ```
+/// # Every field is optional when deserializing
+///
+/// The container carries `#[serde(default)]`, so a serialized configuration
+/// naming one option and omitting the rest is valid and the rest keep their
+/// defaults. That is what makes a hand-written configuration file a *partial*
+/// document — someone setting the tab width should not have to restate the
+/// font size, the minimap position and thirteen other things they have no
+/// opinion about, and a loader that made them would be collecting stale copies
+/// of every default the day one of them changed.
+///
+/// It is strictly more permissive than requiring every field: nothing that
+/// deserialized before stops deserializing.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EditorConfig {
     /// Tab width in spaces (default: 4)
     pub tab_width: usize,
@@ -228,6 +241,34 @@ mod tests {
         let json = serde_json::to_string(&config).expect("config must serialize");
         let parsed: EditorConfig = serde_json::from_str(&json).expect("config must parse");
         assert_eq!(parsed.line_comment_token.as_deref(), Some("#"));
+    }
+
+    /// A configuration naming one option and nothing else deserializes, with
+    /// every other option at its default.
+    ///
+    /// This is what makes a hand-written configuration file partial. Without
+    /// it, setting the tab width means restating every other option, and each
+    /// restated one is a copy that goes stale the day its default changes.
+    #[test]
+    fn a_configuration_naming_one_option_leaves_the_rest_at_their_defaults() {
+        let parsed: EditorConfig =
+            serde_json::from_str(r#"{"tab_width": 2}"#).expect("a partial config must parse");
+        assert_eq!(parsed.tab_width, 2);
+        assert_eq!(
+            EditorConfig {
+                tab_width: 4,
+                ..parsed
+            },
+            EditorConfig::default(),
+            "every option the document did not name is its default"
+        );
+    }
+
+    /// An empty document is a valid configuration: it changes nothing.
+    #[test]
+    fn an_empty_configuration_is_the_default_configuration() {
+        let parsed: EditorConfig = serde_json::from_str("{}").expect("an empty config must parse");
+        assert_eq!(parsed, EditorConfig::default());
     }
 
     #[test]

@@ -1,0 +1,256 @@
+//! The `[keys]` table — the bindings half of the file.
+//!
+//! ```toml
+//! [keys]
+//! "cmd+shift+p" = "palette.open"
+//! "cmd+k cmd+c" = "edit.toggleLineComment"
+//! "ctrl+k"      = ""                        # unbind, so `ctrl+k …` chords live
+//! ```
+//!
+//! The key is the chord sequence, the value is the command it runs. Space
+//! separates the chords of a multi-stroke sequence, exactly as
+//! [`KeyBinding::parse_sequence`] reads it and exactly as a diagnostic quotes
+//! it back — one spelling, in the file and in every message about the file.
+//!
+//! # What `cmd` means
+//!
+//! `cmd`, `meta`, `super` and `win` are one modifier, and on a Mac it is the
+//! Command key. This is worth saying because the *browser* face forwards
+//! Command as the kernel's `ctrl`, so the same chord means two things depending
+//! on the face — and a reader who knows that will reasonably wonder which one
+//! applies here.
+//!
+//! It never applies here: this crate is native-only, because a browser has no
+//! configuration file to read. `cmd` in this file is Command on macOS and
+//! Super elsewhere, with no translation anywhere in the path.
+//!
+//! # An empty command unbinds
+//!
+//! `"ctrl+k" = ""` suppresses that sequence in every lower layer rather than
+//! binding it to nothing. It is here because it is the fix for the commonest
+//! refusal: binding a bare chord strands every longer sequence starting with
+//! it, and the diagnostic that reports the stranding quotes the sequence to
+//! unbind in exactly this form.
+
+use iridium_editor::{CommandId, KeyBinding, Keymap};
+use toml::{Table, Value};
+
+use crate::problem::Problem;
+
+/// The heading this section is written under.
+pub const SECTION: &str = "keys";
+
+/// The name of the layer the user's bindings are pushed as.
+///
+/// It appears verbatim in every keymap diagnostic, so it is written the way a
+/// user would want to read it rather than the way this crate is named.
+pub const KEYMAP_NAME: &str = "user";
+
+/// The value that unbinds a sequence rather than binding it.
+pub const UNBIND: &str = "";
+
+/// Reads the `[keys]` table out of a parsed document.
+///
+/// Bindings are returned in the order the file's keys sort, which is the order
+/// `toml` yields a table in. Order matters — a later binding wins over an
+/// earlier one for the same sequence — and a *stated* order is the point: the
+/// alternative is a precedence that depends on hash iteration and therefore
+/// differs between runs of the same file.
+pub fn bindings(document: &Table, problems: &mut Vec<Problem>) -> Vec<KeyBinding> {
+    let Some(value) = document.get(SECTION) else {
+        return Vec::new();
+    };
+    let Some(table) = value.as_table() else {
+        problems.push(Problem::keys(format!(
+            "`{SECTION}` must be a table of bindings, not {}",
+            crate::settings::type_name(value)
+        )));
+        return Vec::new();
+    };
+
+    let mut bindings: Vec<KeyBinding> = Vec::with_capacity(table.len());
+    for (sequence, value) in table {
+        match binding(sequence, value) {
+            Ok(binding) => {
+                if let Some(problem) = duplicate(&bindings, &binding, sequence) {
+                    problems.push(problem);
+                    continue;
+                }
+                bindings.push(binding);
+            },
+            Err(problem) => problems.push(problem),
+        }
+    }
+    bindings
+}
+
+/// Collects `bindings` into the layer a face pushes.
+#[must_use]
+pub fn keymap(bindings: impl IntoIterator<Item = KeyBinding>) -> Keymap {
+    let mut keymap = Keymap::new(KEYMAP_NAME);
+    keymap.extend(bindings);
+    keymap
+}
+
+/// Turns one `sequence = command` line into a binding.
+fn binding(sequence: &str, value: &Value) -> Result<KeyBinding, Problem> {
+    let Some(command) = value.as_str() else {
+        return Err(Problem::keys(format!(
+            "`{sequence}` must name a command as a string, not {}",
+            crate::settings::type_name(value)
+        )));
+    };
+
+    if command == UNBIND {
+        let (first, rest) =
+            KeyBinding::parse_sequence(sequence).map_err(|error| unparsable(sequence, &error))?;
+        return Ok(KeyBinding::unbound(first, &rest));
+    }
+
+    KeyBinding::parse(sequence, CommandId::new(command.to_owned()))
+        .map_err(|error| unparsable(sequence, &error))
+}
+
+/// The report for a sequence that is not a key chord.
+///
+/// The kernel's own error already names the offending chord, so the sequence
+/// is repeated only when the sequence and the chord differ — which is the
+/// multi-stroke case, and the one where knowing which line to edit is not
+/// obvious from the chord alone.
+fn unparsable(sequence: &str, error: &iridium_editor::KeymapError) -> Problem {
+    Problem::keys(format!("`{sequence}` is not a key sequence: {error}"))
+}
+
+/// Why `candidate` cannot join `bindings`, or `None` when it can.
+///
+/// Two differently *written* keys can name the same sequence — `"cmd+k"` and
+/// `"meta-k"` are the same chord, and TOML cannot object because they are
+/// distinct table keys. Left alone, one of them silently wins and the other
+/// looks like it was ignored for no reason.
+fn duplicate(bindings: &[KeyBinding], candidate: &KeyBinding, sequence: &str) -> Option<Problem> {
+    let written = candidate.display_sequence();
+    let existing = bindings
+        .iter()
+        .find(|binding| binding.display_sequence() == written)?;
+    let winner = existing.command().map_or_else(
+        || "nothing (it is unbound)".to_owned(),
+        |id| format!("`{id}`"),
+    );
+    Some(Problem::keys(format!(
+        "`{sequence}` is the same key sequence as an earlier line in this table; \
+         it is ignored and the sequence still runs {winner}"
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use toml::Table;
+
+    use super::{KEYMAP_NAME, bindings, keymap};
+    use crate::problem::{Problem, Section};
+
+    /// Parses `text` and reads its `[keys]` table.
+    fn read(text: &str) -> (Vec<iridium_editor::KeyBinding>, Vec<Problem>) {
+        let document: Table = text.parse().expect("the fixture is valid TOML");
+        let mut problems = Vec::new();
+        let bindings = bindings(&document, &mut problems);
+        (bindings, problems)
+    }
+
+    #[test]
+    fn no_keys_table_is_not_a_problem() {
+        let (bindings, problems) = read("");
+        assert!(bindings.is_empty());
+        assert!(problems.is_empty());
+    }
+
+    #[test]
+    fn a_chord_becomes_a_binding_naming_its_command() {
+        let (bindings, problems) = read("[keys]\n\"ctrl+shift+p\" = \"palette.open\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(
+            bindings[0].command().map(ToString::to_string),
+            Some("palette.open".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_multi_stroke_sequence_is_read_as_one_binding() {
+        let (bindings, problems) = read("[keys]\n\"ctrl+k ctrl+c\" = \"edit.toggleLineComment\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].sequence().len(), 2);
+    }
+
+    #[test]
+    fn cmd_and_meta_are_one_modifier() {
+        // The whole point of saying so in the module documentation: a user who
+        // writes `cmd` on a Mac and a user who writes `super` on Linux have
+        // written the same binding, and the file is portable between them.
+        let (bindings, problems) = read("[keys]\n\"cmd+p\" = \"file.open\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(bindings[0].display_sequence(), "meta+p");
+    }
+
+    #[test]
+    fn an_empty_command_unbinds_rather_than_binding_to_nothing() {
+        let (bindings, problems) = read("[keys]\n\"ctrl+k\" = \"\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(bindings.len(), 1);
+        assert!(
+            bindings[0].command().is_none(),
+            "an unbind carries no command"
+        );
+    }
+
+    #[test]
+    fn a_chord_that_is_not_a_chord_costs_only_its_own_line() {
+        let (bindings, problems) = read(
+            "[keys]\n\"ctrl+nonsuch\" = \"palette.open\"\n\"ctrl+alt+j\" = \"cursor.lineDown\"\n",
+        );
+        assert_eq!(bindings.len(), 1, "the good binding survived");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(problems[0].section, Section::Keys);
+        assert!(problems[0].detail.contains("ctrl+nonsuch"), "{problems:?}");
+    }
+
+    #[test]
+    fn a_command_that_is_not_a_string_is_reported() {
+        let (bindings, problems) = read("[keys]\n\"ctrl+j\" = 3\n");
+        assert!(bindings.is_empty());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].detail.contains("a number"), "{problems:?}");
+    }
+
+    #[test]
+    fn two_spellings_of_one_chord_are_reported_rather_than_silently_merged() {
+        // TOML cannot object — they are different table keys — so nothing but
+        // this check stands between the user and a binding that vanished for
+        // no visible reason.
+        let (bindings, problems) = read("[keys]\n\"cmd+k\" = \"a.one\"\n\"meta-k\" = \"a.two\"\n");
+        assert_eq!(bindings.len(), 1, "only one binding survives");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].detail.contains("a.one"),
+            "the report names the binding that is actually in effect: {problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_keys_key_that_is_not_a_table_is_reported_rather_than_ignored() {
+        let (bindings, problems) = read("keys = \"none\"\n");
+        assert!(bindings.is_empty());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].detail.contains("a string"), "{problems:?}");
+    }
+
+    #[test]
+    fn the_layer_is_named_for_the_person_who_wrote_it() {
+        // The name is quoted verbatim in every keymap diagnostic.
+        let (bindings, _) = read("[keys]\n\"ctrl+alt+j\" = \"cursor.lineDown\"\n");
+        let layer = keymap(bindings);
+        assert_eq!(layer.name(), KEYMAP_NAME);
+        assert_eq!(layer.len(), 1);
+    }
+}

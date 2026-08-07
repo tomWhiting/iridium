@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "apps/iridium",
     "apps/iridium-desktop",
+    "crates/iridium-config",
     "crates/iridium-editor",
     "crates/iridium-explorer",
     "crates/iridium-file",
@@ -118,6 +119,7 @@ ignore = "0.4.30"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 
 # Internal crates
+iridium-config = { path = "crates/iridium-config" }
 iridium-editor = { path = "crates/iridium-editor", default-features = false }
 iridium-explorer = { path = "crates/iridium-explorer" }
 iridium-file = { path = "crates/iridium-file" }

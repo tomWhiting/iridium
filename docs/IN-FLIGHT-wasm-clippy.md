@@ -1,8 +1,26 @@
 # #75 — the wasm clippy gate, and the 60 that were never reported
 
-**Status: half done.** The 8 in `iridium-editor` are closed at `c1bf4b0`. The
-60 in `wasm.rs` are open, inventoried below, and the gate cannot be armed until
-they are gone.
+> ## ✅ CLOSED, 8 Aug. Count went 68 → 60 → 20 → 14 → 0, gate armed at `dc6a67f`.
+>
+> | commit | what | count after |
+> | --- | --- | --- |
+> | `c1bf4b0` | the 8 in `iridium-editor` (wgpu `!Send` on wasm32 only) | 60 |
+> | `97725aa` | 12 `missing_const_for_fn` suppressed + 28 applied by `--fix` | 20 |
+> | `729286c` | the six non-cast remainders | 14 |
+> | `94953ef` | the 14 JS-boundary casts → `js_index::to_js_u32`/`to_js_i32` | **0** |
+> | `dc6a67f` | `.github/workflows/ci.yml` — the gate, armed last | — |
+>
+> ```
+> cargo clippy -p iridium-bindings --no-default-features --features web \
+>     --target wasm32-unknown-unknown -- -D warnings
+> → exit 0
+> ```
+>
+> **The GPU-free kernel is now the only ungated configuration**, and it is
+> still a burn-down rather than a flag.
+>
+> The inventory and reasoning below are kept as written — the line numbers are
+> stale by design, and the arguments are the part worth reading.
 
 Every figure here comes from a command named beside it, run on this tree.
 
@@ -91,8 +109,19 @@ Two separate things, both load-bearing:
 **1. `missing_const_for_fn` is categorically WRONG on this file's exports.**
 `#[wasm_bindgen]` rejects `const fn` outright. Clippy does not know that, and
 marks the suggestion **MachineApplicable** anyway — so its own auto-fix emits
-code that cannot compile. At least 8 of the 12 are on exported methods and are
-**unfixable, not unfixed**. They need an `expect` with the reason, not a fix.
+code that cannot compile. They are **unfixable, not unfixed**, and need a
+suppression with the reason rather than a fix.
+
+> ⚠️ **Two corrections to this paragraph, both found by doing it** (`97725aa`):
+>
+> - It said *"at least 8 of the 12"*. It is **all 12** — the `--fix` log names
+>   exactly twelve `can only #[wasm_bindgen] non-const functions` errors. The
+>   "8" was me reading a truncated range and hedging on the wrong side.
+> - It said they need an `expect`. **`#[expect]` does not survive this proc
+>   macro**: the lint falls silent and all twelve then report
+>   `unfulfilled_lint_expectations` against the attribute's own line. They are
+>   `allow`, with the lost strictness stated at the site. See §2 of the
+>   retrospective at the end of this file.
 
 ⭐ **The discriminator, and it is exact:** `f08c888` — one commit earlier in
 this same stint — took this lint's advice on `WebHighlightCache::bump` and was
@@ -192,3 +221,77 @@ by carrying `any(target_arch = "wasm32", test)` instead of the target gate,
 because it is plain Rust with no `#[wasm_bindgen]`. Any Group B cast whose
 logic can be lifted into a plain-Rust helper becomes testable by the same move.
 That is the better fix wherever it applies.
+
+---
+
+# How it actually went — the four things worth keeping
+
+Written after closing, because most of these contradict what the map above
+predicted before starting.
+
+## 1. `--fix` was zero, then it was 28. The order is the whole trick.
+
+`cargo clippy --fix` applied all 40 machine-applicable suggestions, failed to
+recompile, and rolled the entire file back — because 12 of them made
+`#[wasm_bindgen]` methods `const`, which that macro rejects outright. One bad
+suggestion poisons the batch, and there is no per-lint switch for `--fix`.
+
+⭐ **Suppress the unsound suggestions first, then `--fix` works.** With the 12
+`missing_const_for_fn` sites carrying an `allow`, the same command applied the
+remaining 28 cleanly. That took the tool from useless to doing 60% of the task.
+
+## 2. `#[expect]` does not survive `#[wasm_bindgen]`
+
+The codebase prefers `expect` over `allow` because it is strict in both
+directions. It is **unusable across this proc macro**: with `#[expect]` in
+place, `missing_const_for_fn` falls silent *and* all twelve report
+`unfulfilled_lint_expectations` against the attribute's own line. Twelve
+suppressed warnings become twelve new ones.
+
+So those sites are `allow`, and the protection given up — `allow` will not tell
+us if `wasm_bindgen` ever permits `const fn` — is stated at the site rather
+than quietly accepted.
+
+## 3. The suppression boundary has to match the reason's boundary
+
+The obvious move was one attribute on the `#[wasm_bindgen] impl WebEditor`
+block. **Wrong:** twenty private helpers live inside that block, and on those
+the lint is right — `WebHighlightCache::bump` took its advice in `f08c888`,
+correctly, one commit earlier the same night.
+
+⭐ The discriminator is *whether the function crosses the `wasm_bindgen`
+boundary*, so the suppression stops there too. Same lint, opposite correct
+answer, decided by something neither the lint nor the block knows.
+
+## 4. The casts: a vacuous lint is still worth obeying
+
+13 of the 14 were `usize as u32`, which **cannot** truncate on `wasm32` —
+`usize` is 32 bits there, and clippy's message names 64-bit targets as the
+hazard. An `allow` was defensible.
+
+It was still the worse answer. That soundness is a fact about the *target*,
+held nowhere and checked by nothing, and `wasm64` exists. `u32::try_from(v)
+.unwrap_or(u32::MAX)` needs no assumption at all, so there is nothing left to
+hold true — and it moved to `js_index`, beside the inbound `index`, where the
+host compiles it and tests reach it.
+
+The 14th was different and the difference mattered: `get_fold_end_line` returns
+`-1` for "no fold", and `usize::MAX as i32` is exactly `-1`. Its lint —
+`cast_possible_wrap` — names **32-bit** targets, which is the one we build for.
+Unreachable at 2^31 lines, but "unreachable" was a fact about document sizes
+rather than about the function. Same shape as the stale span index in #76.
+
+⭐ **A lint that is vacuous today is a claim about your build configuration, not
+about your code.** Obeying it cheaply is worth more than proving it vacuous
+expensively.
+
+## What the map got wrong, for the record
+
+- "8 errors" → 68. A `-D` gate reports the first *unit* that fails, and
+  `iridium-editor` is a dependency; it aborted there. **An error count from a
+  denying run is an ordering artefact.**
+- "43 mechanical / 17 judgement" → the real seam was machine-applicability, and
+  even that was wrong, because 12 of the 40 applicable ones do not compile.
+- "the 14 casts need a fresh pass, not a tired one" → this one held. They were
+  the only part that needed a design decision rather than a mechanism, and the
+  sentinel collision would have been easy to `allow` past.

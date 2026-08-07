@@ -15,6 +15,7 @@ use iridium_file::TextFile;
 
 use std::path::Path;
 
+use super::config;
 use super::state::{DesktopApp, Flow};
 use crate::commands;
 use crate::file_tree::FileExplorer;
@@ -60,12 +61,40 @@ impl DesktopApp {
             Flow::Running
         } else if command == &EXPLORER_TOGGLE_PANEL {
             self.toggle_explorer()
+        } else if command == &commands::COMMANDS_LIST {
+            self.show_command_reference()
         } else if self.workspace.handles_command(command) {
             self.run_workspace_command(command)
         } else {
             return None;
         };
         Some(flow)
+    }
+
+    /// Opens a tab listing every command by the id a `[keys]` line names it by.
+    ///
+    /// The command palette searches ids but shows titles, so this is the only
+    /// way to find out what to write — and a binding nobody can name is a
+    /// feature nobody can use.
+    ///
+    /// The text is built before the tab is opened rather than while: reading
+    /// the registry borrows the active editor, and opening a tab needs the
+    /// workspace mutably. Building first is not a workaround for the borrow
+    /// checker so much as the honest order — the reference describes the
+    /// session as it was *asked about*, not as it is once a tab about it
+    /// exists.
+    fn show_command_reference(&mut self) -> Flow {
+        let Some(editor) = self.workspace.active_editor() else {
+            // Unreachable: the session always has a tab. Reported rather than
+            // dropped, since the chord was consumed and silence would look
+            // like a dead key.
+            self.message = Some(Message::error("there is no editor to list the commands of"));
+            return Flow::Running;
+        };
+        let text = config::command_reference(editor.commands(), editor.key_hints());
+        self.workspace.open(&text, config::COMMANDS_TAB, None);
+        self.after_tab_change();
+        Flow::Running
     }
 
     /// Opens the file explorer, or closes it if it is already open.

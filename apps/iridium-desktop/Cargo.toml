@@ -37,6 +37,11 @@ iridium-tree.workspace = true
 # byte comparison, read-only refusal. One save path across every face.
 iridium-file.workspace = true
 
+# The user's `config.toml`. Native-only and shared with the terminal face, so
+# one file means one thing in both — see that crate for why it is not folded
+# into the kernel.
+iridium-config.workspace = true
+
 # The window and its event loop. The only crate here that knows what a native
 # window is.
 winit.workspace = true

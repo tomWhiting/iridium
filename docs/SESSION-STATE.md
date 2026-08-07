@@ -654,15 +654,111 @@ nothing to learn.
 - **Deliberately not `Enter`.** That is still Tom's open question; binding
   these separately means whatever he rules only *adds* a way in.
 
-**Still not built, and Tom asked for it: settings, and configurable keymaps.**
-No config file exists in any face. That is the next real piece.
-
 ### The query field is deliberately caretless
 
 It takes printable characters, `Backspace` and paste — nothing else. `←`/`→`
 in a tree panel belong to the tree, and a filter is three or four characters
 someone retypes rather than edits. `Escape` clears the query first and closes
 the panel second.
+
+## ⚙️ CONFIGURATION — landed 7 Aug, `b371431` + the desktop wiring
+
+Tom asked for "settings things and a way to set the keymaps"; he ruled **file
+first, UI over it later**. The file half is done and wired into the desktop
+face. `docs/CONFIG.md` is the user-facing reference — that is what to send him.
+
+```text
+~/.config/iridium/config.toml     # or $XDG_CONFIG_HOME/iridium/config.toml
+
+[editor]
+tab_width = 2
+
+[keys]
+"cmd+shift+p" = "palette.open"
+"ctrl+f"      = ""                # empty command unbinds
+```
+
+### The kernel half already existed
+
+This was the finding that shaped the work. `EditorConfig` already derived
+serde; `KeyBinding::parse`'s own doc already called itself *"the text form a
+configuration file or a rebinding UI works in"*; `push_validated_keymap` was
+already documented as *"the path a host loading a keymap from configuration
+should take"*. So the work was location, reading, and **reporting** — not
+keymap machinery.
+
+### `crates/iridium-config` — native-only, nine files, 59 tests
+
+Native-only for the reason `iridium-explorer` and `iridium-file` are: **a
+browser has no configuration file**, so the wasm bundle must never carry a TOML
+parser. What can genuinely drift between faces is already in the kernel.
+
+Four rules, in priority order:
+
+1. **A bad configuration never stops the editor.** Nothing returns a fatal
+   error. The reason is circular and decisive: the usual way to fix a
+   configuration file is to open it in the editor.
+2. **A mistake costs its own line.** Sections are read separately, and inside
+   `[editor]` *every setting is applied separately*. Only a whole-file syntax
+   error takes everything, because it leaves no sections to isolate.
+3. **A refused binding is reported, never swallowed** — see below.
+4. **No file is not a problem.**
+
+### Two things taken from the source of truth, not copied beside it
+
+- **Which settings exist** is read from `EditorConfig`'s own serde derive, via
+  the field names it hands `deserialize_struct` (`fields.rs`). A hand-written
+  list would report a newly added setting as a typo — confidently wrong rather
+  than merely silent. A test asserts the capture still answers, so introducing
+  `#[serde(flatten)]` fails loudly instead of switching the check off.
+- **Whether a value is acceptable** is decided by deserializing it against the
+  real type, never by a description of what the type accepts.
+
+`EditorConfig` gained `#[serde(default)]` on the container so a partial
+document is valid. Strictly more permissive; nothing that parsed before stops.
+
+### `install` is a loop, and that is the whole point
+
+The kernel validates a layer **whole** and refuses it whole — correct for the
+kernel, but one mistyped command id would cost every binding in the file. So
+`install` reads the refusal, drops the binding it names, records why, and
+offers the rest again. Identification is a comparison, not a guess: the
+kernel's errors carry `display_sequence()` output and so does the binding.
+
+**It never suppresses a stranded default chord on the user's behalf.** Binding
+a bare `ctrl+f` strands every `ctrl+f …` sequence; auto-unbinding them would
+mean an unrelated line silently switching off a key. The new binding is dropped
+and the report quotes the exact line that would keep it.
+
+### The proxy the unit tests could not close
+
+`iridium-config`'s own tests build `KeymapError`s by hand — a **proxy** for
+what the kernel really produces. The divergence case: the error's text and the
+binding's `display_sequence()` stop agreeing. So
+`app/config.rs` tests against a **real `Workspace`** with the real default
+keymap, and one of them (`ctrl+f x`, stranded by the default's bare `ctrl+f`)
+can only pass if the two spellings genuinely match.
+
+### Reporting: a tab, not just the strip
+
+The strip holds one line, and this face is launched from Finder where stderr
+goes nowhere. So problems open a tab called **`config.toml`**, *behind* the
+file that was asked for, and the strip says the tab is there.
+
+### `commands.list` — you cannot bind what you cannot name
+
+The palette matches on ids but **shows titles**, so there was no way to find
+out what to write in `[keys]`. New palette-only command **"List Every
+Command"** opens a tab of `id · title · key` from the live registry and hint
+index. Deliberately unbound, recorded on a `PALETTE_ONLY` list in
+`commands.rs` with a second test asserting the list never goes stale.
+
+### Left for the UI half
+
+A settings *panel* over this file. Also unbuilt: reloading the file without a
+restart, and a "create a starter config.toml" affordance.
+
+---
 
 ## ▶️ WHAT IS LEFT ON THE STRIP (small, none of it blocking)
 

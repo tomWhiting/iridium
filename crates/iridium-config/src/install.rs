@@ -30,35 +30,79 @@
 //! instead, and the report quotes the exact line to add if suppressing them is
 //! what was wanted.
 
+use core::fmt;
+
 use iridium_editor::{KeyBinding, Keymap, KeymapError};
 
 use crate::keys::{KEYMAP_NAME, keymap};
 use crate::problem::Problem;
 
+/// Why a face refused a layer.
+///
+/// Two cases because only one of them can be acted on. A [`Self::Keymap`]
+/// refusal names a binding, so that binding can be dropped and the rest
+/// offered again; anything else the face reports is about the face, names no
+/// binding, and leaves nothing to drop.
+///
+/// The distinction is drawn by the *face* rather than guessed at here, because
+/// only the face knows what its own error type means. Guessing — treating
+/// every refusal as a keymap one and shedding bindings until the error changed
+/// — would report innocent bindings as broken and stop only when there were
+/// none left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// The keymap was refused, on the terms the kernel states.
+    Keymap(KeymapError),
+    /// The face refused for a reason of its own.
+    Face(String),
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Keymap(error) => write!(formatter, "{error}"),
+            Self::Face(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl From<KeymapError> for Refusal {
+    fn from(error: KeymapError) -> Self {
+        Self::Keymap(error)
+    }
+}
+
 /// Pushes the user's bindings, dropping and reporting each one refused.
 ///
 /// `push` is whatever the face uses to install a layer —
 /// [`Workspace::push_keymap`](iridium_editor::Workspace::push_keymap) or
-/// [`Editor::push_keymap`](iridium_editor::Editor::push_keymap) — narrowed to
-/// the error the kernel reports. It **must** leave the stack untouched when it
-/// refuses, which both of those do; a `push` that half-applied would make each
-/// retry stack another copy.
+/// [`Editor::push_keymap`](iridium_editor::Editor::push_keymap) — with its
+/// error mapped onto [`Refusal`]. It **must** leave the stack untouched when
+/// it refuses, which both of those do; a `push` that half-applied would make
+/// each retry stack another copy.
 ///
 /// Returns one [`Problem`] per refused binding. An empty result means every
 /// binding is installed.
 pub fn install(
     bindings: Vec<KeyBinding>,
-    mut push: impl FnMut(Keymap) -> Result<(), KeymapError>,
+    mut push: impl FnMut(Keymap) -> Result<(), Refusal>,
 ) -> Vec<Problem> {
     let mut remaining = bindings;
     let mut problems = Vec::new();
 
     while !remaining.is_empty() {
-        let Err(error) = push(keymap(remaining.clone())) else {
+        let Err(refused) = push(keymap(remaining.clone())) else {
             return problems;
         };
 
-        let Some(index) = culprit(&error, &remaining) else {
+        let Refusal::Keymap(error) = &refused else {
+            problems.push(Problem::keys(format!(
+                "none of the bindings could be applied: {refused}"
+            )));
+            return problems;
+        };
+
+        let Some(index) = culprit(error, &remaining) else {
             // The kernel refused for a reason that names no binding of ours.
             // Nothing can be dropped to make progress, so the layer is
             // abandoned whole and said to be abandoned whole — the one outcome
@@ -70,8 +114,8 @@ pub fn install(
             return problems;
         };
 
-        let refused = remaining.remove(index);
-        problems.push(refusal(&refused, &error));
+        let dropped = remaining.remove(index);
+        problems.push(refusal(&dropped, error));
     }
 
     problems
@@ -154,13 +198,19 @@ fn position_of(bindings: &[KeyBinding], sequence: &str) -> Option<usize> {
 mod tests {
     use iridium_editor::{CommandId, KeyBinding, Keymap, KeymapError};
 
-    use super::install;
+    use super::{Refusal, install};
     use crate::keys::KEYMAP_NAME;
 
     /// A binding of `sequence` to `command`, for a fixture.
     fn bind(sequence: &str, command: &str) -> KeyBinding {
         KeyBinding::parse(sequence, CommandId::new(command.to_owned()))
             .expect("the fixture sequence parses")
+    }
+
+    /// A refusal on the kernel's terms, which is what a real keymap push
+    /// produces and what all but one of these fixtures return.
+    fn refused(error: KeymapError) -> Result<(), Refusal> {
+        Err(Refusal::Keymap(error))
     }
 
     #[test]
@@ -196,7 +246,7 @@ mod tests {
                 .iter()
                 .any(|binding| binding.command().is_some_and(|id| id.as_str() == "a.typo"))
             {
-                return Err(KeymapError::UnknownCommand {
+                return refused(KeymapError::UnknownCommand {
                     keymap: KEYMAP_NAME.to_owned(),
                     id: "a.typo".to_owned(),
                 });
@@ -229,7 +279,7 @@ mod tests {
             for binding in layer.bindings() {
                 let id = binding.command().map_or("", CommandId::as_str);
                 if id.starts_with("nosuch.") {
-                    return Err(KeymapError::UnknownCommand {
+                    return refused(KeymapError::UnknownCommand {
                         keymap: KEYMAP_NAME.to_owned(),
                         id: id.to_owned(),
                     });
@@ -247,7 +297,7 @@ mod tests {
             if layer.is_empty() {
                 return Ok(());
             }
-            Err(KeymapError::CrossLayerShadowedSequence {
+            refused(KeymapError::CrossLayerShadowedSequence {
                 prefix_keymap: KEYMAP_NAME.to_owned(),
                 prefix: "ctrl+k".to_owned(),
                 shadowed_keymap: "default".to_owned(),
@@ -272,7 +322,7 @@ mod tests {
         let mut survived = Vec::new();
         let problems = install(bindings, |layer| {
             if layer.len() > 1 {
-                return Err(KeymapError::ShadowedSequence {
+                return refused(KeymapError::ShadowedSequence {
                     keymap: KEYMAP_NAME.to_owned(),
                     prefix: "ctrl+alt+k".to_owned(),
                     shadowed: "ctrl+alt+k f".to_owned(),
@@ -297,7 +347,7 @@ mod tests {
         let mut pushes = 0;
         let problems = install(bindings, |_| {
             pushes += 1;
-            Err(KeymapError::UnknownCommand {
+            refused(KeymapError::UnknownCommand {
                 keymap: "somebody-elses-layer".to_owned(),
                 id: "a.one".to_owned(),
             })
@@ -307,6 +357,25 @@ mod tests {
         assert!(
             problems[0].detail.contains("none of the bindings"),
             "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_that_is_not_about_the_keymap_stops_rather_than_shedding_bindings() {
+        // A face can refuse for reasons of its own that name no binding.
+        // Dropping bindings until such an error changed would report every one
+        // of them as broken and stop only when there were none left.
+        let bindings = vec![bind("ctrl+alt+j", "a.one"), bind("ctrl+alt+k", "a.two")];
+        let mut pushes = 0;
+        let problems = install(bindings, |_| {
+            pushes += 1;
+            Err(Refusal::Face("the face was already broken".to_owned()))
+        });
+        assert_eq!(pushes, 1, "it stops instead of retrying");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].detail.contains("the face was already broken"),
+            "the face's own words reach the report: {problems:?}"
         );
     }
 
@@ -322,7 +391,7 @@ mod tests {
                 .first()
                 .and_then(KeyBinding::command)
                 .map_or(String::new(), ToString::to_string);
-            Err(KeymapError::UnknownCommand {
+            refused(KeymapError::UnknownCommand {
                 keymap: KEYMAP_NAME.to_owned(),
                 id,
             })

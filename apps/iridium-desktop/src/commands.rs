@@ -101,6 +101,8 @@ use ModifierState::{Any, Forbidden, Required};
 pub const FILE_SAVE: CommandId = CommandId::from_static("file.save");
 /// Write the document to its file even though the file changed on disk.
 pub const FILE_SAVE_FORCE: CommandId = CommandId::from_static("file.saveForce");
+/// Open a tab listing every command by the id a configuration file names it by.
+pub const COMMANDS_LIST: CommandId = CommandId::from_static("commands.list");
 
 /// Every command this face contributes, in declaration order.
 pub static COMMANDS: &[CommandMeta] = &[
@@ -118,6 +120,17 @@ pub static COMMANDS: &[CommandMeta] = &[
         CommandCategory::from_static("File"),
     )
     .with_aliases(&["overwrite", "force write", "w!"]),
+    // Deliberately unbound. It is read once while writing a configuration
+    // file and then not again for months, so it is worth a palette entry and
+    // not worth a chord — and every chord spent here is one a user cannot
+    // have.
+    CommandMeta::described(
+        COMMANDS_LIST,
+        "List Every Command",
+        "Opens a tab listing every command by the id to write in config.toml, with its key.",
+        CommandCategory::from_static("Help"),
+    )
+    .with_aliases(&["keybindings", "shortcuts", "command ids", "config"]),
 ];
 
 /// The number of commands this face contributes.
@@ -588,18 +601,53 @@ mod tests {
         }
     }
 
+    /// Commands this face contributes and deliberately leaves unbound.
+    ///
+    /// A list rather than a relaxed assertion, so leaving a verb unbound is a
+    /// decision written down with its reason next to it — and an *accidentally*
+    /// unbound verb still fails, which is the case this test exists for.
+    ///
+    /// - `commands.list` opens a reference read once while writing a
+    ///   configuration file and then not again for months. Every chord spent
+    ///   is one the user cannot have, and the palette is exactly the right
+    ///   surface for something wanted by name and rarely.
+    const PALETTE_ONLY: &[&str] = &["commands.list"];
+
     #[test]
-    fn every_command_this_face_adds_is_bound() {
+    fn every_command_this_face_adds_is_bound_or_deliberately_is_not() {
         let bound: BTreeSet<&str> = BINDINGS
             .iter()
             .chain(MAC_CHORDS)
             .map(|(_, command)| command.as_str())
             .collect();
         for meta in COMMANDS {
+            let id = meta.id().as_str();
             assert!(
-                bound.contains(meta.id().as_str()),
-                "{} has no key, and this face's own verbs all deserve one",
-                meta.id()
+                bound.contains(id) || PALETTE_ONLY.contains(&id),
+                "{id} has no key and is not on the palette-only list, and this \
+                 face's own verbs otherwise all deserve one"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_on_the_palette_only_list_is_also_bound() {
+        // The list is a record of a decision, and a stale record is worse than
+        // none: a verb that later gained a chord would keep its excuse and the
+        // next unbound one would inherit it.
+        let bound: BTreeSet<&str> = BINDINGS
+            .iter()
+            .chain(MAC_CHORDS)
+            .map(|(_, command)| command.as_str())
+            .collect();
+        for id in PALETTE_ONLY {
+            assert!(
+                !bound.contains(id),
+                "{id} is bound after all — take it off the palette-only list"
+            );
+            assert!(
+                COMMANDS.iter().any(|meta| meta.id().as_str() == *id),
+                "{id} is on the palette-only list but this face does not add it"
             );
         }
     }

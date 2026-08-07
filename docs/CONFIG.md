@@ -1,0 +1,137 @@
+# Configuring Iridium
+
+Iridium reads one file:
+
+```text
+~/.config/iridium/config.toml
+```
+
+(or `$XDG_CONFIG_HOME/iridium/config.toml` if that variable is set to an
+absolute path). **You do not need one.** Everything below has a default, and an
+absent file is not a problem — the editor never mentions it.
+
+The file is only read by the native faces. A browser has no configuration file,
+so nothing here applies to the web demo.
+
+---
+
+## What happens when you get something wrong
+
+Nothing stops the editor. That is deliberate, and the reason is circular: the
+way you fix a configuration file is by opening it in the editor.
+
+A mistake costs **its own line** and nothing else. A misspelled setting does not
+take the settings written beside it, and a bad setting does not take your key
+bindings. The one exception is a file that is not valid TOML at all — a missing
+bracket, an unclosed quote — which leaves no sections to isolate, so everything
+falls back to its default and the editor says so.
+
+When anything could not be honoured, a tab called **`config.toml`** opens
+behind whatever you were opening, listing every problem, and the message strip
+tells you it is there. A misspelled setting is reported with the spelling that
+would have worked.
+
+---
+
+## `[editor]` — settings
+
+Write only what you want to change.
+
+```toml
+[editor]
+tab_width = 2
+font_size = 15.0
+word_wrap = true
+```
+
+| setting | default | what it does |
+|---|---|---|
+| `tab_width` | `4` | Tab width, in spaces |
+| `insert_spaces` | `true` | Insert spaces rather than a tab character |
+| `auto_indent` | `true` | Carry the current indent onto a new line |
+| `auto_pairs` | `true` | Close brackets and quotes as you type them |
+| `line_comment_token` | *(none)* | Fallback comment token for a language that has none |
+| `show_line_numbers` | `true` | The gutter |
+| `show_minimap` | `true` | The minimap |
+| `minimap_width` | `120.0` | Minimap width, in pixels |
+| `minimap_position` | `"Right"` | `"Left"` or `"Right"` |
+| `minimap_show_syntax_colors` | `true` | Colour in the minimap |
+| `cursor_blink_ms` | `500` | Caret blink rate; `0` never blinks |
+| `undo_group_timeout_ms` | `500` | Edits closer together than this undo as one |
+| `scroll_past_end` | `false` | Allow scrolling past the last line |
+| `word_wrap` | `false` | Wrap long lines |
+| `highlight_current_line` | `true` | Tint the line the caret is on |
+| `show_whitespace` | `false` | Draw spaces and tabs |
+| `font_size` | `14.0` | Font size, in logical pixels |
+| `line_height` | `1.5` | Line height, as a multiple of the font size |
+
+If you misspell one, the editor tells you the name you probably meant. The list
+of settings it checks against comes from the code itself, so it is never out of
+date — this table can be, and that is the only reason to trust the editor's
+answer over this one.
+
+---
+
+## `[keys]` — key bindings
+
+The key is the chord, the value is the command it runs.
+
+```toml
+[keys]
+"cmd+shift+p" = "palette.open"
+"ctrl+alt+j"  = "cursor.lineDown"
+"cmd+k cmd+c" = "comment.toggleLine"
+```
+
+Your bindings sit **on top of** the defaults, so binding a chord the editor
+already uses replaces it. Everything you do not mention keeps working.
+
+### Writing a chord
+
+Modifiers, then the key, joined with `+` or `-`:
+
+| modifier | also spelled |
+|---|---|
+| `ctrl` | `control` |
+| `shift` | |
+| `alt` | `option` |
+| `meta` | `cmd`, `super`, `win` |
+
+On a Mac, `cmd` is the Command key. The same file works on Linux, where it is
+the Super key.
+
+The key itself is a single character (`a`, `7`, `/`) or one of: `left`,
+`right`, `up`, `down`, `home`, `end`, `pageup`, `pagedown`, `backspace`,
+`delete`, `enter`, `tab`, `escape`, `space`, `minus`, `f1`…`f12`.
+
+A **sequence** is chords separated by spaces: `"cmd+k cmd+c"` means press
+`⌘K`, then `⌘C`.
+
+### Finding a command's name
+
+Open the command palette and run **List Every Command**. A tab opens with every
+command's id, its title, and the key that runs it today — search it with `⌘F`.
+
+(The palette itself matches on ids but shows titles, which is why there is a
+command for this.)
+
+### Unbinding
+
+An empty command unbinds:
+
+```toml
+[keys]
+"ctrl+f" = ""
+```
+
+This exists mainly for one situation. Binding a bare chord makes every longer
+sequence starting with it unreachable — if `ctrl+f` opens search, then
+`"ctrl+f x"` can never fire, because the editor runs `ctrl+f` the moment you
+press it rather than waiting to see what comes next. The editor refuses such a
+binding and says which sequence is in the way; unbinding it is how you make
+room.
+
+**The editor will never unbind something for you.** An unrelated line silently
+switching off a key you rely on is exactly the kind of change you would find
+out about at the worst moment. If a binding needs room made for it, you are
+told, and you decide.

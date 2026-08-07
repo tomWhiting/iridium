@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use iridium_editor::EditorConfig;
+use iridium_config::UserConfig;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::FrameCompositor;
 use iridium_editor::theme::Theme;
@@ -19,6 +19,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
 use winit::window::Window;
 
+use super::config;
 use super::files::language_of;
 use super::state::{DesktopApp, DesktopDocument, UNTITLED};
 use super::title::TITLE;
@@ -29,6 +30,7 @@ use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
 use crate::mouse::Pointer;
 use crate::overlay::OverlayPainter;
+use crate::prompt::Message;
 use crate::search::SearchOverlay;
 use crate::surface::NativeSurface;
 use crate::units::scale_to_f32;
@@ -173,8 +175,14 @@ impl DesktopApp {
     /// registry, and are reported rather than ignored so they cannot become
     /// silent if those tables change.
     pub fn new(options: Options) -> Result<Self, StartupError> {
+        // Read before the workspace exists, because the settings are what it
+        // is constructed with. A file that is missing, unreadable or wrong
+        // never fails here: it yields defaults and a list of problems, and the
+        // session carries on — see `iridium_config` for why that is the rule
+        // rather than a convenience.
+        let user = UserConfig::read();
         let mut workspace =
-            Workspace::<DesktopDocument>::new(EditorConfig::default(), Theme::default());
+            Workspace::<DesktopDocument>::new(user.editor.clone(), Theme::default());
 
         // Registered on the workspace, not on one editor: it applies the
         // whole set to every tab, present and future. Registering on a
@@ -184,6 +192,12 @@ impl DesktopApp {
             workspace.register_command(meta)?;
         }
         workspace.push_keymap(commands::keymap())?;
+
+        // After this face's own layer, so the user's bindings sit on top of it
+        // and win — which is what a user keymap is for. Before the first tab,
+        // so no document is ever open under a keymap that is about to change.
+        let mut problems = user.problems;
+        problems.extend(config::install_user_bindings(&mut workspace, user.bindings));
 
         let (content, file) = match options.path {
             Some(path) => {
@@ -213,15 +227,30 @@ impl DesktopApp {
         // Unreachable: `open_with` refuses only a parent that is not a
         // group, and this passes none. Reported rather than ignored, since
         // a session with no tab is not a session.
-        if tab.is_none() {
+        let Some(tab) = tab else {
             return Err(StartupError::NoInitialTab);
-        }
+        };
 
         // After the content: setting a language parses the document, and
         // doing it first would parse an empty one and then parse again.
         if let (Some(language), Some(editor)) = (language, workspace.active_editor_mut()) {
             editor.set_language(language);
         }
+
+        // Anything the configuration file said that could not be honoured goes
+        // into a tab of its own — behind the file that was asked for, because
+        // that file is still what the session was opened to show. The message
+        // strip says the tab is there; see [`config`] for why one line is not
+        // enough on its own.
+        let message = (!problems.is_empty()).then(|| {
+            workspace.open(
+                &config::report(iridium_config::user_config_path().as_deref(), &problems),
+                config::PROBLEMS_TAB,
+                None,
+            );
+            workspace.activate(tab);
+            Message::error(config::summary(&problems))
+        });
 
         Ok(Self {
             workspace,
@@ -239,7 +268,7 @@ impl DesktopApp {
             history: HistoryPanel::new(),
             history_open: false,
             prompt: None,
-            message: None,
+            message,
             latency: LatencyMonitor::from_env(),
             title: String::new(),
             failure: None,

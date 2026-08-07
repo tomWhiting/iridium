@@ -370,6 +370,48 @@ fn deletes_run_after_every_rename() {
 }
 
 #[test]
+fn a_row_drawn_inside_a_folder_it_does_not_live_in_is_refused() {
+    // The check that makes the whole target computation safe. A target is
+    // built by joining the *drawn* parent chain, while an existing row also
+    // knows where it *really* is. Those two agree for every row either row
+    // source produces — and if they ever stopped agreeing, the rename would
+    // be computed entirely from the drawn chain and would name a path the row
+    // has nothing to do with.
+    //
+    // Without this refusal the rows below plan
+    // `rename /project/src/main.rs → /project/src/renamed.rs`, while the row
+    // is really `/project/src/deep/main.rs`. That is not a move: it is an
+    // operation against **a different file**, which renames whatever happens
+    // to be sitting at that path and leaves the row's own file untouched.
+    let mut rows = [
+        root(),
+        existing("src", 0, "/project/src"),
+        existing("main.rs", 1, "/project/src/deep/main.rs"),
+    ];
+    rows[2].name = "renamed.rs".to_owned();
+
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 2);
+}
+
+#[test]
+fn an_existing_row_cannot_be_nested_under_one_the_user_typed() {
+    // The same check from the other side: a file that is already on disk
+    // cannot live inside a folder that does not exist yet, so a buffer saying
+    // it does is describing something impossible rather than something to do.
+    let rows = [
+        root(),
+        typed("new-folder", 0, true),
+        existing("main.rs", 1, "/project/main.rs"),
+    ];
+
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 2);
+}
+
+#[test]
 fn two_rows_claiming_one_name_are_refused() {
     let mut rows = [
         root(),

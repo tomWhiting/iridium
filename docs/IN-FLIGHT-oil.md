@@ -208,11 +208,7 @@ remember to make and becomes one the kernel refuses. There is a test for it.
 `apply.rs` carries the same self-removing `cfg_attr(not(test), expect(dead_code))`
 as `plan.rs`.
 
-## Step 3 — IN PROGRESS, UNCOMMITTED, DOES NOT COMPILE YET
-
-`apps/iridium-desktop/src/file_tree/buffer.rs` is **written but never built**.
-Written immediately before a compaction; treat every claim below as intent,
-not as verified fact.
+## Step 3 — DONE. `buffer.rs`, 29 tests (and 2 more on `plan`)
 
 ### What it is
 
@@ -236,23 +232,66 @@ look it up again against a tree that has since moved.
 A row's **parent comes from the indentation** — the nearest row above it at a
 shallower depth, which is what the eye reads off the screen.
 
-### Known problems, unverified
+A **trailing `/` is the only way to say "a folder"**, so it is read and
+stripped here and the plan only ever sees names. Stripped for existing rows
+too: what a path is on disk is not the buffer's to change.
 
-- **Not declared in `mod.rs`.** Needs `mod buffer;` and a `#[cfg(test)] mod
-  buffer_tests;`.
-- **`insert_below` has an unused binding** — `Some(row) if into_folder` never
-  reads `row`. Will warn under `-D warnings`. Use `Some(_)`.
-- Needs the same self-removing
-  `#![cfg_attr(not(test), expect(dead_code, …))]` as `plan.rs` and `apply.rs`
-  until a caller exists.
-- **No tests written at all.** The piece that most needs them is
-  `rows_from`'s parent derivation, and specifically **dedenting**: a row at
-  depth 1 following a subtree at depth 3 must attach to the last depth-0 row,
-  not to something stale. `last_at_depth.truncate(depth)` is meant to do that
-  and is unproven.
-- `insert_below` and `remove_typed` shift every later `parent` index. That
-  arithmetic is unproven and is exactly the sort of thing that silently
-  reparents a row into the wrong folder.
+The rows are **not public**. Every editing method maintains one invariant — a
+row's parent index names a row that comes before it — and a caller reaching
+into the vector would break it silently.
+
+### The check that came out of writing the tests
+
+`plan` computes every path by joining the **drawn** parent chain. A row that
+came from the tree separately carries where it **really** is. Nothing checked
+that those agreed, and the whole safety of the feature rested on it.
+
+They do agree for both row sources, and the tests above prove the derivation
+that makes them agree. But the failure mode if they ever stopped is not a
+tidy one, and the red run printed it exactly:
+
+```
+rename /project/src/main.rs → /project/src/renamed.rs
+```
+
+— for a row that is really `/project/src/deep/main.rs`. That is not a move.
+It is an operation against **a different file**: it renames whatever happens
+to be sitting at that path and leaves the row's own file untouched.
+
+So `plan` now refuses a row whose drawn parent is not the folder its origin
+path lives in, and refuses an existing row nested under one the user typed
+(a file already on disk cannot live in a folder that does not exist yet).
+Ten lines, and it converts an entire family of derivation bugs — a depth gap,
+an off-by-one in the index shifting, a future caller reaching past `rows()` —
+from silent damage into a refusal.
+
+### The two hazards the handoff named, and what proves them
+
+**Dedenting.** Three tests, and the load-bearing one goes end to end: a row
+drawn after a two-level subtree is renamed, and the operation must name
+`/project/loose.rs`, not a path inside the folder the walk was last in.
+
+The derivation was rewritten from a lookup table indexed by depth to a stack
+of `(depth, index)` unwound to the nearest shallower row. The table was
+correct for contiguous depths — which is all either row source produces — but
+it answers a gap by silently attaching the row to *nothing*, and the stack
+answers it by attaching to the nearest shallower row. With the check above,
+either way now ends in a refusal rather than in an operation.
+
+**The index shifting.** The oracle is deliberately not an index: each row's
+parent is read out **by name**, and an insertion or removal must leave every
+other row's parent name exactly as it was. An off-by-one reads as a row that
+changed folders, which is what it would be.
+
+The strongest of them needs no oracle at all: type a row, then remove it, and
+the buffer must be *indistinguishable from the one that loaded*.
+
+**Removing takes the subtree.** `remove_typed` was removing one row, which
+would leave its children with a parent index naming whichever row landed in
+that slot. It removes the row and everything drawn inside it. That can never
+take an existing file's row: rows loaded from the tree are parented by the
+indentation they arrived with, and nothing reparents them under something that
+was never on disk.
 
 ## Still to do after step 3
 4. Confirmation view.

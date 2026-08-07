@@ -15,6 +15,14 @@
 //! A row that came from the tree carries its id; a row the user typed carries
 //! `None`, and that is the only thing that makes it a creation.
 //!
+//! # The drawn nesting is checked against the real one
+//!
+//! Every path here is computed from the parent chain the panel drew. A row
+//! that came from the tree also carries where it really is, and the two must
+//! agree: a row drawn inside a folder it does not live in would produce
+//! operations naming paths that belong to other files. Such a row is refused
+//! rather than trusted, so nothing downstream has to be careful about it.
+//!
 //! # Why a rename is decided by the NAME and not by the PATH
 //!
 //! A row's path changes when any directory above it is renamed. Renaming
@@ -270,6 +278,37 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
             });
             continue;
         };
+
+        // A target is built by joining the *drawn* parent chain, and a row
+        // that came from the tree separately knows where it *really* is.
+        // Nothing so far has checked those agree, and every operation for this
+        // row is computed from the drawn chain alone — so if they disagreed,
+        // a rename would name a path this row has nothing to do with, and
+        // would rename whatever happened to be sitting there while leaving the
+        // row's own file untouched.
+        //
+        // They do agree for both row sources: the tree draws an expansion and
+        // the filter keeps every ancestor of a hit, so a row's drawn parent is
+        // its real one. This is what turns that from an assumption held
+        // somewhere else into something checked here, where the damage would
+        // be done.
+        if let Some(origin) = row.origin.as_ref() {
+            let drawn_in = rows[parent_index]
+                .origin
+                .as_ref()
+                .map(|holder| holder.path.as_path());
+            if drawn_in != origin.path.parent() {
+                refusals.push(Refusal {
+                    row: index,
+                    reason: format!(
+                        "{} is drawn inside a folder it does not live in",
+                        display(&origin.path)
+                    ),
+                });
+                continue;
+            }
+        }
+
         targets[index] = Some(parent_target.join(&row.name));
     }
 

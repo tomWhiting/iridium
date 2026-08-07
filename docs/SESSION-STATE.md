@@ -2894,3 +2894,92 @@ Disk 149 GB free. Working tree clean apart from `?? .claude/skills/`.
    the only auto-pair question with taste in it.
 2. S-5 (`autoclose_before`) is the next ruling-free slice in this vein and is
    already priced in the map.
+
+---
+
+# ▶ TICK — 8 Aug ~08:15
+
+## 1. Meridian: attempt 13 sent
+
+#79/S-1 reported, **B-2 asked** (Markdown's `<`→`>`, my recommendation: no),
+and the regex mistake disclosed to him in full rather than left in a file.
+Third successful send in a row.
+
+## 2. #79 S-6 landed (`d013abfc`) — Enter expansion follows `newline`
+
+⭐ **The route this time was my own half-made claim.** S-1's write-up said the
+editor's fixed `{ [ (` expansion table *"agrees with the manifests'
+`newline = true` rows for every language checked"*. **"For the languages
+checked" was doing load-bearing work in a sentence that read like a
+clearance.** Checking all of them:
+
+| language | expands per manifest | expanded before |
+| --- | --- | --- |
+| `gitcommit`, `regex`, `jsdoc`, `diff` | **nothing** | `{` `[` `(` |
+| `json`, `jsonc`, `yaml` | `{` `[` | `{` `[` `(` |
+| `gomod`, `gowork` | `(` | `{` `[` `(` |
+| `bash` | `{` `(` | `{` `[` `(` |
+
+Enter between `(` and `)` in a commit message grew a three-line indented block
+out of a parenthesis in prose.
+
+⭐ **Pure subtraction, provably**: every language's `newline` set is a subset
+of `{ [ ( <`, and `<` is never paired, so no language gains an expansion.
+Same argument as S-1, same ruling (#66).
+
+⚠️ **`close` and `newline` are independent flags** and default opposite ways —
+`close` true when absent, `newline` false. Rust declares `<`→`>` as
+`close = false, newline = true`: *do not type the closer for me, but do expand
+the block if I typed it myself.* The two serde defaults are now documented
+against each other so neither gets "tidied" into the other.
+
+`AutoPairs` → `PairRules`, two masks. `bracket_close` deleted. Both manifest
+accessors share one filter so the single/multi-character rules cannot drift.
+`expands` is intersected with the three brackets — removes nothing today,
+but makes a `newline` quote in a vendor refresh a decision, not a surprise.
+`BRACKET_MASK` names positions in `PAIRS` by hand, so a test pins that it
+selects exactly `(`, `[`, `{`.
+
+## 3. ⭐ The rule this tick earned
+
+**A hedge inside a clearance is a defect waiting.** "For the languages
+checked" and "as far as I could tell" read as diligence and function as
+cover. If a claim is worth writing in a design map, it is worth checking
+exhaustively before it goes in — or worth writing as an open question with
+the check named. This is the second self-inflicted finding in two ticks
+(the first was the regex extraction).
+
+## 4. What I deliberately did NOT build, and why
+
+**S-5 (`autoclose_before`)** was the plan for this tick and I stopped. The
+manifests give the character *sets* but not the *semantics*, and the load-
+bearing part — whether end-of-line and whitespace implicitly permit closing —
+is nowhere in the data. Every set is punctuation only, so whitespace must be
+handled outside the set or the feature could not work at all; that is a strong
+inference, but it is an inference, and Zed's implementation is not vendored
+here to check against. ⚠️ **Two ticks after shipping a wrong claim from a
+convenient inference, this is not the moment to ship another.** It is written
+up as **B-5** for Tom instead.
+
+## Gate state
+
+**All nine green on `d013abfc`**: 2,530 passed, 0 failed (2,514 → 2,525 → 2,530
+across S-1 and S-6).
+
+## Box
+
+Load 17 at tick open. Disk 131 GB free — down 18 GB in ~40 minutes, and **not
+this seat**: the only writes here are source files and cargo's incremental
+target dir. Worth a glance if it keeps falling.
+
+## For the next tick
+
+1. One Meridian attempt: S-6, and **B-5** (the `autoclose_before` semantics).
+2. The auto-pair vein still has S-3 (multi-character openers) and S-4
+   (`not_in`), both priced in the map, both with real design content. Neither
+   is ruling-free.
+3. ⭐ **The productive route remains: read a document's own hedges.** Three
+   findings in three ticks came from a sentence that qualified itself —
+   `IN-FLIGHT-span-precedence`'s "still does not resolve nested ranges", the
+   manifest reader's "replaced one at a time", and now my own "for the
+   languages checked".

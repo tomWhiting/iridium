@@ -2108,3 +2108,61 @@ compile has changed since their green at `f08c888`, and they never compile
 **#43 blocked on L-0** (see the 8 Aug section above). Unblocked and unclaimed:
 **#44**, **#45**, **#69**, **#31**, **#35**. Still Tom's: #58, #64, #70, #74,
 Cally's hook, and L-0..L-8.
+
+---
+
+# 📮 UNDELIVERED TO TOM — Meridian was down, 8 Aug ~03:45
+
+`mcp__meridian-remote__send` failed **twice** with
+
+```
+500: {"error":"proxy resolver: lookup failed: connection error:
+     database connection pool acquire timed out"}
+```
+
+Under the delivery rule — *anything meant for Tom leaves through Meridian or it
+did not happen* — **this did not happen.** It is recorded here so it survives
+and gets re-sent, because the first item in it is a **correction to something I
+already told him that was wrong**, which is the worst kind of message to lose.
+
+**Retry this on the next tick.** DM `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`.
+
+## The message
+
+> **Correction to what I told him an hour earlier.** I listed **#44 and #45 as
+> "unblocked and unclaimed"**. They are not.
+>
+> #44's wire shape is already finished — `bindings/src/workspace.rs`, 540 lines
+> with 470 lines of host tests, and `grep -c workspace` is 0 in both faces.
+> Complete, tested, consumed by nothing. So #44 is only the `#[wasm_bindgen]`
+> adapters.
+>
+> But the adapter is what makes two documents possible, and the web face cannot
+> have two documents correctly. `DesktopDocument` carries no fold fields — the
+> desktop reads `editor.fold_state()`, which is per-document and works only
+> because the desktop calls `set_language`. The web face does not, so its fold
+> state is one app-wide copy. Ship #44 over that and **tab 2 renders tab 1's
+> folds**.
+>
+> Order is **L-0 → folds → #43 → #44 → #45** — four items behind one ruling,
+> not one. The whole web-face track is stalled on it.
+>
+> No cheap shortcut: `set_language(Language::C)` would fix folds and also drive
+> highlighting and comment toggling, so `Ctrl+/` would write `//` in a JSON
+> file. That is the L-0 question, not a way round it.
+>
+> **#69** — not reproduced. 148 runs this session across four conditions, 160
+> including the earlier sitting. But load never exceeded 5.6 and the report
+> says "under box load"; this box hit 36 and 50 tonight. Not claiming it fixed.
+> Two mechanisms eliminated by reading (readback sync; cross-test GPU state).
+> What survives: warm and cold compositors hold different glyph-atlas state and
+> the test asserts byte-identical pixels. Matches the recorded failure exactly —
+> 1 pixel, 1 channel, magnitude 23. Next occurrence is decidable from the
+> diagnostic. Test left alone; a flake you silence is a check you deleted.
+>
+> Genuinely unblocked and left: **#35** (HiDPI font scale on display change) and
+> **#31** (theme switch, which has his taste in it). Taking #35 next.
+
+⭐ **The rule this is an instance of:** a delivery channel that is down looks
+exactly like a message that was never worth sending. The only difference is
+whether the sender wrote it down.

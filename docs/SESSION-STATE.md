@@ -1624,6 +1624,42 @@ as the only modified file — so no source formatting changed.
 and style edition**. An option restating a default stops being a no-op the
 moment the default moves — the case in which deleting them would have mattered.
 
+### #42 — closed. One flag, one owner.
+
+`WebEditor` kept its own `read_only` beside `EditorState::read_only`.
+`set_read_only` assigned both; **sixteen** binding-level gates read the copy
+while the kernel's own gates read the original.
+
+Checked rather than assumed: the `Editor` is built exactly once
+(`wasm.rs:400`), `self.editor` is never reassigned, and every assignment to
+`read_only` across both crates shows the only production writers are the two
+binding setters — the kernel never writes it outside its own tests. So nothing
+had diverged. ⭐ **But it held for those reasons rather than for any enforced
+one, and the sixteenth reader had no way to tell which flag was
+authoritative.** The field is gone; every reader goes to
+`self.editor.state().read_only`, and the compiler enumerates the sites.
+
+Gates: wasm check exit 0 zero warnings (before and after `fmt`), workspace
+clippy exit 0, full suite **2465 passed / 0 failed**, diff confined to
+`wasm.rs` at +23/−29.
+
+⚠️ **Stated plainly: this change is compile-checked only.** `wasm.rs` is gated
+on `all(feature = "web", target_arch = "wasm32")`, runs to **3,160 lines** and
+contains **zero** `#[cfg(test)]` blocks, so no test anywhere exercises it. That
+is not a property of the change — it is why **#43** exists, and #43 is what
+would make this testable.
+
+### #75 — opened while there: clippy never lints the wasm target
+
+The battery only ever runs `cargo check` against wasm32. Running clippy there
+for the first time fails with **8 pre-existing errors** in
+`render/pipeline.rs` and `render/web.rs` — `future_not_send` ×4 and
+`arc_with_non_send_sync` ×4 — which the native gates cannot see at any feature
+combination, because they fire only on a single-threaded target. **Same shape
+as #60.** Not fixed: different crate, untouched by #42's diff, and choosing
+between a fix and a documented `#[allow]` for Send-ness on a target with no
+threads is a design call, not hygiene.
+
 ### The one action that moves things
 
 **#74 — nothing pins the Rust toolchain.** Found while measuring #73, and #73's

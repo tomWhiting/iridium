@@ -290,6 +290,18 @@ per language (`;:.,=}])>` for C-likes, `,]}` for JSON and YAML, `)` for
 - **B-4 — S-4 at all?** Recommend **not yet**. It is the only slice that puts
   a syntax query on the typing path, and the benchmark claim that typing never
   parses is worth more than `/*` behaving perfectly inside a string literal.
+- **B-5 — S-5's semantics, which the data does not give.** ⚠️ The manifests
+  declare the character *sets* but not what happens at **end of line** or
+  **before whitespace**, and neither appears in any set. If they do not
+  implicitly permit closing, then typing `(` at the end of a line would stop
+  auto-closing — the single most common case — so they almost certainly must;
+  every declared set is punctuation only, which is itself evidence the feature
+  assumes whitespace is handled outside it. **But that is an inference, not a
+  reading**, and Zed's implementation is not vendored here to check against.
+  Recommend: treat end-of-line and whitespace as permitting, state it in the
+  code as an assumption, and build S-5. Asked rather than assumed, because
+  this map has already shipped one wrong claim from a convenient inference
+  (§1.2) and the correction is what made it useful.
 
 ⚠️ **None of B-1..B-4 blocks the doc corrections**, which are unambiguous:
 three module docs currently state that auto-pairs come from the manifest, and

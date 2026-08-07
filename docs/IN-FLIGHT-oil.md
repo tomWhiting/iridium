@@ -366,10 +366,56 @@ That is the module's load-bearing test, and it was proven by making
 Refusals get the same treatment, and are named rather than numbered — "row 3"
 is a number somebody has to count to.
 
+## Step 4b — HALF DONE. `mode.rs`, 19 tests
+
+The **state machine landed**; the **keys did not**, because they are the part
+that is ruled on.
+
+`Mode` is `Browse | Edit(Editing) | Confirm(Confirming)`, and the buffer lives
+*inside* the variants that have one. That shape is the point: an
+`Option<Buffer>` beside a `mode` field makes "browsing while holding a buffer"
+and "editing while holding none" both representable, and the second is a crash
+or a silently empty session. Here returning to `Browse` drops the buffer by
+construction rather than by a line somebody has to remember.
+
+⚠️ **The one rule:** a dirty buffer is never dropped without being asked about.
+Every exit runs through `leave`, which reports `Leaving::Unsaved` and changes
+nothing while there are unapplied edits. `discard` is the only thing that loses
+work and is named for it. That is also what makes step 5 a *use* of this module
+rather than a second implementation — a filter change is just another caller of
+`leave`.
+
+Four decisions worth naming, each with a test:
+
+- **A second `begin_edit` is ignored, not a reload.** A second press of the edit
+  key must not replace a buffer full of work with the rows as they are on disk.
+- **`Confirm` hands out no mutable buffer.** It holds one, for going back — but
+  a key that mutated it would leave the displayed plan describing something the
+  apply no longer does.
+- **The plan is computed once, at confirm time, and kept.** Recomputing it when
+  the screen draws or when the apply runs is exactly the window a confirmation
+  exists to close.
+- **`applied` refuses to run from anywhere but a confirmation**, so an apply
+  cannot be recorded for a plan nobody confirmed. It does the same thing to the
+  mode as `discard` and must not be interchangeable with it.
+
+⚠️ **`mod mode;` carries a scoped `#[allow(dead_code)]`** naming this blocker.
+It is self-removing: the moment `keys` calls in, the lint stops firing. The
+alternative was to guess the three keys and wire it anyway — the worse trade,
+because the logic is where a mistake loses somebody's files and it is finished
+either way, while a guessed binding is a table row that gets rewritten the
+moment the ruling lands.
+
+⭐ A fixture note, because it cost a red run: **row 0 must be the folder the
+panel is showing.** The planner reads the drawn indentation as the tree, so a
+second depth-0 row is a sibling of the root with nowhere to live and every plan
+comes back `Refused`.
+
 ## Still to do
-4b. The panel mode itself: Browse → Edit → Confirm, and drawing the rows
-    above. **Needs the edit key.**
-5. `⌘O`, and the apply-or-discard prompt on a filter change.
+4b-keys. Wiring `mode` into `keys` and drawing editable rows. **Needs the three
+    rulings below** — the logic behind it is done.
+5. `⌘O`, and the apply-or-discard prompt on a filter change. `leave` already
+    provides the whole mechanism.
 
 ### Blocked on Tom (asked, twice)
 

@@ -17,6 +17,37 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - name: Record the toolchain
+        # ⚠️ THE ONE INPUT TO EVERY GATE BELOW THAT NOTHING RECORDS.
+        #
+        # `@stable` is a moving target and no `rust-toolchain.toml` exists in
+        # this repo, so the compiler a run used is decided by whatever stable
+        # was current that morning. Two of the gates in this workflow — clippy
+        # and fmt — are verdicts rendered by the toolchain rather than by the
+        # code, which means a pull request that is green today can go red
+        # tomorrow with no commit in between, and the failure lands on whatever
+        # happened to be in flight.
+        #
+        # This step does not stop that. It makes it diagnosable: with the
+        # version in the log, "did the toolchain move?" is answered by reading
+        # two runs instead of by guessing. Without it the evidence does not
+        # exist anywhere, because the runner is gone by the time anyone asks.
+        #
+        # It is the same discipline the Clippy job's comment already argues for
+        # at length — state a figure with the command that produced it. The
+        # toolchain is a figure that had no command attached.
+        #
+        # `--verbose` deliberately: it adds the commit hash, commit date, host
+        # triple and LLVM version. The LLVM version is the half that explains
+        # codegen and lint changes a release number alone does not.
+        #
+        # Placed before the cache restore so it is present in the log even when
+        # a later step fails, and never `continue-on-error` — a step that
+        # cannot fail is a step whose output nobody can trust, and if `rustc`
+        # is not on PATH here the job is broken anyway.
+        run: |
+          rustc --version --verbose
+          cargo --version
       - uses: Swatinem/rust-cache@v2
       - name: Check workspace (all features)
         run: cargo check --workspace --all-features --all-targets
@@ -39,6 +70,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Record the toolchain
+        # Why, at length, in the Check job. Short form: `@stable` moves, no
+        # `rust-toolchain.toml` pins it, and a run that does not say which
+        # compiler it used cannot be compared with the run before it.
+        #
+        # This job's failures are the code's own far more often than the
+        # toolchain's — but "far more often" is not "always", and the reader
+        # deciding which one they are looking at is the reader who needs this.
+        run: |
+          rustc --version --verbose
+          cargo --version
       - uses: Swatinem/rust-cache@v2
       - name: Install a software Vulkan driver
         # `cargo test --workspace` sweeps in the offscreen GPU harnesses
@@ -88,6 +130,21 @@ jobs:
         with:
           components: clippy
           targets: wasm32-unknown-unknown
+      - name: Record the toolchain
+        # ⭐ THE JOB THIS MATTERS MOST IN, together with Format.
+        #
+        # Both steps below deny on warnings, so their verdict is a function of
+        # the lint set clippy shipped that day as much as of the code. A new
+        # stable lands, a nursery lint gains a case, and this job goes red on a
+        # branch nobody touched. `cargo clippy --version` is what turns that
+        # from a mystery into a one-line diff between two runs.
+        #
+        # Clippy's version is printed as well as rustc's because they are not
+        # the same number and the lint set follows clippy's.
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cargo clippy --version
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         # Denying, not reporting. `continue-on-error` used to sit here and
@@ -186,5 +243,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Record the toolchain
+        # ⭐ The other gate whose verdict is the toolchain's rather than the
+        # code's — and the sharper of the two, because rustfmt's output changes
+        # with no diagnostic at all: a new stable reflows something, this job
+        # goes red, and the diff it objects to was written months ago.
+        #
+        # `rustfmt.toml` carries a finding with a toolchain attached: 19 of the
+        # options it used to declare were measured to change nothing, and its
+        # own comment says that holds "against THIS toolchain and style
+        # edition" — an option that restates a default stops being a no-op the
+        # moment the default moves. That measurement is only re-checkable
+        # against a version, and until this step no run recorded one.
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cargo fmt --version
       - name: Check formatting
         run: cargo fmt --all --check

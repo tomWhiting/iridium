@@ -1,0 +1,28 @@
+[package]
+name = "iridium-lang"
+description = "Which language a document is written in — identity, with no parser attached"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "iridium_lang"
+path = "src/lib.rs"
+
+# `serde` and nothing else. This crate is a closed enum and the functions that
+# map strings onto it; a dependency on anything that parses would defeat the
+# reason it was separated out.
+[dependencies]
+serde.workspace = true
+
+# Only to assert the wire form equals `id()`. A document saved by one face
+# names a language another has to read back, so the two spellings agreeing is
+# a property worth a test rather than an assumption.
+[dev-dependencies]
+serde_json.workspace = true

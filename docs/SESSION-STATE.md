@@ -760,6 +760,80 @@ restart, and a "create a starter config.toml" affordance.
 
 ---
 
+## 🔤 ONE `Language` TYPE — landed 7 Aug, and what a lint sweep uncovered
+
+Task #60 was meant to be tidying. The gate is armed `--all-features`, feature
+unification turns everything on, so **the parser-free kernel was never linted**
+— 17 violations sat there. Reading them found the real thing.
+
+### There were two `Language` enums, and they disagreed
+
+The real one in `iridium-syntax`, and a hand-maintained stub in
+`iridium-editor/src/syntax_stubs.rs`, chosen by the `syntax` feature.
+
+| | real | stub |
+|---|---|---|
+| `from_id` aliases | `rs`, `py`, `golang`, `zsh`, `c++`… | none |
+| `from_id` case | lower-cased | case-**sensitive** |
+| `from_extension` | knows `.pyw` | does not |
+| `from_extension` | no `.jsonc` | has `.jsonc` |
+| `all()` | `const fn -> &[Self; COUNT]` | `fn -> &[Language]`, no `COUNT` |
+| serde | derives both | neither |
+
+So `Language::from_id("rs")` was `Some(Rust)` in one build and `None` in the
+other.
+
+**No test could ever have caught it.** The two are feature *alternatives* —
+`syntax_stubs` is itself `#[cfg(not(feature = "syntax"))]`, so no build has
+both in scope and nothing can compare them. A guard was structurally
+impossible, which is why the answer is **one type**, not two copies and a
+check.
+
+### The live defect it had already caused
+
+`comments.rs` split `language_tokens` on the same feature, and the stub
+returned "no comment syntax" for **every** language — justified by a comment
+saying the path was unreachable because "`Language::from_id` always returns
+`None`". That was simply false; the stub's `from_id` resolved every canonical
+id. So in the parser-free kernel `Ctrl+/` on a Rust file inserted nothing, or
+fell through to `EditorConfig::line_comment_token` — a `#` in a Rust file,
+which reads as a decision somebody made.
+
+Latent, not shipping: every face enables `syntax`. But `--no-default-features`
+is gated, tested, and what the workspace dependency line defaults to.
+
+Red-test-first held: un-gating `mod language_table` gave **15 failures**
+against the unfixed code, then 41 passes after.
+
+### The fix
+
+**`crates/iridium-lang`** — the enum, `COUNT`, `id`, `from_id`,
+`from_extension`, `all`, `index`, serde. No dependency that parses anything;
+that is the whole reason it can be shared. `iridium-syntax` re-exports it,
+`iridium-editor` depends on it **unconditionally**, and the stub is gone.
+
+### The rule this leaves behind
+
+`syntax_stubs.rs` now says it: **if a stub could answer a question correctly,
+it should not be a stub.** Everything left in that file genuinely needs
+tree-sitter to exist.
+
+Three lints were *wrong* and are answered with `#[expect(..., reason = ...)]`
+rather than a change, all for one reason: the stub `Tree` is zero-sized and
+`Copy`, the real one is neither, so "pass by value" and "use `copied()`" would
+compile feature-off and fail feature-on. One needed `#[cfg_attr(not(feature =
+"syntax"), expect(...))]`, because `#[expect]` is strict in both directions and
+an unfulfilled expectation is itself an error.
+
+### Left open — decide, do not drift
+
+- **`.jsonc`**: the stub took it, the real one does not; `iridium-lang` follows
+  the real one, so no shipping behaviour changed. Whether tree-sitter-json
+  tolerates comments well enough to add it needs verifying, not guessing.
+- **`.h` is C, not C++** — asserted in a test so changing it is a decision.
+
+---
+
 ## ▶️ WHAT IS LEFT ON THE STRIP (small, none of it blocking)
 
 - **The close control's alpha is 0.40**, nearly invisible on an inactive tab.
@@ -834,8 +908,18 @@ cargo test -p iridium-editor --no-default-features
 cargo test -p iridium-editor --no-default-features --features syntax
 cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
 cargo clippy --workspace --all-features --all-targets -- -D warnings
+cargo clippy -p iridium-editor --no-default-features --all-targets -- -D warnings
+cargo clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings
 cargo fmt --all --check
 ```
+
+**Eight, not six — the last two were added 7 Aug and here is why.**
+`--all-features` unifies every feature *on*, so the clippy line above it never
+sees the parser-free kernel at all. Seventeen violations had accumulated there
+unseen, and looking at them turned up a live defect: two `Language` enums that
+disagreed, and a comment-syntax table gated on the same feature, so `Ctrl+/`
+did nothing in that build. **A configuration nothing lints is a configuration
+nothing is checking.**
 
 The screenshot harness, when a frame needs judging by eye:
 

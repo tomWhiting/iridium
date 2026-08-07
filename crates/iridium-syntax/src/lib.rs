@@ -50,162 +50,18 @@ pub use tree::{SyntaxTree, byte_point};
 // mirror.
 pub use tree_sitter::{InputEdit, Node, Point, Tree};
 
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// Supported programming languages.
-///
-/// All variants have full tree-sitter grammar support and can be used
-/// with the `Highlighter` without errors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Language {
-    /// Rust
-    Rust,
-    /// Python
-    Python,
-    /// TypeScript
-    TypeScript,
-    /// JavaScript
-    JavaScript,
-    /// TSX (TypeScript + JSX)
-    Tsx,
-    /// Go
-    Go,
-    /// JSON
-    Json,
-    /// YAML
-    Yaml,
-    /// Markdown
-    Markdown,
-    /// CSS
-    Css,
-    /// Bash/Shell
-    Bash,
-    /// C
-    C,
-    /// C++
-    Cpp,
-}
-
-impl Language {
-    /// How many languages there are.
-    ///
-    /// [`Language::all`] returns an array of exactly this length, which makes
-    /// the count load-bearing rather than decorative: a variant added to the
-    /// enum but forgotten in `all()` fails to compile here instead of leaving
-    /// a language that exists but is invisible to everything that iterates.
-    pub const COUNT: usize = 13;
-
-    /// Returns the language identifier string.
-    #[must_use]
-    pub const fn id(&self) -> &'static str {
-        match self {
-            Self::Rust => "rust",
-            Self::Python => "python",
-            Self::TypeScript => "typescript",
-            Self::JavaScript => "javascript",
-            Self::Tsx => "tsx",
-            Self::Go => "go",
-            Self::Json => "json",
-            Self::Yaml => "yaml",
-            Self::Markdown => "markdown",
-            Self::Css => "css",
-            Self::Bash => "bash",
-            Self::C => "c",
-            Self::Cpp => "cpp",
-        }
-    }
-
-    /// Parses a language from its identifier string.
-    #[must_use]
-    pub fn from_id(id: &str) -> Option<Self> {
-        match id.to_lowercase().as_str() {
-            "rust" | "rs" => Some(Self::Rust),
-            "python" | "py" => Some(Self::Python),
-            "typescript" | "ts" => Some(Self::TypeScript),
-            "javascript" | "js" => Some(Self::JavaScript),
-            "tsx" => Some(Self::Tsx),
-            "go" | "golang" => Some(Self::Go),
-            "json" => Some(Self::Json),
-            "yaml" | "yml" => Some(Self::Yaml),
-            "markdown" | "md" => Some(Self::Markdown),
-            "css" => Some(Self::Css),
-            "bash" | "sh" | "shell" | "zsh" => Some(Self::Bash),
-            "c" => Some(Self::C),
-            "cpp" | "c++" | "cxx" | "cc" => Some(Self::Cpp),
-            _ => None,
-        }
-    }
-
-    /// Detects language from a file extension.
-    #[must_use]
-    pub fn from_extension(ext: &str) -> Option<Self> {
-        match ext.to_lowercase().as_str() {
-            "rs" => Some(Self::Rust),
-            "py" | "pyi" | "pyw" => Some(Self::Python),
-            "ts" | "mts" | "cts" => Some(Self::TypeScript),
-            "js" | "mjs" | "cjs" | "jsx" => Some(Self::JavaScript), // JSX uses JS grammar
-            "tsx" => Some(Self::Tsx),
-            "go" => Some(Self::Go),
-            "json" => Some(Self::Json),
-            "yaml" | "yml" => Some(Self::Yaml),
-            "md" | "markdown" => Some(Self::Markdown),
-            "css" => Some(Self::Css),
-            "sh" | "bash" | "zsh" => Some(Self::Bash),
-            "c" | "h" => Some(Self::C),
-            "cpp" | "cxx" | "cc" | "hpp" | "hxx" | "hh" => Some(Self::Cpp),
-            _ => None,
-        }
-    }
-
-    /// This language's position in [`Language::all`].
-    ///
-    /// Used to index the compiled-query cache. Written as a match rather than
-    /// a search so it stays constant-time and cannot silently disagree with
-    /// `all()`; the test below asserts the two agree.
-    pub(crate) const fn index(self) -> usize {
-        match self {
-            Self::Rust => 0,
-            Self::Python => 1,
-            Self::TypeScript => 2,
-            Self::JavaScript => 3,
-            Self::Tsx => 4,
-            Self::Go => 5,
-            Self::Json => 6,
-            Self::Yaml => 7,
-            Self::Markdown => 8,
-            Self::Css => 9,
-            Self::Bash => 10,
-            Self::C => 11,
-            Self::Cpp => 12,
-        }
-    }
-
-    /// Returns all supported languages.
-    ///
-    /// The order is the index space used by the compiled-query cache, so it is
-    /// part of this type's contract rather than a presentation detail:
-    /// [`Language::index`] must agree with a value's position here.
-    #[must_use]
-    pub const fn all() -> &'static [Self; Self::COUNT] {
-        &[
-            Self::Rust,
-            Self::Python,
-            Self::TypeScript,
-            Self::JavaScript,
-            Self::Tsx,
-            Self::Go,
-            Self::Json,
-            Self::Yaml,
-            Self::Markdown,
-            Self::Css,
-            Self::Bash,
-            Self::C,
-            Self::Cpp,
-        ]
-    }
-}
+// `Language` lives in its own crate, and is re-exported here so that every
+// existing `iridium_syntax::Language` path still resolves.
+//
+// It was defined here until a second, hand-maintained copy in
+// `iridium-editor` — the one that build uses without the `syntax` feature —
+// was found to disagree with it on aliases, on case, and on two file
+// extensions. The two were feature *alternatives*, so no build had both in
+// scope and no test could have compared them. One type is the only guard that
+// works; see `iridium_lang` for the full account.
+pub use iridium_lang::Language;
 
 /// Errors that can occur in syntax processing.
 #[derive(Debug, Error)]

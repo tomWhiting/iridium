@@ -12,6 +12,11 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+# Which language a document is in. Its own crate because the parser-free build
+# of `iridium-editor` needs the same answer without any of the below — see
+# that crate for the divergence that made two copies untenable.
+iridium-lang.workspace = true
+
 # Syntax parsing
 tree-sitter.workspace = true
 

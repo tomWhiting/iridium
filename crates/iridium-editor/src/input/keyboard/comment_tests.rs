@@ -505,13 +505,21 @@ fn undo_restores_text_and_all_cursors_exactly() {
     assert_eq!(heads(&editor.state().cursor), vec![(0, 1), (1, 1)]);
 }
 
-// ========== Language-table resolution (requires the `syntax` feature) ==========
+// ========== Language-table resolution ==========
+//
+// Deliberately **not** gated on the `syntax` feature. Which token comments a
+// language is pure data — a match on an enum both feature configurations
+// have — and nothing here parses anything. Gating these was what let the
+// stub build answer "this language has no comment syntax" for every language
+// while a doc comment two files away asserted the path was unreachable.
 
-#[cfg(feature = "syntax")]
 mod language_table {
     use super::*;
+    // The crate's own re-export, which resolves to the real enum or the stub
+    // depending on the feature — so these tests name whichever one this build
+    // actually has, which is the point of running them in both.
+    use crate::Language;
     use crate::editor::Editor;
-    use iridium_syntax::Language;
 
     /// A document tagged with a language identifier.
     fn doc_with_language(text: &str, id: &str) -> Document {

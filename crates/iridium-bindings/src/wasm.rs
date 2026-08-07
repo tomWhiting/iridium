@@ -32,9 +32,12 @@ use iridium_editor::{
         FrameCompositor, FrameTarget, HighlightContext, HighlightSource, Viewport, WebSurface,
         units::{pixel_to_index, u32_to_f32},
     },
-    syntax_stubs::Language,
     theme::Color,
 };
+// The crate's own re-export, not `syntax_stubs`'. There is one `Language` in
+// every feature configuration now — it used to be a stub here and the real
+// enum elsewhere, and the two disagreed.
+use iridium_editor::Language;
 
 /// Initialize panic hook for better error messages in browser console.
 #[wasm_bindgen(start)]

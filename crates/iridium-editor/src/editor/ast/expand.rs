@@ -35,11 +35,12 @@ use crate::input::keyboard::AstRequest;
 use super::textobject::{Region, Source};
 #[cfg(feature = "syntax")]
 use super::walk;
+use iridium_lang::Language;
 #[cfg(feature = "syntax")]
-use iridium_syntax::{Language, Node, Tree};
+use iridium_syntax::{Node, Tree};
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{Language, Tree};
+use crate::syntax_stubs::Tree;
 
 /// The cursor states an expansion walked out through, newest last.
 #[derive(Debug, Default, Clone)]
@@ -239,6 +240,12 @@ pub(super) fn selection_for(
 /// compiled in. Only the answer differs, and "no structure here" is the honest
 /// one.
 #[cfg(not(feature = "syntax"))]
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the stub `Tree` is zero-sized; the real tree-sitter one is not, \
+and this signature is deliberately identical in both configurations — that \
+sameness is the entire purpose of the stub"
+)]
 pub(super) const fn selection_for(
     _request: AstRequest,
     _language: Option<Language>,

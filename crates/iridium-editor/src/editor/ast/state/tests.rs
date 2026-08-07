@@ -5,7 +5,8 @@
 //! fix, and [`a_missed_edit_still_leaves_a_correct_tree`], which is the promise
 //! that the cheap path can never be the difference between right and wrong.
 
-use iridium_syntax::{Language, SyntaxTree};
+use iridium_lang::Language;
+use iridium_syntax::SyntaxTree;
 
 use super::SyntaxState;
 use crate::document::{CursorState, Document, Position, Range, compute_edit_span};

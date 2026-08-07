@@ -45,6 +45,26 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// Reads a whole non-negative number out of `field` on a JavaScript object.
+///
+/// The narrowing itself lives in [`crate::js_index`], which compiles for the
+/// host and is tested there; this is the `JsValue` plumbing around it. The two
+/// are separate because nothing in this file is reachable by a native test —
+/// it compiles only for `wasm32` — and the question of which numbers are
+/// indices is exactly the part worth testing.
+fn index_field(object: &JsValue, field: &str) -> Result<usize, JsValue> {
+    let value = js_sys::Reflect::get(object, &JsValue::from_str(field))
+        .map_err(|_| JsValue::from_str(&format!("{field} is missing")))?
+        .as_f64()
+        .ok_or_else(|| JsValue::from_str(&format!("{field} must be a number")))?;
+    crate::js_index::index(value, field).map_err(|message| JsValue::from_str(&message))
+}
+
+/// The `line` property of a JavaScript object, as a line index.
+fn line_of(object: &JsValue) -> Result<usize, JsValue> {
+    index_field(object, "line")
+}
+
 /// A highlight span from tree-sitter (passed from JavaScript).
 #[derive(Debug, Clone)]
 pub struct JsHighlightSpan {
@@ -1277,10 +1297,7 @@ impl WebEditor {
         let arr = Array::from(backgrounds);
         for i in 0..arr.length() {
             let entry = arr.get(i);
-            let line = Reflect::get(&entry, &JsValue::from_str("line"))?
-                .as_f64()
-                .ok_or_else(|| JsValue::from_str("line must be a number"))?
-                as usize;
+            let line = line_of(&entry)?;
             let color_hex = Reflect::get(&entry, &JsValue::from_str("color"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("color must be a hex string"))?;
@@ -1317,10 +1334,7 @@ impl WebEditor {
         let arr = Array::from(changes);
         for i in 0..arr.length() {
             let entry = arr.get(i);
-            let line = Reflect::get(&entry, &JsValue::from_str("line"))?
-                .as_f64()
-                .ok_or_else(|| JsValue::from_str("line must be a number"))?
-                as usize;
+            let line = line_of(&entry)?;
             let kind = Reflect::get(&entry, &JsValue::from_str("kind"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("kind must be a string"))?;
@@ -1400,10 +1414,7 @@ impl WebEditor {
         let arr = Array::from(data);
         for i in 0..arr.length() {
             let entry = arr.get(i);
-            let line = Reflect::get(&entry, &JsValue::from_str("line"))?
-                .as_f64()
-                .ok_or_else(|| JsValue::from_str("line must be a number"))?
-                as usize;
+            let line = line_of(&entry)?;
             let text = Reflect::get(&entry, &JsValue::from_str("text"))?
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("text must be a string"))?;
@@ -1750,16 +1761,8 @@ impl WebEditor {
 
         for i in 0..array.length() {
             let obj = array.get(i);
-            let start = Reflect::get(&obj, &JsValue::from_str("start"))
-                .map_err(|_| JsValue::from_str("missing start"))?
-                .as_f64()
-                .ok_or_else(|| JsValue::from_str("start not a number"))?
-                as usize;
-            let end = Reflect::get(&obj, &JsValue::from_str("end"))
-                .map_err(|_| JsValue::from_str("missing end"))?
-                .as_f64()
-                .ok_or_else(|| JsValue::from_str("end not a number"))?
-                as usize;
+            let start = index_field(&obj, "start")?;
+            let end = index_field(&obj, "end")?;
             let type_str = Reflect::get(&obj, &JsValue::from_str("type"))
                 .map_err(|_| JsValue::from_str("missing type"))?
                 .as_string()

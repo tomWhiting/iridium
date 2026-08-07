@@ -621,7 +621,7 @@ mod language_table {
     /// whose language nothing recognises.
     #[test]
     fn an_unrecognised_language_falls_back_to_config_token() {
-        let mut doc = doc_with_language("value", "awl");
+        let mut doc = doc_with_language("value", "nonesuch");
         let mut cursor = cursors_at(&[(0, 0)]);
         let mut handler = KeyboardHandler::new();
 

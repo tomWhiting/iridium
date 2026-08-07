@@ -30,6 +30,7 @@
 # file association, comment tokens, indent rules and auto-pairs all come from
 # the manifest, and none of them needs a parser.
 
+awl               Awl
 bash              Bash
 c                 C
 cpp               Cpp

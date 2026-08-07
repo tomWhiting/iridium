@@ -32,6 +32,31 @@
 
 use crate::Language;
 
+/// The AWL grammar, compiled from vendored C by `build.rs`.
+///
+/// Declared by hand because AWL has no published crate — see the build script
+/// for why vendoring the generated `parser.c` is the right shape rather than a
+/// workaround. Every other grammar here arrives as a crate and needs no such
+/// declaration.
+///
+/// ⚠️ **This grammar is a presentation layer only.** `crates/aion-awl` in the
+/// aion repository is the sole parser used for AWL diagnostics. A successful
+/// parse here means the text was tokenised well enough to colour; it never
+/// means the AWL is valid, and nothing should treat it as a check.
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const AWL: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_awl() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_awl) }
+};
+
 /// Returns the tree-sitter grammar for a language, if one is linked.
 ///
 /// The returned value is cheap to produce and cheap to copy — tree-sitter's
@@ -46,6 +71,7 @@ use crate::Language;
 /// than silently falling into the `None` arm.
 pub fn grammar(language: Language) -> Option<tree_sitter::Language> {
     Some(match language.id() {
+        "awl" => AWL.into(),
         "rust" => tree_sitter_rust::LANGUAGE.into(),
         "python" => tree_sitter_python::LANGUAGE.into(),
         "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
@@ -87,6 +113,7 @@ mod tests {
     /// list would agree with that table however wrong it was. This is the claim
     /// "Iridium can parse these", and it is the thing a reader wants to check.
     const GRAMMARS_LINKED_FOR: &[&str] = &[
+        "awl",
         "rust",
         "python",
         "typescript",

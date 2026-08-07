@@ -52,6 +52,15 @@ ropey = { version = "2.0.0-beta.1", features = ["metric_chars", "metric_lines_lf
 
 # Syntax highlighting
 tree-sitter = "0.26.3"
+
+# For grammars vendored as C rather than pulled as a crate. AWL has no
+# published crate, so its generated `parser.c` is compiled here — see
+# `crates/iridium-syntax/build.rs`. `tree-sitter-language` is what turns the
+# resulting C symbol into a `tree_sitter::Language`; the published grammar
+# crates already pull it, so neither of these adds anything to the lockfile.
+cc = "1.2"
+tree-sitter-language = "0.1"
+
 tree-sitter-rust = "0.24"
 tree-sitter-python = "0.25"
 tree-sitter-typescript = "0.23.2"

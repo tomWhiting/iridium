@@ -1251,6 +1251,7 @@ dependencies = [
 name = "iridium-syntax"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "criterion",
  "iridium-lang",
  "serde",
@@ -1264,6 +1265,7 @@ dependencies = [
  "tree-sitter-go",
  "tree-sitter-javascript",
  "tree-sitter-json",
+ "tree-sitter-language",
  "tree-sitter-md",
  "tree-sitter-python",
  "tree-sitter-rust",

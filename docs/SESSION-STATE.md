@@ -1184,3 +1184,11 @@ looked at was the thing you meant.
 - **#40** five `f64 as usize` casts on JS line numbers in `wasm.rs`.
 - **#35** HiDPI font scale not re-applied across displays.
 - **#31** light/dark theme switch.
+- **#70** nine tree-sitter capture names map to no `HighlightType`, so the
+  tokens render in the plain foreground with nothing reporting it: markdown
+  headings and links, *every* CSS selector, JSX tags. Found by a sweep, not by
+  anyone noticing the colour. Ratcheted by `KNOWN_UNSTYLED_GAP` in
+  `iridium-syntax/src/highlight/tests.rs` so it cannot grow. `@namespace` —
+  which hit `awl`, `cpp`, `css` and `go` — was fixed at the same time.
+- **#69** `custom_gutter_lines_miss_and_recompose_identically` is flaky under
+  box load. Passed in the AWL battery; do not read one green run as a fix.

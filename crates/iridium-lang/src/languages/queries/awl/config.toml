@@ -1,0 +1,19 @@
+name = "AWL"
+grammar = "awl"
+path_suffixes = ["awl"]
+line_comments = ["// "]
+
+# No `block_comment` and no `documentation_comment`: AWL has no block pair at
+# all, confirmed by Vesper Lynd, who owns the grammar. The manifest reader's
+# fallback — block pair is `block_comment` if present, else
+# `documentation_comment` — therefore correctly yields no block toggle rather
+# than inventing one.
+#
+# `///` and `//!` are NOT listed beside `// ` the way Rust lists them. In AWL
+# they are distinct grammar tokens (`doc_comment` vs `comment`) rather than a
+# naming convention over one token, and the highlights query already tells them
+# apart. Listing them here would make the comment toggle write a doc comment.
+#
+# ⚠️ This grammar is a PRESENTATION LAYER ONLY. `crates/aion-awl` in the aion
+# repository is the sole parser used for diagnostics. A successful parse here
+# means the text was tokenised for colouring — it never means the AWL is valid.

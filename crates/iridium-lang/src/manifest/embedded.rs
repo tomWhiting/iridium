@@ -31,6 +31,7 @@ use super::Manifest;
 /// disk, and a vendor refresh that dropped a directory would then remove a
 /// language without any diff saying so.
 const SOURCES: &[(&str, &str)] = &[
+    ("awl", include_str!("../languages/queries/awl/config.toml")),
     (
         "bash",
         include_str!("../languages/queries/bash/config.toml"),

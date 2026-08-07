@@ -24,8 +24,15 @@
 //!
 //! # What this does not cover
 //!
-//! Only languages that are `Language` variants. The manifests describe eight
-//! more; the registry step is where those start to matter.
+//! Only languages the registry lists. The vendored manifests describe seven
+//! more — `diff`, `gitcommit`, `gomod`, `gowork`, `jsdoc`, `markdown-inline`
+//! and `regex` — which are vendored but not yet admitted; see
+//! `docs/IN-FLIGHT-registry.md` §6.
+//!
+//! The unknown-language tests below say `"nonesuch"`. They used to say
+//! `"awl"`, chosen because nothing claimed it — and then AWL became a real
+//! language, which is exactly the hazard of picking a sentinel that looks like
+//! a plausible name. `"nonesuch"` is not a language anyone is going to add.
 
 #![allow(clippy::expect_used)]
 
@@ -46,6 +53,12 @@ type CommentRow = (
 ///
 /// Hand-written and not derived — see the module note on why that is the point.
 const EXPECTED: &[CommentRow] = &[
+    // AWL has no block pair at all, so `Ctrl+Shift+/` correctly does nothing
+    // in a `.awl` file. Its `///` and `//!` are distinct grammar tokens rather
+    // than a convention over `//`, so — unlike Rust, which lists all three —
+    // its manifest lists only `// `, and the toggle cannot accidentally write
+    // a doc comment.
+    ("awl", Some("//"), None),
     ("rust", Some("//"), Some(("/*", "*/"))),
     ("python", Some("#"), None),
     ("typescript", Some("//"), Some(("/*", "*/"))),
@@ -204,7 +217,7 @@ fn an_unknown_language_still_falls_back_to_the_configured_token() {
         line_comment_token: Some("%%".to_owned()),
         ..EditorConfig::default()
     };
-    let syntax = resolve_comment_syntax(&document_in("awl"), &config)
+    let syntax = resolve_comment_syntax(&document_in("nonesuch"), &config)
         .expect("the configured token is available");
     assert_eq!(syntax.line.as_deref(), Some("%%"));
     assert_eq!(syntax.block, None);
@@ -216,5 +229,5 @@ fn an_unknown_language_with_no_configured_token_has_no_comment_syntax() {
         line_comment_token: None,
         ..EditorConfig::default()
     };
-    assert!(resolve_comment_syntax(&document_in("awl"), &config).is_none());
+    assert!(resolve_comment_syntax(&document_in("nonesuch"), &config).is_none());
 }

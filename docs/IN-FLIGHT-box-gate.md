@@ -179,3 +179,50 @@ where a deliberately flattened depth still passed.
 There is no seam here to fix it with: `compositor/frame.rs:192` calls
 `cursor_renderer.update(Instant::now())` internally, so the compositor test
 cannot inject a phase the way `cursor.rs`'s own unit tests can.
+
+## The ≥300 s debounce, re-derived here — and it does not hold
+
+The doc above says the 300 s was inherited from Cally's box (>3× a widest
+observed ~90 s trough) and that I had not re-derived it. I have now.
+
+`<scratchpad>/loadsample.sh` sampled 1-minute load every 30 s. Threshold is
+the core count, **10**, read at run time. From 24 minutes on 2026-08-07:
+
+```
+19:56:49   9.04  <   trough opens
+19:57:19   7.64  <
+   ...           <   16 consecutive samples, every one under 10
+20:02:49   4.70  <   floor
+20:04:19   6.50  <   trough closes — 450 s wide
+20:04:49  18.26      back over, and stays over for ten minutes
+```
+
+**The widest lull measured here is 450 s against a 300 s debounce.** A gate
+running the inherited rule clears at **20:01:49** — three consecutive passing
+samples, 300 s spanned, every one of them true — permits a battery, and three
+minutes later the box returns to 18.26 and stays above the threshold for ten
+minutes. An eight-gate battery is not close to finished in three minutes, so
+it would have run straight through the busy period **with a legitimately
+passed precondition behind it.**
+
+⭐ **A debounce must be wider than the widest lull that is not real quiet.**
+300 s came from a box whose widest was ~90 s. The transferable part of that
+rule is the derivation, never the number. Applying the same 3× to what is
+measured here gives roughly **1350 s**.
+
+⚠️ **That is one trough, not a distribution.** 24 minutes of sampling is
+enough to falsify 300 s for this box and nowhere near enough to establish
+1350 s in its place. The number must not travel out of this file the way the
+300 s travelled into it.
+
+### Two consequences for whatever the shared preflight becomes
+
+1. **The debounce is a per-box measured parameter, not a script constant.** A
+   box's lull structure is a property of what else runs on it. Same script,
+   same rule, locally derived number — otherwise every box inherits whichever
+   box happened to be characterised first.
+2. **Clearance needs re-checking during a long run, not only before it.**
+   Every gate discussed so far, mine included, guards the *start*. The run
+   above would have passed a real precondition and then spent minutes inside
+   a spike with nothing watching. **A precondition that fires once is a
+   precondition on the first second of the run.**

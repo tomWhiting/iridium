@@ -19,14 +19,25 @@ fn vendored_path(language: Language, kind: QueryKind) -> PathBuf {
         .join(kind.file_name())
 }
 
-/// The three `(language, kind)` pairs with no vendored file.
+/// Every `(language, kind)` pair with no vendored file.
 ///
 /// Spelled out rather than derived so that a vendor refresh which adds or drops
 /// a file has to be acknowledged here, in a diff a reviewer can see.
+///
+/// The three upstream languages each miss exactly one kind. AWL misses four,
+/// because it is not an upstream language: its queries are written by hand in
+/// the aion repository and cover what AWL actually needs. A language shipping
+/// only some kinds is the normal case for a first-party grammar, not a gap
+/// waiting to be filled — the loader models every kind as optional, and the
+/// features keying off the missing four degrade to nothing rather than fail.
 const KNOWN_ABSENCES: &[(Language, QueryKind)] = &[
     (Language::Json, QueryKind::Injections),
     (Language::Yaml, QueryKind::Indents),
     (Language::Bash, QueryKind::Outline),
+    (Language::Awl, QueryKind::Brackets),
+    (Language::Awl, QueryKind::TextObjects),
+    (Language::Awl, QueryKind::Injections),
+    (Language::Awl, QueryKind::Outline),
 ];
 
 /// What specific languages ship, written out by hand.
@@ -53,9 +64,14 @@ const PINNED: &[(Language, &[QueryKind])] = &[
             QueryKind::Outline,
         ],
     ),
-    // The three carrying a documented absence, pinned from the other side:
+    // The languages carrying a documented absence, pinned from the other side:
     // what they *do* ship, so a refresh that dropped a second file is caught
     // by more than the absence list alone.
+    //
+    // AWL matters most here. Its four absences mean the absence list alone
+    // would still pass if its highlights.scm vanished and its brackets.scm
+    // appeared — the count would balance. This says which two it ships.
+    (Language::Awl, &[QueryKind::Highlights, QueryKind::Indents]),
     (
         Language::Json,
         &[
@@ -137,7 +153,7 @@ fn the_table_agrees_with_the_files_on_disk() {
 }
 
 #[test]
-fn the_only_absences_are_the_three_that_were_never_vendored() {
+fn the_only_absences_are_the_ones_written_down() {
     let absent: BTreeSet<(&str, QueryKind)> = Language::all()
         .iter()
         .flat_map(|&language| {

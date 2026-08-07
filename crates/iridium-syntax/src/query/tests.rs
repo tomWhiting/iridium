@@ -111,13 +111,35 @@ fn the_vendored_text_objects_carry_exactly_the_five_documented_captures() {
     // these. If a vendor refresh adds `@parameter.inside` or `@comment.inside`
     // this fails — which is the point: it means richer text objects became
     // available without anyone noticing.
+    // A language that ships no `textobjects.scm` is skipped rather than
+    // expected. This used to `.expect("every language ships textobjects")`,
+    // which was true only by accident of which languages were vendored: AWL
+    // ships highlights, indents and folds and no text objects at all. Text
+    // objects are a feature a language may simply not have, and the loader
+    // already models that as a routine `Ok(None)`.
+    //
+    // What is deliberately NOT weakened is the claim about languages that do
+    // ship one — every capture in every such file still has to be one of the
+    // five below.
     let mut captures: BTreeSet<&str> = BTreeSet::new();
+    let mut shipped = 0_usize;
     for &language in Language::all() {
-        let query = compiled(language, QueryKind::TextObjects)
-            .expect("textobjects must compile")
-            .expect("every language ships textobjects");
+        let Some(query) = compiled(language, QueryKind::TextObjects)
+            .expect("a vendored textobjects.scm must compile against its grammar")
+        else {
+            continue;
+        };
+        shipped += 1;
         captures.extend(query.capture_names().iter().copied());
     }
+
+    // Guards the skip above: if a refresh left *no* language shipping text
+    // objects, every capture check below would pass vacuously and structural
+    // selection would be silently dead.
+    assert!(
+        shipped > 0,
+        "no language ships a textobjects.scm, so this test proves nothing"
+    );
 
     let expected: BTreeSet<&str> = [
         "class.around",

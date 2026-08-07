@@ -72,7 +72,7 @@ fn every_language_has_a_manifest_and_it_is_the_one_named_by_its_id() {
 
 #[test]
 fn by_id_says_no_to_a_language_that_was_never_vendored() {
-    assert!(by_id("awl").is_none());
+    assert!(by_id("nonesuch").is_none());
     assert!(by_id("").is_none());
     assert!(
         by_id("RUST").is_none(),

@@ -127,7 +127,19 @@ impl HighlightType {
             "variable.special" | "variable.builtin" => Some(Self::VariableSpecial),
 
             // Types
-            "type" | "type.name" | "type.definition" | "constructor" => Some(Self::Type),
+            // `namespace` and `module` ride along with the type arm rather
+            // than taking a variant of their own. `SyntaxColors` is a fixed
+            // struct of concrete colours, so a new variant means a new field in
+            // every theme and in the TUI palette — disproportionate for a token
+            // that reads as a type-like name everywhere it appears. `Lifetime`
+            // already sets this precedent in `highlight_to_color`.
+            //
+            // They mapped to nothing until AWL arrived, which meant AWL, C++,
+            // CSS and Go all rendered these tokens in the plain foreground with
+            // nothing reporting it.
+            "type" | "type.name" | "type.definition" | "constructor" | "namespace" | "module" => {
+                Some(Self::Type)
+            },
             "type.builtin" | "type.primitive" => Some(Self::TypeBuiltin),
             "type.interface" | "interface" => Some(Self::TypeInterface),
 
@@ -216,6 +228,9 @@ impl HighlightType {
             return Some(Self::TypeInterface);
         }
         if name.starts_with("type") {
+            return Some(Self::Type);
+        }
+        if name.starts_with("namespace") || name.starts_with("module") {
             return Some(Self::Type);
         }
         if name.starts_with("punctuation.bracket") {

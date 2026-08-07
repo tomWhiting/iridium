@@ -350,7 +350,7 @@ mod tests {
     /// An extension nobody claims resolves to nothing.
     #[test]
     fn an_unclaimed_extension_resolves_to_nothing() {
-        assert_eq!(language_for_extension("awl"), None);
+        assert_eq!(language_for_extension("nonesuch"), None);
         assert_eq!(language_for_extension(""), None);
         assert_eq!(language_for_extension("zzzz"), None);
     }
@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn a_name_nothing_claims_resolves_to_nothing() {
-        for name in ["notes", "hello.awl", "", ".", "..", "archive.tar.gz"] {
+        for name in ["notes", "hello.nonesuch", "", ".", "..", "archive.tar.gz"] {
             assert_eq!(language_for_file_name(name), None, "{name}");
         }
     }

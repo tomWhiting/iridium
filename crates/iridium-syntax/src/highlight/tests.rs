@@ -44,6 +44,130 @@ fn test_highlight_type_from_capture_name() {
     );
 }
 
+/// Capture names that deliberately produce no span.
+///
+/// A capture beginning with `_` is a predicate operand by tree-sitter
+/// convention — `(#eq? @_isinstance "isinstance")` names a node so a predicate
+/// can test it, and styling it was never intended. `none` is the same idea
+/// spelled differently: Rust's query uses it inside `#match?`, and the name is
+/// also the upstream convention for *cancelling* a highlight an earlier pattern
+/// applied. `text` is markdown prose, which should render in the plain
+/// foreground.
+///
+/// Verified individually against the vendored queries rather than assumed.
+const DELIBERATELY_UNSTYLED: &[&str] = &["_isinstance", "_issubclass", "none", "text"];
+
+/// Captures that render unstyled today and should not.
+///
+/// This is a real gap, not a convention: markdown headings and link text, every
+/// CSS selector, and JSX tags all reach the screen in the plain foreground.
+/// It predates AWL and was found by the test below rather than by anyone
+/// noticing the colour, which is exactly why the test exists.
+///
+/// Listed rather than fixed here because choosing a colour for each is a
+/// presentation decision, and this stint is the language registry. The list is
+/// a ratchet: the gap cannot grow without a failing test, and the test names
+/// the language.
+const KNOWN_UNSTYLED_GAP: &[&str] = &[
+    "link_text.markup",
+    "link_uri.markup",
+    "title.markup",
+    "selector.class",
+    "selector.id",
+    "selector.pseudo",
+    "tag.jsx",
+    "text.jsx",
+    "nested",
+];
+
+#[test]
+fn every_vendored_capture_maps_to_a_highlight_type() {
+    // The bug this exists to catch is silent: an unmapped capture produces no
+    // span, so the text renders in the plain foreground and nothing anywhere
+    // reports a problem. It is invisible unless you know what colour the token
+    // was supposed to be.
+    //
+    // Checked against the compiled queries rather than by scanning the `.scm`
+    // text, so predicate arguments and comments cannot be mistaken for
+    // captures.
+    let mut unmapped: std::collections::BTreeMap<&str, Vec<&str>> =
+        std::collections::BTreeMap::new();
+
+    for &language in Language::all() {
+        let Some(query) = crate::query::compiled(language, crate::query::QueryKind::Highlights)
+            .expect("a vendored highlights.scm must compile")
+        else {
+            continue;
+        };
+        for name in query.capture_names() {
+            if HighlightType::from_capture_name(name).is_none()
+                && !DELIBERATELY_UNSTYLED.contains(name)
+                && !KNOWN_UNSTYLED_GAP.contains(name)
+            {
+                unmapped.entry(name).or_default().push(language.id());
+            }
+        }
+    }
+
+    assert!(
+        unmapped.is_empty(),
+        "these capture names produce no highlight at all, so the tokens they \
+         match render unstyled:\n{}",
+        unmapped
+            .iter()
+            .map(|(name, languages)| format!("  @{name} — used by {}", languages.join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[test]
+fn the_unstyled_lists_name_only_captures_that_are_still_unstyled_and_still_used() {
+    // Without this, both lists rot in the two ways an exception list can:
+    // a name that gets mapped stays listed as an exception forever, and a
+    // capture dropped by a vendor refresh leaves a row nothing checks. Either
+    // way the list stops describing the tree it claims to describe.
+    let mut vendored: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for &language in Language::all() {
+        if let Some(query) = crate::query::compiled(language, crate::query::QueryKind::Highlights)
+            .expect("a vendored highlights.scm must compile")
+        {
+            vendored.extend(query.capture_names().iter().copied());
+        }
+    }
+
+    for &name in DELIBERATELY_UNSTYLED.iter().chain(KNOWN_UNSTYLED_GAP) {
+        assert!(
+            vendored.contains(name),
+            "@{name} is listed as unstyled but no vendored query captures it"
+        );
+        assert!(
+            HighlightType::from_capture_name(name).is_none(),
+            "@{name} now maps to a highlight type, so it must come off the \
+             unstyled list — and if that was the fix, the list is how anyone \
+             knows what is left"
+        );
+    }
+}
+
+#[test]
+fn a_namespace_capture_is_styled_rather_than_falling_through() {
+    // The regression that motivated the sweep above. AWL, C++, CSS and Go all
+    // capture @namespace, and it reached the screen unstyled.
+    assert_eq!(
+        HighlightType::from_capture_name("namespace"),
+        Some(HighlightType::Type)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("@namespace"),
+        Some(HighlightType::Type)
+    );
+    assert_eq!(
+        HighlightType::from_capture_name("module"),
+        Some(HighlightType::Type)
+    );
+}
+
 #[test]
 fn test_highlighter_rust() {
     let language = Language::Rust;

@@ -22,6 +22,10 @@ iridium-lang.workspace = true
 # Syntax parsing
 tree-sitter.workspace = true
 
+# Turns the C symbol of a vendored grammar into a `tree_sitter::Language`.
+# Needed for AWL, which has no published crate — see `build.rs`.
+tree-sitter-language.workspace = true
+
 # Language grammars
 tree-sitter-rust.workspace = true
 tree-sitter-python.workspace = true
@@ -44,6 +48,11 @@ thiserror.workspace = true
 
 # Logging
 tracing.workspace = true
+
+# Compiles the vendored C grammars under `grammars/`. Host-only, so it does
+# not reach the wasm target.
+[build-dependencies]
+cc.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

@@ -447,6 +447,13 @@ impl WebEditor {
     }
 
     /// Sets the editor content.
+    ///
+    /// Everything derived from the outgoing document is dropped here. The
+    /// document is *replaced*, not edited, so none of the incremental
+    /// machinery can notice on its own: a fresh document starts its revision
+    /// count again, and [`Self::record_edit`] — the choke point that carries
+    /// tracked state across an edit — is never reached, because there is no
+    /// edit span to carry anything across.
     #[wasm_bindgen(js_name = setContent)]
     pub fn set_content(&mut self, content: &str) {
         self.editor.set_content(content);
@@ -455,6 +462,15 @@ impl WebEditor {
         // A full content replacement invalidates any pending incremental
         // edit; consumers do a full parse of the new content.
         self.pending_edit = PendingEdit::None;
+        // The worker's spans describe the document that just went away, and
+        // nothing else drops them: the cache is keyed on its own generation,
+        // never on a document revision. Left in place, the very next frame
+        // painted the NEW text sliced at the OLD document's byte offsets —
+        // the same defect `shift_highlight_spans` closes for an edit, in its
+        // largest possible form, and lasting until the worker answers rather
+        // than for a few milliseconds. With no worker at all it lasted until
+        // something else happened to call `clearTreeSitterHighlights`.
+        self.highlights.clear();
         // The document was replaced, not edited: a revision comparison cannot
         // see that on its own, because a fresh document starts counting again.
         self.fold_syntax.invalidate();

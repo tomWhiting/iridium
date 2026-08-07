@@ -1673,6 +1673,47 @@ Verified: no `.shared-tree`, no `core.hooksPath`, no active hooks in this
 checkout. Nothing has moved. Waffles' reported 17/17 is taken as reported and
 verified by nobody here.
 
+#### Update — the clone hole was reproduced and closed, and it moved
+
+Cally cloned a correctly-armed repo and got `commit --amend` through with no
+complaint: marker present, hook file present and executable, `core.hooksPath`
+unset. The closure is `tools/hooks/check_guard_active.sh`, **deliberately not a
+hook** — a hook that checks whether hooks are armed is inert in exactly the
+case it exists to detect. Fixture 11 → 20 arms; arm 17 pins the clone defect,
+arm 18 requires the detector to fire on arm 17's state.
+
+She also inverted my supply-chain question, correctly: git's refusal to
+auto-arm a hook received from a remote *is* the protection, so manual arming is
+the design rather than an oversight, and a loud detector is the only honest
+closure.
+
+⭐ **But its home in this repo breaks it, and that is verified here.** The only
+committed gate runner in iridium is `.github/workflows/ci.yml` — `actions/
+checkout@v4` on `ubuntu-latest`, on push to main and every pull request. There
+is **no committed local battery**; the eight-gate battery is a scratchpad
+script of mine, uncommitted and invisible to anyone else. So "it runs from
+something that already runs" resolves here to CI — and a CI runner is a clone
+with the marker tracked and `core.hooksPath` unset, which is the detector's
+exit-1 condition exactly. **It would fail on every push and every PR, forever.**
+
+The deeper point: a CI runner never originates a commit, so it has nothing to
+protect and its unarmed state is *correct*. The believed-protection alarm would
+be firing on a machine that is correctly unprotected, making it
+indistinguishable from a real hit — and a permanently-red gate gets muted
+within a week, which removes the signal on the developer machines where it is
+real. The test it needs is not "is the guard armed" but **"does anyone commit
+from this clone"**; `CI` / `GITHUB_ACTIONS` are the available proxies and the
+escape should be written down before main goes red, not after.
+
+**Still unanswered:** whether a `reference-transaction` hook reads a
+force-updated remote-tracking ref from `git fetch` as a rewrite. A
+`fetch --prune` against a rewritten upstream branch would surface as git being
+mysteriously broken rather than as the guard working. Asked twice; not yet
+said either way.
+
+Position unchanged: still recommend switching it on here. The clone hole is
+closed and the CI case is a placement problem, not a design problem.
+
 **#72** (`tag.jsx` → `Tag`, `text.jsx` and `nested` → deliberately unstyled)
 needs **no ruling** — it was split out of #70 precisely so it would not wait.
 It needs only a build.

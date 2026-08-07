@@ -1,7 +1,31 @@
 # Iridium rustfmt configuration
-# Aggressive but practical formatting standards
+#
+# Every option below is STABLE and therefore actually applied. That was not
+# true until #73: the file previously declared 21 further options that stable
+# rustfmt silently ignores, each of which emitted a "can't set ... unstable
+# features are only available in nightly channel" warning — 609 warning lines
+# per `cargo fmt` run, which is where a real one would have hidden.
+#
+# What those 21 would have done was MEASURED, not assumed: the whole workspace
+# was formatted by nightly rustfmt with `unstable_features = true` and the
+# result diffed against the tree.
+#
+#   - 19 of them changed NOTHING. They restated the behaviour already in
+#     effect, so they were noise in both directions — ignored on stable, and
+#     redundant on nightly.
+#   - 2 of them accounted for ALL of it: `imports_granularity = "Crate"` and
+#     `group_imports = "StdExternalCrate"` produced 339 hunks over 2,681 lines.
+#
+# The 19 are deleted. The 2 are preserved below as the nightly options they
+# are, with their price attached, because they are the only ones that ever
+# expressed an intent the codebase does not already meet.
+#
+# ⚠️ The 19 were no-ops against THIS toolchain and style edition. An option
+# that restates a default stops being a no-op the moment the default moves,
+# which is the case in which deleting them would have mattered — and is the
+# reason they are recorded here rather than simply removed.
 
-# Stable options
+# Core
 edition = "2024"
 max_width = 100
 hard_tabs = false
@@ -10,42 +34,25 @@ newline_style = "Unix"
 use_small_heuristics = "Default"
 
 # Import organization
-imports_granularity = "Crate"
-group_imports = "StdExternalCrate"
 reorder_imports = true
 reorder_modules = true
 
 # Formatting choices
 fn_params_layout = "Tall"
-brace_style = "SameLineWhere"
-control_brace_style = "AlwaysSameLine"
-trailing_comma = "Vertical"
-trailing_semicolon = true
 match_block_trailing_comma = true
 use_field_init_shorthand = true
 use_try_shorthand = true
-force_multiline_blocks = false
-empty_item_single_line = true
-struct_lit_single_line = true
-fn_single_line = false
-where_single_line = false
 
-# Comments
-wrap_comments = false
-format_code_in_doc_comments = true
-doc_comment_code_block_width = 80
-normalize_comments = false
-normalize_doc_attributes = true
-format_strings = false
-format_macro_matchers = true
-format_macro_bodies = true
-
-# Error handling
-error_on_line_overflow = false
-error_on_unformatted = false
-
-# Unstable features (nightly only - commented out for stable)
+# Nightly-only (unavailable on the stable toolchain this project builds with).
+#
+# The first two are the live decision. Adopting them means a nightly rustfmt in
+# CI — which today pins `dtolnay/rust-toolchain@stable` — plus a one-time
+# reformat of 2,681 lines across 339 hunks. Nothing else in this block changes
+# a single line of the codebase as it stands.
+#
 # unstable_features = true
+# imports_granularity = "Crate"          # 339 hunks / 2,681 lines
+# group_imports = "StdExternalCrate"     # (the same 339 hunks)
 # format_generated_files = false
 # imports_layout = "HorizontalVertical"
 # overflow_delimited_expr = true

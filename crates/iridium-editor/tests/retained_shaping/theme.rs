@@ -93,3 +93,59 @@ fn a_set_theme_misses_and_recomposes_identically() {
         "the set-theme frame must be byte-identical",
     );
 }
+
+/// The fallback keyword palette must come from the theme, not from a preset
+/// chosen by `is_dark`.
+///
+/// ⚠️ `ActiveLanguageNoSpans` is the whole point of composing with it here: it
+/// reports a language and resolves no spans, which is exactly the state that
+/// puts the compositor's built-in keyword bridge in charge of the colours. That
+/// state is not an edge case — it covers every document with no grammar, and
+/// every grammar'd document between opening it and its spans landing.
+///
+/// ⭐ **`is_dark` as a stand-in for "which syntax palette" agrees with its
+/// target on exactly two inputs**, the two built-in themes, whose hard-coded
+/// bridge presets were hand-matched. Every other theme diverges: these two
+/// differ only in `syntax.keyword`, are both `is_dark`, and so used to be
+/// painted identically however far apart their palettes were.
+#[test]
+fn the_fallback_palette_follows_the_themes_syntax_colors() {
+    let gpu = gpu();
+    let tgt = target(&gpu, WIDTH, HEIGHT);
+    let editor = editor_over(200);
+
+    // Channels are exact multiples of 1/255 so the readback bytes are exact,
+    // matching the convention the tests above set.
+    let mut blue_keywords = Theme::dark();
+    blue_keywords.syntax.keyword = Color::new(0.2, 0.4, 0.6, 1.0);
+    let mut red_keywords = Theme::dark();
+    red_keywords.syntax.keyword = Color::new(0.8, 0.2, 0.4, 1.0);
+
+    let blue = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_theme(blue_keywords);
+        },
+    );
+    let red = cold_pixels(
+        &gpu,
+        &tgt,
+        &editor,
+        0.0,
+        &mut ActiveLanguageNoSpans,
+        |fresh| {
+            fresh.set_theme(red_keywords);
+        },
+    );
+
+    assert!(
+        blue != red,
+        "two themes whose keyword colours differ produced byte-identical \
+         frames, so the fallback bridge is painting from a preset the theme \
+         cannot reach"
+    );
+}

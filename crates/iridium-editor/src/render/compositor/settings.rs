@@ -11,6 +11,9 @@ use std::collections::HashMap;
 use wgpu::Queue;
 
 use super::state::FrameCompositor;
+// Aliased because the bridge's palette and the theme's share a name and this
+// module needs both in the same function.
+use crate::render::simple_highlight::SyntaxColors as SimpleSyntaxColors;
 use crate::theme::{Color, Theme};
 
 impl FrameCompositor {
@@ -100,13 +103,20 @@ impl FrameCompositor {
     /// highlighter's palette in step — the path for a face whose editor
     /// holds a theme that is not one of the built-in presets.
     pub fn set_theme(&mut self, theme: Theme) {
-        // The keyword bridge's palette is its own type, keyed to darkness
-        // rather than to the theme's syntax colors.
-        if theme.is_dark {
-            self.highlighter.set_dark_theme();
-        } else {
-            self.highlighter.set_light_theme();
-        }
+        // The keyword bridge's palette is its own type, so it is *derived*
+        // from the theme rather than shared with it.
+        //
+        // ⚠️ It used to be selected by `theme.is_dark` alone, between two
+        // presets hard-coded in `simple_highlight`. That agreed with the
+        // theme on exactly two inputs — the two built-ins, whose presets were
+        // hand-matched — and diverged on every other: a user's JSON theme, or
+        // either built-in with one colour changed, set `theme.syntax` and got
+        // a fallback palette that could not see it. Not an edge case, because
+        // this bridge paints every document with no grammar and every
+        // grammar'd document until its spans land. See
+        // `docs/IN-FLIGHT-31-fallback-palette.md`.
+        self.highlighter
+            .set_colors(SimpleSyntaxColors::from_theme(&theme));
         self.theme = theme;
         // Text colors and the fallback highlighter's palette both feed the
         // shaped buffers; a set_theme that skipped this bump would serve

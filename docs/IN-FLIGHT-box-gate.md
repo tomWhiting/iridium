@@ -226,3 +226,85 @@ enough to falsify 300 s for this box and nowhere near enough to establish
    above would have passed a real precondition and then spent minutes inside
    a spike with nothing watching. **A precondition that fires once is a
    precondition on the first second of the run.**
+
+## Two corrections that belong in the repo, not only in Meridian
+
+### `4653fc1`'s message overclaims, and the commit is staying as it is
+
+`4653fc1` — *"find_repo_root must test .git with -e, not -d"* — is **a correct
+fix with a message that claims more than the code supports.** Its message says
+*"a feature created from inside a worktree lands in the parent repo."* That
+cannot happen through this script, on two independent grounds, both established
+by execution rather than by reading:
+
+1. **`find_repo_root` is the `--no-git` fallback, not the worktree path.**
+   `create-new-feature.sh:167` tries `git rev-parse --show-toplevel` first and
+   only falls through at `:171` when it *fails*. In a worktree
+   `--show-toplevel` succeeds and returns the worktree root, so the fixed
+   function is never reached.
+2. **When it is reached, the `.git` test cannot decide the outcome.** It is
+   called with `SCRIPT_DIR`, always `<root>/.specify/scripts/bash`, and the
+   same condition also tests `-d "$dir/.specify"`. Walking up from there,
+   `.specify` matches at the true root before any parent. Run from that start
+   directory, `-d` and `-e` both return the worktree root.
+
+The divergence appears only from a start directory with no `.specify` above it
+— which is the fixture that found it, and not the argument the script passes.
+
+**The fix stays.** `-e` is correct, costs nothing, and is the right defence if
+the `.specify` clause ever changes or the function is reused where it is the
+only test. The commit is not being rewritten — see below for why history
+surgery in a shared tree is the thing that caused the incident in the first
+place. This note is the correction of record.
+
+⭐ The fixture proved the **function** diverges and never proved the **script**
+reaches the divergence. Mechanism verified, reachability not.
+
+### The `--amend` incident, and why its control was worthless
+
+At 20:17:47 a `git commit --amend` intended to reword `4653fc1` instead
+rewrote `a778eac`, because **`--amend` takes no target argument — it always
+acts on HEAD, and HEAD had moved.** Repaired by `git reset --soft a778eac`;
+verified here at my own hands: HEAD is exactly `a778eac`, and since a commit
+hash covers message, tree, parent, author and committer, that one equality
+settles every field. Nothing was pushed.
+
+The discipline in force was *commit with explicit paths*, which was followed
+correctly and **bought nothing, because `--amend` has no path argument to be
+explicit about.** A guard written for one verb and never mirrored onto its
+neighbour.
+
+The control taken at the time captured `HEAD^{tree}` before and after and
+asserted equality. It passed, and it was true — **both trees were the
+victim's.** ⭐⭐ **That control could not have failed:** `--amend` with nothing
+staged never changes the tree, so the assertion was a tautology, equally true
+on the clobber path and the clean path.
+
+**The question a control must survive is not "did it pass" but "name the
+circumstance in which it fails."** A control with no such circumstance is
+decoration. This is the same defect as the six timing ceilings above wearing
+value-check clothing, and as my explorer oracle that passed against a
+deliberately flattened tree: a green that is unconditional.
+
+The working form: **bind the control to the identity of the thing you are
+about to change, not to a property the change preserves anyway.**
+
+### The second window closed, which is the mid-run point as evidence
+
+The trough analysis above argued that clearance needs re-checking *during* a
+run. It then happened:
+
+```
+20:15:20   9.45  <   window opens
+20:15:50   7.88  <
+20:18:50  23.80      over again
+20:21:20  30.23
+```
+
+A ~30 s window, then the box back to three times the threshold within six
+minutes. **Had the battery started when load first dipped under, it would have
+been six minutes into a spike.** It was not started, because the widest lull
+measured here is 450 s and a 30 s window does not clear it.
+
+Two troughs so far — 450 s and ~30 s. **That is not yet a distribution and no
+span should be adopted from it.** Sampling continues.

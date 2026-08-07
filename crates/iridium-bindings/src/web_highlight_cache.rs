@@ -151,7 +151,7 @@ impl WebHighlightCache {
     /// Wrapping so a long-lived session cannot panic on overflow. Consumers
     /// compare for inequality rather than ordering, so a wrap costs at worst
     /// one missed recolour after 2^64 mutations.
-    fn bump(&mut self) {
+    const fn bump(&mut self) {
         self.generation = self.generation.wrapping_add(1);
     }
 }

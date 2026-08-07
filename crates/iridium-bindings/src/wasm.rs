@@ -210,13 +210,6 @@ pub struct WebEditor {
     highlight_generation: u64,
 
     // =========================================================================
-    // Git integration: read-only gating (presentation maps live on the
-    // compositor)
-    // =========================================================================
-    /// When true, all content-mutating operations (insert, delete, etc.) are no-ops.
-    read_only: bool,
-
-    // =========================================================================
     // Raw key event handling (the Rust core owns all editing behavior)
     // =========================================================================
     /// Keyboard handler driving the editor core from raw DOM key events.
@@ -420,8 +413,6 @@ pub async fn create_web_editor(
         use_ts_highlights: false,
         span_index: WebSpanIndex::empty(),
         highlight_generation: 0,
-        // Git integration fields
-        read_only: false,
         // Raw key event handling
         keyboard_handler: KeyboardHandler::new(),
         palette_mru: CommandMru::new(),
@@ -658,7 +649,7 @@ impl WebEditor {
         let commands = palette::list(
             self.editor.commands(),
             self.keyboard_handler.key_hints(),
-            self.read_only,
+            self.editor.state().read_only,
         );
         serde_json::to_string(&commands).unwrap_or_else(|_| "[]".to_string())
     }
@@ -677,7 +668,7 @@ impl WebEditor {
             &self.palette_mru,
             query,
             limit,
-            self.read_only,
+            self.editor.state().read_only,
         );
         serde_json::to_string(&commands).unwrap_or_else(|_| "[]".to_string())
     }
@@ -1005,7 +996,7 @@ impl WebEditor {
     /// change, exactly like the keyboard cut path.
     #[wasm_bindgen(js_name = cutText)]
     pub fn cut_text(&mut self) -> Option<String> {
-        if self.read_only {
+        if self.editor.state().read_only {
             return None;
         }
         let event = KeyEvent {
@@ -1036,7 +1027,7 @@ impl WebEditor {
     /// Applies a command produced by the keyboard handler, mirroring
     /// `Editor::handle_key` (including its read-only gating).
     fn apply_key_command(&mut self, command: Command) -> String {
-        if self.read_only {
+        if self.editor.state().read_only {
             // Read-only: only selection changes apply (mirrors
             // `Editor::handle_key`); the key is still consumed.
             if matches!(command, Command::SetSelection { .. }) {
@@ -1065,7 +1056,7 @@ impl WebEditor {
                 "copy".to_string()
             },
             ClipboardOperation::Cut { text, command } => {
-                if self.read_only {
+                if self.editor.state().read_only {
                     // Mirrors `Editor::handle_key`: cut is swallowed entirely
                     // in read-only mode (not even the copy half happens).
                     return "handled".to_string();
@@ -1263,14 +1254,17 @@ impl WebEditor {
 
     /// Sets the editor to read-only mode.
     /// When read-only, all content-mutating operations are silently ignored.
+    ///
+    /// The flag lives on [`EditorState`] and nowhere else. `WebEditor` used to
+    /// keep a copy beside it, written here and read by the binding-level
+    /// gates, with this setter assigning both — a sync invariant maintained by
+    /// hand rather than by construction. Nothing had diverged, because the
+    /// editor is built exactly once and this was its only writer, but the
+    /// invariant held for those reasons rather than for any enforced one.
     // wasm-bindgen cannot export `const fn`.
     #[allow(clippy::missing_const_for_fn)]
     #[wasm_bindgen(js_name = setReadOnly)]
     pub fn set_read_only(&mut self, read_only: bool) {
-        self.read_only = read_only;
-        // Keep the core editor's flag in sync so its own gates
-        // (`Editor::handle_key`, `Editor::paste`, replace operations)
-        // agree with the binding-level gates.
         self.editor.state_mut().read_only = read_only;
         self.needs_redraw = true;
     }
@@ -1278,7 +1272,7 @@ impl WebEditor {
     /// Returns whether the editor is in read-only mode.
     #[wasm_bindgen(js_name = isReadOnly)]
     pub fn is_read_only(&self) -> bool {
-        self.read_only
+        self.editor.state().read_only
     }
 
     // =========================================================================
@@ -1440,7 +1434,7 @@ impl WebEditor {
     /// behave exactly like keyboard input, and the edit span is recorded for
     /// `takeLastEdit`.
     pub fn insert(&mut self, text: &str) {
-        if self.read_only || text.is_empty() {
+        if self.editor.state().read_only || text.is_empty() {
             return;
         }
         // Paste-style insertion moves the cursor outside handle_key.
@@ -1481,7 +1475,7 @@ impl WebEditor {
     /// Deletes the character before the cursor (backspace).
     /// If there's a selection, deletes the selected text instead.
     pub fn backspace(&mut self) {
-        if self.read_only {
+        if self.editor.state().read_only {
             return;
         }
         // If there's a selection, delete it
@@ -1525,7 +1519,7 @@ impl WebEditor {
     /// If there's a selection, deletes the selected text instead.
     /// No-op in read-only mode.
     pub fn delete_forward(&mut self) {
-        if self.read_only {
+        if self.editor.state().read_only {
             return;
         }
         // If there's a selection, delete it
@@ -1901,7 +1895,7 @@ impl WebEditor {
     /// replayed command refers to a document state the binding never
     /// tracked), so incremental highlight consumers stay correct.
     pub fn undo(&mut self) -> bool {
-        if self.read_only {
+        if self.editor.state().read_only {
             return false;
         }
         self.with_whole_document_edit(Editor::undo)
@@ -1912,7 +1906,7 @@ impl WebEditor {
     /// Edit tracking behaves like [`Self::undo`]: a conservative
     /// whole-document edit is recorded for `takeLastEdit`.
     pub fn redo(&mut self) -> bool {
-        if self.read_only {
+        if self.editor.state().read_only {
             return false;
         }
         self.with_whole_document_edit(Editor::redo)
@@ -1955,7 +1949,7 @@ impl WebEditor {
     /// not a number, or when it names no node in this tree.
     #[wasm_bindgen(js_name = jumpToHistoryNode)]
     pub fn jump_to_history_node(&mut self, node_id: &str) -> bool {
-        if self.read_only {
+        if self.editor.state().read_only {
             return false;
         }
         let Ok(raw) = node_id.parse::<u64>() else {
@@ -2000,7 +1994,7 @@ impl WebEditor {
 
     /// `redoBranch` without the wasm-facing `u32`, so the key path can call it.
     fn redo_branch_internal(&mut self, branch_index: usize) -> bool {
-        if self.read_only {
+        if self.editor.state().read_only {
             return false;
         }
         self.with_whole_document_edit(|editor| editor.redo_branch(branch_index))
@@ -2275,7 +2269,7 @@ impl WebEditor {
     /// No-op in read-only mode.
     #[wasm_bindgen(js_name = deleteWordBackward)]
     pub fn delete_word_backward(&mut self) {
-        if self.read_only {
+        if self.editor.state().read_only {
             return;
         }
         let cursor = self.editor.cursor();
@@ -2303,7 +2297,7 @@ impl WebEditor {
     /// No-op in read-only mode.
     #[wasm_bindgen(js_name = deleteWordForward)]
     pub fn delete_word_forward(&mut self) {
-        if self.read_only {
+        if self.editor.state().read_only {
             return;
         }
         let cursor = self.editor.cursor();
@@ -2356,7 +2350,7 @@ impl WebEditor {
     /// caret alone, which both spared the other carets' lines and collapsed the
     /// multi-cursor state, and no native build compiles this file to catch it.
     fn run_editing_command(&mut self, id: &str) -> bool {
-        if self.read_only {
+        if self.editor.state().read_only {
             return false;
         }
         // `keyboard_handler` and `editor` are disjoint fields, so the mutable

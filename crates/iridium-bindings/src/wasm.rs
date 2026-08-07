@@ -39,6 +39,10 @@ use iridium_editor::{
 // every feature configuration now — it used to be a stub here and the real
 // enum elsewhere, and the two disagreed.
 use iridium_editor::Language;
+// The outbound half of the JavaScript number boundary, kept beside the inbound
+// `js_index::index` for the same reason: the policy is testable on the host and
+// nothing in this file is.
+use crate::js_index::{to_js_i32, to_js_u32};
 
 /// Initialize panic hook for better error messages in browser console.
 #[wasm_bindgen(start)]
@@ -1867,7 +1871,7 @@ impl WebEditor {
     )]
     #[wasm_bindgen(js_name = getCursorLine)]
     pub fn get_cursor_line(&self) -> u32 {
-        self.editor.cursor().line as u32
+        to_js_u32(self.editor.cursor().line)
     }
 
     /// Gets the current cursor column (0-indexed).
@@ -1877,13 +1881,13 @@ impl WebEditor {
     )]
     #[wasm_bindgen(js_name = getCursorColumn)]
     pub fn get_cursor_column(&self) -> u32 {
-        self.editor.cursor().column as u32
+        to_js_u32(self.editor.cursor().column)
     }
 
     /// Gets the total line count.
     #[wasm_bindgen(js_name = getLineCount)]
     pub fn get_line_count(&self) -> u32 {
-        self.editor.state().document.line_count() as u32
+        to_js_u32(self.editor.state().document.line_count())
     }
 
     /// Returns the document's monotonic content-revision counter.
@@ -2451,25 +2455,25 @@ impl WebEditor {
     /// then works with whole selections rather than four loose numbers.
     #[wasm_bindgen(js_name = getSelectionStartLine)]
     pub fn get_selection_start_line(&self) -> u32 {
-        self.editor.state().cursor.primary.start().line as u32
+        to_js_u32(self.editor.state().cursor.primary.start().line)
     }
 
     /// Gets the primary selection's start column (for JS interop).
     #[wasm_bindgen(js_name = getSelectionStartColumn)]
     pub fn get_selection_start_column(&self) -> u32 {
-        self.editor.state().cursor.primary.start().column as u32
+        to_js_u32(self.editor.state().cursor.primary.start().column)
     }
 
     /// Gets the primary selection's end line (for JS interop).
     #[wasm_bindgen(js_name = getSelectionEndLine)]
     pub fn get_selection_end_line(&self) -> u32 {
-        self.editor.state().cursor.primary.end().line as u32
+        to_js_u32(self.editor.state().cursor.primary.end().line)
     }
 
     /// Gets the primary selection's end column (for JS interop).
     #[wasm_bindgen(js_name = getSelectionEndColumn)]
     pub fn get_selection_end_column(&self) -> u32 {
-        self.editor.state().cursor.primary.end().column as u32
+        to_js_u32(self.editor.state().cursor.primary.end().column)
     }
 
     /// Drops every secondary caret and collapses the primary selection to its
@@ -2705,7 +2709,7 @@ impl WebEditor {
         let (line, column) =
             self.compositor
                 .pixel_to_position(&self.editor, &self.fold_state, self.scroll_y, x, y);
-        vec![line as u32, column as u32]
+        vec![to_js_u32(line), to_js_u32(column)]
     }
 
     /// Converts a document line/column to pixel coordinates.
@@ -2746,7 +2750,7 @@ impl WebEditor {
         self.fold_state
             .regions()
             .iter()
-            .map(|r| r.start_line as u32)
+            .map(|r| to_js_u32(r.start_line))
             .collect()
     }
 
@@ -2829,7 +2833,7 @@ impl WebEditor {
     /// Returns all currently folded line numbers.
     #[wasm_bindgen(js_name = getFoldedLines)]
     pub fn get_folded_lines(&self) -> Vec<u32> {
-        self.fold_state.folded_lines().map(|l| l as u32).collect()
+        self.fold_state.folded_lines().map(to_js_u32).collect()
     }
 
     /// Returns the number of hidden lines due to folding.
@@ -2839,14 +2843,14 @@ impl WebEditor {
     )]
     #[wasm_bindgen(js_name = getHiddenLineCount)]
     pub fn get_hidden_line_count(&self) -> u32 {
-        self.fold_state.hidden_line_count() as u32
+        to_js_u32(self.fold_state.hidden_line_count())
     }
 
     /// Returns the number of visible lines (total minus hidden).
     #[wasm_bindgen(js_name = getVisibleLineCount)]
     pub fn get_visible_line_count(&self) -> u32 {
         let total = self.editor.state().document.line_count();
-        self.fold_state.visible_line_count(total) as u32
+        to_js_u32(self.fold_state.visible_line_count(total))
     }
 
     /// Gets the end line of a fold region starting at the given line.
@@ -2855,7 +2859,7 @@ impl WebEditor {
     pub fn get_fold_end_line(&self, start_line: u32) -> i32 {
         self.fold_state
             .region_at(start_line as usize)
-            .map_or(-1, |r| r.end_line as i32)
+            .map_or(-1, |r| to_js_i32(r.end_line))
     }
 }
 

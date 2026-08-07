@@ -162,7 +162,7 @@ struct HostCommandRequest {
     captures: Vec<char>,
 }
 
-/// WebEditor provides a complete browser-based editor experience.
+/// `WebEditor` provides a complete browser-based editor experience.
 ///
 /// This wraps the Iridium editor with WebGPU rendering capabilities
 /// for use in web browsers.
@@ -285,14 +285,14 @@ pub fn sanitize_pixel_ratio_js(ratio: f64) -> f32 {
     }
 }
 
-/// Creates a new WebEditor attached to a canvas element.
+/// Creates a new `WebEditor` attached to a canvas element.
 ///
 /// Use this instead of `new WebEditor()` since async constructors are deprecated.
 ///
 /// # Arguments
 ///
 /// * `canvas` - The HTML canvas element to render to
-/// * `pixel_ratio` - The device pixel ratio (window.devicePixelRatio) for HiDPI scaling
+/// * `pixel_ratio` - The device pixel ratio (window.devicePixelRatio) for `HiDPI` scaling
 ///
 /// `pixel_ratio` is sanitised rather than trusted; see
 /// [`crate::display_scale`] for why a zero or `NaN` one is a real input and
@@ -325,8 +325,7 @@ pub async fn create_web_editor(
     let width = canvas.width();
     let height = canvas.height();
     log(&format!(
-        "[Iridium] Canvas size: {}x{}, pixel ratio: {}",
-        width, height, pixel_ratio
+        "[Iridium] Canvas size: {width}x{height}, pixel ratio: {pixel_ratio}"
     ));
 
     // Create the web surface
@@ -334,7 +333,7 @@ pub async fn create_web_editor(
     let surface = WebSurface::from_canvas(canvas, width, height)
         .await
         .map_err(|e| {
-            let msg = format!("[Iridium] WebSurface error: {}", e);
+            let msg = format!("[Iridium] WebSurface error: {e}");
             log(&msg);
             JsValue::from_str(&msg)
         })?;
@@ -351,7 +350,7 @@ pub async fn create_web_editor(
         height,
     )
     .map_err(|e| {
-        let msg = format!("[Iridium] FrameCompositor error: {}", e);
+        let msg = format!("[Iridium] FrameCompositor error: {e}");
         log(&msg);
         JsValue::from_str(&msg)
     })?;
@@ -367,8 +366,7 @@ pub async fn create_web_editor(
     // changed is exactly the silent mismatch worth a line in the console.
     if compositor.set_font_size(scaled_font_size) {
         log(&format!(
-            "[Iridium] Font size: {} (base {} * ratio {})",
-            scaled_font_size, base_font_size, pixel_ratio
+            "[Iridium] Font size: {scaled_font_size} (base {base_font_size} * ratio {pixel_ratio})"
         ));
     } else {
         log(&format!(
@@ -1231,6 +1229,43 @@ impl WebEditor {
     }
 
     /// Returns whether the editor is in read-only mode.
+    ///
+    /// # The `missing_const_for_fn` suppression, once, for all twelve
+    ///
+    /// Eleven other exports in this impl carry the same attribute pointing
+    /// back here. `#[wasm_bindgen]` refuses to expand a `const fn` at all —
+    /// `error: can only #[wasm_bindgen] non-const functions` — so clippy's
+    /// suggestion is not merely unhelpful on these, it does not compile.
+    /// Clippy marks it **machine-applicable** regardless, and `cargo clippy
+    /// --fix` on this crate applies all twelve, fails to rebuild, and rolls
+    /// the whole file back; that is why none of the other suggestions in this
+    /// file can be taken by `--fix` either.
+    ///
+    /// ## Why `allow` and not `expect`, which this codebase otherwise prefers
+    ///
+    /// `#[expect]` was tried first and is **unusable across this proc macro**.
+    /// With it in place `missing_const_for_fn` does fall silent, but all
+    /// twelve then report `unfulfilled_lint_expectations` against the
+    /// attribute's own line — the expansion loses the link between the
+    /// expectation and the firing site. Twelve suppressed warnings become
+    /// twelve new ones, and the gate is no better off.
+    ///
+    /// So this is `allow`, knowingly, and the cost is stated rather than
+    /// hidden: `allow` will not tell us if `wasm_bindgen` ever permits
+    /// `const fn`, whereas `expect` would have. That is the protection being
+    /// given up, and it is given up because the alternative does not work.
+    ///
+    /// ⚠️ The suppression is deliberately **per-method** rather than on the
+    /// `impl` block. Twenty private helpers live in this same block, and on
+    /// those the lint is right — `WebHighlightCache::bump` took its advice in
+    /// `f08c888` and was correct to. The discriminator is whether the function
+    /// crosses the `wasm_bindgen` boundary, so the suppression has to stop at
+    /// that boundary too. A block-level attribute would silence the twenty
+    /// cases where the lint still has something to say.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see the note above"
+    )]
     #[wasm_bindgen(js_name = isReadOnly)]
     pub fn is_read_only(&self) -> bool {
         self.editor.state().read_only
@@ -1257,7 +1292,7 @@ impl WebEditor {
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("color must be a hex string"))?;
             let color = Color::from_hex(&color_hex)
-                .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {}", color_hex)))?;
+                .ok_or_else(|| JsValue::from_str(&format!("invalid hex color: {color_hex}")))?;
             self.compositor.line_backgrounds_mut().insert(line, color);
         }
 
@@ -1303,8 +1338,7 @@ impl WebEditor {
                 "hint" => self.compositor.theme().editor.diagnostic_hint,
                 _ => {
                     return Err(JsValue::from_str(&format!(
-                        "unknown change kind: {} (expected added/modified/deleted/error/warning/info/hint)",
-                        kind
+                        "unknown change kind: {kind} (expected added/modified/deleted/error/warning/info/hint)"
                     )));
                 },
             };
@@ -1411,7 +1445,7 @@ impl WebEditor {
 
     /// Deletes the current selection and returns true, or returns false if no selection.
     fn delete_selection(&mut self) -> bool {
-        let selection = self.editor.state().cursor.primary.clone();
+        let selection = self.editor.state().cursor.primary;
         if selection.is_collapsed() {
             return false;
         }
@@ -1456,8 +1490,7 @@ impl WebEditor {
                     .state()
                     .document
                     .line(cursor.line - 1)
-                    .map(|l| l.chars().count())
-                    .unwrap_or(0);
+                    .map_or(0, |l| l.chars().count());
                 Position::new(cursor.line - 1, prev_line_len)
             };
 
@@ -1495,8 +1528,7 @@ impl WebEditor {
             .state()
             .document
             .line(cursor.line)
-            .map(|l| l.chars().count())
-            .unwrap_or(0);
+            .map_or(0, |l| l.chars().count());
 
         // Check if we can delete forward
         if cursor.column < current_line_len || cursor.line < line_count.saturating_sub(1) {
@@ -1530,6 +1562,10 @@ impl WebEditor {
     }
 
     /// Gets the current vertical scroll offset.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = getScrollY)]
     pub fn get_scroll_y(&self) -> f32 {
         self.scroll_y
@@ -1685,6 +1721,10 @@ impl WebEditor {
     /// disables syntax here and the frame renders uniform foreground text.
     /// While enabled, frames without worker spans are bridged by the
     /// compositor's built-in keyword highlighter.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = setSyntaxEnabled)]
     pub fn set_syntax_enabled(&mut self, enabled: bool) {
         self.compositor.set_syntax_enabled(enabled);
@@ -1692,6 +1732,10 @@ impl WebEditor {
     }
 
     /// Returns whether syntax highlighting is enabled.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = isSyntaxEnabled)]
     pub fn is_syntax_enabled(&self) -> bool {
         self.compositor.syntax_enabled()
@@ -1702,7 +1746,7 @@ impl WebEditor {
     /// The spans array should contain objects with: start (byte), end (byte), type (string).
     /// This enables proper tree-sitter syntax highlighting in the WASM build.
     ///
-    /// Internally builds a WebSpanIndex for O(log n + k) viewport queries.
+    /// Internally builds a `WebSpanIndex` for O(log n + k) viewport queries.
     #[wasm_bindgen(js_name = setTreeSitterHighlights)]
     pub fn set_tree_sitter_highlights(&mut self, spans_js: &JsValue) -> Result<(), JsValue> {
         use js_sys::{Array, Reflect};
@@ -1770,7 +1814,7 @@ impl WebEditor {
                 .as_string()
                 .ok_or_else(|| JsValue::from_str("theme value not a hex color string"))?;
             let color = Color::from_hex(&hex).ok_or_else(|| {
-                JsValue::from_str(&format!("invalid hex color for '{}': {}", key_str, hex))
+                JsValue::from_str(&format!("invalid hex color for '{key_str}': {hex}"))
             })?;
             self.compositor.syntax_theme_mut().insert(key_str, color);
         }
@@ -1791,18 +1835,30 @@ impl WebEditor {
     }
 
     /// Returns whether tree-sitter highlighting is active.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = isTreeSitterActive)]
     pub fn is_tree_sitter_active(&self) -> bool {
         self.highlights.is_active()
     }
 
     /// Gets the current cursor line (0-indexed).
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = getCursorLine)]
     pub fn get_cursor_line(&self) -> u32 {
         self.editor.cursor().line as u32
     }
 
     /// Gets the current cursor column (0-indexed).
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = getCursorColumn)]
     pub fn get_cursor_column(&self) -> u32 {
         self.editor.cursor().column as u32
@@ -1975,8 +2031,7 @@ impl WebEditor {
                 .state()
                 .document
                 .line(cursor.line - 1)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+                .map_or(0, |l| l.chars().count());
             Position::new(cursor.line - 1, prev_line_len)
         } else {
             return;
@@ -1993,8 +2048,7 @@ impl WebEditor {
             .state()
             .document
             .line(cursor.line)
-            .map(|l| l.chars().count())
-            .unwrap_or(0);
+            .map_or(0, |l| l.chars().count());
 
         let new_pos = if cursor.column < current_line_len {
             Position::new(cursor.line, cursor.column + 1)
@@ -2017,8 +2071,7 @@ impl WebEditor {
                 .state()
                 .document
                 .line(cursor.line - 1)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+                .map_or(0, |l| l.chars().count());
             let new_column = cursor.column.min(target_line_len);
             let new_pos = Position::new(cursor.line - 1, new_column);
             self.set_selection_internal(new_pos, new_pos);
@@ -2036,8 +2089,7 @@ impl WebEditor {
                 .state()
                 .document
                 .line(cursor.line + 1)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+                .map_or(0, |l| l.chars().count());
             let new_column = cursor.column.min(target_line_len);
             let new_pos = Position::new(cursor.line + 1, new_column);
             self.set_selection_internal(new_pos, new_pos);
@@ -2061,8 +2113,7 @@ impl WebEditor {
             .state()
             .document
             .line(cursor.line)
-            .map(|l| l.chars().count())
-            .unwrap_or(0);
+            .map_or(0, |l| l.chars().count());
         let new_pos = Position::new(cursor.line, line_len);
         self.set_selection_internal(new_pos, new_pos);
     }
@@ -2085,8 +2136,7 @@ impl WebEditor {
                 .state()
                 .document
                 .line(last_line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
+                .map_or(0, |l| l.chars().count());
             Position::new(last_line, last_line_len)
         } else {
             Position::new(0, 0)
@@ -2129,10 +2179,7 @@ impl WebEditor {
         // If at start of line, go to end of previous line
         if pos.column == 0 {
             if pos.line > 0 {
-                let prev_line_len = doc
-                    .line(pos.line - 1)
-                    .map(|l| l.chars().count())
-                    .unwrap_or(0);
+                let prev_line_len = doc.line(pos.line - 1).map_or(0, |l| l.chars().count());
                 return Position::new(pos.line - 1, prev_line_len);
             }
             return pos;
@@ -2152,12 +2199,7 @@ impl WebEditor {
         let mut col = pos.column;
 
         // Skip whitespace going backwards
-        while col > 0
-            && chars
-                .get(col - 1)
-                .map(|c| c.is_whitespace())
-                .unwrap_or(false)
-        {
+        while col > 0 && chars.get(col - 1).is_some_and(|c| c.is_whitespace()) {
             col -= 1;
         }
 
@@ -2167,10 +2209,10 @@ impl WebEditor {
         }
 
         // Determine the class of character we're about to skip
-        let target_class = chars.get(col - 1).map(Self::char_class).unwrap_or(0);
+        let target_class = chars.get(col - 1).map_or(0, Self::char_class);
 
         // Skip characters of the same class going backwards
-        while col > 0 && chars.get(col - 1).map(Self::char_class).unwrap_or(0) == target_class {
+        while col > 0 && chars.get(col - 1).map_or(0, Self::char_class) == target_class {
             col -= 1;
         }
 
@@ -2200,17 +2242,15 @@ impl WebEditor {
         let mut col = pos.column;
 
         // Determine the class of the current character
-        let current_class = chars.get(col).map(Self::char_class).unwrap_or(0);
+        let current_class = chars.get(col).map_or(0, Self::char_class);
 
         // Skip characters of the same class going forwards
-        while col < chars.len()
-            && chars.get(col).map(Self::char_class).unwrap_or(0) == current_class
-        {
+        while col < chars.len() && chars.get(col).map_or(0, Self::char_class) == current_class {
             col += 1;
         }
 
         // Skip whitespace going forwards
-        while col < chars.len() && chars.get(col).map(|c| c.is_whitespace()).unwrap_or(false) {
+        while col < chars.len() && chars.get(col).is_some_and(|c| c.is_whitespace()) {
             col += 1;
         }
 
@@ -2581,6 +2621,10 @@ impl WebEditor {
     }
 
     /// Gets the character width in pixels (for monospace).
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = getCharWidth)]
     pub fn get_char_width(&self) -> f32 {
         self.compositor.char_width()
@@ -2604,18 +2648,30 @@ impl WebEditor {
     /// The compositor's inset, not a hardcoded ten: a face that reserves a
     /// band above the document moves the text, and this is what the face
     /// measures its own overlays against.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = getTextOffsetY)]
     pub fn get_text_offset_y(&self) -> f32 {
         self.compositor.top_inset()
     }
 
     /// Returns whether the gutter is enabled.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = isGutterEnabled)]
     pub fn is_gutter_enabled(&self) -> bool {
         self.compositor.gutter_enabled()
     }
 
     /// Enables or disables the gutter (line numbers).
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = setGutterEnabled)]
     pub fn set_gutter_enabled(&mut self, enabled: bool) {
         self.compositor.set_gutter_enabled(enabled);
@@ -2761,6 +2817,10 @@ impl WebEditor {
     }
 
     /// Returns the number of hidden lines due to folding.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "`#[wasm_bindgen]` rejects `const fn`; see `is_read_only`"
+    )]
     #[wasm_bindgen(js_name = getHiddenLineCount)]
     pub fn get_hidden_line_count(&self) -> u32 {
         self.fold_state.hidden_line_count() as u32
@@ -2779,8 +2839,7 @@ impl WebEditor {
     pub fn get_fold_end_line(&self, start_line: u32) -> i32 {
         self.fold_state
             .region_at(start_line as usize)
-            .map(|r| r.end_line as i32)
-            .unwrap_or(-1)
+            .map_or(-1, |r| r.end_line as i32)
     }
 }
 

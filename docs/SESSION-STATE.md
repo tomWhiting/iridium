@@ -2234,19 +2234,31 @@ status note. Under the delivery rule it has not happened until it sends.
 Write-up in `docs/IN-FLIGHT-35-hidpi.md`. Two commits: `e2d47c9` (the kernel
 char-width defect, red test first) and `cf7420c` (the web re-apply path).
 
-**3. What is actually left that needs nobody.** With #35 closed the unblocked
-column is down to **#31** (theme switch), which carries Tom's UI taste — a
-weak autonomous pick, since guessing a light theme and being wrong wastes the
-work. Everything else is behind a ruling. ⚠️ **So the next tick should not
-manufacture a task.** The honest options, in order:
+**3. ⚠️ CORRECTION — the unblocked column is EMPTY, not "#31".**
+I wrote "#31 unblocked but carries Tom's taste" a few lines above. That was
+wrong and this supersedes it. `docs/design/LIGHT-THEME-MAP.md` already carries
+the whole design — three finished candidate variants in `theme/classic.rs`
+(platinum / paper / monochrome), transcribed field by field, with a screenshot
+harness — and its §5 lists **D-1..D-8 awaiting a ruling**. #31 is blocked the
+same way L-0..L-8 blocks the web track. Its *sequencing* blocker ("behind the
+context menu") has cleared, since #28 is closed; the rulings have not.
 
-- **#69** — only actionable at the next occurrence, and the diagnostic already
-  tells the next reader which of the two branches it is. Nothing to do until
-  it fires.
-- **#31** — could be started as *structure without taste*: the switch, the
-  command, the persistence, with the existing dark theme on both sides and the
-  light palette left as a one-value change for Tom. That is defensible and is
-  the strongest remaining autonomous move.
+**4. One ruling-free slice was carved out of it and landed** — `9bb09df`,
+write-up in `docs/IN-FLIGHT-31-fallback-palette.md`. `set_theme` chose the
+fallback keyword palette on `is_dark` alone and never read `theme.syntax`, so
+every theme but the two built-ins was ignored on any document the bridge
+paints. Wrong in dark today, hence no ruling in it. The two `set_*_theme`
+setters that were the mechanism are removed rather than left loaded.
+
+**5. So the next tick has no unblocked backlog item.** Do not manufacture one.
+The honest options:
+
+- **#69** — only actionable at the next occurrence; the diagnostic already
+  tells the next reader which branch it is. Nothing to do until it fires.
+- **More ruling-free slices**, the way #31's was found: read a blocked item's
+  design map for a *correctness* claim that holds independently of the
+  decision. ⭐ That is the pattern worth repeating — a blocked item is blocked
+  on its **choices**, not necessarily on its **defects**.
 - **Stop and say so.** Three ticks of nothing means stop, not narrate.
 
 ## The strip, corrected

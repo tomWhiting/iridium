@@ -20,9 +20,10 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{FoldKind, FoldRegion, Language, Tree};
+use crate::syntax_stubs::{FoldKind, FoldRegion, Tree};
+use iridium_lang::Language;
 #[cfg(feature = "syntax")]
-use iridium_syntax::{FoldKind, FoldRegion, Language, Tree};
+use iridium_syntax::{FoldKind, FoldRegion, Tree};
 
 use serde::{Deserialize, Serialize};
 

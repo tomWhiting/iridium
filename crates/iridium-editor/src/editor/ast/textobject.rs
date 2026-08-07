@@ -17,8 +17,9 @@
 
 use std::ops::Range;
 
+use iridium_lang::Language;
+use iridium_syntax::Tree;
 use iridium_syntax::query::textobject::{self, Direction, TextObject, Variant};
-use iridium_syntax::{Language, Tree};
 
 use crate::input::keyboard::AstRequest;
 

@@ -26,6 +26,13 @@ iridium-tree.workspace = true
 # Syntax (internal, optional for WASM builds without tree-sitter)
 iridium-syntax = { workspace = true, optional = true }
 
+# Which language a document is in — **not** optional, and that is the point.
+# Comment toggling, indent rules and auto-pairs all key off the language and
+# none of them parses anything, so the answer must be the same with or without
+# the `syntax` feature. It used to be a stub in this crate that quietly
+# disagreed; see `iridium_lang` for what that cost.
+iridium-lang.workspace = true
+
 # Serialization (themes, config)
 serde.workspace = true
 serde_json.workspace = true

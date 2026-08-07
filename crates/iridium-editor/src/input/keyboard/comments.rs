@@ -34,10 +34,7 @@ use std::ops::RangeInclusive;
 use crate::document::{CursorState, Document, Position, Range, Selection};
 use crate::editor::EditorConfig;
 
-#[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::Language;
-#[cfg(feature = "syntax")]
-use iridium_syntax::Language;
+use iridium_lang::Language;
 
 use super::editing::{CaretPlacement, CursorEdit};
 
@@ -63,7 +60,21 @@ pub(super) struct CommentSyntax {
 /// so toggling is a no-op for it (barring an explicit configuration
 /// fallback). Markdown and CSS have no line token; their line toggle wraps
 /// each line in the block pair instead.
-#[cfg(feature = "syntax")]
+///
+/// # Not gated on the `syntax` feature, and it used to be
+///
+/// Which token comments a language is *pure data*: a match on an enum both
+/// feature configurations have, parsing nothing. Gating it meant the stub
+/// build answered "no comment syntax" for every language, so `Ctrl+/` on a
+/// Rust file inserted nothing — or silently fell back to
+/// [`EditorConfig::line_comment_token`], which is worse, because a `#` in a
+/// Rust file looks like a decision somebody made.
+///
+/// The gate survived because a comment on the stub asserted the path was
+/// unreachable — "`Language::from_id` always returns `None`" — which was
+/// simply untrue: the stub's `from_id` resolves every canonical id. Nothing
+/// caught it because the language tests were gated on the same feature, so
+/// the configuration that was broken was the one nothing exercised.
 #[allow(clippy::type_complexity)] // A pair of token options, not worth naming.
 const fn language_tokens(
     language: Language,
@@ -81,17 +92,6 @@ const fn language_tokens(
         Language::Markdown => (None, Some(("<!--", "-->"))),
         Language::Css => (None, Some(("/*", "*/"))),
     }
-}
-
-/// Without the `syntax` feature no language is ever resolvable
-/// (`Language::from_id` always returns `None`), so this stub is unreachable
-/// in practice; it exists to keep the call site feature-free.
-#[cfg(not(feature = "syntax"))]
-#[allow(clippy::type_complexity)] // Mirrors the syntax-enabled signature.
-const fn language_tokens(
-    _language: Language,
-) -> (Option<&'static str>, Option<(&'static str, &'static str)>) {
-    (None, None)
 }
 
 /// Resolves the comment syntax for `document`.

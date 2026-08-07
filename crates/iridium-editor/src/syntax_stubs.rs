@@ -1,115 +1,23 @@
 //! Stub types for when syntax highlighting is disabled.
 //!
 //! These types provide API compatibility without requiring tree-sitter.
+//!
+//! # `Language` is deliberately not here
+//!
+//! It used to be, as a hand-maintained mirror of `iridium_syntax::Language`
+//! — and the two disagreed on aliases, on case, and on two file extensions.
+//! Nothing could catch that, because a stub and the type it mirrors are
+//! feature *alternatives*: no build has both in scope, so no test can
+//! compare them. Language identity is pure data with no parser in it, so it
+//! now lives in `iridium-lang` and both builds use the same type.
+//!
+//! Everything that remains here genuinely needs tree-sitter to exist, which
+//! is the test for whether something belongs in this file: if a stub could
+//! answer a question *correctly*, it should not be a stub.
 
-/// Language identity, available without the `syntax` feature.
-///
-/// Mirrors the variants of `iridium_syntax::Language`. Only *parsing* needs
-/// tree-sitter; language **identity** is pure data, and the kernel depends on
-/// it for behaviour that has nothing to do with highlighting — comment
-/// toggling, indent rules, and auto-pairs all key off the active language. A
-/// stub that reported no languages would silently change those behaviours
-/// between feature configurations, which is worse than having no stub at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Language {
-    /// Rust
-    Rust,
-    /// Python
-    Python,
-    /// TypeScript
-    TypeScript,
-    /// JavaScript
-    JavaScript,
-    /// TSX
-    Tsx,
-    /// Go
-    Go,
-    /// JSON
-    Json,
-    /// YAML
-    Yaml,
-    /// Markdown
-    Markdown,
-    /// CSS
-    Css,
-    /// Bash
-    Bash,
-    /// C
-    C,
-    /// C++
-    Cpp,
-}
+use iridium_lang::Language;
 
-impl Language {
-    /// Every language identity the kernel understands.
-    #[must_use]
-    pub fn all() -> &'static [Language] {
-        &[
-            Self::Rust,
-            Self::Python,
-            Self::TypeScript,
-            Self::JavaScript,
-            Self::Tsx,
-            Self::Go,
-            Self::Json,
-            Self::Yaml,
-            Self::Markdown,
-            Self::Css,
-            Self::Bash,
-            Self::C,
-            Self::Cpp,
-        ]
-    }
-
-    /// Returns the stable language ID.
-    #[must_use]
-    pub const fn id(&self) -> &'static str {
-        match self {
-            Self::Rust => "rust",
-            Self::Python => "python",
-            Self::TypeScript => "typescript",
-            Self::JavaScript => "javascript",
-            Self::Tsx => "tsx",
-            Self::Go => "go",
-            Self::Json => "json",
-            Self::Yaml => "yaml",
-            Self::Markdown => "markdown",
-            Self::Css => "css",
-            Self::Bash => "bash",
-            Self::C => "c",
-            Self::Cpp => "cpp",
-        }
-    }
-
-    /// Detects a language from a file extension.
-    #[must_use]
-    pub fn from_extension(ext: &str) -> Option<Language> {
-        match ext.to_ascii_lowercase().as_str() {
-            "rs" => Some(Self::Rust),
-            "py" | "pyi" => Some(Self::Python),
-            "ts" | "mts" | "cts" => Some(Self::TypeScript),
-            "js" | "mjs" | "cjs" | "jsx" => Some(Self::JavaScript),
-            "tsx" => Some(Self::Tsx),
-            "go" => Some(Self::Go),
-            "json" | "jsonc" => Some(Self::Json),
-            "yaml" | "yml" => Some(Self::Yaml),
-            "md" | "markdown" => Some(Self::Markdown),
-            "css" => Some(Self::Css),
-            "sh" | "bash" | "zsh" => Some(Self::Bash),
-            "c" | "h" => Some(Self::C),
-            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some(Self::Cpp),
-            _ => None,
-        }
-    }
-
-    /// Resolves a language from its stable ID.
-    #[must_use]
-    pub fn from_id(id: &str) -> Option<Language> {
-        Self::all().iter().copied().find(|lang| lang.id() == id)
-    }
-}
-
-/// Stub FoldKind - fold kinds for non-syntax folding.
+/// Stub [`FoldKind`] — fold kinds for non-syntax folding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoldKind {
     /// Block fold (braces)
@@ -122,7 +30,7 @@ pub enum FoldKind {
     Region,
 }
 
-/// Stub FoldRegion - represents a foldable region.
+/// Stub [`FoldRegion`] — represents a foldable region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FoldRegion {
     /// Starting line (0-indexed)
@@ -136,7 +44,7 @@ pub struct FoldRegion {
 impl FoldRegion {
     /// Returns the number of hidden lines when this region is folded.
     #[must_use]
-    pub fn hidden_line_count(&self) -> usize {
+    pub const fn hidden_line_count(&self) -> usize {
         self.end_line.saturating_sub(self.start_line)
     }
 }
@@ -238,6 +146,12 @@ impl SyntaxTree {
     /// treats it as "no structural change" is right, and the fold detector that
     /// stands in without the `syntax` feature does not read it at all.
     #[must_use]
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "the real `iridium_syntax` counterpart is not const, and a stub \
+    that accepted a const context the real one refuses would let code compile \
+    without the `syntax` feature and fail with it"
+    )]
     pub fn changed_ranges(&self, _old: &Tree) -> Vec<std::ops::Range<usize>> {
         Vec::new()
     }
@@ -251,7 +165,7 @@ impl SyntaxTree {
 /// scanner finds and what a fold consumer expects: every brace pair is a block,
 /// because the scanner has no way to recognise any other kind and inventing one
 /// would report a fold shape nothing detected.
-pub(crate) fn fold_region_for(region: &crate::brace_folds::BraceRegion) -> FoldRegion {
+pub(crate) const fn fold_region_for(region: &crate::brace_folds::BraceRegion) -> FoldRegion {
     FoldRegion {
         start_line: region.start_line,
         end_line: region.end_line,
@@ -259,7 +173,7 @@ pub(crate) fn fold_region_for(region: &crate::brace_folds::BraceRegion) -> FoldR
     }
 }
 
-/// Stub SyntaxError - errors from syntax operations.
+/// Stub [`SyntaxError`] — errors from syntax operations.
 #[derive(Debug, Clone)]
 pub enum SyntaxError {
     /// Language not supported
@@ -276,7 +190,7 @@ impl std::fmt::Display for SyntaxError {
 
 impl std::error::Error for SyntaxError {}
 
-/// Stub HighlightType - highlight types for syntax coloring.
+/// Stub [`HighlightType`] — highlight types for syntax coloring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HighlightType {
     /// Keyword
@@ -339,7 +253,7 @@ pub enum HighlightType {
     Error,
 }
 
-/// Stub HighlightSpan - a highlighted region.
+/// Stub [`HighlightSpan`] — a highlighted region.
 #[derive(Debug, Clone)]
 pub struct HighlightSpan {
     /// Start byte offset
@@ -356,12 +270,24 @@ pub struct Highlighter;
 
 impl Highlighter {
     /// Creates a new highlighter (no-op without syntax).
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "the real `iridium_syntax` counterpart is not const, and a stub \
+    that accepted a const context the real one refuses would let code compile \
+    without the `syntax` feature and fail with it"
+    )]
     pub fn new(_language: Language) -> Result<Self, SyntaxError> {
         Err(SyntaxError::UnsupportedLanguage)
     }
 
     /// Produces highlight spans (always empty without syntax).
     #[must_use]
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "the real `iridium_syntax` counterpart is not const, and a stub \
+    that accepted a const context the real one refuses would let code compile \
+    without the `syntax` feature and fail with it"
+    )]
     pub fn spans_in(&self, _tree: &Tree, _source: &str) -> Vec<HighlightSpan> {
         Vec::new()
     }

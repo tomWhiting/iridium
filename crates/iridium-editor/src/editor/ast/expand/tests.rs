@@ -6,7 +6,7 @@
 //! behaviour, and a test against the stack in isolation would prove them of a
 //! component nobody uses.
 
-use iridium_syntax::Language;
+use iridium_lang::Language;
 
 use crate::commands::builtin::{
     AST_CURSOR_NODE_END, AST_CURSOR_NODE_START, AST_CURSOR_ON_EVERY_CHILD,

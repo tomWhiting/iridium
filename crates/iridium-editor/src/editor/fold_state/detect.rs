@@ -26,9 +26,10 @@ use std::borrow::Cow;
 #[cfg(not(feature = "syntax"))]
 use crate::brace_folds::{BraceFoldCache, LineEdit};
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{FoldRegion, Language, Tree, fold_region_for};
+use crate::syntax_stubs::{FoldRegion, Tree, fold_region_for};
+use iridium_lang::Language;
 #[cfg(feature = "syntax")]
-use iridium_syntax::{FoldCache, FoldRegion, Language, Tree};
+use iridium_syntax::{FoldCache, FoldRegion, Tree};
 
 use super::SyntaxDelta;
 
@@ -118,6 +119,12 @@ impl Folds {
     /// produces the text those two describe, and is called only if the region
     /// producer in this configuration actually needs it.
     #[cfg(not(feature = "syntax"))]
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "the stub `Tree` is zero-sized; the real tree-sitter one is not, \
+    and this signature is deliberately identical in both configurations — that \
+    sameness is the entire purpose of the stub"
+    )]
     pub(super) fn refresh<'text>(
         &mut self,
         tree: &Tree,

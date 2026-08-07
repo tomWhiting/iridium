@@ -18,9 +18,10 @@
 //! thing standing between the tree and the truth.
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{InputEdit, Language, SyntaxTree, Tree};
+use crate::syntax_stubs::{InputEdit, SyntaxTree, Tree};
+use iridium_lang::Language;
 #[cfg(feature = "syntax")]
-use iridium_syntax::{InputEdit, Language, SyntaxTree, Tree};
+use iridium_syntax::{InputEdit, SyntaxTree, Tree};
 
 use super::ExpandStack;
 use super::delta::SyntaxDelta;
@@ -236,6 +237,22 @@ impl SyntaxState {
             // Cloning a tree-sitter tree is a reference-count bump, not a copy
             // of the nodes, and the clone is what makes `changed_ranges`
             // possible: the reparse consumes the tree it builds on.
+            //
+            // `copied()` is suggested only in the parser-free build, where
+            // `Tree` is a zero-sized stub and therefore `Copy`. The real
+            // tree-sitter `Tree` is `Clone` and not `Copy`, so taking the
+            // suggestion would compile without the `syntax` feature and fail
+            // with it.
+            // Conditional because `#[expect]` is strict in both directions:
+            // with the feature on, the lint does not fire and an unconditional
+            // expectation would itself be an error.
+            #[cfg_attr(
+                not(feature = "syntax"),
+                expect(
+                    clippy::cloned_instead_of_copied,
+                    reason = "`Tree` is `Copy` only in the stub build; the real one is not"
+                )
+            )]
             let previous = tree.tree().cloned();
             tree.reparse(&document.text());
             self.incremental_parses += 1;

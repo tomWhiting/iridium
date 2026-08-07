@@ -85,8 +85,11 @@ pub use input::{
 pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
 pub use render::{CurrentLineRenderer, CursorRenderer, SelectionRenderer};
 #[cfg(feature = "syntax")]
-pub use syntax::{HighlightSpan, HighlightType, Language};
-#[cfg(not(feature = "syntax"))]
-pub use syntax_stubs::Language;
+pub use syntax::{HighlightSpan, HighlightType};
+
+// One type in both feature configurations, rather than a pair selected by
+// `cfg`. The pair disagreed — see `iridium_lang` — and could not be tested,
+// because no build had both in scope.
+pub use iridium_lang::Language;
 pub use theme::Theme;
 pub use view::{DeltaTime, FrameBudget, FrameStats, FrameTimer};

@@ -12,7 +12,7 @@
 //! and hoisting them would couple two independent test surfaces so that a
 //! fixture change in one could break the other.
 
-use iridium_syntax::Language;
+use iridium_lang::Language;
 
 use crate::commands::builtin::{
     AST_EXPAND_SELECTION, AST_NEXT_CLASS, AST_NEXT_FUNCTION, AST_PREVIOUS_CLASS,

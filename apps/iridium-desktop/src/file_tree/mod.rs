@@ -34,6 +34,7 @@
 //!   reader thread.
 
 mod apply;
+mod buffer;
 mod compose;
 mod filter;
 mod keys;
@@ -43,6 +44,9 @@ mod rows;
 
 #[cfg(test)]
 mod apply_tests;
+
+#[cfg(test)]
+mod buffer_tests;
 
 #[cfg(test)]
 mod plan_tests;

@@ -241,14 +241,57 @@ parser for user-supplied extensions regardless.
    `d610214`, all eight gates green.
 2. ~~A manifest reader — `include_str!`, parsed at first use, unknown keys
    ignored, `hidden` respected.~~ ✅ 42 tests, derivation rules red-proved.
-3. The equality oracle in §2, against the still-present hard-coded table. It has
-   to live in `iridium-editor`, not here: `language_tokens()` is what it
-   compares against, and that is downstream of this crate.
-4. Delete `language_tokens()`; `comments.rs` reads the manifest.
-5. Delete `Language::extensions()`; `from_extension` reads `path_suffixes` —
-   with §6.2, §6.3 and §6.4 answered explicitly, each with its own test.
-6. Whole-file-name matching (§3), separately, with its own test.
+3. ~~The equality oracle in §2, against the still-present hard-coded table.~~ ✅
+   `665ec7c`. It had to live in `iridium-editor`, not here: `language_tokens()`
+   is what it compares against, and that is downstream of this crate.
+4. ~~Delete `language_tokens()`; `comments.rs` reads the manifest.~~ ✅
+   `a512b6c`, and it closed **#62**.
+5. ~~Delete `Language::extensions()`; `from_extension` reads
+   `path_suffixes`.~~ ✅ `87d6d3f`.
+6. ~~Whole-file-name matching (§3), separately, with its own test.~~ ✅
+   `4e3af93`.
 
-Fold node kinds (`folding/language.rs`) are **not** in the schema and are not
-part of this step. Neither is the `Language` enum, the grammar table, or the
-fixed-size query cache — those are the registry step.
+**#66 is done.** Every fact about a language that Iridium used to hand-maintain
+— comment tokens, block pairs, file associations — now comes out of the
+vendored tree, and nothing is written twice.
+
+---
+
+## 7. What actually changed for someone using the editor
+
+Three deliberate behaviour changes, and a long list of gains.
+
+| | before | after | why |
+| --- | --- | --- | --- |
+| `Ctrl+/` in `.json` | nothing | writes `//` | the manifest says so — this is **#62** answered by data |
+| `.h` | C | **C++** | Zed's `cpp` claims it, and the C++ grammar is a superset that parses C headers correctly |
+| `.C` vs `.c` | both C | **C++ vs C** | the old table lower-cased before comparing and could not tell them apart |
+
+Gained, none of which anyone had to write down: `.mdx`, `.mpy`, `.ino`,
+`.postcss`, sixteen further shell suffixes, and every whole file name the
+manifests carry — `flake.lock`, `tsconfig.json`, `bun.lock`, `pixi.lock`,
+`.env`, `.bashrc`, `.zshrc`, `.clang-format`, `PKGBUILD`.
+
+Nothing was lost. A hand-written list of all thirty associations Iridium had
+before this asserts that, and `.pyw` — which Zed's manifest omits — survives
+through a named, documented delta rather than by accident.
+
+## 8. The two things this leaves behind
+
+**A delta mechanism, deliberately small.** `LOCAL_EXTENSIONS` and
+`MANIFEST_ALIASES` in `suffix.rs` are the only places Iridium disagrees with the
+vendored data, they carry a reason each, and a test fails if a refresh ever
+makes one redundant. They are also the seed of the user-facing override: "the
+manifests say X, this installation says Y" is one mechanism whether the Y comes
+from Iridium or from a configuration file.
+
+**A runtime TOML parser, costing 211 KiB of wasm** (§6.6). Accepted, not hidden.
+The alternative that recovers it is a `build.rs`, and it stays contained to
+`embedded.rs` if it ever becomes worth doing.
+
+---
+
+Fold node kinds (`folding/language.rs`) are **not** in the schema and were never
+part of this. Neither is the `Language` enum, the grammar table, or the
+fixed-size query cache — those are the registry step, **#63**, which
+`docs/IN-FLIGHT-awl.md` §3.1 now has a concrete forcing case for.

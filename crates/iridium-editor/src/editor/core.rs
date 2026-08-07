@@ -261,6 +261,26 @@ impl EditorState {
         self.refresh_syntax();
     }
 
+    /// Returns the document to having no language at all.
+    ///
+    /// The counterpart of [`Self::set_language`], and it has to exist
+    /// separately because [`Language`] has no "plain text" variant — every one
+    /// of its values names a grammar. Without this there is no way back: a
+    /// document that has ever been told what it is stays that way, and a
+    /// rename to a name no grammar claims would leave the previous language
+    /// highlighting text it has nothing to do with.
+    ///
+    /// All three holders are cleared together — the fold state, the parse tree
+    /// and the id on the document itself. The last is what comment toggling
+    /// reads, so leaving it behind would produce a document with no
+    /// highlighting that still inserted the old language's comment marker.
+    pub fn clear_language(&mut self) {
+        self.fold_state.clear_language();
+        self.syntax.clear_language();
+        self.document.set_language(None);
+        self.refresh_syntax();
+    }
+
     /// Brings the parse tree up to date and refreshes the fold regions from it.
     ///
     /// Returns true if the fold regions changed.
@@ -1285,6 +1305,16 @@ impl Editor {
     /// detects fold regions in the current content.
     pub fn set_language(&mut self, language: Language) {
         self.state.set_language(language);
+        self.emit_fold_changed();
+    }
+
+    /// Returns the document to having no language at all.
+    ///
+    /// See [`EditorState::clear_language`]. A face calls this when a document
+    /// acquires a name no grammar claims — the counterpart of the `else` a
+    /// `if let Some(language) = ...` would otherwise leave empty.
+    pub fn clear_language(&mut self) {
+        self.state.clear_language();
         self.emit_fold_changed();
     }
 

@@ -840,6 +840,32 @@ mod language_table {
         assert_eq!(editor.content(), "// fn main() {}");
     }
 
+    /// Clearing the language has to clear it everywhere it is held.
+    ///
+    /// Three places hold it: the fold state, the parse tree, and an id string
+    /// on the document. [`Editor::language`] reports the *first*, and comment
+    /// toggling reads the *third* — so a `clear_language` that forgot the
+    /// document would leave `language()` answering `None` while `Ctrl+/` went
+    /// on inserting `//`. That is why this test toggles rather than only
+    /// asking.
+    #[test]
+    fn editor_clear_language_reaches_the_id_comment_toggling_reads() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("fn main() {}");
+        editor.set_language(Language::Rust);
+        editor.clear_language();
+        editor.set_cursor(Position::new(0, 0));
+
+        assert_eq!(editor.language(), None, "the fold state kept a language");
+
+        editor.handle_key(&LINE_TOGGLE);
+        assert_eq!(
+            editor.content(),
+            "fn main() {}",
+            "the document kept an id, so a cleared language still commented"
+        );
+    }
+
     #[test]
     fn editor_set_content_preserves_language_for_comment_toggling() {
         let mut editor = Editor::with_defaults();

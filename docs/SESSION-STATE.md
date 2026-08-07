@@ -2127,6 +2127,18 @@ already told him that was wrong**, which is the worst kind of message to lose.
 
 **Retry this on the next tick.** DM `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`.
 
+## ⚠️ ATTEMPT 5 ALSO FAILED — 8 Aug, after the fallback-palette fix
+
+Five attempts, five identical 500s. **Stop retrying within a turn** — one
+attempt per tick is the right cadence for a channel that has been down for
+hours; more just burns the turn.
+
+⚠️ **The queued text below is now two updates behind what should go.** Before
+the next attempt, add: (a) the **second correction** — I told Tom #31 was
+unblocked and it is not, so with #35 done the unblocked column is *empty*;
+(b) the **fallback-palette fix** (`9bb09df`) and the stale claim it found in
+`LIGHT-THEME-MAP.md` fact 1, which he should know before ruling D-1.
+
 ## ⚠️ ATTEMPT 4 ALSO FAILED — 8 Aug, after #35 landed
 
 Same error again. **Four attempts, four identical 500s.** Meridian has been

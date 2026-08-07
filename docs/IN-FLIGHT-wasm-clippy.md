@@ -70,6 +70,46 @@ attribute is unconditional and cannot go unfulfilled.
 Line numbers are as of `c1bf4b0`. Regenerate with the JSON invocation above
 before working from them; **they shift on the first edit.**
 
+### ⛔ `cargo clippy --fix` DELIVERS NOTHING HERE — do not reach for it
+
+Tried, measured, and worth the paragraph so nobody tries it again:
+
+```
+cargo clippy --fix --allow-dirty --lib -p iridium-bindings \
+    --no-default-features --features web --target wasm32-unknown-unknown \
+    -- --no-deps
+→ exit 0, and the working tree is UNCHANGED
+  error: errors present after applying fixes to crate `iridium_bindings`
+    = cause: error: can only #[wasm_bindgen] non-const functions
+        --> crates/iridium-bindings/src/wasm.rs:1233:9
+       1233 |     pub const fn is_read_only(&self) -> bool {
+    ...and seven more of the same
+```
+
+Two separate things, both load-bearing:
+
+**1. `missing_const_for_fn` is categorically WRONG on this file's exports.**
+`#[wasm_bindgen]` rejects `const fn` outright. Clippy does not know that, and
+marks the suggestion **MachineApplicable** anyway — so its own auto-fix emits
+code that cannot compile. At least 8 of the 12 are on exported methods and are
+**unfixable, not unfixed**. They need an `expect` with the reason, not a fix.
+
+⭐ **The discriminator, and it is exact:** `f08c888` — one commit earlier in
+this same stint — took this lint's advice on `WebHighlightCache::bump` and was
+right to. `bump` is a *private plain-Rust method*. Same lint, opposite correct
+answer, and what separates them is **whether the function crosses the
+`wasm_bindgen` boundary**. Check that before touching any of the 12.
+
+**2. One bad suggestion rolls back the whole file.** `cargo fix` applies the
+batch, recompiles, and reverts everything if the result is broken. So the
+"40 machine-applicable" figure below is not 40 free edits — it is **zero**
+until the const ones are excluded, and there is no per-lint switch for `--fix`.
+Hand edits, in batches, verifying as you go.
+
+⭐ **The general rule:** *machine-applicable* is clippy's claim about its own
+suggestion, not a fact about your code. A proc macro can forbid what the lint
+proposes, and neither one knows about the other.
+
 ### Group A — mechanical, compiler-verified (43)
 
 | lint | n | lines |
@@ -82,7 +122,20 @@ before working from them; **they shift on the first edit.**
 | `clone_on_copy` | 1 | 1414 |
 | `trivially_copy_pass_by_ref` | 1 | 2115 |
 
-`missing_const_for_fn` is the same lint that turned gate 5 red on `f08c888`.
+⚠️ **This grouping is mine and it is partly wrong — prefer the applicability
+split.** Measured, machine-applicability cuts differently: `manual_let_else`
+and `trivially_copy_pass_by_ref` carry **no** machine-applicable suggestion
+despite being mechanical, and `missing_const_for_fn` carries one that **does
+not compile** (above). The real split is:
+
+| | n |
+| --- | --- |
+| suggestion exists and is sound | 28 (`map_unwrap_or` 16, `uninlined_format_args` 7, `doc_markdown` 4, `clone_on_copy` 1) |
+| suggestion exists and is unsound here | 12 (`missing_const_for_fn`) |
+| no suggestion | 20 |
+
+`missing_const_for_fn` is the same lint that turned gate 5 red on `f08c888` —
+and there it was right. See the discriminator above.
 
 ### Group B — needs judgement, one at a time (17)
 

@@ -2127,6 +2127,22 @@ already told him that was wrong**, which is the worst kind of message to lose.
 
 **Retry this on the next tick.** DM `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`.
 
+## ⚠️ ATTEMPT 3 ALSO FAILED — 8 Aug, post-compaction
+
+Same error, byte for byte. Three attempts, three
+`database connection pool acquire timed out`. That is no longer a blip; treat
+Meridian as **down**, not slow.
+
+Two consequences, both already applied:
+
+1. **It does not block the work.** Retrying the send was step 1 of the baton and
+   #35 was step 2, but a channel that is down cannot be waited out — so #35
+   started anyway and the send stays queued here. A queued message costs
+   nothing; an idle seat costs the whole tick.
+2. **The text below was amended before attempt 3** and this is the version to
+   re-send: it now carries the #75 closure, which happened after the message was
+   first written. Send *this*, not the earlier draft.
+
 ## The message
 
 > **Correction to what I told him an hour earlier.** I listed **#44 and #45 as
@@ -2160,8 +2176,16 @@ already told him that was wrong**, which is the worst kind of message to lose.
 > 1 pixel, 1 channel, magnitude 23. Next occurrence is decidable from the
 > diagnostic. Test left alone; a flake you silence is a check you deleted.
 >
+> **#75 closed** since that message: wasm clippy gate armed in CI, 68
+> diagnostics to 0. The backlog item said 8 — `-D warnings` reports the first
+> *unit* that fails, and `iridium-editor` is a dependency there, so it aborted
+> early and the 60 in `wasm.rs` were never reached.
+>
 > Genuinely unblocked and left: **#35** (HiDPI font scale on display change) and
-> **#31** (theme switch, which has his taste in it). Taking #35 next.
+> **#31** (theme switch, which has his taste in it). Starting #35 now.
+>
+> Still waiting on him: **L-0..L-8** (blocks four items), #58, #64, #70, #74,
+> and Cally's hook.
 
 ⭐ **The rule this is an instance of:** a delivery channel that is down looks
 exactly like a message that was never worth sending. The only difference is

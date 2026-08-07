@@ -259,8 +259,13 @@ are vendored, carry manifests, and are unreachable today because there is no
 
 Once `grammar()` is fallible they cost nothing to admit, and they bring real
 behaviour with them: `.diff`/`.patch`, `go.mod`, `go.work` and git commit
-messages get file association and correct comment tokens. Comment toggling,
-indent rules and auto-pairs all key off the manifest, not the grammar.
+messages get file association and correct comment tokens. Comment toggling
+keys off the manifest, not the grammar.
+
+⚠️ **This sentence also claimed indent rules and auto-pairs.** Corrected
+8 Aug: neither is manifest-driven. The manifests declare `brackets` and
+`autoclose_before`; the reader deserializes neither. See
+`docs/design/AUTO-PAIR-MAP.md`.
 
 **No file association collides.** Computed across all 21 manifests rather than
 eyeballed — not one `path_suffixes` entry is claimed by two languages, so

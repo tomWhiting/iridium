@@ -25,6 +25,8 @@
 //! - `compose` — what reaches the screen.
 //! - `filter` — narrowing the rows to what a query matches, without losing
 //!   the hierarchy the matches live in.
+//! - `plan` — turning an edited list of rows into a validated, ordered list
+//!   of filesystem operations. Pure; touches no disk.
 //! - `rows` — composing one row: indent, disclosure, name, error.
 //! - `tests` — the panel's own suite, against real directories and the real
 //!   reader thread.
@@ -33,7 +35,11 @@ mod compose;
 mod filter;
 mod keys;
 mod panel;
+mod plan;
 mod rows;
+
+#[cfg(test)]
+mod plan_tests;
 
 #[cfg(test)]
 mod tests;

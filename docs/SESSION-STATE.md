@@ -914,6 +914,46 @@ any path that runs per keystroke or per frame.
 
 ---
 
+## 🧪 ONE GPU TEST HARNESS — landed 7 Aug, `3985823`
+
+`top_inset.rs`, `left_inset.rs` and `retained_shaping.rs` each carried their
+own copy of the headless harness. Now `tests/support/` — `mod.rs` (declarations
+only) plus `gpu.rs`, `frame.rs`, `pixels.rs`, `scene.rs`.
+
+**The copies had already drifted, in the way that mattered most.** Two of the
+three passed `|_| {}` as the `map_async` callback and threw the result away, so
+a failed readback reached `get_mapped_range` with nothing having said why — it
+would have surfaced as a mysterious *geometry* failure. Only `retained_shaping`
+checked. **The shared version is that one.**
+
+Two more one-decision-written-twice instances closed:
+
+- `top_inset` documented at length why the top-left corner is exactly the wrong
+  reference for "page" under a top inset — and then sampled the top-left anyway,
+  two functions further down. Latent (both corners are page on a correct frame),
+  same shape. One `page()` now.
+- The ink threshold existed **four** times: named `INK` twice, and spelled as a
+  bare `24` inline in two of `top_inset`'s band loops.
+
+**Deliberately not merged:** `retained_shaping`'s `NoHighlights` answers `true`
+to `language_active` where the inset harnesses' answers `false`, and that
+difference is the subject of several of its tests. Renamed
+`ActiveLanguageNoSpans` so two behaviours no longer share one name.
+
+Two rules worth keeping:
+
+- **`dead_code` is `allow`, not `expect`, in a test support module.** It
+  compiles once per test binary and each uses a different subset, so `#[expect]`
+  would fire as *unfulfilled* in whichever binary used everything.
+- **Do not answer a cast lint with another cast.** `HEIGHT_F32` is derived from
+  `HEIGHT`; `cast_precision_loss` is answered by a const assertion that `HEIGHT
+  < 2^24` — the actual condition — because casting back trips two further lints.
+
+666 → 447 and 596 → 400, both under the bar. `retained_shaping` 1,133 → 981,
+still over; splitting it is **#65**.
+
+---
+
 ## ▶️ WHAT IS LEFT ON THE STRIP (small, none of it blocking)
 
 - **The close control's alpha is 0.40**, nearly invisible on an inactive tab.

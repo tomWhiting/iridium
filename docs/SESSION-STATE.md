@@ -2166,3 +2166,73 @@ already told him that was wrong**, which is the worst kind of message to lose.
 ⭐ **The rule this is an instance of:** a delivery channel that is down looks
 exactly like a message that was never worth sending. The only difference is
 whether the sender wrote it down.
+
+---
+
+# ▶▶▶ PICK UP HERE — 8 Aug ~03:50, written under a compaction warning
+
+Everything below is state that would otherwise be lost. Supersedes every
+earlier "PICK UP HERE" in this file.
+
+## Do these two things first, in this order
+
+**1. RETRY THE MESSAGE TO TOM.** Meridian returned `500 ... database connection
+pool acquire timed out` twice. The full text and the DM id are in the
+**📮 UNDELIVERED TO TOM** section above. It leads with a **correction** — I told
+him #44 and #45 were unblocked and they are not — so it matters more than a
+status note. Under the delivery rule it has not happened until it sends.
+
+**2. Then start #35** — HiDPI: font scale never re-applied when a window moves
+between displays. It is the only genuinely unblocked item with no ruling in it.
+(#31, theme switch, is also unblocked but carries Tom's UI taste, so it is the
+weaker autonomous pick.)
+
+## The strip, corrected
+
+| | state |
+| --- | --- |
+| #75 | ✅ closed — 68 → 0, wasm clippy gate armed in CI at `dc6a67f` |
+| #76, #42, #71, #72, #73 | ✅ closed earlier this session |
+| #43, #44, #45 | ⛔ **all three behind L-0**, verified `d6ff49e` |
+| #69 | 🔍 not reproduced in 160 runs; two mechanisms eliminated, one named |
+| #35, #31 | ▶ unblocked |
+| #58, #64, #70, #74, Cally's hook, L-0..L-8 | ⏸ Tom's rulings |
+
+## Loop
+
+`ScheduleWakeup` armed for **03:38** with `<<autonomous-loop-dynamic>>`. If that
+tick already fired and this is being read after it, re-arm.
+
+## Box, at this moment
+
+Load ~5. Disk **34 GB free** — recovered from **623 MB** by deleting
+`target/debug/incremental` only (12.6 GB). ⚠️ **It will fill again**; a full
+workspace test run regenerates several GB of incremental data. **Check `df`
+before a battery, not after it fails.** `target/debug/deps` was deliberately
+kept — incremental is the cheap half to lose, deps costs a full rebuild.
+
+## Gate state on `9c4b23a`
+
+Green on this tree: workspace tests (**2475 passed, 0 failed**), workspace
+clippy `-D warnings`, the new wasm clippy gate `-D warnings`, wasm `check`
+(0 warnings), `fmt --check`.
+
+Gates 2/3/6/7 not re-run since `f08c888`, and **verified not to need it**: they
+are all `-p iridium-editor --no-default-features`, and `render/mod.rs` gates
+`mod pipeline` / `mod web` behind `#[cfg(feature = "render")]`. Nothing they
+compile has changed, and they never compile `iridium-bindings`. All commits
+since are docs, `wasm.rs`, `js_index.rs` and `ci.yml`.
+
+## Two rules earned tonight, both cheap to forget
+
+⭐ **A `-D` gate on a crate with dependencies reports the first *unit* that
+fails, not the work.** #75 was filed as "8 errors"; it was 68. The 8 were the
+prefix visible before the build aborted in the dependency. Measure burn-downs
+with warnings left as warnings.
+
+⭐ **`machine-applicable` is clippy's claim about its own suggestion, not a fact
+about your code.** `missing_const_for_fn` on a `#[wasm_bindgen]` method emits
+code that cannot compile, and one bad fix rolls back the whole `--fix` batch.
+Disarm the unsound lints first, *then* `--fix` works.
+
+Both are written up at length in `docs/IN-FLIGHT-wasm-clippy.md`.

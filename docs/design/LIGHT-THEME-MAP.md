@@ -34,7 +34,8 @@ Citation legend: `Th:` = `crates/iridium-editor/src/theme/colors.rs`,
 `crates/iridium-editor/src/commands/default_keymap.rs`, `K:` =
 `crates/iridium-editor/src/commands/default_keymap_tests.rs`, `Ac:` =
 `crates/iridium-editor/src/editor/command_api_tests.rs`, `Rt:` =
-`crates/iridium-editor/tests/retained_shaping.rs`, `Tt:` =
+`crates/iridium-editor/tests/retained_shaping/` (`theme.rs` for the palette
+rows), `Tt:` =
 `apps/iridium/src/theme.rs`, `Tc:` = `apps/iridium/src/cli.rs`, `Wb:` =
 `examples/web/src/App.tsx`, `W:` = vendored
 `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winit-0.30.13/`.

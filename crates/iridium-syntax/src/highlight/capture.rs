@@ -85,19 +85,39 @@ impl HighlightType {
         // Handle hierarchical names by checking prefixes
         let name = name.trim_start_matches('@');
 
-        // Exact matches first, consolidated to fix clippy::match_same_arms
+        // Exact matches first, consolidated to fix clippy::match_same_arms.
+        //
+        // ⚠️ That consolidation is why the six names #70 ruled are scattered
+        // into the arms they share a colour with rather than grouped together
+        // as "markup" and "selectors". Grouping them read better and does not
+        // compile under `-D warnings`: two arms with identical bodies are a
+        // lint, and this crate takes no `#[allow]` bypasses. The reasoning for
+        // each therefore travels as a note on its arm, and the decisions
+        // themselves are pinned by
+        // `the_six_ruled_capture_colours_are_the_ones_that_were_ruled` — which
+        // is the better home for them anyway, because a test fails and a
+        // comment does not.
         let result = match name {
             // Keywords
-            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
-                Some(Self::Keyword)
-            },
+            //
+            // `title.markup` is a markdown heading, and it rides here: a
+            // heading is the strongest structural signal a document has, and
+            // keyword is the most prominent slot in every theme.
+            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier"
+            | "title.markup" => Some(Self::Keyword),
             "keyword.control" | "keyword.return" | "keyword.control.return" => {
                 Some(Self::KeywordControl)
             },
             "keyword.operator" | "operator" => Some(Self::Operator),
 
             // Strings
-            "string" | "string.literal" | "string.special" => Some(Self::String),
+            //
+            // `link_uri.markup` is a markdown link destination — a URI is a
+            // string literal in every other grammar's terms, so this is the
+            // least surprising place for it.
+            "string" | "string.literal" | "string.special" | "link_uri.markup" => {
+                Some(Self::String)
+            },
             "string.escape" | "escape_sequence" | "escape" => Some(Self::StringEscape),
 
             // Numbers and booleans
@@ -109,7 +129,14 @@ impl HighlightType {
             "comment.doc" | "comment.documentation" => Some(Self::CommentDoc),
 
             // Functions
-            "function" | "function.call" | "function.builtin" => Some(Self::Function),
+            //
+            // `link_text.markup` is a markdown link label. It rides here
+            // because `Function` is the blue slot in most themes and link-blue
+            // is what a reader expects; `Property` is the alternative if it
+            // ever reads too strongly.
+            "function" | "function.call" | "function.builtin" | "link_text.markup" => {
+                Some(Self::Function)
+            },
             "function.definition" | "function.name" => Some(Self::FunctionDefinition),
             "function.method" | "method" | "method.call" => Some(Self::FunctionMethod),
             "function.special" | "function.macro" | "macro" | "function.special.definition" => {
@@ -132,9 +159,12 @@ impl HighlightType {
             // They mapped to nothing until AWL arrived, which meant AWL, C++,
             // CSS and Go all rendered these tokens in the plain foreground with
             // nothing reporting it.
-            "type" | "type.name" | "type.definition" | "constructor" | "namespace" | "module" => {
-                Some(Self::Type)
-            },
+            //
+            // `selector.class` joins them on the same argument: a CSS class
+            // names an entity. ⚠️ Its sibling `selector.id` deliberately does
+            // **not** live here — see the constant arm below.
+            "type" | "type.name" | "type.definition" | "constructor" | "namespace" | "module"
+            | "selector.class" => Some(Self::Type),
             "type.builtin" | "type.primitive" => Some(Self::TypeBuiltin),
             "type.interface" | "interface" => Some(Self::TypeInterface),
 
@@ -150,13 +180,29 @@ impl HighlightType {
             | "variable.field" => Some(Self::Property),
 
             // Constants
-            "constant" | "constant.builtin" | "enum" | "enumerator" => Some(Self::Constant),
+            //
+            // ⚠️ `selector.id` is here and NOT on `Type` beside
+            // `selector.class`, deliberately. Unifying the selector family
+            // reads as tidier and erases the distinction that matters most in
+            // CSS: an id is unique and outranks a class on specificity, which
+            // is precisely what an author is reasoning about while reading a
+            // stylesheet. `Constant` is also what the name means — a unique,
+            // fixed handle. `the_six_ruled_capture_colours_are_the_ones_that_were_ruled`
+            // asserts the two stay different, so the tidying change fails
+            // rather than silently landing.
+            "constant" | "constant.builtin" | "enum" | "enumerator" | "selector.id" => {
+                Some(Self::Constant)
+            },
 
             // Rust-specific
             "lifetime" => Some(Self::Lifetime),
 
             // Attributes/decorators
-            "attribute" | "decorator" | "annotation" => Some(Self::Attribute),
+            //
+            // `selector.pseudo` — `:hover`, `::before` — rides here because a
+            // pseudo-selector modifies an element the way a decorator modifies
+            // a declaration.
+            "attribute" | "decorator" | "annotation" | "selector.pseudo" => Some(Self::Attribute),
 
             // Tags (HTML/XML)
             //

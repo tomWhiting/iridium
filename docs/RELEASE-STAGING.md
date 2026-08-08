@@ -30,19 +30,30 @@
 > is.** That is what `pkg/PROVENANCE.txt` is for, and why it ships in the
 > tarball.
 >
-> ### Prepared at `b4d4426a`, awaiting Tom's `npm publish`
+> ### Last verified live — `2026-08-08T23:28Z`, built from `b4d4426a`
 >
-> | package | prepared | last verified live |
-> |---|---|---|
-> | `iridium-bindings` | **0.2.1** | 0.2.0 @ `21:51:10Z` |
-> | `@iridium-editor/core` | **0.2.1** | 0.2.0 @ `21:51:15Z` |
-> | `@iridium-editor/syntax-worker` | **0.1.2** | 0.1.1 @ `21:51:18Z` |
+> | package | version | published | built from |
+> |---|---|---|---|
+> | `iridium-bindings` | **0.2.1** | `23:28:24Z` | `b4d4426a`, clean |
+> | `@iridium-editor/core` | **0.2.1** | `23:28:29Z` | — |
+> | `@iridium-editor/syntax-worker` | **0.1.2** | `23:28:32Z` | — |
 >
-> The wasm is already built; `pkg/PROVENANCE.txt` stamps `b4d4426a`, clean tree.
-> Only `iridium-bindings` has a content change — core's and syntax-worker's
-> `src/` are byte-identical to what is live, and are bumped so the three carry
-> one coherent set. **"Last verified live" is a timestamp, not a promise;** run
-> the commands above.
+> Checked by unpacking the tarballs off npm, not by reading this repository:
+>
+> - `iridium-bindings@0.2.1`'s `pkg/PROVENANCE.txt` says `commit: b4d4426a`,
+>   `tree: clean`, and its wasm hashes `cc142177…` — byte-identical to a local
+>   build from that commit. The 0.2.0 wasm hashed `75460012…`, which is the
+>   round-2 staleness, now gone.
+> - `@iridium-editor/core@0.2.1`'s published `dist/controller/index.js` carries
+>   `await import("iridium-bindings")` at line 234 — the bare specifier that is
+>   the whole reason an installed core can find its own wasm.
+> - Peer ranges cross-check: core peers `iridium-bindings >=0.2.0` and
+>   `@iridium-editor/syntax-worker ^0.1.1`; the worker peers core `^0.2.0`.
+>   Every one of those admits the new numbers, so the set is coherent and
+>   Manifold can pin the row above exactly.
+>
+> **This table is dated on purpose.** It was true at `23:28Z`; it says nothing
+> about now. Run the `npm view` commands above.
 >
 > ⚠️ **npm auth here is browser + security key. There is no OTP prompt**, and no
 > OTP is configured. Any instruction that mentions one is wrong.

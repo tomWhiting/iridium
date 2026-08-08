@@ -418,3 +418,74 @@ fn no_autoclose_before_set_contains_whitespace_or_is_empty() {
         );
     }
 }
+
+/// `not_in` is read, and it is read per row rather than per language: within
+/// one manifest some bracket rows carry it and others do not.
+#[test]
+fn suppressed_pairs_are_a_subset_of_the_pairs_that_close() {
+    for manifest in super::all() {
+        let Some(closing) = manifest.auto_close_pairs() else {
+            continue;
+        };
+        let closing: BTreeSet<(char, char)> = closing.collect();
+        for scope in ["string", "comment"] {
+            let suppressed: BTreeSet<(char, char)> = manifest
+                .pairs_suppressed_in(scope)
+                .expect("a manifest with brackets answers")
+                .collect();
+            assert!(
+                suppressed.is_subset(&closing),
+                "{} suppresses {suppressed:?} in {scope} but does not auto-close all of them",
+                manifest.id()
+            );
+        }
+    }
+}
+
+/// The two scopes the manifests actually name, and the languages that use
+/// them — named rather than counted, so a vendor refresh that drops one is a
+/// visible change rather than a silently smaller set.
+#[test]
+fn the_languages_that_suppress_a_pair_inside_a_string_are_named() {
+    let suppressing: Vec<&str> = super::all()
+        .iter()
+        .filter(|manifest| {
+            manifest
+                .pairs_suppressed_in("string")
+                .is_some_and(|mut pairs| pairs.next().is_some())
+        })
+        .map(super::Manifest::id)
+        .collect();
+    assert!(
+        suppressing.contains(&"rust"),
+        "rust suppresses pairs inside strings; got {suppressing:?}"
+    );
+    assert!(
+        !suppressing.is_empty(),
+        "no language suppresses anything — `not_in` is not being read"
+    );
+}
+
+/// ⚠️ An unknown scope name matches nothing. Suppressing everywhere would be
+/// the failure a vendor refresh introducing a third value could cause.
+#[test]
+fn an_unknown_scope_suppresses_nothing() {
+    for manifest in super::all() {
+        let Some(mut pairs) = manifest.pairs_suppressed_in("nonesuch") else {
+            continue;
+        };
+        assert_eq!(
+            pairs.next(),
+            None,
+            "{} suppressed a pair in a scope no manifest names",
+            manifest.id()
+        );
+    }
+}
+
+/// A language with no `brackets` key has not said, here as everywhere else.
+#[test]
+fn a_language_with_no_brackets_key_answers_none_for_suppression_too() {
+    let awl = by_id("awl").expect("vendored");
+    assert!(awl.pairs_suppressed_in("string").is_none());
+}

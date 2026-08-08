@@ -15,6 +15,22 @@ use glyphon::Buffer;
 /// change"), not approximate equality. The face's scroll remainder within
 /// one line is deliberately absent: it is applied at the text area's top
 /// edge, so sub-line scrolls are cache hits.
+///
+/// ⚠️ **The shaping tab width is absent because nothing sets it.** Row 11 of
+/// the map keeps `Wrap`, the tab width and `Shaping` out of the key on the
+/// grounds that they are fixed at their cosmic-text defaults, and that is
+/// still true — `EditorConfig::tab_width` is an *editing* input, read only by
+/// `input/keyboard/behaviors.rs` for indent and unindent, and the edits it
+/// produces move `document_revision`, which is keyed. Nothing under `render/`
+/// reads a tab width at all.
+///
+/// It stops being true the moment anyone wires a configured tab width into
+/// the renderer so literal tabs measure at the user's setting — which is a
+/// live wish, since `insert_spaces = false` is settable and any file off disk
+/// may hold tabs. **That change must add a key member here**, or editing the
+/// tab width in the configuration file will re-measure nothing and the
+/// retained buffers will show the old columns. The map names soft wrap as
+/// row 11's trigger; this is its second one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ShapeKey {
     /// Document content (`Document::revision`, moved by every text

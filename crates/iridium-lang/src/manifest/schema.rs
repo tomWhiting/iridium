@@ -127,6 +127,20 @@ struct Fields {
     /// keeps the editor's defaults; a language that said "none" gets none.
     #[serde(default)]
     brackets: Option<Vec<Bracket>>,
+    /// The characters an auto-close may be typed *in front of*.
+    ///
+    /// `;:.,=}])>` for the C-likes, `,]}` for JSON and YAML, `)` for `go.mod`.
+    /// Typing `(` with one of these after the caret gives `(|)`; typing it in
+    /// front of anything else gives a bare `(`, because closing there would
+    /// leave a `)` in the middle of a word the user is about to finish.
+    ///
+    /// `None` and `Some(String::new())` are different answers, as with
+    /// [`Fields::brackets`]. `gitcommit` declares six brackets and no
+    /// `autoclose_before` at all — it has not said, and gets no restriction. An
+    /// empty string would be a language saying "close in front of nothing";
+    /// none does today.
+    #[serde(default)]
+    autoclose_before: Option<String>,
     /// Whether this language exists only to be injected into another.
     ///
     /// `jsdoc`, `regex` and `markdown-inline` are hidden: they have queries and
@@ -259,6 +273,28 @@ impl Manifest {
     #[must_use]
     pub fn block_expand_pairs(&self) -> Option<impl Iterator<Item = (char, char)> + '_> {
         self.single_char_pairs(|bracket| bracket.newline)
+    }
+
+    /// The characters this language will insert a closing delimiter in front
+    /// of, as the manifest spells them.
+    ///
+    /// `None` when the key is absent — the language has not said, and a caller
+    /// should place no restriction, which is what every caller did before this
+    /// was read. `Some("")` is a language saying "in front of nothing"; no
+    /// vendored manifest says that today, but the two are kept apart because
+    /// collapsing them would make an upstream refresh that added an empty
+    /// string mean the opposite of what it says.
+    ///
+    /// ⚠️ **What is *not* in any of these sets is whitespace, or a line
+    /// ending.** Read literally, that would mean never auto-closing at the end
+    /// of a line — which is where brackets are most often typed. The reading
+    /// this crate's callers take, and the one the auto-pair map records as an
+    /// assumption rather than a fact, is that the set constrains what may be
+    /// *displaced*: a character the closer would be pushed in front of. Empty
+    /// space displaces nothing. See `docs/design/AUTO-PAIR-MAP.md` S-5.
+    #[must_use]
+    pub fn autoclose_before(&self) -> Option<&str> {
+        self.fields.autoclose_before.as_deref()
     }
 
     /// The shared body of the two accessors above: every declared row whose

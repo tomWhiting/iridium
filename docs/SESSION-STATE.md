@@ -5934,3 +5934,58 @@ measurement obligation 1 and 2 depend on. It was already flagged in the map as
    authorised this explicitly and it is what unblocks the last two #31 answers.
 2. **T-1's vocabulary diff**, because T-2's ruling now depends on it.
 3. #88 step 1 (price the wasm feature), #58 4b/5 (keys now ruled), #94.
+
+---
+
+# 🧭 OPEN OFFER TO CALLY — H1's discriminator, reasoned but NOT run
+
+Gates `1a591a0` closed H3, H4 and H7; the estate swept fully green, 22 repos,
+our row one of the four. **H1 is the last open hazard** and Cally asked for a
+second pair of eyes: `branch -D` after `pack-refs --all --no-prune` is still
+wrongly allowed, and arm 39 pins the defect rather than a fix.
+
+## What I sent — the proxy, named
+
+Survival evidence today is **"packed-refs holds this exact value"**; its target
+is **"this reference survives"**. `--no-prune` makes the loose file and the
+packed entry coexist, so the storage test passes while the reference is about to
+die. ⭐ **A `pack-refs` prune is invariant-preserving on the set of resolvable
+refs; a deletion shrinks it.** So the test wants to be forward-looking — *will
+this resolve once the transaction commits?* — not backward-looking.
+
+## ⚠️ THE PART THAT IS NOT MEASURED, AND WAS LABELLED AS SUCH
+
+**When `branch -D` removes a ref that is both loose and packed, what does the
+`prepared` phase see?** Does git emit the packed-entry removal to
+`reference-transaction` at all, one line or two, and is it observable before
+commit? If yes → exact discriminator (a prune leaves the packed entry, a delete
+takes both: same static state, different transaction contents). If no → the
+reframe is right and unreachable, and arm 39 stays inverted with a better
+epitaph.
+
+⛔ **I did not run it, and said so plainly.** Mechanism measured, outcome not —
+the same crossing I got wrong twice today, and declining to do it a third time
+in a message about someone else's guard.
+
+**Offer made: build the probe in a scratch repo and send the transcript either
+way.** ⭐ A null result is worth having — it converts *"I ran out of
+discriminator"* into *"the discriminator exists and is out of this hook's
+scope"*, which is a different ticket. **Pick this up next session.**
+
+## Two laws banked from the exchange
+
+- ⭐⭐ **A writer cannot assert preservation about itself.** Mine; Cally is
+  recording it. Re-reading your own write confirms what you wrote, never what
+  you destroyed first. The before/after diff is the only non-self-referential
+  form, and only the holder can do it.
+- ⭐⭐ **The write succeeding is not the remedy taking effect.** Hephaestus';
+  sharper than mine and general — `set_anchor.sh` truthfully reports "verified
+  by re-reading the record", which establishes that the record *says* the right
+  thing and never that anything *behaves* differently. His two reds stayed red
+  after a perfectly successful write, because the reader had not shipped.
+- Corollary on fixtures, from arm 41 failing correctly against a wrong fixture:
+  **a total substitution reds at the coarsest check and never reaches the one
+  under test**, so an identity arm must be built from a **near-miss, never a
+  stranger**. Same family as *a fixture that collapses two variables cannot
+  discriminate between them* — which is also why #69's invented signature
+  survived and why that experiment could not fail.

@@ -4379,3 +4379,90 @@ and the gate in the collapsed-opener branch only.
 unknown and not-suppressed are the same answer, so a test that only checks "it
 did not pair" passes against a resolver returning `None` for everything. Same
 family as Rule J.
+
+---
+
+# TICK — 8 Aug ~19:00 — S-4b landed, S-4 is complete
+
+## Landed
+
+| commit | what |
+|---|---|
+| `f912dc4d` | **S-4b** — a pair the language switched off inside a string stays off |
+
+**Gates: all nine green, 2,591 / 1,070 / 1,185, 0 failed.** (2,568 / 1,068 /
+1,164 before.) Twenty-three new tests.
+
+`docs/design/AUTO-PAIR-MAP.md` §9.3 carries the full write-up.
+
+## ⚠️ I deviated from my own §9.2 recommendation, and why
+
+§9.2 recommended shape **(a)** — resolve the caret's scope once per keystroke,
+pass down one `Option<HighlightType>`. **It is wrong.** There is not *a* caret:
+`auto_pair_char_edits` maps over every selection, and multi-cursor routinely
+puts one caret inside a string and another in code in the same edit. One answer
+for both suppresses a pair the language permits at the code caret, which is the
+fail-*closed* direction **ruling B-6 already rejected**. So (a) was not a
+cheaper approximation — it was a violation of a ruling Tom had taken.
+
+What landed is (b)'s shape without (b)'s price: `CaretScopes` is a concrete
+borrowed value (no trait object, no new lifetime — `CommandContext<'a>` already
+had one), asked **per caret**, and **lazy** so nothing is materialised on a
+keystroke that never asks.
+
+## ⭐ Rule L — when several rules produce the same refusal, a test of one must rule out the others
+
+`auto_pair_edit_for` declines a pair for **four** independent reasons — scope
+unresolved, `autoclose_before`, the apostrophe-after-a-word rule, and now
+`not_in` — and all four look identical from outside: one character where two
+would have gone.
+
+My first draft of the suppression tests was green at every position and testing
+almost nothing. Two of three carets sat in front of an ordinary letter, which
+`autoclose_before` refuses on its own; the third was preceded by a word
+character, which the apostrophe rule refuses on its own. **Removing the entire
+`not_in` gate would have left them green.**
+
+The fix is not a sharper assertion, it is a fixture that eliminates the
+alternatives — and the elimination has to be tests of its own:
+
+- the scope resolves, and to the specific thing named;
+- `(`, which Go never suppresses, pairs at all three carets (⇒
+  `autoclose_before` permits them);
+- the same `'` pairs at all three with **no language set**, where no manifest is
+  read at all (⇒ the apostrophe rule permits them).
+
+Rule J said assert the probe's premise. Rule L is sharper: assert that
+**nothing else could have produced this outcome.**
+
+Red proof with the gate removed: **exactly the five suppression tests fail, the
+eight guarding everything else stay green.** Measured, not asserted.
+
+## Two things worth carrying forward
+
+- **`SUPPRESSIBLE_SCOPES` is a hard-coded two-element vocabulary in the
+  editor**, and that is only defensible because
+  `not_in_names_only_the_two_scopes_the_editor_can_translate` in `iridium-lang`
+  fails the build if a vendored manifest names a third. Without the ratchet it
+  would be exactly the hard-coded barrage this project keeps refusing: a rule
+  read from data, matched against a fixed list, silently dropped when it does
+  not match.
+- **A manifest's declared `not_in` is larger than its effective one.** Rust
+  declares it on six rows; one reaches `PairRules`. Four are multi-character
+  openers (S-3) and one has `close = false`. Nothing is wrong — each exclusion
+  is a decision already argued — but reading a manifest and expecting all six to
+  fire is the mistake `a_second_language_suppresses_its_own_quote_inside_its_own_strings`
+  exists to answer.
+
+## ▶ NEXT
+
+1. **S-3** — multi-character openers (`"""`, `r#"`, `/*`). This is what makes
+   `not_in` mean something for Rust, and it is the last slice of the auto-pair
+   map (#79).
+2. **`#69`** — still open, still not reproduced. Its own doc's proposed
+   experiment cannot settle it; the inverse one can.
+
+## Awaiting Tom
+
+**#31** · **#58**'s three keys · **#70**'s six colours · **#74**'s pin ·
+**#43**/**#44**/**#45** · Cally's hook · the grammar repos.

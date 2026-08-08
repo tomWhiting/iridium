@@ -20,7 +20,9 @@
     "pkg/iridium_bindings.d.ts",
     "pkg/iridium_bindings_bg.wasm",
     "pkg/iridium_bindings_bg.wasm.d.ts",
-    "grammars/"
+    "pkg/PROVENANCE.txt",
+    "grammars/",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "editor",

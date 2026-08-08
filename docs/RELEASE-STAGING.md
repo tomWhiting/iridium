@@ -37,7 +37,44 @@ Waffles asked whether it is "meant to be consumable". It is already on npm at
 
 ---
 
-## ⭐ The finding that decides the whole assignment
+## ⭐⭐ The finding that decides the whole assignment
+
+**No published version of `@iridium-editor/core` could ever load its own wasm.**
+
+`controller/index.ts` resolved the core by walking five directories up from
+`import.meta.url`:
+
+```ts
+new URL("../../../../../crates/iridium-bindings/pkg/iridium_bindings.js", import.meta.url)
+```
+
+That arithmetic is written for this repository's layout. Resolved from an
+installed package it lands somewhere else entirely — measured, not argued:
+
+```
+$ node -e '…new URL("../../../../../crates/…", "file:///proj/node_modules/@iridium-editor/core/dist/controller/index.js")'
+/proj/crates/iridium-bindings/pkg/iridium_bindings.js
+```
+
+It walks out of `node_modules` into the consumer's project root and looks for a
+`crates/` directory that only exists here. **So the package has never been
+installable-and-usable, in any version.** That — not the `.ts` specifiers
+below — is the reason a consumer ends up vendoring: vendoring is what puts the
+source back inside a tree where that path resolves.
+
+The same defect, second instance: the syntax worker's default URL named
+`../../../syntax-worker/src/worker.ts` — **TypeScript source**, which no
+`Worker` constructor can load. So `enableSyntaxWorker: true` could not work
+either.
+
+**Both fixed.** The wasm now arrives as `import("iridium-bindings")` — the peer
+dependency the manifest already declared, resolvable by any bundler, Node, or
+an import map. The worker default now names `syntax-worker/dist/worker.js`,
+which resolves correctly in both layouts (verified with `new URL`, both cases),
+plus a `createSyntaxWorker` option for resolvers where the sibling assumption
+does not hold.
+
+## ⭐ The second finding
 
 **`@iridium-editor/core` publishes raw TypeScript that does not typecheck.**
 
@@ -185,69 +222,147 @@ independent, then publish leaves-first — `iridium-file`, `iridium-tree`,
 
 ---
 
+
 # STAGING PROGRESS — read this first after a compaction
 
-Head when staging began: `098abe73`. **Nothing has been committed yet**; all of
-the below is in the working tree.
+Head when staging began: `098abe73`. Staged across `442c8a1e` and the commit
+this section lands in.
 
-## Done
+## Done, and how each was verified
 
 1. **`autoFocus` option** — `packages/@iridium/core/src/controller/index.ts`.
    Interface field, default `true` in the resolved options, and the
-   `initialize()` call site now guarded. The other two `canvas.focus()` calls
+   `initialize()` call site guarded. The other two `canvas.focus()` calls
    (`handleMouseDown`, public `focus()`) are correct and untouched.
 
-2. **⭐ Core now builds to `dist/` and is actually consumable.** New
-   `packages/@iridium/core/tsconfig.build.json` uses
+2. **⭐⭐ The wasm module is loaded by package specifier.** See the finding at
+   the top of this file. `import("iridium-bindings")` replaces a five-level
+   relative walk that resolved only inside this repository. **Verified**: the
+   emitted `dist/controller/index.js:234` reads
+   `const wasm = await import("iridium-bindings");`, and `new URL` was run over
+   both the old and new paths in both layouts to prove which resolves where.
+
+3. **⭐ The syntax worker default names built JavaScript.** `dist/worker.js`,
+   not `src/worker.ts`. **Verified** by `new URL` against both an installed
+   tree (`node_modules/@iridium-editor/syntax-worker/dist/worker.js`) and this
+   repository (`packages/@iridium/syntax-worker/dist/worker.js`). New
+   `createSyntaxWorker` option for resolvers where the sibling layout does not
+   hold.
+
+4. **Both example bundler configs re-alias bare `iridium-bindings`.** The
+   comment saying that alias was "gone with #64" was true of the deleted `ts/`
+   fork and is no longer true of the specifier, which now means the wasm build.
+   Without this the examples would have broken on change 2.
+
+5. **⭐ Core builds to `dist/`.** `tsconfig.build.json` uses
    `rewriteRelativeImportExtensions` (TS 5.7+; 5.9.3 is the devDep) so sources
    keep writing `./thing.ts` while the emitted JS says `./thing.js`.
-   **Verified**: `tsc -p tsconfig.build.json` exits 0, emits 16 `.js` + 16
-   `.d.ts`, **zero** test files leak, and specifiers really are rewritten
-   (`dist/element/index.js:25` reads `from "./palette.js"`). 2.5 MB.
+   **Verified**: `tsc -p tsconfig.build.json` exits 0, zero test files leak,
+   specifiers really are rewritten. Source maps and declaration maps are on, so
+   the `src/` in the tarball is wired to the build rather than dead weight —
+   measured cost, 2.5 MB → 2.6 MB.
 
-3. **Versions bumped** (all three collided with npm before this):
-   - `@iridium-editor/core` 0.1.1 -> **0.2.0**, `exports`/`main`/`types` now
-     point at `dist/`, `files` is `["dist/", "src/", "!src/**/*.test.ts"]`,
-     `build` + `prepublishOnly` scripts added, peer on `iridium-bindings >=0.2.0`
-   - `@iridium-editor/syntax-worker` 0.1.0 -> **0.1.1**, peer on core `^0.2.0`
-   - `iridium-bindings` 0.1.1 -> **0.2.0**
-   - `packages/@iridium/core/deno.json` said **0.1.0** while package.json said
-     0.1.1 — two manifests disagreeing, nothing checking. Both now say 0.2.0.
+6. **⭐ Syntax-worker builds to `dist/` too.** It had the identical defect and
+   was going to be republished with it: `exports` pointing at `.ts`, four `.ts`
+   specifiers, and `src/encoding.test.ts` inside the tarball importing
+   `bun:test`. It now has the same two tsconfigs, a `build` +
+   `prepublishOnly` script, and `@iridium-editor/core` linked as a devDep via
+   `file:../core` so the build is reproducible rather than depending on a
+   symlink someone made by hand. **Verified**: `tsc` exits 0, 4 `.js` + 4
+   `.d.ts`, zero test files, `dist/worker.js:8` reads `from "./encoding.js"`.
+   Its `deno.json` also said 0.1.0 against package.json's 0.1.1 — the same
+   two-manifests defect core had. Both now say 0.1.1.
 
-4. **`scripts/build-wasm.sh`** — builds `--target web --release
+7. **Four boundary types were wrong, and the wasm declarations proved it.**
+   Linking core's `node_modules/iridium-bindings` to the live crate made `tsc`
+   check the boundary for the first time, and it failed three times running:
+   - `pixelToPosition`, `getFoldableLines`, `getFoldedLines` return typed
+     arrays; core declared `number[]`. `positionToPixel` returns `Float32Array`.
+   - `EditorState.foldedLines` is **public** and declared `number[]`, and was
+     handing back the wasm heap's `Uint32Array` under that name — so a consumer
+     calling `.filter()` got a typed array back and `.push()` threw. Now copied
+     with `Array.from`, which keeps the published type honest.
+   - `handleKeyEvent`/`runCommand` return `String` from Rust; core declared the
+     narrowed union. Narrowing now happens once at the call site through
+     `asKeyEventAction`, checked against a single `KEY_EVENT_ACTIONS` tuple that
+     the type is derived from — one transcription, not two. An unknown tag is
+     reported to the console and treated as `"handled"`, because the core
+     returns `"ignored"` only for keys it did not consume and letting the
+     browser also act would apply the keypress twice.
+
+8. **Versions bumped** (all three collided with npm before this):
+   `@iridium-editor/core` 0.1.1 → **0.2.0**, `@iridium-editor/syntax-worker`
+   0.1.0 → **0.1.1**, `iridium-bindings` 0.1.1 → **0.2.0**.
+
+9. **`scripts/build-wasm.sh`** — builds `--target web --release
    --no-default-features --features web` and writes `pkg/PROVENANCE.txt`
    (commit SHA, clean/dirty, rustc, wasm-pack). Refuses a dirty tree unless
-   `IRIDIUM_ALLOW_DIRTY=1`. That file ships in the tarball, which is the answer
-   to #97: `pkg/` stays gitignored, but the artefact now says where it came
-   from. **Run and verified**: `WASM_EXIT=0`, built from `098abe73`.
-   ⚠️ It was built with `IRIDIUM_ALLOW_DIRTY=1` because the version bumps were
-   already in the tree. **Rebuild it after committing** so PROVENANCE says
-   `clean`.
+   `IRIDIUM_ALLOW_DIRTY=1`. `PROVENANCE.txt` is now named explicitly in
+   `files`. This is the answer to #97: `pkg/` stays gitignored, but the
+   artefact says where it came from.
+
+10. **A LICENSE in all three packages, and `LICENSE-MIT` at the repo root.**
+    Every package declared `"license": "MIT"` and **no licence text existed
+    anywhere in the repository** — SPDX metadata with nothing behind it, which
+    is exactly what a consumer's legal review stops on. One file, copied (not
+    retyped) into three packages; all four hashes verified identical.
+    ⚠️ **Tom should eyeball the copyright line** — `Copyright (c) 2026 Iridium
+    Contributors`, taken from `[workspace.package] authors`. That attribution
+    is his to set, not mine.
+    ⚠️ The Rust workspace declares `MIT OR Apache-2.0`, so a `LICENSE-APACHE`
+    is still missing. It is deliberately **not** hand-written here: an inexact
+    copy of a legal text is worse than none. Fetch it verbatim from apache.org
+    before any crates.io publish.
+
+11. **A README and a CHANGELOG in all three packages.** None had either. An npm
+    page reading "This package does not have a readme" is a direct disincentive
+    to adopt, which is the thing this whole assignment is trying to fix.
+    ⚠️ `crates/iridium-bindings/README.md` will also become the **crates.io**
+    page if that crate is ever published, and it is written for the npm
+    package. Worth splitting at that point.
+
+12. **`npm pack --dry-run` run for all three and the listings read**, not just
+    the exit codes:
+    - core — 84 files, 3.4 MB; `dist/` present with maps, README + LICENSE +
+      CHANGELOG present, **zero** test files.
+    - syntax-worker — 24 files, 19.3 kB; `encoding.test.ts` gone.
+    - iridium-bindings — 22 files, 2.6 MB; `pkg/PROVENANCE.txt` present.
+
+13. **Tests green**: core `bun test` 104 pass / 0 fail, syntax-worker 17 pass /
+    0 fail.
 
 ## Still to do before Tom can publish
 
-- [ ] `npm pack --dry-run` for all three, and **open the file listings** — the
-      point is to confirm `dist/` is in core's tarball and tests are not.
-- [ ] CHANGELOG.md for each of the three packages.
-- [ ] Commit, then **re-run `./scripts/build-wasm.sh` with a clean tree**.
-- [ ] `./scripts/ci.sh` — ten gates, redirected to a file, read `CI_EXIT`.
+- [ ] Re-run `./scripts/build-wasm.sh` on the **clean** committed tree, so
+      `PROVENANCE.txt` says `clean` and names this commit.
+- [ ] `./scripts/ci.sh` — ten gates, redirected to a file, `CI_EXIT` read from
+      the file and not from a notification.
 - [ ] Reply to Waffles (`dm:896955e1-86dd-4d6a-9c25-f3f978b189a9`) with the
-      command sequence.
+      command sequence below.
 
-## The command sequence for Tom (draft — do not send until the above is done)
+## The command sequence for Tom
 
 ```bash
 cd /Users/tom/Developer/ablative/libs/iridium
-npm login                          # Tom runs this; OTP is his
-./scripts/build-wasm.sh            # clean tree; stamps PROVENANCE.txt
-(cd packages/@iridium/core && npm publish --access public)
-(cd crates/iridium-bindings && npm publish --access public)
+npm login                          # Tom runs this; the OTP is his
+
+./scripts/build-wasm.sh            # clean tree; stamps pkg/PROVENANCE.txt
+
+(cd crates/iridium-bindings        && npm publish --access public)
+(cd packages/@iridium/core         && npm publish --access public)
 (cd packages/@iridium/syntax-worker && npm publish --access public)
 ```
 
-⚠️ **Order matters.** `syntax-worker` peers on core `^0.2.0` and core peers on
-`iridium-bindings >=0.2.0`; publishing syntax-worker first leaves a window
-where its peer range resolves to nothing.
+⚠️ **Order matters, and it is the reverse of the dependency arrows.**
+`syntax-worker` peers on core `^0.2.0`; core peers on `iridium-bindings
+>=0.2.0`. Publishing in any other order leaves a window in which a package's
+declared peer range resolves to nothing on npm.
+
+ℹ️ Core's and syntax-worker's `prepublishOnly` scripts rebuild `dist/` at
+publish time, so the tarball cannot go out stale. Syntax-worker's build needs
+its `node_modules` in place (`bun install` in that directory) because it
+resolves `@iridium-editor/core` through a `file:../core` devDependency; if that
+link is missing the build fails loudly rather than publishing without `dist/`.
 
 ## crates.io — recommended NO this round
 
@@ -255,3 +370,16 @@ Reasons and the exact work it would take are in the section above. The short
 version: `iridium-tui` has a path dep with no version, all nine crates share
 one workspace version, and **nothing outside this repo consumes the Rust
 crates** — Manifold consumes npm.
+
+## Deliberately not in this release
+
+- **#96**, splitting `iridium-bindings`' manifest into the napi addon and the
+  wasm bundle. Folding a package split into the release whose purpose is "make
+  consumption work" is how consumers end up straddling two names.
+- **Renaming `iridium-bindings` to `@iridium-editor/bindings`.** Same argument;
+  a rename is a deliberate migration with a deprecation on the old name.
+- **The circular peer dependency.** Core optionally peers on `syntax-worker`,
+  which peers on core. Both arms are truthful — the worker's client and
+  grammars live in core, the worker file lives in syntax-worker — but the cycle
+  is a symptom of the split being in the wrong place. It resolves cleanly under
+  npm/bun today; worth revisiting with #96.

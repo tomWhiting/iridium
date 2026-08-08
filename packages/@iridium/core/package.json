@@ -40,7 +40,8 @@
   "files": [
     "dist/",
     "src/",
-    "!src/**/*.test.ts"
+    "!src/**/*.test.ts",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "editor",
@@ -56,7 +57,13 @@
     "url": "https://github.com/tomWhiting/iridium"
   },
   "peerDependencies": {
-    "iridium-bindings": ">=0.2.0"
+    "iridium-bindings": ">=0.2.0",
+    "@iridium-editor/syntax-worker": "^0.1.1"
+  },
+  "peerDependenciesMeta": {
+    "@iridium-editor/syntax-worker": {
+      "optional": true
+    }
   },
   "dependencies": {
     "web-tree-sitter": "0.25.6"

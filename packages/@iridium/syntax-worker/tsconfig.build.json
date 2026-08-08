@@ -1,0 +1,19 @@
+{
+  "//": "The publish build, matching @iridium-editor/core's exactly. Separate",
+  "//2": "from tsconfig.json because that one is the editor/dev config: it",
+  "//3": "includes tests and leaves .ts specifiers alone.",
+  "//4": "rewriteRelativeImportExtensions is what lets the sources keep writing",
+  "//5": "./thing.ts while the emitted JS says ./thing.js — the specifier a",
+  "//6": "consumer's resolver actually needs.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}

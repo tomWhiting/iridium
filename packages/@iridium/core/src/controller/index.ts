@@ -41,7 +41,7 @@ interface WasmEditInfo {
 }
 
 /**
- * Action tags returned by `WebEditor.handleKeyEvent`.
+ * Action tags returned by `WebEditor.handleKeyEvent` and `WebEditor.runCommand`.
  *
  * - `handled`      — key consumed, no content change
  * - `handled:edit` — key consumed, document changed (fetch `takeLastEdit`)
@@ -50,18 +50,50 @@ interface WasmEditInfo {
  * - `copy` / `cut` — clipboard text pending in `getPendingClipboardText`
  * - `search:*`     — search UI actions requested by the core
  * - `ignored`      — leave the event to the browser
+ *
+ * ⚠️ The wasm boundary types both methods as `string`, because Rust returns
+ * `String`; the closed set lives in `crates/iridium-bindings/src/wasm.rs`.
+ * This tuple is the TypeScript half of that contract and the only place the
+ * tags are written down here — {@link KeyEventAction} is derived from it and
+ * {@link asKeyEventAction} checks against it, so a tag the core starts
+ * emitting that this build does not know is reported rather than mistaken for
+ * one that it does.
  */
-type KeyEventAction =
-  | "handled"
-  | "handled:edit"
-  | "handled:command"
-  | "copy"
-  | "cut"
-  | "search:open"
-  | "search:next"
-  | "search:prev"
-  | "search:close"
-  | "ignored";
+const KEY_EVENT_ACTIONS = [
+  "handled",
+  "handled:edit",
+  "handled:command",
+  "copy",
+  "cut",
+  "search:open",
+  "search:next",
+  "search:prev",
+  "search:close",
+  "ignored",
+] as const;
+
+/** One of {@link KEY_EVENT_ACTIONS}. */
+type KeyEventAction = (typeof KEY_EVENT_ACTIONS)[number];
+
+/**
+ * Narrows a tag the wasm boundary hands back as a bare `string`.
+ *
+ * An unrecognised tag means the core gained an action this build of the
+ * TypeScript layer does not know about. It is reported rather than swallowed,
+ * and treated as `"handled"`: the core returns `"ignored"` only for a key it
+ * did not consume, so anything else was consumed, and letting the browser act
+ * on it as well would apply the keypress twice.
+ */
+function asKeyEventAction(tag: string): KeyEventAction {
+  if ((KEY_EVENT_ACTIONS as readonly string[]).includes(tag)) {
+    return tag as KeyEventAction;
+  }
+  console.error(
+    `[IridiumEditor] Unknown action tag "${tag}" from the editor core — add it ` +
+      `to KEY_EVENT_ACTIONS in @iridium-editor/core. Treating it as "handled".`,
+  );
+  return "handled";
+}
 
 /** Search UI actions surfaced through {@link IridiumEditorOptions.onSearchAction}. */
 export type SearchAction = "open" | "next" | "prev" | "close";
@@ -243,11 +275,14 @@ export interface HostCommandIds {
 
 // Types for the low-level WASM editor
 interface WebEditor {
-  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): KeyEventAction;
+  // Both of these are `string` and not {@link KeyEventAction} because that is
+  // what the generated wasm declarations say: Rust returns `String`. Narrowing
+  // happens once, at the call site, through {@link asKeyEventAction}.
+  handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): string;
   cursorCount(): number;
   listCommands(): string;
   searchCommands(query: string, limit: number): string;
-  runCommand(id: string): KeyEventAction;
+  runCommand(id: string): string;
   keyHintFor(id: string, macGlyphs: boolean): string;
   pendingKeySequence(): string;
   abortPendingKeySequence(): boolean;
@@ -311,7 +346,9 @@ interface WebEditor {
   deleteToLineStart(): boolean;
   deleteToLineEnd(): boolean;
   setCursorFromClick(line: number, column: number): void;
-  pixelToPosition(x: number, y: number): number[];
+  /** `[line, column]`. A `Uint32Array`, not an array — wasm-bindgen returns the
+   *  typed view directly. Indexing is identical, so callers read `[0]`/`[1]`. */
+  pixelToPosition(x: number, y: number): Uint32Array;
   ensureCursorVisible(): void;
   scrollBy(delta: number): void;
   getCursorLine(): number;
@@ -323,8 +360,8 @@ interface WebEditor {
   toggleFold(line: number): boolean;
   isFoldable(line: number): boolean;
   isFolded(line: number): boolean;
-  getFoldableLines(): number[];
-  getFoldedLines(): number[];
+  getFoldableLines(): Uint32Array;
+  getFoldedLines(): Uint32Array;
   getHiddenLineCount(): number;
   isSyntaxEnabled(): boolean;
   setSyntaxEnabled(enabled: boolean): void;
@@ -337,7 +374,8 @@ interface WebEditor {
   getCharWidth(): number;
   getTextOffsetX(): number;
   getTextOffsetY(): number;
-  positionToPixel(line: number, column: number): number[];
+  /** `[x, y]`, or a negative `x` when the position is not on screen. */
+  positionToPixel(line: number, column: number): Float32Array;
   // Git integration: read-only, line backgrounds, gutter changes, blame
   setReadOnly(readOnly: boolean): void;
   isReadOnly(): boolean;
@@ -381,6 +419,24 @@ export interface IridiumEditorOptions {
    * For Meridian integration, leave disabled and use server-provided spans.
    */
   enableSyntaxWorker?: boolean;
+  /**
+   * Construct the syntax worker yourself. Only consulted when
+   * {@link enableSyntaxWorker} is `true`.
+   *
+   * The default resolves `@iridium-editor/syntax-worker`'s built worker as a
+   * sibling of this package — correct under npm, yarn and bun, where scoped
+   * packages share one directory. Supply this when that does not hold (pnpm's
+   * store layout, a bundler that rewrites worker URLs, or a worker you host
+   * yourself):
+   *
+   * ```ts
+   * createSyntaxWorker: () =>
+   *   new Worker(new URL("@iridium-editor/syntax-worker/worker", import.meta.url), {
+   *     type: "module",
+   *   })
+   * ```
+   */
+  createSyntaxWorker?: () => Worker;
   /** Callback when content changes */
   onChange?: (content: string) => void;
   /** Callback when cursor/selection changes */
@@ -417,9 +473,12 @@ export interface IridiumEditorOptions {
 
 /**
  * The option keys that stay optional after defaults are applied: every host
- * callback. Named once so adding a callback cannot silently make it required.
+ * callback, plus the worker factory, which has no default value — the absence
+ * of one is what selects the built-in sibling-package resolution. Named once
+ * so adding a callback cannot silently make it required.
  */
 type OptionalCallback =
+  | "createSyntaxWorker"
   | "onChange"
   | "onSelectionChange"
   | "onMouseHover"
@@ -577,6 +636,7 @@ export class IridiumEditor {
       autoFocus: options.autoFocus ?? true,
       fontUrl: options.fontUrl ?? "https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/ttf/FiraCode-Regular.ttf",
       enableSyntaxWorker: options.enableSyntaxWorker ?? false,
+      createSyntaxWorker: options.createSyntaxWorker,
       onChange: options.onChange,
       onSelectionChange: options.onSelectionChange,
       onMouseHover: options.onMouseHover,
@@ -643,13 +703,18 @@ export class IridiumEditor {
       throw new Error("Canvas has no size - ensure it's mounted and visible");
     }
 
-    // Dynamically import the WASM module
-    // Use import.meta.url to resolve relative to this file's location
-    const wasmUrl = new URL(
-      "../../../../../crates/iridium-bindings/pkg/iridium_bindings.js",
-      import.meta.url
-    ).href;
-    const wasm = await import(/* @vite-ignore */ wasmUrl);
+    // The wasm module arrives through its package specifier, not a relative
+    // path. `iridium-bindings` is this package's peerDependency, so every
+    // resolver — a bundler, Node, or a browser import map — finds it the same
+    // way.
+    //
+    // ⚠️ This used to walk `../../../../../crates/iridium-bindings/pkg/…` from
+    // `import.meta.url`, which resolved only inside this repository. From an
+    // installed `node_modules/@iridium-editor/core/dist/controller/`, five
+    // levels up lands above the consumer's `node_modules`, where no `crates/`
+    // directory exists — so no published version of this package could ever
+    // load its own wasm. Fixed in 0.2.0.
+    const wasm = await import("iridium-bindings");
     await wasm.default();
 
     // Set canvas size. The ratio is sanitised by the kernel rather than by
@@ -719,16 +784,27 @@ export class IridiumEditor {
     // For Meridian integration, syntax spans will come from the server.
     if (this.options.enableSyntaxWorker) {
       try {
-        // Create worker - the consumer's bundler handles the worker URL
-        this.syntaxWorker = new SyntaxHighlightClient(() => {
-          // Use import.meta.url to resolve worker relative to this module
-          // Path: controller/index.ts → ../../.. → @iridium/ → syntax-worker/src/worker.ts
-          const workerUrl = new URL(
-            "../../../syntax-worker/src/worker.ts",
-            import.meta.url
-          );
-          return new Worker(workerUrl, { type: "module" });
-        });
+        // A host that owns its bundler can hand the worker over directly; see
+        // `createSyntaxWorker`. Otherwise fall back to the sibling package.
+        this.syntaxWorker = new SyntaxHighlightClient(
+          this.options.createSyntaxWorker ?? (() => {
+            // From this module at `<scope>/core/dist/controller/index.js`,
+            // three levels up is the scope directory the two packages share,
+            // so this lands on `<scope>/syntax-worker/dist/worker.js` both in
+            // an installed tree and in this repository, where `packages/
+            // @iridium/` has the same shape.
+            //
+            // ⚠️ This used to name `syntax-worker/src/worker.ts` — TypeScript
+            // source, which no consumer's Worker constructor can load, so
+            // `enableSyntaxWorker: true` could never have worked outside a
+            // bundler configured for this repository. Fixed in 0.2.0.
+            const workerUrl = new URL(
+              "../../../syntax-worker/dist/worker.js",
+              import.meta.url
+            );
+            return new Worker(workerUrl, { type: "module" });
+          })
+        );
         await this.syntaxWorker.initialize(this.options.language);
         console.log("[IridiumEditor] Syntax worker initialized");
       } catch (e) {
@@ -1127,9 +1203,9 @@ export class IridiumEditor {
     // (e) Translate the DOM event into the Rust core's key vocabulary and
     // forward it (see the mapping table in translateKeyEvent).
     const t = this.translateKeyEvent(e);
-    const action = this.editor.handleKeyEvent(
+    const action = asKeyEventAction(this.editor.handleKeyEvent(
       t.key, t.ctrl, t.shift, t.alt, t.meta, t.altGraph, e.repeat,
-    );
+    ));
 
     if (action === "ignored") {
       // The editor does not handle this key; leave it to the browser.
@@ -1555,7 +1631,12 @@ export class IridiumEditor {
       canUndo: this.editor.canUndo(),
       canRedo: this.editor.canRedo(),
       language: this.currentLanguage,
-      foldedLines: this.editor.getFoldedLines(),
+      // Copied out of the wasm heap's `Uint32Array` view rather than passed
+      // through. {@link EditorState.foldedLines} is declared `number[]`, and
+      // it used to hand back the typed array under that name — so a consumer
+      // doing `.filter(...)` got a `Uint32Array` and `.push(...)` threw. The
+      // list is a handful of entries; the copy is not worth measuring.
+      foldedLines: Array.from(this.editor.getFoldedLines()),
       hiddenLineCount: this.editor.getHiddenLineCount(),
     };
   }
@@ -1829,7 +1910,7 @@ export class IridiumEditor {
    * Running a command moves it up the palette's recency ranking for next time.
    */
   runCommand(id: string): KeyEventAction {
-    const action = this.editor.runCommand(id);
+    const action = asKeyEventAction(this.editor.runCommand(id));
     if (action !== "ignored") {
       this.applyActionOutcome(action);
     }

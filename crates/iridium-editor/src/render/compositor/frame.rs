@@ -105,6 +105,15 @@ impl FrameCompositor {
         // `cached_visual_line_map`, `cpu_line_numbers`,
         // `cached_total_visual_lines`) are deterministic functions of the
         // same key and already hold this frame's values.
+        // Floored once, here, and used for both the key and the renderer, so
+        // the two can never disagree about which width the retained buffer was
+        // shaped at. Saturating rather than wrapping: an absurd configured
+        // width should render absurdly wide, not wrap around to a narrow one.
+        let tab_width = crate::render::text::usable_tab_width(
+            u16::try_from(editor.get_config().tab_width).unwrap_or(u16::MAX),
+        );
+        self.text_renderer.set_tab_width(tab_width);
+
         let key = ShapeKey {
             document_revision: doc.revision(),
             viewport_start,
@@ -120,6 +129,7 @@ impl FrameCompositor {
             syntax_theme_generation: self.syntax_theme_generation,
             fold_generation: fold_state.generation(),
             gutter_text_generation: self.gutter_text_generation,
+            tab_width,
         };
 
         let retained = match self.retained.take() {

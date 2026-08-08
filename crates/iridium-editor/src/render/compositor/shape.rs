@@ -16,21 +16,16 @@ use glyphon::Buffer;
 /// one line is deliberately absent: it is applied at the text area's top
 /// edge, so sub-line scrolls are cache hits.
 ///
-/// ⚠️ **The shaping tab width is absent because nothing sets it.** Row 11 of
-/// the map keeps `Wrap`, the tab width and `Shaping` out of the key on the
-/// grounds that they are fixed at their cosmic-text defaults, and that is
-/// still true — `EditorConfig::tab_width` is an *editing* input, read only by
-/// `input/keyboard/behaviors.rs` for indent and unindent, and the edits it
-/// produces move `document_revision`, which is keyed. Nothing under `render/`
-/// reads a tab width at all.
+/// The tab width **is** a member, as of #86. It was not, for as long as
+/// nothing set it: row 11 of the map kept `Wrap`, the tab width and `Shaping`
+/// out on the grounds that they sat at their cosmic-text defaults. That
+/// stopped being true when `EditorConfig::tab_width` was wired through to the
+/// renderer, so literal tabs measure at the configured width instead of a
+/// fixed eight — and a value baked into a buffer at shaping time has to be
+/// keyed, or changing it is a cache *hit* and nothing re-measures.
 ///
-/// It stops being true the moment anyone wires a configured tab width into
-/// the renderer so literal tabs measure at the user's setting — which is a
-/// live wish, since `insert_spaces = false` is settable and any file off disk
-/// may hold tabs. **That change must add a key member here**, or editing the
-/// tab width in the configuration file will re-measure nothing and the
-/// retained buffers will show the old columns. The map names soft wrap as
-/// row 11's trigger; this is its second one.
+/// `Wrap` and `Shaping` are still out, on the original grounds. Soft wrap
+/// remains row 11's other trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ShapeKey {
     /// Document content (`Document::revision`, moved by every text
@@ -71,6 +66,17 @@ pub(super) struct ShapeKey {
     /// ([`set_custom_gutter_lines`](super::FrameCompositor::set_custom_gutter_lines),
     /// [`set_gutter_enabled`](super::FrameCompositor::set_gutter_enabled)).
     pub(super) gutter_text_generation: u64,
+    /// How many character advances a literal tab occupies
+    /// ([`EditorConfig::tab_width`](crate::EditorConfig::tab_width), floored
+    /// at 1).
+    ///
+    /// A key member because tab width is baked into the buffer at shaping
+    /// time: without it, editing the setting would be a cache *hit*, nothing
+    /// would re-measure, and the retained buffers would keep the old columns
+    /// while the editing side had already moved. Content that holds no tab
+    /// shapes identically either way, so the cost of keying it is one
+    /// avoidable rebuild on a setting nobody changes mid-session.
+    pub(super) tab_width: u16,
 }
 
 impl ShapeKey {
@@ -98,6 +104,7 @@ impl ShapeKey {
             syntax_theme_generation,
             fold_generation,
             gutter_text_generation,
+            tab_width,
         } = *self;
         viewport_start == previous.viewport_start
             && viewport_end == previous.viewport_end
@@ -111,6 +118,11 @@ impl ShapeKey {
             && syntax_theme_generation == previous.syntax_theme_generation
             && fold_generation == previous.fold_generation
             && gutter_text_generation == previous.gutter_text_generation
+            // Refused rather than diffed: the per-line path reuses the
+            // *previous* buffer, and a buffer carries its tab width from
+            // construction. Diffing text into it would leave every tab
+            // measured at the old width with no line marked dirty for it.
+            && tab_width == previous.tab_width
     }
 }
 
@@ -151,4 +163,81 @@ pub(super) struct RebuildGeometry {
     pub(super) line_height: f32,
     /// Total document line count.
     pub(super) line_count: usize,
+}
+
+#[cfg(test)]
+mod shape_key_tests {
+    use super::ShapeKey;
+
+    /// A key with every input at a fixed value, for tests that vary one.
+    fn key() -> ShapeKey {
+        ShapeKey {
+            document_revision: 7,
+            viewport_start: 0,
+            viewport_end: 40,
+            content_width: 800.0_f32.to_bits(),
+            font_size: 14.0_f32.to_bits(),
+            line_height_factor: 1.4_f32.to_bits(),
+            font_generation: 1,
+            theme_generation: 1,
+            syntax_enabled: true,
+            language_active: true,
+            highlight_generation: 3,
+            syntax_theme_generation: 1,
+            fold_generation: 1,
+            gutter_text_generation: 1,
+            tab_width: 4,
+        }
+    }
+
+    #[test]
+    fn an_unchanged_key_permits_the_line_diff() {
+        // The control. Without it the assertions below would pass just as well
+        // against a `permits_line_diff` that always refused.
+        assert!(key().permits_line_diff(&key()));
+    }
+
+    #[test]
+    fn a_content_change_alone_permits_the_line_diff() {
+        // The other control, and the reason the fast path exists: typing moves
+        // the revision and the highlight generation and nothing else, which is
+        // exactly the case per-line diffing is for.
+        let mut next = key();
+        next.document_revision = 8;
+        next.highlight_generation = 4;
+        assert!(next.permits_line_diff(&key()));
+    }
+
+    #[test]
+    fn a_tab_width_change_refuses_the_line_diff() {
+        // The load-bearing one. A `Buffer` carries the tab width it was
+        // constructed with, and the per-line path *reuses the previous
+        // buffer* — so diffing text into it would leave every tab measured at
+        // the old width, with no line marked dirty to say so. The full rebuild
+        // is what calls `create_buffer` again.
+        //
+        // ⚠️ Adding `tab_width` to the key alone does not fix the bug: the key
+        // miss would route here, and this predicate would wave it through to
+        // the stale buffer. This test is the difference.
+        let mut next = key();
+        next.tab_width = 8;
+        assert!(
+            !next.permits_line_diff(&key()),
+            "a tab width change must force a full reshape, not a per-line diff"
+        );
+    }
+
+    #[test]
+    fn the_floor_keeps_the_key_and_the_renderer_agreeing() {
+        // `compose` and `TextRenderer::set_tab_width` both route a requested
+        // width through `usable_tab_width`, so a configured zero reaches the
+        // key and the buffer as the same 1. Were only one of them to floor,
+        // the key would describe a width nothing was shaped at.
+        use crate::render::text::usable_tab_width;
+
+        assert_eq!(usable_tab_width(0), 1, "zero is floored, never passed on");
+        assert_eq!(usable_tab_width(1), 1);
+        assert_eq!(usable_tab_width(4), 4);
+        assert_eq!(usable_tab_width(u16::MAX), u16::MAX);
+    }
 }

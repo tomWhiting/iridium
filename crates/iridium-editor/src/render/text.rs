@@ -86,6 +86,31 @@ const fn line_height_is_usable(height: f32) -> bool {
         && height <= MAX_LINE_HEIGHT_MULTIPLIER
 }
 
+/// The tab width a buffer gets when nothing has said otherwise.
+///
+/// The same number cosmic-text defaults to, restated here so the value this
+/// crate ships is visible in this crate rather than inherited silently from a
+/// dependency's internals.
+pub const DEFAULT_TAB_WIDTH: u16 = 8;
+
+/// `requested` as a width a buffer can actually use: zero becomes 1.
+///
+/// The single definition of that rule, because it has to hold in two places —
+/// the renderer, which shapes the tabs, and the compositor, which puts the
+/// same number in its cache key. Two copies could drift, and the failure would
+/// be a cache key describing a width nothing was shaped at.
+///
+/// Zero is floored rather than passed through because cosmic-text ignores a
+/// zero and keeps whatever width the buffer already had. Since the editing
+/// side floors at 1 too (`input::keyboard::behaviors::tab_width`, so a corrupt
+/// file cannot produce an empty indent level), passing zero through would mean
+/// indenting by one column and rendering at eight — a fresh copy of the split
+/// this whole field exists to close.
+#[must_use]
+pub const fn usable_tab_width(requested: u16) -> u16 {
+    if requested == 0 { 1 } else { requested }
+}
+
 /// Configuration for text rendering.
 #[derive(Debug, Clone)]
 pub struct TextRenderConfig {
@@ -95,6 +120,20 @@ pub struct TextRenderConfig {
     pub line_height: f32,
     /// Default font family
     pub font_family: String,
+    /// How many character advances a literal tab occupies.
+    ///
+    /// Mirrors [`EditorConfig::tab_width`](crate::EditorConfig::tab_width) so
+    /// one setting has one meaning: before this existed, `tab_width` governed
+    /// indent and unindent while a tab on screen always measured eight, and a
+    /// file full of tabs ignored the configuration entirely.
+    ///
+    /// Never zero. The editing side floors at 1
+    /// (`input::keyboard::behaviors::tab_width`) so a corrupt file cannot
+    /// produce an empty indent level, while cosmic-text *ignores* a zero and
+    /// keeps whatever the buffer had. Left alone, `tab_width = 0` would
+    /// therefore indent by one column and render at eight — a fresh copy of
+    /// the divergence this field closes. Both sides floor at 1 so they agree.
+    pub tab_width: u16,
 }
 
 impl Default for TextRenderConfig {
@@ -103,6 +142,7 @@ impl Default for TextRenderConfig {
             font_size: DEFAULT_FONT_SIZE,
             line_height: DEFAULT_LINE_HEIGHT,
             font_family: "monospace".to_string(),
+            tab_width: DEFAULT_TAB_WIDTH,
         }
     }
 }
@@ -316,7 +356,33 @@ impl TextRenderer {
         let metrics = self.metrics();
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(&mut self.font_system, width, None);
+        // The one place a rendered buffer is born, which is why the tab width
+        // is applied here rather than at each call site: a buffer that missed
+        // it would measure tabs at cosmic-text's default and nothing would say
+        // so — the glyphs simply land in the wrong columns.
+        buffer.set_tab_width(&mut self.font_system, self.config.tab_width);
         buffer
+    }
+
+    /// How many character advances a literal tab currently occupies.
+    #[must_use]
+    pub const fn tab_width(&self) -> u16 {
+        self.config.tab_width
+    }
+
+    /// Sets the tab width for buffers created from here on, flooring a zero
+    /// at 1.
+    ///
+    /// Zero is floored rather than passed through because cosmic-text *ignores*
+    /// a zero and keeps whatever the buffer already had, which would leave
+    /// rendering at eight columns while the editing side indented by one — see
+    /// [`TextRenderConfig::tab_width`].
+    ///
+    /// This does not touch buffers that already exist: a `Buffer` carries the
+    /// width it was constructed with. Re-measuring live text is the retained
+    /// cache's job, and `ShapeKey::tab_width` is what makes it happen.
+    pub const fn set_tab_width(&mut self, tab_width: u16) {
+        self.config.tab_width = usable_tab_width(tab_width);
     }
 
     /// Sets the text content of a buffer.

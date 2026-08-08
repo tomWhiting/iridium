@@ -4271,3 +4271,78 @@ blocking anything.
 
 `.git` 1,409,696 KB — up 576 KB across both commits, and unchanged by deleting
 21 MB, since the blobs stay in history. Working tree is 21 MB lighter.
+
+---
+
+# TICK — 8 Aug ~17:30 — #87 closed, and S-4 is unblocked and mapped
+
+## Landed
+
+| commit | what |
+|---|---|
+| `efe0d5d4` | **#87** — a document is identified by which one it is, not how often it changed |
+| `6f75ab8a` | **B-6 / B-7 ruled** — fail open; `not_in` gates the close only |
+| `0abfbdba` | **S-4 ground verified** and the build order written |
+
+Gates on `efe0d5d4`: all nine green, **2,559 / 1,068 / 1,164, 0 failed**.
+
+## ⭐ Rule J — assert a probe's premise, not only its conclusion
+
+#87 was found because a diagnostic checked its own setup. The probe composed
+twenty documents into one compositor to perturb its glyph atlas, and asserted
+that the rounds actually rasterised different glyphs. **1 of 20 frames differed.**
+
+Had it checked only its conclusion — "the frames still match, so atlas state
+cannot reach the output" — it would have reported a clean negative result and a
+live bug would still be shipping. The premise assertion is what turned a null
+result into a finding.
+
+## ⭐ Rule K — a guard justified by a mechanism that cannot occur is worse than no guard
+
+I added `document_id` to `permits_line_diff` with a comment saying it stopped
+untouched lines showing the old document's text. **It cannot.** Checked in the
+dependency rather than assumed: cosmic-text's `BufferLine::set_text`
+(`cosmic-text-0.15.0/src/buffer_line.rs:73`) compares text, line ending **and**
+the attribute list, so a line the diff skips renders identically anyway.
+
+Proven separately, too: removing the refusal fails **no** GPU test — only the
+unit test. The refusal is kept, for its real reason (it guards *buffer-level*
+state the per-line diff cannot see, which is exactly what `tab_width` was in
+#86), and both the comment and the test now say they pin **a policy, not a
+repro**.
+
+The next reader trusts the comment instead of re-deriving it. That is why a
+false one costs more than none.
+
+## #87 in one line, for whoever reads this cold
+
+`ShapeKey` keyed a document by `revision` — an edit counter every document
+starts at zero — while one `FrameCompositor` serves every tab. Two files edited
+the same number of times were a cache *hit*, and the screen kept the previous
+file's text. `Document::id()` now carries identity; `ShapeKey` carries it.
+
+## ▶ NEXT
+
+1. **S-4** — unblocked, and `docs/design/AUTO-PAIR-MAP.md` §9 carries the
+   verified ground and a five-step build order. ⚠️ Two traps recorded there:
+   `String` alone misses `StringEscape` (and `Comment` misses `CommentDoc`), and
+   **every suppression test must first assert the scope resolved** — because
+   B-6 makes unknown and not-suppressed the same answer, a test that only checks
+   "it did not pair" passes against a resolver returning `None` for everything.
+2. **S-3** — multi-character openers.
+3. **`#69`** — still open, still not reproduced. ⚠️ Its own doc proposes an
+   experiment that **cannot settle it**: warming the cold compositor makes the
+   two identical by construction, but they are *already* identical on a box
+   where the test passes 160/160. The experiment that could is the inverse —
+   perturb the atlas hard and look for the signature — and that is what the #87
+   probe was before it found something else. Not yet run to conclusion.
+
+## Awaiting Tom
+
+**#31** · **#58**'s three keys · **#70**'s six colours · **#74**'s pin ·
+**#43**/**#44**/**#45** · Cally's hook · the grammar repos *(no longer blocking
+anything — see `IN-FLIGHT-legacy-bindings.md`)*.
+
+## Box
+
+`.git` 1,409,696 KB at the last measure. Working tree 21 MB lighter after #64.

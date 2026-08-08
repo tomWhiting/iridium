@@ -108,23 +108,78 @@ const PAD_X: f32 = 16.0;
 /// (12 px) vertical padding.
 const PAD_Y: f32 = 12.0;
 
-/// The shadow's vertical offset in logical pixels — the web panels'
-/// `boxShadow: "0 16px 48px rgba(0, 0, 0, 0.55)"`, first two lengths.
-const SHADOW_OFFSET_Y: f32 = 16.0;
+/// A panel's drop shadow: offset and blur in logical pixels, plus opacity.
+///
+/// ⭐ **Kept a face constant rather than a theme field, deliberately** (D-5).
+/// The shadow and the backdrop dim are *black ink over the page*, not chrome
+/// colour: they say "there is a panel in front of this", which is a fact
+/// about the face's compositing, not about the palette a theme states. A
+/// theme should never have to own them, and one that tried would be stating
+/// something it cannot see — how dark the thing underneath happens to be.
+#[derive(Debug, Clone, Copy)]
+struct Shadow {
+    /// Vertical offset in logical pixels.
+    offset_y: f32,
+    /// Blur half-width in logical pixels. Near zero gives a hard edge.
+    blur: f32,
+    /// Opacity of the black it is drawn in.
+    alpha: f32,
+}
 
-/// The shadow's blur half-width in logical pixels — the same `boxShadow`'s
-/// blur radius.
-const SHADOW_BLUR: f32 = 48.0;
+/// The dark chrome's shadow — the web panels' `boxShadow: "0 16px 48px
+/// rgba(0, 0, 0, 0.55)"`, transcribed.
+const DARK_SHADOW: Shadow = Shadow {
+    offset_y: 16.0,
+    blur: 48.0,
+    alpha: 0.55,
+};
 
-/// The shadow's opacity — the same `boxShadow`'s alpha.
-const SHADOW_ALPHA: f32 = 0.55;
+/// The light chrome's shadow (D-4): **hard, close and pale**.
+///
+/// ⚠️ A 48-logical-pixel black smear at 0.55 is a bruise on a grey page. The
+/// era's shadow is not a blur at all — a Platinum window casts a solid
+/// offset rectangle a few pixels down and right — so the blur drops to 2 and
+/// the offset to 3. `RoundedQuad::shadow` already takes blur as a parameter,
+/// so a near-hard edge costs nothing and needs no new capability.
+const LIGHT_SHADOW: Shadow = Shadow {
+    offset_y: 3.0,
+    blur: 2.0,
+    alpha: 0.34,
+};
+
+/// The shadow the face draws under a panel in `theme`.
+const fn shadow_for(theme: &Theme) -> Shadow {
+    if theme.is_dark {
+        DARK_SHADOW
+    } else {
+        LIGHT_SHADOW
+    }
+}
 
 /// The backdrop dim behind the modal top-anchored panels — the web demo's
 /// full-screen `backgroundColor: "rgba(0, 0, 0, 0.45)"` behind both the
 /// palette and the undo tree. The web demo has no search overlay, and the
 /// native search panel gets no backdrop: it must not dim the matches it just
 /// highlighted.
-const BACKDROP_ALPHA: f32 = 0.45;
+const DARK_BACKDROP_ALPHA: f32 = 0.45;
+
+/// The light chrome's backdrop dim (D-4).
+///
+/// ⚠️ 0.45 of black over a `#EFEFEF` page composites to roughly `#838383` —
+/// darker than the dark theme's own document background. The modal would be
+/// the only thing on screen that inverts when you switch to the light theme.
+/// 0.16 dims enough to say "this is behind something" and leaves the page
+/// recognisably the page.
+const LIGHT_BACKDROP_ALPHA: f32 = 0.16;
+
+/// The dim drawn behind a modal panel in `theme`.
+const fn backdrop_alpha(theme: &Theme) -> f32 {
+    if theme.is_dark {
+        DARK_BACKDROP_ALPHA
+    } else {
+        LIGHT_BACKDROP_ALPHA
+    }
+}
 
 /// How far down the window's top edge a top-anchored panel starts — the web
 /// backdrop's `paddingTop: "12vh"`, as a fraction of the window height.
@@ -143,7 +198,34 @@ const ROW_INSET: f32 = 4.0;
 
 /// The hairline border's width in **physical** pixels — one device pixel,
 /// like the web demo's `1px` border on a `devicePixelRatio` display.
+///
+/// This is the dark chrome's width, and it is also the width of every
+/// *interior* rule regardless of theme — see [`frame_width`] for why the two
+/// part company.
 const HAIRLINE: f32 = 1.0;
+
+/// The width, in physical pixels, of the rule that **frames** a panel or
+/// closes a strip, for `theme` at `scale`.
+///
+/// ⚠️ **One physical pixel is a modern idiom, not an era one.** On a Retina
+/// display it is half a logical pixel: a rule so fine it reads as a shading
+/// rather than an edge. That is right for the dark chrome, which the web demo
+/// is the spec for; it is wrong for Platinum, whose frames were 1 px at 1×
+/// and therefore *two* physical pixels here (D-4).
+///
+/// Interior separators keep the physical pixel in both themes. A rule between
+/// two rows and a frame around a panel are different objects — the frame says
+/// where the panel ends, and the separator only groups what is inside it, so
+/// the frame is the one that has to be seen.
+fn frame_width(theme: &Theme, scale: f32) -> f32 {
+    if theme.is_dark {
+        HAIRLINE
+    } else {
+        // `scale` is validated positive and finite before a frame is painted;
+        // `max` is belt-and-braces so a frame can never vanish entirely.
+        (HAIRLINE * scale).max(HAIRLINE)
+    }
+}
 
 /// Horizontal padding between the window edge and the strip's text, in
 /// logical pixels — the shared `1rem` horizontal scale.
@@ -977,11 +1059,12 @@ impl OverlayPainter {
                 ));
             }
         }
+        let frame = frame_width(theme, self.scale);
         chrome.push(RoundedQuad::new(
             band.x,
-            band.y + band.height - HAIRLINE,
+            band.y + band.height - frame,
             band.width,
-            HAIRLINE,
+            frame,
             hairline_color(theme),
             0.0,
         ));
@@ -1038,7 +1121,7 @@ impl OverlayPainter {
             0.0,
             strip_top,
             width_f,
-            HAIRLINE,
+            frame_width(theme, self.scale),
             hairline_color(theme),
             0.0,
         ));
@@ -1106,22 +1189,24 @@ impl OverlayPainter {
                 0.0,
                 width_f,
                 height_f,
-                Color::new(0.0, 0.0, 0.0, BACKDROP_ALPHA),
+                Color::new(0.0, 0.0, 0.0, backdrop_alpha(theme)),
                 0.0,
             ));
         }
         // The drop shadow: the same rounded shape, offset and blurred.
+        let shadow = shadow_for(theme);
         chrome.push(RoundedQuad::shadow(
             exterior.x,
-            SHADOW_OFFSET_Y.mul_add(self.scale, exterior.y),
+            shadow.offset_y.mul_add(self.scale, exterior.y),
             exterior.width,
             exterior.height,
-            Color::new(0.0, 0.0, 0.0, SHADOW_ALPHA),
+            Color::new(0.0, 0.0, 0.0, shadow.alpha),
             exterior.radius,
-            SHADOW_BLUR * self.scale,
+            shadow.blur * self.scale,
         ));
-        // The hairline border: the exterior in the border colour, with the
-        // opaque background inset one physical pixel over it.
+        // The frame: the exterior in the border colour, with the opaque
+        // background inset over it by the frame's own width.
+        let frame = frame_width(theme, self.scale);
         chrome.push(RoundedQuad::new(
             exterior.x,
             exterior.y,
@@ -1131,12 +1216,12 @@ impl OverlayPainter {
             exterior.radius,
         ));
         chrome.push(RoundedQuad::new(
-            exterior.x + HAIRLINE,
-            exterior.y + HAIRLINE,
-            2.0_f32.mul_add(-HAIRLINE, exterior.width),
-            2.0_f32.mul_add(-HAIRLINE, exterior.height),
+            exterior.x + frame,
+            exterior.y + frame,
+            2.0_f32.mul_add(-frame, exterior.width),
+            2.0_f32.mul_add(-frame, exterior.height),
             panel_background(theme),
-            (exterior.radius - HAIRLINE).max(0.0),
+            (exterior.radius - frame).max(0.0),
         ));
         for (index, row) in panel.rows.iter().enumerate() {
             if row.selected {
@@ -1771,6 +1856,77 @@ mod tests {
             let hairline = hairline_color(&theme);
             assert!((hairline.a - 1.0).abs() < f32::EPSILON);
         }
+    }
+
+    /// D-4's three black-ink constants, and the dark chrome they must not
+    /// disturb.
+    ///
+    /// ⭐ The point of each is stated as a *relation*, not as a number. A test
+    /// that only asserted `0.16` would still pass if the dark side moved to
+    /// `0.16` too, at which point the light chrome has stopped being a
+    /// separate decision and is just the dark chrome with the same values.
+    #[test]
+    fn the_light_chrome_takes_its_own_ink_constants() {
+        let dark = Theme::dark();
+        let light = Theme::light();
+
+        // The dark chrome is exactly what the web demo specifies, unmoved.
+        let dark_shadow = super::shadow_for(&dark);
+        assert!((dark_shadow.offset_y - 16.0).abs() < f32::EPSILON);
+        assert!((dark_shadow.blur - 48.0).abs() < f32::EPSILON);
+        assert!((dark_shadow.alpha - 0.55).abs() < f32::EPSILON);
+        assert!((super::backdrop_alpha(&dark) - 0.45).abs() < f32::EPSILON);
+
+        // The light shadow is hard and close where the dark one is a smear:
+        // every one of the three moves, and all three move *down*.
+        let light_shadow = super::shadow_for(&light);
+        assert!(light_shadow.offset_y < dark_shadow.offset_y);
+        assert!(light_shadow.blur < dark_shadow.blur);
+        assert!(light_shadow.alpha < dark_shadow.alpha);
+        assert!(
+            light_shadow.blur < 4.0,
+            "the era's shadow is a solid offset rectangle, not a blur"
+        );
+
+        // ⚠️ The dim must leave the page recognisably the page. 0.45 of black
+        // over `#EFEFEF` composites darker than the *dark* theme's own
+        // document background, which would make the modal the one thing on
+        // screen that inverts when you switch to light.
+        let dim = super::backdrop_alpha(&light);
+        assert!(dim < super::backdrop_alpha(&dark));
+        let dimmed = 1.0 - dim;
+        assert!(
+            light.editor.background.r * dimmed > dark.editor.background.r,
+            "the dimmed light page is darker than the dark theme's page"
+        );
+    }
+
+    /// The frame is one *logical* pixel in light and one *physical* pixel in
+    /// dark, which are the same thing only at 1×.
+    ///
+    /// ⚠️ Asserted at a scale factor above 1, because at 1× the ruling is
+    /// invisible: both spellings give 1.0, and a frame that ignored the theme
+    /// entirely would pass. The Retina case is the whole point of D-4's third
+    /// item.
+    #[test]
+    fn the_light_frame_is_a_logical_pixel_and_the_dark_one_is_not() {
+        let dark = Theme::dark();
+        let light = Theme::light();
+
+        assert!((super::frame_width(&dark, 1.0) - 1.0).abs() < f32::EPSILON);
+        assert!((super::frame_width(&light, 1.0) - 1.0).abs() < f32::EPSILON);
+
+        assert!(
+            (super::frame_width(&dark, 2.0) - 1.0).abs() < f32::EPSILON,
+            "the dark frame stays one device pixel however dense the display"
+        );
+        assert!(
+            (super::frame_width(&light, 2.0) - 2.0).abs() < f32::EPSILON,
+            "a Platinum frame is 1 px at 1×, so it is 2 physical on Retina"
+        );
+
+        // A frame can never vanish, whatever the scale.
+        assert!(super::frame_width(&light, 0.25) >= 1.0);
     }
 
     /// D-5 moved the border's alpha out of this file and into the theme. The

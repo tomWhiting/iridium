@@ -11,6 +11,7 @@ use iridium_lang::Language;
 
 use super::tests::{cursors_at, cursors_with, heads};
 use super::*;
+use crate::editor::CaretScopes;
 use crate::editor::Editor;
 
 /// All cursor selections in `all_selections` order, as
@@ -36,7 +37,14 @@ fn press(
     cursor: &mut CursorState,
     config: &EditorConfig,
 ) -> Option<Command> {
-    let result = handler.handle_key(event, document, cursor, &UndoTree::new(), config);
+    let result = handler.handle_key(
+        event,
+        document,
+        cursor,
+        &UndoTree::new(),
+        config,
+        &CaretScopes::none(),
+    );
     match result {
         KeyResult::Command(cmd) => {
             cmd.apply(document, cursor).expect("command must apply");

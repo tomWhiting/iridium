@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
+use crate::editor::CaretScopes;
 
 fn create_test_document() -> Document {
     Document::new("Hello World\nSecond Line\nThird Line")
@@ -54,6 +55,7 @@ fn press(
         cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
     match result {
         KeyResult::Command(cmd) => {
@@ -79,6 +81,7 @@ fn move_char_left() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -100,6 +103,7 @@ fn move_char_right() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -122,6 +126,7 @@ fn move_to_next_line() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -144,6 +149,7 @@ fn shift_extends_selection() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -168,6 +174,7 @@ fn ctrl_moves_by_word() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -191,6 +198,7 @@ fn char_insertion() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::Compound { commands }) = result {
@@ -212,6 +220,7 @@ fn backspace_deletes_char() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::Compound { commands }) = result {
@@ -233,6 +242,7 @@ fn home_moves_to_line_start() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -254,6 +264,7 @@ fn end_moves_to_line_end() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -276,6 +287,7 @@ fn escape_collapses_selection() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -299,6 +311,7 @@ fn up_arrow_with_sticky_column() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -323,6 +336,7 @@ fn ctrl_d_selects_word_first() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -349,6 +363,7 @@ fn ctrl_d_adds_next_match() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -381,6 +396,7 @@ fn escape_collapses_multi_cursor() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
@@ -845,6 +861,7 @@ fn copy_joins_selected_texts_with_line_ending() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     assert_eq!(
@@ -866,6 +883,7 @@ fn copy_collapsed_multi_cursor_copies_each_line() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     assert_eq!(
@@ -887,6 +905,7 @@ fn copy_collapsed_cursors_on_same_line_copy_line_once() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     assert_eq!(
@@ -911,6 +930,7 @@ fn cut_removes_all_selections() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
@@ -938,6 +958,7 @@ fn cut_collapsed_multi_cursor_removes_lines() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
@@ -972,6 +993,7 @@ fn cut_on_empty_document_still_updates_clipboard() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {
@@ -996,6 +1018,7 @@ fn cut_trailing_empty_line_removes_preceding_newline() {
         &cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
 
     let KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) = result else {

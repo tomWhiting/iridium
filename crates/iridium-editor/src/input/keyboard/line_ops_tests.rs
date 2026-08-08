@@ -11,6 +11,7 @@
 
 use super::tests::{cursors_at, cursors_with, heads};
 use super::*;
+use crate::editor::CaretScopes;
 
 /// All cursor selections in `all_selections` order, as
 /// `((anchor.line, anchor.column), (head.line, head.column))` pairs.
@@ -41,6 +42,7 @@ fn press(
         cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
     match result {
         KeyResult::Command(cmd) => {
@@ -799,6 +801,7 @@ fn ctrl_chords_with_alt_or_meta_do_not_trigger_line_ops() {
             &cursor,
             &UndoTree::new(),
             &EditorConfig::default(),
+            &CaretScopes::none(),
         );
         assert!(
             matches!(result, KeyResult::Ignored),

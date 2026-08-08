@@ -9,6 +9,7 @@
 
 use super::tests::{cursors_at, cursors_with, heads};
 use super::*;
+use crate::editor::CaretScopes;
 
 /// Ctrl+/ — toggle line comment.
 const LINE_TOGGLE: KeyEvent = KeyEvent::new(KeyCode::Char('/'), Modifiers::ctrl());
@@ -48,7 +49,14 @@ fn press(
     cursor: &mut CursorState,
     config: &EditorConfig,
 ) -> Option<Command> {
-    let result = handler.handle_key(event, document, cursor, &UndoTree::new(), config);
+    let result = handler.handle_key(
+        event,
+        document,
+        cursor,
+        &UndoTree::new(),
+        config,
+        &CaretScopes::none(),
+    );
     match result {
         KeyResult::Command(cmd) => {
             cmd.apply(document, cursor).expect("command must apply");
@@ -67,7 +75,14 @@ fn press_noop(
     cursor: &CursorState,
     config: &EditorConfig,
 ) {
-    let result = handler.handle_key(event, document, cursor, &UndoTree::new(), config);
+    let result = handler.handle_key(
+        event,
+        document,
+        cursor,
+        &UndoTree::new(),
+        config,
+        &CaretScopes::none(),
+    );
     assert_eq!(result, KeyResult::Handled);
 }
 

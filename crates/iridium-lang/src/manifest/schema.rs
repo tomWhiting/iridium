@@ -309,6 +309,35 @@ impl Manifest {
         })
     }
 
+    /// Every scope name this language's bracket rows mention in `not_in`, in
+    /// manifest order and with repeats.
+    ///
+    /// The *vocabulary* rather than the rules: [`Self::pairs_suppressed_in`]
+    /// answers "which pairs, in this scope", and can only be asked about a
+    /// scope somebody already knows the name of. This is what makes the set of
+    /// names knowable, and it exists because a consumer has to translate each
+    /// one into its own terms — the editor maps them onto highlight captures —
+    /// and a name it has never heard of is one it silently ignores.
+    ///
+    /// `None` when the language has no `brackets` key at all, the same
+    /// distinction the three rule accessors draw. A language with brackets and
+    /// no `not_in` anywhere yields an empty iterator: it has said, and the
+    /// answer is nothing.
+    ///
+    /// Unlike the rule accessors this reports **every** row, including those
+    /// with `close = false`. Filtering here would hide a name from the ratchet
+    /// that checks the vocabulary, which is the one thing this is for.
+    #[must_use]
+    pub fn suppression_scopes(&self) -> Option<impl Iterator<Item = &str>> {
+        Some(
+            self.fields
+                .brackets
+                .as_ref()?
+                .iter()
+                .flat_map(|bracket| bracket.not_in.iter().map(String::as_str)),
+        )
+    }
+
     /// The characters this language will insert a closing delimiter in front
     /// of, as the manifest spells them.
     ///

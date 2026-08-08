@@ -47,7 +47,7 @@
 
 use crate::commands::{CommandArgs, KeyPress, Resolution};
 use crate::document::{CursorState, Document};
-use crate::editor::EditorConfig;
+use crate::editor::{CaretScopes, EditorConfig};
 use crate::history::UndoTree;
 
 use super::KeyboardHandler;
@@ -74,6 +74,7 @@ impl KeyboardHandler {
         // churn for a field the next history-aware verb wants back.
         _history: &UndoTree,
         config: &EditorConfig,
+        scopes: &CaretScopes<'_>,
     ) -> (KeyResult, Option<KeyboardAction>) {
         // `resolver` and `keymap` are disjoint fields, so the mutable borrow of
         // the state machine coexists with the immutable borrow of the bindings.
@@ -92,6 +93,7 @@ impl KeyboardHandler {
                     document,
                     cursor,
                     config,
+                    scopes,
                 };
                 match action_for(id.as_str()) {
                     Some(action) => (self.run_action(action, &ctx), Some(action)),
@@ -118,6 +120,7 @@ impl KeyboardHandler {
                     document,
                     cursor,
                     config,
+                    scopes,
                 };
                 self.fall_through(&ctx)
             },

@@ -9,6 +9,7 @@
 
 mod delta;
 mod expand;
+mod scope;
 mod state;
 #[cfg(feature = "syntax")]
 mod textobject;
@@ -17,4 +18,5 @@ mod walk;
 
 pub use delta::SyntaxDelta;
 pub use expand::ExpandStack;
+pub use scope::CaretScopes;
 pub use state::SyntaxState;

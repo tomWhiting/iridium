@@ -53,7 +53,7 @@ pub(super) use table::{IMPLEMENTED_COMMAND_COUNT, implemented_ids};
 
 use crate::commands::CommandArgs;
 use crate::document::{CursorState, Document};
-use crate::editor::EditorConfig;
+use crate::editor::{CaretScopes, EditorConfig};
 
 use super::types::KeyEvent;
 
@@ -88,6 +88,25 @@ pub(super) struct CommandContext<'a> {
     /// The behaviour configuration (tab width, auto-indent, auto-pairs, comment
     /// token fallback).
     pub config: &'a EditorConfig,
+    /// What the text at a byte offset is syntactically inside.
+    ///
+    /// Read by exactly one command —
+    /// [`EDIT_INSERT_CHARACTER`](crate::commands::builtin::EDIT_INSERT_CHARACTER)
+    /// — for the manifests' `not_in` rule: a bracket a language switches off
+    /// inside strings must not auto-close there.
+    ///
+    /// ⚠️ **A borrowed resolver rather than a resolved answer**, and the
+    /// difference matters twice. It is asked **per caret**, because
+    /// multi-cursor puts one caret in a string and another in code in the same
+    /// edit and a single answer would suppress a pair the language permits.
+    /// And it is asked **lazily**, because answering costs a document-sized
+    /// allocation and a tree-sitter query, which no arrow key should pay.
+    ///
+    /// [`CaretScopes::none`] is the honest value wherever there is no parse
+    /// tree — the parser-free kernel, the browser face, a language with no
+    /// grammar. Under ruling B-6 it means *unknown*, and unknown suppresses
+    /// nothing.
+    pub scopes: &'a CaretScopes<'a>,
 }
 
 /// One built-in command, as a `Copy` token.

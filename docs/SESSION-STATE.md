@@ -3486,3 +3486,102 @@ being cold — **not taken unilaterally**; flag it if free space nears a band.
 
 Working tree clean apart from `?? .claude/skills/`, untracked at session start
 and not mine.
+
+---
+
+# TICK — 8 Aug, post-compaction — #84 closed
+
+Updates the baton above: the sweep ledger and the open-work list both move.
+
+## What ran
+
+Baton step 1 (Meridian) — attempt 17, sent, reporting #84.
+Baton step 2 — `MANIFOLD-EDITOR-READ.md` already read; not re-derived.
+Baton step 3 — the uniqueness sweep, which produced #84.
+
+## #84 — CLOSED (`24d6f266`)
+
+Full write-up: **`docs/IN-FLIGHT-host-command-ids.md`**.
+
+`actions/mod.rs:10` claimed its table was the only place an id string is tied
+to behaviour. False three ways; two harmless (`workspace/dispatch.rs` and each
+face's host-command dispatch both name the constants), one not — the browser
+compared `request.command === "palette.open"` against a TypeScript literal.
+
+**The divergence case:** rename `PALETTE_OPEN` and every Rust face fails to
+compile while TypeScript compiles, type-checks, passes 104 tests and silently
+stops opening the palette. The chord is still consumed, so it is a dead key
+with an alibi. **Nothing was wrong today** — both literals matched. A fix to
+the mechanism, said plainly as such in the commit and the write-up.
+
+Fix: `iridium-bindings/src/host_commands.rs` (`HostCommandIds`, native-testable,
+not `feature = "web"` gated) + a free `hostCommandIds()` wasm export, read once
+in `doCreate` beside `sanitizePixelRatio`, exposed as `editor.hostCommands`.
+Consumed by `element/index.ts`, `Iridium.tsx` and `App.tsx`.
+
+**Oracle proven red**: `palette_open` set to `"palette.show"` — what a rename
+leaves behind — fails both new tests and prints the diverging sets.
+
+⚠️ **`pkg/` is gitignored.** Rebuilt on this box (`wasm-pack build
+crates/iridium-bindings --target web --features web --no-default-features`,
+exit 0, `hostCommandIds` present in the `.js` and the `.d.ts`). Anyone else
+running the demo must rebuild or `doCreate` throws on a missing export.
+
+## ⭐ Rule G — a uniqueness claim can be false in ways that do not matter, and the one that matters hides behind them
+
+`actions/mod.rs` was wrong about the workspace dispatcher and about every
+face's host-command handler. Both of those are fine — they name the constants.
+Stopping at "the claim is false, here are two counter-examples" would have
+closed the lead with the real one unfound. **Enumerate every counter-example,
+then ask which of them lacks the property the claim was reaching for.**
+
+## The uniqueness sweep — updated ledger
+
+**Checked and sound (12):** the eight in the baton, plus
+`iridium-tui/src/input.rs:28` ("this crate defines no key type of its own" —
+verified, the three types in `input/` sort events and carry kernel or foreign
+types) · `matches.rs:19` (a reasoning claim about ordering, not a uniqueness
+claim; the linear filter is correct either way) · `workspace/model.rs:282`
+(true by borrowck) · `frame/line.rs:3` (column↔cell conversion; `cell/grapheme.rs`
+computes cluster *width*, a lower-level primitive it builds on, not a
+second conversion).
+
+**Checked and wrong (4):** `wasm.rs:1164` → #81 · `windowed.rs:120` →
+`dc72b23c` · **`actions/mod.rs:10` → #84** · **`file_tree/panel.rs:346` →
+corrected in `24d6f266`** (`keys.rs:148`'s `clear_query` is a second write to
+`self.pattern`; no defect, it writes the one value that needs no query to
+know and drops the query text in the same breath, but a reader auditing the
+two for consistency would have stopped after finding one).
+
+**Unchecked (~8):** `iridium-tui/src/input.rs:183` · `expand.rs:197`
+(`Region::of` the single place the text-object mapping lives) ·
+`apps/iridium-desktop/src/commands.rs:76` (⚠️ **the best remaining lead** —
+"the one place this face takes a chord *away* from the default keymap"; the
+doc itself says a rebinding that silently deletes a feature is worse than the
+bug it fixes, and `reachability_tests.rs` / `binding_is_reachable` exist to
+check exactly this) · `app/mod.rs:12` · `apps/iridium/src/app/mod.rs:292` ·
+`compositor/mod.rs:1` · `suffix.rs:21`.
+
+## Gate state
+
+**All nine green. 2,535 passed, 0 failed** (up two — both new).
+TypeScript: `deno check src/element/index.ts` clean · `bun test src/` **104
+passed** · `tsc --noEmit` clean in `examples/web` (the only thing that
+compiles the `IridiumHandle` change).
+
+⚠️ The TS gates run from `packages/@iridium/core`, and the suite is **bun**,
+not `deno test`.
+
+## Open work — unchanged except
+
+- **#84 closed.** Everything else on the baton's list stands.
+- **Blocked on Tom:** L-0..L-8 · D-1..D-8 · #58's three keys · #64 · #70's six
+  colours · #74's pin · Cally's hook · nineteen grammar repos · **B-2** ·
+  **B-5** · **#82** · the `cargo doc` pair.
+
+## Box
+
+Load **44.7** at tick open — high, and not this seat's. The sweep itself is
+read-only and cost nothing; the nine gates plus a `wasm-pack` release build
+did cost. Disk not re-measured this tick; the baton's correction stands —
+`cargo clean` would reclaim ~10.5 GB and is **not taken unilaterally**.

@@ -4886,3 +4886,69 @@ ref and discard commits.
 file*, so it is **per-branch by construction**, while the refs it protects are
 **per-repo**. Tracked is still the right choice — it survives a clone and a repo
 move — but a branch cut before the marker lands is outside the guard.
+
+---
+
+## ⚠️ The guard install is HELD — the claim predicate changed underneath it
+
+⛔ **Nothing was committed. Do not commit `.shared-tree`, and do not commit
+`.githooks/reference-transaction` either.** The operational detail lives in
+**task #89**; this section records only why, because the *why* is a third
+specimen of Rule M and the sharpest of the three.
+
+Waffles ruled at docs `f3016c7`, **2026-08-08 07:13:49 +1000**, that the claim
+is **no longer a tracked file**. It is a ref — `refs/guards/shared-tree` in the
+repository's common ref store, pointing at a blob recording seat, date and
+scope, on the `refs/rescue/*` precedent. Ruling point 5: the tracked markers are
+**deleted** at migration, not paralleled, because *a surviving tracked marker is
+a second mechanism answering the settled question*.
+
+Cally instructed *"place the marker"* about thirty-five minutes after that
+ruling landed, having lost it across a compaction, and retracted about four
+minutes after re-checking. **Nothing landed here only because this seat was
+holding for the S-3 slice — luck, not judgement, and it is recorded as luck.**
+
+### ⭐ The half the retraction missed, and the reason it is worth reading twice
+
+Her retraction said the mode-bit half survived untouched. It does not. The hook
+keys on the file:
+
+```sh
+root=$(git rev-parse --show-toplevel)
+[ -f "$root/.shared-tree" ] || exit 0
+```
+
+Under the ref ruling that file never exists again — so a hook committed at
+today's revision takes `exit 0` on **every reference transaction, for ever**:
+tracked, executable, correct mode, passing a travel-and-mode audit, and
+**structurally incapable of firing**.
+
+> **Rule M, third specimen — and the worst kind.** The `ci.yml` case was a file
+> that lied by existing. The sweep case was an instrument that would have lied
+> by passing. This one is a guard that lies by *refusing nothing*, and unlike
+> the other two **there is no counter to read a zero off** — a passing gate at
+> least produces a number somebody can interrogate.
+
+⭐ **The general shape, which is the thing to carry forward:** a predicate that
+cannot match is indistinguishable from an absence of the thing it looks for.
+Cally's `claiming: 0` hunted `.shared-tree` while the ruled object is a ref, so
+her instrument became an example of the law it was written to enforce. **Do not
+cite that run.** And the denominator was wrong in a second way: **82 checkouts
+across 66 distinct repositories**, and under a per-repo ref the correct
+denominator is 66. This seat restated her figure as "82 repos" without asking
+what the unit was; that restatement is ours, not hers.
+
+⚠️ **`claiming: N` is never coverage.** The sweep measures *claims*, not
+*obligations* — it cannot distinguish a repo that is correctly unclaimed from
+one that should claim the guard and does not, and no work on the sweep closes
+that, because the information is in no repository. Rule M's second clause,
+earned here: **a population is only meaningful if it is the set the reader
+thinks it is.**
+
+### The process note worth more than the near-miss
+
+Two seats both worked from a thirty-five-minute-old artefact neither had
+re-read, across a compaction. The recovery was not that either of us verified
+harder — it was that the mistake was **chased immediately after dispatch and
+said out loud**, and the loop closed in about four minutes with nothing landed.
+Protect that property. A wrong instruction chased beats an uncertain one sat on.

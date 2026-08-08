@@ -1,6 +1,6 @@
 {
   "name": "iridium-bindings",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "TypeScript/WASM bindings for the Iridium GPU-accelerated text editor",
   "main": "./pkg/iridium_bindings.js",
@@ -43,7 +43,6 @@
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "build:syntax": "deno run -A scripts/inline-grammars.ts",
-
     "test": "echo \"No tests yet\"",
     "universal": "napi universal"
   },

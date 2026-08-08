@@ -1,6 +1,6 @@
 {
   "name": "@iridium-editor/syntax-worker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Web Worker for tree-sitter syntax highlighting - moves parsing off the main thread",
   "exports": {
@@ -35,7 +35,7 @@
     "url": "https://github.com/tomWhiting/iridium"
   },
   "peerDependencies": {
-    "@iridium-editor/core": "^0.1.0"
+    "@iridium-editor/core": "^0.2.0"
   },
   "dependencies": {
     "web-tree-sitter": "0.25.6"

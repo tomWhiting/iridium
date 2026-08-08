@@ -357,6 +357,21 @@ export interface IridiumEditorOptions {
   language?: string;
   /** Use dark theme (default: true) */
   darkTheme?: boolean;
+  /**
+   * Focus the canvas once the editor is ready (default: true).
+   *
+   * ⚠️ Set this to `false` when the editor is not the only thing on the page.
+   * `initialize()` used to focus unconditionally, which meant an editor
+   * mounting beside a live input **stole the caret mid-typing** and ate the
+   * keystrokes that followed — a host cannot defend against it, because the
+   * steal happens inside `create()` before any handle exists to call `blur()`
+   * on.
+   *
+   * The default stays `true`: an editor that mounts alone and cannot be typed
+   * into until it is clicked is the more common complaint, and every existing
+   * consumer was written against focus-on-ready.
+   */
+  autoFocus?: boolean;
   /** Font URL to load (default: FiraCode from CDN) */
   fontUrl?: string;
   /**
@@ -559,6 +574,7 @@ export class IridiumEditor {
       content: options.content ?? "",
       language: options.language ?? "rust",
       darkTheme: options.darkTheme ?? true,
+      autoFocus: options.autoFocus ?? true,
       fontUrl: options.fontUrl ?? "https://cdn.jsdelivr.net/npm/firacode@6.2.0/distr/ttf/FiraCode-Regular.ttf",
       enableSyntaxWorker: options.enableSyntaxWorker ?? false,
       onChange: options.onChange,
@@ -741,8 +757,11 @@ export class IridiumEditor {
     // Initial render
     this.editor.forceRender();
 
-    // Focus the canvas
-    this.canvas.focus();
+    // Focus the canvas, unless the host asked us not to. See `autoFocus`:
+    // mounting beside a live input used to steal the caret mid-typing.
+    if (this.options.autoFocus) {
+      this.canvas.focus();
+    }
   }
 
   private attachEventHandlers(): void {

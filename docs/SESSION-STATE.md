@@ -1265,10 +1265,25 @@ from.
 `support::pixels::assert_same_frame` replaces all 25. On failure it now says:
 
 ```
+⚠️ EXAMPLE ONLY — INVENTED NUMBERS, NOT A CAPTURED RUN. See the marker below.
 the custom-gutter frame must be byte-identical
   1 of 393216 pixels differ; the first at column 3, row 2; they span
   columns 3..=3 and rows 2..=2; the largest single channel difference is 23
 ```
+
+⛔⛔ **MARKED 8 Aug 2026 — THIS BLOCK WAS LATER CITED AS AN OBSERVATION AND IT IS
+NOT ONE.** It was hand-written here to demonstrate the message format; nothing
+was running. `docs/IN-FLIGHT-69-flaky-gutter.md` went on to quote it as *"the
+one occurrence on record"* and reasoned from it. ⭐ **The population is what
+gives it away: every readback target in the suite is 512 × 384 = 196,608
+pixels, so no run of this test can print 393,216.** #69 has, and has always
+had, **no recorded signature** — see `docs/SESSION-STATE.md` above at the
+original report, which records only "flaky under box load".
+
+⭐ **An illustration placed in a record is indistinguishable from a measurement
+once the surrounding prose is gone.** The framing words "it now says" do not
+survive being quoted. Mark invented numbers *at the numbers*, never only in the
+sentence above them.
 
 Count, position, area and magnitude — which is the difference between "the
 glyph atlas packed differently" and "this is a regression". The message is

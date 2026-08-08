@@ -12,7 +12,9 @@ use iridium_editor::pattern::Pattern;
 use iridium_explorer::{FileTree, NodeId};
 use iridium_tree::{Tree, TreeSource as _};
 
+use super::buffer::Buffer;
 use super::filter::{FilterView, filter};
+use super::mode::Mode;
 use crate::project::chosen_root;
 use crate::prompt::Entry;
 
@@ -127,6 +129,13 @@ pub struct FileExplorer {
     /// A home directory has no ignore rules and its first twenty thousand
     /// directories are application support files.
     pub(super) crawl: bool,
+    /// Whether the panel is browsing, editing its rows as text, or showing
+    /// what those edits would do.
+    ///
+    /// The buffer lives *inside* the editing modes rather than beside them, so
+    /// there is no state here that has to agree with it; see [`super::mode`].
+    /// Browse is what every panel opens in and what it returns to.
+    pub(super) mode: Mode,
 }
 
 impl FileExplorer {
@@ -160,7 +169,21 @@ impl FileExplorer {
             view: FilterView::default(),
             filtered: 0,
             crawl,
+            mode: Mode::Browse,
         })
+    }
+
+    /// Whether the panel is holding edits that have not been applied.
+    ///
+    /// ⚠️ **The host asks before it drops the panel.** [`Mode::leave`] is the
+    /// rule for every exit the panel itself owns, but a click outside the
+    /// panel and a second press of the toggle command both reach for the
+    /// `Option` holding it and never ask this module anything. Without this
+    /// they would throw a buffer full of work away with no keystroke that
+    /// meant it, which is the one loss `mode` exists to prevent.
+    #[must_use]
+    pub fn has_unapplied_edits(&self) -> bool {
+        self.mode.buffer().is_some_and(Buffer::is_dirty)
     }
 
     /// Points the panel at `root`, throwing away everything that was about
@@ -183,6 +206,13 @@ impl FileExplorer {
     /// Whether searching may read past the new root is
     /// [`crate::project::chosen_root`]'s answer, not this function's — a
     /// directory somebody walked into is a directory somebody bounded.
+    ///
+    /// ⚠️ **Replacing the whole struct replaces [`Self::mode`] with it**, so
+    /// an editing session reaching here would be dropped without being asked
+    /// about. Nothing can: the keys that re-root are bound in the browse table
+    /// only, and [`super::edit_keys`] takes every key before that table is
+    /// reached while a session is open. That is the guard, and it is
+    /// structural rather than a check here that could be forgotten.
     pub(super) fn reroot(&mut self, root: &Path) -> ExplorerOutcome {
         let chosen = chosen_root(root.to_path_buf());
         let opened = match Self::open(chosen.path, chosen.crawl) {

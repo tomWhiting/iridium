@@ -1,11 +1,11 @@
 //! What the panel is doing: browsing, editing, or confirming.
 //!
-//! Step 4b of `docs/IN-FLIGHT-oil.md`, minus its keys. The build order there
-//! puts the dangerous logic first and fully tested, before any of it is
-//! reachable from a keyboard — `plan` and `apply` were built that way and this
-//! follows them. **Nothing in this module names a key**, so the three bindings
-//! still waiting on a ruling are one table row each whenever they arrive, and
-//! none of them can change what is written here.
+//! Step 4b of `docs/IN-FLIGHT-oil.md`. The build order there puts the
+//! dangerous logic first and fully tested, before any of it is reachable from
+//! a keyboard — `plan` and `apply` were built that way and this followed them.
+//! **Nothing in this module names a key**: [`super::edit_keys`] is where the
+//! four ruled bindings turn into calls, and it can be rewritten without any of
+//! the answers here changing.
 //!
 //! # Why the buffer lives inside the mode
 //!
@@ -34,6 +34,8 @@
 
 use super::buffer::{Buffer, SourceRow};
 use super::plan::{Plan, Refusal};
+use super::session::{Confirming, Editing};
+use crate::prompt::Entry;
 
 /// What the panel is doing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -46,30 +48,6 @@ pub enum Mode {
     Edit(Editing),
     /// Looking at what the edits would do, before any of it happens.
     Confirm(Confirming),
-}
-
-/// The state of an editing session.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Editing {
-    /// The rows as loaded and as they now read.
-    pub buffer: Buffer,
-    /// Why the last attempt to confirm was turned down, or empty.
-    ///
-    /// Held rather than returned and forgotten: a refusal is something the
-    /// panel keeps *showing* until the edit that caused it is fixed, so it is
-    /// state. Cleared on every edit, because a refusal that outlives its cause
-    /// is worse than none — it points at a problem that is no longer there.
-    pub refusals: Vec<Refusal>,
-}
-
-/// The state of a confirmation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Confirming {
-    /// The buffer that produced the plan, kept so that going back returns to
-    /// the edits rather than to the rows as they were loaded.
-    pub buffer: Buffer,
-    /// What would happen.
-    pub plan: Plan,
 }
 
 /// What came of asking to confirm.
@@ -117,20 +95,30 @@ impl Mode {
         match self {
             Self::Browse => None,
             Self::Edit(editing) => Some(&editing.buffer),
-            Self::Confirm(confirming) => Some(&confirming.buffer),
+            Self::Confirm(confirming) => Some(&confirming.editing.buffer),
         }
     }
 
-    /// The buffer to edit, if the mode is one that may be edited.
+    /// Which buffer row is being edited, if one is.
     ///
-    /// ⚠️ `Confirm` deliberately answers `None` even though it holds a buffer.
-    /// A confirmation screen states what *will* happen; letting a key mutate
-    /// the buffer underneath it would leave the displayed plan describing
-    /// something else, and the plan is not recomputed until the user goes back.
-    /// So the two are separated here rather than by a rule in `keys`.
-    pub const fn buffer_mut(&mut self) -> Option<&mut Buffer> {
+    /// Answers only in [`Mode::Edit`]. A confirmation draws the plan rather
+    /// than the rows, so it has no cursor to place and nothing may move one.
+    #[must_use]
+    pub const fn cursor(&self) -> Option<usize> {
         match self {
-            Self::Edit(editing) => Some(&mut editing.buffer),
+            Self::Edit(editing) => Some(editing.cursor),
+            Self::Browse | Self::Confirm(_) => None,
+        }
+    }
+
+    /// The edited name under the cursor, for drawing its caret.
+    ///
+    /// `None` both when nothing is being edited and when the row under the
+    /// cursor holds a name the field cannot; see [`Editing::name`].
+    #[must_use]
+    pub const fn name(&self) -> Option<&Entry> {
+        match self {
+            Self::Edit(editing) => editing.name.as_ref(),
             Self::Browse | Self::Confirm(_) => None,
         }
     }
@@ -166,20 +154,96 @@ impl Mode {
         if self.is_editing() {
             return false;
         }
-        *self = Self::Edit(Editing {
-            buffer: Buffer::load(source),
-            refusals: Vec::new(),
-        });
+        *self = Self::Edit(Editing::new(source));
         true
+    }
+
+    /// The session being edited, if the mode is one that may be edited.
+    ///
+    /// ⚠️ `Confirm` deliberately answers `None` even though it holds a session.
+    /// A confirmation screen states what *will* happen; letting a key mutate
+    /// the rows underneath it would leave the displayed plan describing
+    /// something else, and the plan is not recomputed until the user goes back.
+    /// So the two are separated here rather than by a rule in `edit_keys`.
+    ///
+    /// The verbs on the far side of it are [`Editing`]'s, and every one of them
+    /// is a no-op for the panel when this is `None` — which is what the thin
+    /// wrappers below are for: a call site that had to unwrap this first would
+    /// be a call site that could forget which mode it was in.
+    pub const fn editing_mut(&mut self) -> Option<&mut Editing> {
+        match self {
+            Self::Edit(editing) => Some(editing),
+            Self::Browse | Self::Confirm(_) => None,
+        }
+    }
+
+    /// Puts the cursor on `index`; see [`Editing::seat`].
+    pub fn seat(&mut self, index: usize) {
+        if let Some(editing) = self.editing_mut() {
+            editing.seat(index);
+        }
+    }
+
+    /// Whether the row under the cursor was typed; see
+    /// [`Editing::cursor_is_typed`].
+    #[must_use]
+    pub fn cursor_is_typed(&self) -> bool {
+        matches!(self, Self::Edit(editing) if editing.cursor_is_typed())
+    }
+
+    /// Changes the name under the cursor; see [`Editing::edit_name`].
+    pub fn edit_name(&mut self, change: impl FnOnce(&mut Entry) -> bool) -> bool {
+        self.editing_mut()
+            .is_some_and(|editing| editing.edit_name(change))
+    }
+
+    /// Moves the caret within that name; see [`Editing::move_caret`].
+    pub fn move_caret(&mut self, motion: impl FnOnce(&mut Entry) -> bool) -> bool {
+        self.editing_mut()
+            .is_some_and(|editing| editing.move_caret(motion))
+    }
+
+    /// Strikes the row under the cursor through, or unstrikes it; see
+    /// [`Editing::toggle_deleted`].
+    pub fn toggle_deleted(&mut self) -> bool {
+        self.editing_mut().is_some_and(Editing::toggle_deleted)
+    }
+
+    /// Types a new row below the cursor; see [`Editing::insert_row`].
+    pub fn insert_row(&mut self) -> Option<usize> {
+        self.editing_mut().and_then(Editing::insert_row)
+    }
+
+    /// Takes a typed row back out; see [`Editing::remove_typed_row`].
+    pub fn remove_typed_row(&mut self) -> bool {
+        self.editing_mut().is_some_and(Editing::remove_typed_row)
+    }
+
+    /// Arms the next escape to discard; see [`Editing::arm_discard`].
+    pub const fn arm_discard(&mut self) -> bool {
+        match self.editing_mut() {
+            Some(editing) => editing.arm_discard(),
+            None => false,
+        }
+    }
+
+    /// Forgets that an escape was refused, so the next one asks again.
+    ///
+    /// Called for every key that is not the second escape. A question the user
+    /// walked away from must not still be answerable later by an escape they
+    /// meant as "stop editing".
+    pub const fn disarm_discard(&mut self) {
+        if let Some(editing) = self.editing_mut() {
+            editing.discard_armed = false;
+        }
     }
 
     /// Records that the buffer was edited.
     ///
     /// Clears any refusal, because a refusal names a problem in the rows and
-    /// the rows have just changed. Callers that reach the buffer through
-    /// [`Self::buffer_mut`] call this straight after; it is separate from that
-    /// accessor because a borrow cannot both hand out the buffer and observe
-    /// what was done to it.
+    /// the rows have just changed. The verbs on [`Editing`] do this for
+    /// themselves; this is for the caller that has changed nothing and only
+    /// wants the refusal off the screen — the escape that dismisses one.
     pub fn note_edit(&mut self) {
         if let Self::Edit(editing) = self {
             editing.refusals.clear();
@@ -203,13 +267,14 @@ impl Mode {
             Ok(plan) if plan.is_empty() => Confirmation::NothingToDo,
             Ok(plan) => {
                 *self = Self::Confirm(Confirming {
-                    buffer: editing.buffer.clone(),
+                    editing: editing.clone(),
                     plan,
                 });
                 Confirmation::Ready
             },
             Err(refusals) => {
                 editing.refusals = refusals;
+                editing.discard_armed = false;
                 Confirmation::Refused
             },
         }
@@ -223,10 +288,10 @@ impl Mode {
         let Self::Confirm(confirming) = self else {
             return false;
         };
-        *self = Self::Edit(Editing {
-            buffer: confirming.buffer.clone(),
-            refusals: Vec::new(),
-        });
+        let mut editing = confirming.editing.clone();
+        editing.refusals.clear();
+        editing.discard_armed = false;
+        *self = Self::Edit(editing);
         true
     }
 

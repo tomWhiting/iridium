@@ -34,18 +34,6 @@
 //! unrecoverable one. What the caller gets is exactly how far it got, so the
 //! panel can re-read the directory and show the truth.
 
-// Step 2 of #58, and nothing calls it yet — the panel's confirmation view is
-// the caller. Scoped to the non-test build because the tests below do exercise
-// every item; when a real caller lands this expectation goes unfulfilled and
-// the build warns, so it removes itself.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 2 of the editable file list; wired up by the confirmation view"
-    )
-)]
-
 use std::fs;
 use std::io;
 use std::path::Path;

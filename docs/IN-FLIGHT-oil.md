@@ -412,20 +412,16 @@ second depth-0 row is a sibling of the root with nowhere to live and every plan
 comes back `Refused`.
 
 ## Still to do
-4b-keys. Wiring `mode` into `keys` and drawing editable rows. **Needs the three
-    rulings below** — the logic behind it is done.
+
 5. `⌘O`, and the apply-or-discard prompt on a filter change. `leave` already
     provides the whole mechanism.
 
-### Blocked on Tom (asked, twice)
+### The rulings, in hand
 
-1. **What enters edit mode?** Every plain character goes to the filter, so it
-   cannot be a letter. `Tab` is unbound here.
-2. **How is a row marked deleted, and how is one created?** `Ctrl+D` to strike
-   through; `Ctrl+N` is taken by *move down*, so "new row" needs another key.
-3. **What applies?** `⌘S` reads as "save this buffer", which is the oil idea.
-
-Told him I will take my own suggestions on any he does not care about.
+1. **`Tab`** enters edit mode.
+2. **`Ctrl+D`** strikes a row through; **`Ctrl+Enter`** types a new one —
+   `Ctrl+N` was already *move down*, which is why it could never be that.
+3. **`⌘S`** asks for the confirmation. It does **not** apply; `y` does.
 
 ---
 
@@ -472,3 +468,123 @@ growing `keys.rs` toward the 500-line bar.
 ⛔ **Not started: no file under `file_tree/` has been modified.** This is a read
 of the integration points, and it is written down because a partially wired key
 table on a panel that DELETES FILES is the one state worse than an unwired one.
+
+---
+
+## 4b-keys — DONE. `edit_keys.rs` + `session.rs`, 29 tests
+
+The rulings landed, the wiring went in, and **`mod.rs`'s scoped
+`#[allow(dead_code)]` is gone**, along with the four `cfg_attr(not(test),
+expect(dead_code))` headers on `plan`, `apply`, `confirm` and `buffer`. Nothing
+under `file_tree/` carries a lint bypass any more, which was the whole point of
+writing them as self-removing.
+
+### The branch, not four arms
+
+`handle_key` now opens with `if self.mode.is_editing() { return
+self.handle_edit_key(event) }`, ahead of the match. Only `Tab` is an arm in the
+browse table, because it is the one of the four pressed while still browsing.
+
+`edit_keys` splits three ways by **what is on the screen** — the rows, a
+refusal, or a confirmation — and asks it of the state that can only be true on
+one of them: a plan exists only while confirming, a refusal only while one is
+showing, a cursor only while the rows are. `compose::content` asks the same
+three questions in the same order, so the keys and the drawing cannot disagree
+about which screen is up.
+
+### Six things that had no answer before, and now do
+
+- **The edit cursor.** Nothing anywhere held one. `Editing` gained a `cursor`
+  into `Buffer::rows` and an `Entry` seeded from that row's name, and
+  `Editing::seat` is the **only** place either moves — so the field and the row
+  it describes cannot drift. A name the `Entry` cannot hold (a control
+  character in a filename, which a filesystem permits) leaves the field at
+  `None` and the row uneditable, rather than seeding a filtered copy that the
+  next keystroke would write back as a rename nobody asked for.
+- **Where a typed row lands.** `SourceRow` gained `open` — whether the row is
+  drawn *showing its contents* — and the session keeps the open folders' paths.
+  A row typed under a closed folder goes beside it. ⚠️ This is the one
+  placement mistake `plan` **cannot** catch: a typed row has no origin, so
+  there is no real nesting to check the drawn nesting against.
+- **`Leaving::Unsaved` had no way to be asked about.** `ExplorerOutcome` has no
+  "ask a question" variant and `prompt::Deed` is the wrong shape (recorded
+  above). The answer is two presses of one key: the first `esc` reports the
+  refusal, the second discards, and **any other key in between disarms it** so
+  a question walked away from cannot be answered by an escape meant as "stop
+  editing".
+- **The host paths that dropped the panel without asking.** A click outside it
+  (`pointer.rs`) and a second `explorer.togglePanel` (`host_commands.rs`) both
+  reached straight for the `Option`. `FileExplorer::has_unapplied_edits` is
+  what they ask now.
+- **Stale rows after an apply.** `reload_touched` re-reads the parent of every
+  operation path, both ends of a rename included. Without it a second session
+  carries origins naming files that have moved, and a create-then-delete that
+  reused a name would produce a delete naming a *different* file.
+- **Strike-through, which does not exist.** `Span` is text and a colour, and
+  the painter lays glyphs on a fixed grid, so combining marks would not
+  advance-match it. A struck row is `change_deleted` with a `✗` in the marker
+  column and a typed one `change_added` with a `+` — the same two colours
+  `confirm` already spends, and a marker because colour alone is not a
+  distinction everyone can see and this one destroys a directory tree.
+
+### ⚠️ Two data-loss bugs in `plan.rs` that `Ctrl+D` made reachable
+
+Both were one keystroke away the moment a strike key existed, and both are
+fixed here with the key that reaches them.
+
+**A delete named the row's *original* path, and deletes run last.** Rename a
+folder and strike a file inside it and the delete looks for a path the rename
+has just emptied — the run stops half-applied. Worse: swap two folders `a` and
+`b` (a cycle, routed through a temporary and resolved correctly) and strike
+`a/x`, and afterwards `/project/a` **is the directory that was `/project/b`**,
+so the delete removes the file the user knows as `b/x` — a live file they never
+marked, while the confirmation showed them `delete a/x`. A delete's path is now
+the row's original *name* under its parent's *future* path, which is the
+derivation renames already used.
+
+**A row typed inside a struck-through one** was planned as a create. Under a
+typed folder that is never made, it fails on a path with no parent and stops
+the run; under an existing one it is made and then removed again. Refused, not
+dropped — the rows say to make something. A *rename* out of a struck folder is
+still planned, which is what "deletes last" exists for, and there is a test
+holding that open.
+
+### Two modules split out, and two items deleted
+
+`mode.rs` was heading past the 500-line bar and had grown a second subject, so
+everything true *while* a session is open — the cursor, the field, the verbs —
+went to `session.rs`. `plan.rs` was already over it at 545 and my additions
+made that worse, so the ordering half (`assemble`, the cycle-breaking, the
+temporary) went to `order.rs`. Every production file under `file_tree/` is now
+under 500.
+
+`FileExplorer::buffer()` and `Buffer::discard` were both left with no caller by
+the wiring — `Mode::begin_edit` loads the rows itself, and discarding is
+`Mode::discard`, which drops the whole session. Deleting them was the
+alternative to a module-wide "this is all dead" attribute that would have been
+a lie. Their tests kept their claims: the discard tests became
+`renaming_a_row_makes_the_buffer_dirty_and_renaming_it_back_cleans_it` and
+`taking_back_an_insertion_and_an_edit_and_a_strike_leaves_what_loaded`, which
+say the same thing about dirtiness being a comparison and are stronger for not
+needing the method.
+
+### What is deliberately not bound in edit mode
+
+`Enter` (it returns `Open`, and the host answers that by dropping the panel),
+`⌘↑`/`⌘↓` (re-rooting replaces the whole struct, mode and all), and `←`/`→` as
+tree keys (expanding changes the row source the buffer is a snapshot of — they
+move the caret in the name instead, and `Home`/`End` go with them). All are
+swallowed, and `reroot`'s doc now records that the guard is structural.
+
+### Known and written down rather than discovered
+
+- **Apply runs on the frame thread.** Every other read in this panel is posted
+  to a worker. A large `remove_dir_all` holds the window for as long as it
+  takes. It must not interleave with the polling that would redraw the rows
+  underneath it, and a half-applied plan drawn as though it had finished is
+  worse than a pause — but it is a cost, and it is `apply_confirmed`'s doc.
+- **A name wider than the panel** is truncated with an ellipsis and its caret
+  parks on the last column; there is no per-row horizontal scroll.
+- `plan_tests.rs`, `buffer_tests.rs` and `edit_keys_tests.rs` are over 500
+  lines. They were already, and splitting a suite by size rather than by
+  subject makes it harder to read, not easier.

@@ -34,33 +34,17 @@
 //! either side of that rename are computed against where its parent will be
 //! *by then*. Parents are therefore always ordered before their children.
 //!
-//! # Ordering is not a tidiness question
+//! # Ordering is somebody else's job
 //!
 //! Renaming `a` to `b` and `b` to `c` in the order typed destroys the original
-//! `b`. Siblings are topologically sorted so that a name is vacated before
-//! anything moves into it, and a genuine cycle — `a` to `b` and `b` to `a` —
-//! is broken by routing one of them through a temporary name.
-//!
-//! Deletions run last, so a rename out of a directory that is being deleted
-//! still finds its source.
+//! `b`, and a genuine cycle has no order at all. That is [`super::order`]'s
+//! problem, and it is separated because the two fail differently: a defect
+//! here is an operation that should never have been produced, and a defect
+//! there is one that runs at the wrong moment. What this module guarantees to
+//! it is that every row has been resolved to a target, so nothing over there
+//! has to refuse anything.
 
-// Step 1 of #58. Nothing calls this yet: the panel's edit mode, the
-// confirmation view and `apply` are the callers, and they are the next
-// commits. `expect` rather than `allow` deliberately — the moment a caller
-// exists this attribute becomes an unfulfilled expectation and warns, so it
-// removes itself rather than quietly outliving its reason.
-// Scoped to the non-test build because the tests below DO use every item, so
-// under `--all-targets` the lint never fires and a bare `expect` would itself
-// be an unfulfilled expectation.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 1 of the editable file list; wired up by the panel's edit mode"
-    )
-)]
-
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 /// What a row was when the buffer loaded.
@@ -81,13 +65,6 @@ pub struct RowOrigin {
     /// Where the node was when the buffer loaded.
     pub path: PathBuf,
 }
-
-/// The name a rename is routed through when siblings form a cycle.
-///
-/// A leading dot and a name nothing would choose, so that a crash between the
-/// two halves of a cycle leaves something identifiable rather than something
-/// that looks like the user's own file.
-const TEMPORARY: &str = ".iridium-oil-swap";
 
 /// One row of the edited buffer, as the panel holds it.
 ///
@@ -329,6 +306,7 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
         targets[index] = Some(parent_target.join(&row.name));
     }
 
+    collect_creates_under_deleted(rows, &mut refusals);
     collect_collisions(rows, &targets, &mut refusals);
 
     if !refusals.is_empty() {
@@ -336,7 +314,51 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
         return Err(refusals);
     }
 
-    Ok(assemble(rows, &targets))
+    Ok(super::order::assemble(rows, &targets))
+}
+
+/// A row typed inside one that is struck through.
+///
+/// Creates run *before* deletes, so the file would be made and then removed
+/// again with the folder around it — work done for nothing, and a
+/// confirmation whose `create` line describes something that will not survive
+/// the run. Worse when the folder above is itself typed and struck: it is
+/// never created at all, so the create underneath it fails on a path with no
+/// parent and stops the run half-applied.
+///
+/// Refused rather than quietly dropped along with the folder. The rows say to
+/// make something, and a plan that silently declined would be a plan that did
+/// not match what was on the screen.
+///
+/// Only creates. A *rename* out of a struck folder is legitimate and is
+/// exactly what "deletes run last" exists to allow — the file is moved
+/// somewhere else before its old folder goes.
+fn collect_creates_under_deleted(rows: &[EditedRow], refusals: &mut Vec<Refusal>) {
+    for (index, row) in rows.iter().enumerate() {
+        if row.origin.is_some() || row.deleted {
+            continue;
+        }
+        // Upwards only: each step must name a row before the one it was
+        // reached from, so a malformed parent chain ends the walk rather than
+        // looping. The main pass refuses such a chain anyway; this does not
+        // depend on having run first.
+        let mut current = index;
+        while let Some(above) = rows[current].parent {
+            if above >= current {
+                break;
+            }
+            if rows[above].deleted {
+                refusals.push(Refusal {
+                    row: index,
+                    reason: "this row is inside one that is struck through, so there would be \
+                             nowhere to create it"
+                        .to_owned(),
+                });
+                break;
+            }
+            current = above;
+        }
+    }
 }
 
 /// Two rows resolving to one path, which no ordering can rescue.
@@ -365,148 +387,6 @@ fn collect_collisions(
             seen.insert(target, index);
         }
     }
-}
-
-/// Turns resolved rows into ordered operations, everything having validated.
-fn assemble(rows: &[EditedRow], targets: &[Option<PathBuf>]) -> Plan {
-    let mut creates = Vec::new();
-    let mut deletes = Vec::new();
-    // Renames grouped by the directory they happen in, because that is the
-    // only scope in which two of them can collide.
-    let mut by_directory: BTreeMap<PathBuf, Vec<(String, String)>> = BTreeMap::new();
-
-    for (index, row) in rows.iter().enumerate() {
-        let Some(target) = targets[index].as_ref() else {
-            continue;
-        };
-
-        if row.deleted {
-            // Only something that exists can be deleted. A typed row that was
-            // then struck through never existed, and is simply dropped.
-            if let Some(origin) = row.origin.as_ref() {
-                deletes.push(Operation::Delete {
-                    path: origin.path.clone(),
-                });
-            }
-            continue;
-        }
-
-        let Some(original) = row.origin.as_ref().map(|origin| origin.name.as_str()) else {
-            creates.push(Operation::Create {
-                path: target.clone(),
-                directory: row.directory,
-            });
-            continue;
-        };
-
-        if original == row.name {
-            continue;
-        }
-
-        // The directory the rename happens *in* is the parent's target, which
-        // is this row's target with the last component removed. Using the
-        // parent's future location is what makes a rename inside a renamed
-        // folder correct.
-        if let Some(directory) = target.parent() {
-            by_directory
-                .entry(directory.to_path_buf())
-                .or_default()
-                .push((original.to_owned(), row.name.clone()));
-        }
-    }
-
-    let mut operations = Vec::new();
-    // Shallow directories before deep ones, so a folder is renamed before the
-    // renames inside it are expressed against its new path. `BTreeMap` orders
-    // by path, and a parent path sorts before every path beneath it.
-    for (directory, renames) in by_directory {
-        operations.extend(order_renames(&directory, renames));
-    }
-    operations.extend(creates);
-    operations.extend(deletes);
-
-    Plan { operations }
-}
-
-/// Orders one directory's renames so no name is occupied when something moves
-/// into it, breaking any cycle with a temporary.
-fn order_renames(directory: &Path, renames: Vec<(String, String)>) -> Vec<Operation> {
-    // Both sides of every rename: a temporary must collide with neither a
-    // name being vacated nor one being moved into.
-    let taken: BTreeSet<String> = renames
-        .iter()
-        .flat_map(|(from, to)| [from.clone(), to.clone()])
-        .collect();
-    let mut pending: Vec<Option<(String, String)>> = renames.into_iter().map(Some).collect();
-    let mut operations = Vec::new();
-
-    // Repeatedly emit any rename whose destination is not still occupied by a
-    // source waiting its turn. Each pass either emits something or proves the
-    // rest is a cycle, so this terminates.
-    loop {
-        let occupied: BTreeSet<String> = pending
-            .iter()
-            .flatten()
-            .map(|(from, _)| from.clone())
-            .collect();
-
-        let mut progressed = false;
-        for slot in &mut pending {
-            let Some((from, to)) = slot.as_ref() else {
-                continue;
-            };
-            if occupied.contains(to) && from != to {
-                continue;
-            }
-            operations.push(Operation::Rename {
-                from: directory.join(from),
-                to: directory.join(to),
-            });
-            *slot = None;
-            progressed = true;
-        }
-
-        if pending.iter().all(Option::is_none) {
-            return operations;
-        }
-        if progressed {
-            continue;
-        }
-
-        // Everything left is in a cycle. Move one of them out of the way
-        // through a temporary, which frees its name and lets the next pass
-        // unwind the rest.
-        //
-        // Only the FIRST half is emitted here. The second half goes back into
-        // `pending` with the temporary as its source, so it is emitted by the
-        // ordinary rule once its destination is actually free. Emitting both
-        // halves immediately is the obvious thing to do and it is wrong — it
-        // moves the temporary onto a name the cycle has not vacated yet, and
-        // destroys what is there.
-        let Some(slot) = pending.iter_mut().find(|slot| slot.is_some()) else {
-            return operations;
-        };
-        let Some((from, to)) = slot.take() else {
-            return operations;
-        };
-        let temporary = temporary_name(&taken);
-        operations.push(Operation::Rename {
-            from: directory.join(&from),
-            to: directory.join(&temporary),
-        });
-        *slot = Some((temporary, to));
-    }
-}
-
-/// A name in `directory` that no rename is already using.
-fn temporary_name(taken: &BTreeSet<String>) -> String {
-    let mut candidate = TEMPORARY.to_owned();
-    let mut suffix = 0_u32;
-    while taken.contains(&candidate) {
-        suffix += 1;
-        candidate = format!("{TEMPORARY}-{suffix}");
-    }
-    candidate
 }
 
 /// Why a name cannot be used, if it cannot.

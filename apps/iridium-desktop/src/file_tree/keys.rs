@@ -23,6 +23,17 @@
 //! | `⌘↑`, `Ctrl+↑` | Make the folder above the root the root |
 //! | `Home` `End` | First and last row |
 //! | `Backspace`, any printable key | Edit the query |
+//! | `Tab` | Edit the rows as text |
+//!
+//! # The table above is the *browse* table, and it is not the whole panel
+//!
+//! ⛔ Once the rows are being edited, every key means something else — and it
+//! has to, because the row under the cursor is a text field and the arm at the
+//! bottom of this table swallows every printable character into the query.
+//! [`super::edit_keys`] is that second table, and [`FileExplorer::handle_key`]
+//! reaches it **before** the match below rather than through four more arms
+//! inside it. Adding edit-mode bindings to the table here would be the one
+//! shape that cannot work.
 
 use iridium_editor::pattern::Pattern;
 use iridium_editor::{KeyCode, KeyEvent};
@@ -35,6 +46,13 @@ use crate::prompt::Entry;
 impl FileExplorer {
     /// Handles one key press. Every key is consumed; see [`ExplorerOutcome`].
     pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
+        // ⛔ Before the match, not inside it. `(Plain, Char(_))` below takes
+        // every printable character into the filter, and in edit mode those
+        // characters are what the user is typing into a filename. A branch
+        // ordered after that arm would be a branch the letters never reach.
+        if self.mode.is_editing() {
+            return self.handle_edit_key(event);
+        }
         match (chord(event.modifiers), event.key) {
             (Chord::CtrlAlt | Chord::MetaAlt, KeyCode::Char('e' | 'E')) => ExplorerOutcome::Closed,
             // A query is the first thing `Escape` takes back, and the panel
@@ -50,6 +68,11 @@ impl FileExplorer {
                 }
             },
             (Chord::Plain, KeyCode::Enter) => self.activate(),
+            // Tab is the ruled key into edit mode, and it is bound here rather
+            // than in `edit_keys` because it is the one of the four that is
+            // pressed while still browsing. Nothing else in this panel uses
+            // it, and there is no focus ring for it to walk.
+            (Chord::Plain, KeyCode::Tab) => self.begin_editing(),
             (Chord::Plain, KeyCode::Up) | (Chord::Ctrl, KeyCode::Char('p' | 'P')) => {
                 self.move_up();
                 ExplorerOutcome::Handled
@@ -128,11 +151,71 @@ impl FileExplorer {
         self.reroot(&parent)
     }
 
-    /// Inserts pasted text into the query, one character at a time.
+    /// Starts editing the rows the panel is drawing.
+    ///
+    /// Refused in two states, and both refusals are about the same thing —
+    /// what the buffer would be a snapshot *of*.
+    ///
+    /// A listing the panel has already asked for and not yet received
+    /// ([`wanted`](FileExplorer::wanted)) means rows are on their way. Opening
+    /// an editable session over a list that is still arriving would freeze
+    /// half a directory into a buffer and leave the rest out of the diff, and
+    /// the user has no way to tell which half they got.
+    ///
+    /// No rows at all is the other: [`super::plan`] requires the first row to
+    /// be the folder the panel is showing, so a buffer built from nothing
+    /// refuses everything typed into it. That happens for real — a query
+    /// matching nothing produces an empty filtered view — and the honest
+    /// answer is to say so rather than to open a session that cannot be
+    /// applied.
+    fn begin_editing(&mut self) -> ExplorerOutcome {
+        if self.wanted.is_some() {
+            return ExplorerOutcome::Failed(
+                "still reading this folder — nothing to edit yet".to_owned(),
+            );
+        }
+        let source = self.source_rows();
+        if source.is_empty() {
+            return ExplorerOutcome::Failed("there are no rows to edit".to_owned());
+        }
+        // ⚠️ Read *before* the mode changes. `selected_row` answers for the
+        // cursor as soon as there is one, so asking after `begin_edit` would
+        // ask the fresh session where it is and be told row zero — putting
+        // every session on the root no matter what was selected.
+        let start = self.selected_row().unwrap_or(0);
+        if self.mode.begin_edit(&source) {
+            // The row the user was looking at is the row they meant to edit.
+            // `seat` clamps, so a filtered selection that outruns the buffer
+            // lands on the last row rather than anywhere surprising.
+            self.mode.seat(start);
+        }
+        ExplorerOutcome::Handled
+    }
+
+    /// Inserts pasted text into whichever field is taking characters.
+    ///
+    /// ⚠️ **Mode-aware, and it has to be.** The host intercepts the paste
+    /// chord before [`Self::handle_key`] ever sees it — the panel is modal and
+    /// has a text field, so a paste belongs to that field — which means the
+    /// pre-match branch in `handle_key` cannot cover this path. Pasting into
+    /// the query while a buffer is open would rebuild the filtered view, and
+    /// that view is the row source the buffer was snapshotted from.
     ///
     /// The field refuses control characters, so a multi-line paste
     /// contributes its printable characters only.
     pub fn paste(&mut self, text: &str) {
+        if self.mode.is_editing() {
+            // Nothing to paste into while a refusal or a confirmation is on
+            // screen: neither is showing the rows, so the characters would
+            // land somewhere the user cannot see.
+            if !self.mode.refusals().is_empty() {
+                return;
+            }
+            for character in text.chars() {
+                self.mode.edit_name(|entry| entry.insert(character));
+            }
+            return;
+        }
         let mut changed = false;
         for character in text.chars() {
             changed |= self.query.insert(character);

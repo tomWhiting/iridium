@@ -3585,3 +3585,39 @@ Load **44.7** at tick open — high, and not this seat's. The sweep itself is
 read-only and cost nothing; the nine gates plus a `wasm-pack` release build
 did cost. Disk not re-measured this tick; the baton's correction stands —
 `cargo clean` would reclaim ~10.5 GB and is **not taken unilaterally**.
+
+## TICK — 8 Aug ~11:15 — the chord-displacement claim, checked and guarded
+
+`apps/iridium-desktop/src/commands.rs:76` claimed its `⌥⇧` row was "the one
+place this face takes a chord *away* from the default keymap". **Sound** — and
+now machine-checked rather than hand-checked (`2efb8aca`).
+
+The existing guards were good: `BINDINGS` shadow nothing, every `MAC_CHORDS`
+row must override *something*, and the two displaced syntax verbs are pinned
+to their new home. What none of them asked was whether *any other* verb loses
+its only home — `the_syntax_verbs_keep_a_home_of_their_own` names the two
+somebody noticed, which is Rule C in test form.
+
+**`no_verb_the_kernel_could_reach_is_stranded_by_this_layer`** asks it of every
+command the default keymap binds, comparing **reachability** (`KeyHintIndex`
+over the defaults vs over the session stack). A stroke-level overlap check
+cannot tell a harmless override from a stranding — every `MAC_CHORDS` row
+overrides something by construction; the question is whether the displaced
+verb keeps a chord. Proven non-vacuous: deleting the two `⌃⇧⌘` rehousing rows
+fails it naming `ast.expandSelection`.
+
+**Checked and deliberately not duplicated:** the terminal face
+(`apps/iridium/src/app/commands.rs:298`) asserts its rows overlap the defaults
+*at all*, which is strictly stronger than "nothing stranded". The other
+stranding shape — a short binding swallowing the prefix of a multi-stroke
+default — is refused by `push_keymap`, which both faces call in a test.
+
+Also corrected: the doc said "the last two rows" while describing rows two and
+three. The table was reordered under the sentence.
+
+Sweep: **13 sound, 4 wrong, ~7 unchecked** — `iridium-tui/src/input.rs:183` ·
+`expand.rs:197` · `app/mod.rs:12` · `apps/iridium/src/app/mod.rs:292` ·
+`compositor/mod.rs:1` · `suffix.rs:21`.
+
+Gates: all nine green, **2,536 passed, 0 failed**. No Meridian send this tick
+— nothing new needing Tom, and the last one went out 25 minutes earlier.

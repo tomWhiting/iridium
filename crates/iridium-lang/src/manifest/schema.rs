@@ -29,10 +29,6 @@ struct CommentBlock {
 }
 
 /// One row of a manifest's `brackets` table.
-///
-/// The manifests also carry `not_in` (scopes the rule is suppressed in),
-/// which is not read yet — see `docs/design/AUTO-PAIR-MAP.md` slice S-4 — so
-/// it is not named, and serde ignores it.
 #[derive(Debug, Clone, Deserialize)]
 struct Bracket {
     /// The opening delimiter: `{`, but also `r#"` and `"""`.
@@ -60,6 +56,20 @@ struct Bracket {
     /// without this flag would auto-close every one of them.
     #[serde(default = "default_close")]
     close: bool,
+    /// Syntax scopes this row's rule is suppressed in.
+    ///
+    /// `["string", "comment"]` on almost every row that carries it — a `{`
+    /// typed inside a string literal is a `{`, not the start of a block. Across
+    /// the vendored tree those are the only two values that appear (`string`
+    /// 60 times, `comment` 45), which is what lets highlight captures answer
+    /// the question without a per-grammar translation table.
+    ///
+    /// ⚠️ **Absent means "nowhere", not "everywhere"** — an empty list is the
+    /// default, so a row that says nothing is suppressed nowhere and behaves
+    /// exactly as it did before this was read. Getting that backwards would
+    /// switch auto-closing off for every language that has not said.
+    #[serde(default)]
+    not_in: Vec<String>,
 }
 
 /// Serde default for [`Bracket::close`]: a row that does not say is a row that
@@ -273,6 +283,30 @@ impl Manifest {
     #[must_use]
     pub fn block_expand_pairs(&self) -> Option<impl Iterator<Item = (char, char)> + '_> {
         self.single_char_pairs(|bracket| bracket.newline)
+    }
+
+    /// The single-character pairs this language auto-closes **except** inside
+    /// `scope`, as `(open, close)`.
+    ///
+    /// The rows are the same ones [`Self::auto_close_pairs`] reports — a row
+    /// with `close = false` is not an auto-close rule at all, so it cannot be
+    /// suppressed in one — filtered to those naming `scope` in `not_in`.
+    ///
+    /// `scope` is the manifest's own vocabulary; across the vendored tree only
+    /// `"string"` and `"comment"` appear. An unknown name simply matches
+    /// nothing, which suppresses nothing.
+    ///
+    /// The same `None`/`Some(empty)` distinction as [`Self::auto_close_pairs`],
+    /// and it means the same thing: `None` is a language with no `brackets` key
+    /// at all.
+    #[must_use]
+    pub fn pairs_suppressed_in<'a>(
+        &'a self,
+        scope: &'a str,
+    ) -> Option<impl Iterator<Item = (char, char)> + 'a> {
+        self.single_char_pairs(move |bracket| {
+            bracket.close && bracket.not_in.iter().any(|named| named == scope)
+        })
     }
 
     /// The characters this language will insert a closing delimiter in front

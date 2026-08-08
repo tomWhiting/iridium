@@ -724,3 +724,54 @@ the typing path rests on B-6, and someone later "fixing" the staleness by callin
 5. ⚠️ **Every suppression test must first assert the scope resolved.** Because
    unknown and not-suppressed are the same answer, a test that only asserts "it
    did not pair" passes against a resolver returning `None` for everything.
+
+### 9.1 S-4a — the data half, LANDED 8 Aug 2026
+
+Steps 1 and 2 of the build order. **Gates: all nine green, 2,568 / 1,068 /
+1,164, 0 failed** (2,559 before, plus five capture tests and four manifest
+tests).
+
+- **`HighlightType::is_within(scope) -> bool`** — the two-into-four mapping,
+  with a test naming all four variants and one asserting an unrecognised scope
+  contains nothing (the fail-open direction, so a vendor refresh introducing a
+  third value suppresses nothing rather than everywhere).
+- **`Bracket::not_in`** deserialized, defaulting to empty — ⚠️ **absent means
+  "nowhere", not "everywhere"**; the opposite would switch auto-closing off for
+  every language that has not said.
+- **`Manifest::pairs_suppressed_in(scope)`**, built on the same
+  `single_char_pairs` filter as its two siblings, so the three cannot drift on
+  what counts as a pair. A row with `close = false` is not an auto-close rule
+  and so cannot be suppressed in one; a test asserts the suppressed set is a
+  **subset** of the closing set.
+
+### 9.2 ⚠️ Why S-4b is a separate slice — the cost, named
+
+The editor half needs the caret's scope, and **the typing path cannot see the
+syntax tree**. `handle_char_input` takes `(&Document, &CursorState,
+&EditorConfig)`; `CommandContext` (`input/keyboard/actions/mod.rs:65`) carries
+those three plus the event and args, and *deliberately* no syntax state — the
+same reason the AST verbs went through `KeyResult::Ast` rather than widening it.
+The tree lives on `EditorState::syntax`, one level above.
+
+So S-4b is a threading change through keyboard dispatch, not a leaf edit, and it
+is priced as its own slice rather than smuggled into this one. **What has to be
+decided first is where the scope is resolved**, and there are two honest shapes:
+
+- **(a) Resolve above, pass down an `Option<HighlightType>`.** The caret's byte
+  is known wherever the cursor is, so `Editor` can resolve once per keystroke
+  and hand the answer in as a `Copy` value. `CommandContext` grows one field of
+  a type that already exists, and `behaviors` stays free of syntax entirely.
+- **(b) Pass a resolver.** More general, and it would let a future verb ask
+  about a byte other than the caret's — at the cost of a trait object or a
+  lifetime on the context.
+
+**Recommend (a).** The only question this slice asks is about the caret, the
+answer is one `Copy` enum, and (b)'s generality is speculative. If a later verb
+needs arbitrary bytes, (a) does not block it — the resolver still exists on
+`SyntaxState`, and that verb can take `&Editor` as the AST verbs already do.
+
+⚠️ Still to build in S-4b, unchanged from §9: the scope-at-byte accessor on
+`SyntaxState` over `tree()` and `spans_in_range` (**never `sync()`**), the
+suppressed-scope masks on `PairRules`, and the gate in the collapsed-opener
+branch only. **And every suppression test must first assert the scope
+resolved** — under B-6, unknown and not-suppressed are the same answer.

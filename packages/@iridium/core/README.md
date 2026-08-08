@@ -45,6 +45,43 @@ The canvas must be laid out and visible before `create` resolves — it reads it
 size from `getBoundingClientRect()` and throws if that is still zero after
 waiting.
 
+### Without a bundler
+
+The published output is plain ES modules and needs no build step. A page
+serving them directly needs **one** import-map entry:
+
+```html
+<script type="importmap">
+{
+  "imports": {
+    "iridium-bindings": "/node_modules/iridium-bindings/pkg/iridium_bindings.js"
+  }
+}
+</script>
+```
+
+That is the whole configuration, for three reasons worth stating because each
+one could have gone the other way:
+
+- The controller's entire static import graph is **relative** — `dist/…/*.js`
+  importing `./*.js`. The only bare specifier it ever touches is
+  `import("iridium-bindings")`, which a browser resolves through the map above.
+  The `element`, `palette` and `history` entry points are relative throughout
+  too, so a web-component page needs no extra entries either.
+- The wasm glue has **no imports of its own**, and `init()` locates its
+  `.wasm` with `new URL("iridium_bindings_bg.wasm", import.meta.url)` — i.e.
+  relative to wherever your map points the glue. Move the package and the
+  binary follows; you never map the `.wasm` separately.
+- `web-tree-sitter` is a dependency of `@iridium-editor/core/syntax` only. Map
+  it as well **if** you import that subpath; the controller does not.
+
+⚠️ **`enableSyntaxWorker: true` needs a bundler.** A module worker does not
+inherit the page's import map — there is no way to give a worker one — and
+`@iridium-editor/syntax-worker`'s worker imports `web-tree-sitter` and
+`@iridium-editor/core/syntax` by bare specifier. On a bundler-free page,
+either leave the worker off and supply spans through `setHighlightSpans()`, or
+pass `createSyntaxWorker` a worker you have bundled yourself.
+
 ### Options
 
 | option | default | notes |

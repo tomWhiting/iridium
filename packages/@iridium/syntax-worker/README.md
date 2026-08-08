@@ -61,6 +61,19 @@ the client also offers `highlightIncremental(content, editInfo)` — which reuse
 the retained parse tree and is what the editor actually calls while you type —
 plus `highlightRange`, `setLanguage`, `cancelPending` and `dispose`.
 
+## ⚠️ This package needs a bundler
+
+`dist/worker.js` imports `web-tree-sitter` and `@iridium-editor/core/syntax` by
+bare specifier, and **a module worker does not inherit the page's import map** —
+there is no way to give a worker one. So on a page serving raw ES modules, no
+import map can make this worker load, whatever it says.
+
+Your options on such a page are to leave the worker off and feed spans in
+through `@iridium-editor/core`'s `setHighlightSpans()`, or to bundle a worker
+yourself and hand it over with `createSyntaxWorker`. Everything under a bundler
+— Vite, webpack, esbuild, Rollup — resolves both specifiers normally and needs
+none of this.
+
 ## Exports
 
 | specifier | what |

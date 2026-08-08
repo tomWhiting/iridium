@@ -176,6 +176,43 @@ mod tests {
     }
 
     #[test]
+    fn a_configuration_file_can_ask_for_a_capturing_stroke() {
+        // `{char}` reaches `StrokePattern::any_char` through
+        // `KeyBinding::parse`, so a `[keys]` line can bind a sequence whose
+        // matched character is handed to the command as an argument. Pinned
+        // here because it is the *reachable* half of `CommandArgs` from a
+        // configuration file — a count prefix is not: `KeyBinding::parse`
+        // builds through `new` and never sets one.
+        //
+        // ⚠️ Why it is worth knowing: `no_host_command_is_bound_to_a_sequence_that_carries_arguments`
+        // and its two face counterparts keep argument-carrying sequences off
+        // host commands in every keymap Iridium ships, and **cannot see this
+        // layer**. Bound to a host command, the browser forwards the captured
+        // character and the two native faces discard it. It costs nothing
+        // while no host command reads its arguments; it is where to look first
+        // when one does.
+        let (bindings, problems) = read("[keys]\n\"ctrl+f {char}\" = \"edit.toggleLineComment\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(bindings.len(), 1);
+        assert!(
+            bindings[0].has_capture_stroke(),
+            "`{{char}}` should have parsed to a capturing stroke"
+        );
+    }
+
+    #[test]
+    fn a_configuration_file_cannot_ask_for_a_count_prefix() {
+        // The other half, asserted rather than assumed. There is no spelling
+        // for it: `accepts_count` is only ever set by `with_count_prefix`,
+        // which the parser does not call. A plain chord is the control, so
+        // this fails if `parse` ever starts setting it for everything.
+        let (bindings, problems) = read("[keys]\n\"ctrl+alt+j\" = \"edit.toggleLineComment\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(bindings.len(), 1);
+        assert!(!bindings[0].accepts_count());
+    }
+
+    #[test]
     fn a_multi_stroke_sequence_is_read_as_one_binding() {
         let (bindings, problems) = read("[keys]\n\"ctrl+k ctrl+c\" = \"edit.toggleLineComment\"\n");
         assert!(problems.is_empty(), "{problems:?}");

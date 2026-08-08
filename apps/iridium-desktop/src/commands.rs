@@ -615,11 +615,19 @@ mod tests {
         // reaches `dispatch_host_command`, which takes an id and nothing else.
         //
         // `EditorKeyResult::HostCommand` carries `args` beside the id, and this
-        // face drops them (`keyboard.rs`, `{ command, .. }`). Harmless while no
-        // binding declares a count prefix or a capturing stroke; a silent
-        // wrong answer the moment one does, since the browser face forwards
-        // both. **When this fails, thread `args` through `run_host_command`
-        // rather than relaxing it.**
+        // face drops them. Harmless while no binding declares a count prefix
+        // or a capturing stroke; a silent wrong answer the moment one does,
+        // since the browser face forwards both.
+        //
+        // ⚠️ This covers this face's own layer only. A **user keymap** can
+        // carry a capturing stroke — `{char}` parses to
+        // `StrokePattern::any_char` — and nothing checks that layer. It costs
+        // nothing today because no host command anywhere reads its arguments,
+        // so the character dropped here is one the browser hands to a host
+        // that ignores it too.
+        //
+        // **When this fails, thread `args` through `run_host_command` rather
+        // than relaxing it.**
         for binding in keymap().bindings() {
             let Some(command) = binding.command() else {
                 continue;

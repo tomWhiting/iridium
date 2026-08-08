@@ -506,3 +506,81 @@ AWL, correctly.
 
 S-5 first (ruled, small, improves every language), then S-4 built on the
 already-computed spans. S-3 after. S-2 is closed as "no".
+
+---
+
+## 7. S-5 — LANDED, 8 Aug 2026
+
+`autoclose_before` is read. Typing `(` in front of an identifier now gives
+`(identifier`, not `()identifier`.
+
+### The shape
+
+- **`iridium-lang`** — `Fields::autoclose_before: Option<String>` and
+  `Manifest::autoclose_before() -> Option<&str>`. `None` and `Some("")` are
+  kept apart for the same reason `brackets` keeps them apart, and the
+  distinction is reached by a **different set of manifests**: `gitcommit`
+  declares six brackets and no `autoclose_before` at all.
+- **`iridium-editor`** — `PairRules` gains `close_before: Option<&'static str>`
+  and `permits_close_before(next: Option<char>)`. A borrowed `&'static str`
+  rather than a set: manifests live for the process, the sets are at most nine
+  characters, and a nine-character scan on the path that inserts one character
+  is not worth an allocation per keystroke.
+- **One call site**, in the collapsed-opener branch of `auto_pair_edit_for`,
+  after the apostrophe guard.
+
+### The assumption, and where it is written
+
+⚠️ **End of line and whitespace permit the close.** This is Tom's ruling B-5 and
+it is an *inference*: no vendored set contains a space, a tab or anything
+standing for a line ending, so read literally every set forbids closing at the
+end of a line — which is where a bracket is most often typed. The reading taken
+is that these sets constrain what a closer may be **displaced in front of**, and
+empty space displaces nothing.
+
+It is stated as an assumption in three places, deliberately: the doc comment on
+`Manifest::autoclose_before`, the doc comment on `PairRules::permits_close_before`,
+and a test. The test is the one that matters —
+`no_autoclose_before_set_contains_whitespace_or_is_empty` asserts the *premise*,
+so a vendor refresh that adds whitespace to a set fails loudly rather than
+silently making the inference wrong.
+
+### What it deliberately does not gate
+
+Written into `auto_pair_char_edits`'s own contract rather than left to be
+rediscovered:
+
+- **Selection wrap.** The character after a selection is an accident of where
+  the selection ended, and the user asked for the wrap by selecting. Refusing it
+  would turn an explicit request into a typed-over selection — it would destroy
+  the text.
+- **Skip-over.** It fires on typing a *closer*, and asks what is already at the
+  caret, not what follows it.
+- **Backspace pair deletion.** Same reason: it acts on a pair that exists.
+
+### The red proof
+
+The gate was removed — the three-line `permits_close_before` call, nothing else
+— and the suite re-run. **2 of the 7 new behaviour tests went red:**
+`a_pair_does_not_close_in_front_of_a_character_the_language_did_not_list`
+(`left: "()identifier"`) and `each_language_uses_its_own_autoclose_before_set`.
+
+The other 5 pass both ways **by design**, and that is the point: they assert
+what S-5 must *keep* doing — closing at end of line, closing after whitespace,
+closing in front of a listed character, closing everywhere for a language that
+listed nothing, and wrapping a selection regardless. Without them the suite
+could be satisfied by an implementation that simply stopped auto-closing.
+
+`each_language_uses_its_own_autoclose_before_set` is the one that proves the set
+is read from the manifest rather than fixed: a semicolon permits in Rust and
+refuses in JSON, a comma is the reverse, and `go.mod` permits only `)`.
+
+### Gates
+
+Nine green: **2,554 / 1,068 / 1,164, 0 failed** — 2,545 before, plus seven
+behaviour tests and two manifest guards.
+
+### Next
+
+**S-4** remains blocked on **B-6** and **B-7** (§6.4), both put to Tom on 8 Aug.
+S-3 after that. S-2 is closed as "no".

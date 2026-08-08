@@ -69,6 +69,15 @@ pub(super) struct PairRules {
     closes: u8,
     /// Which pairs Enter expands into an indented block.
     expands: u8,
+    /// The characters a closer may be inserted in front of — the manifest's
+    /// `autoclose_before`. `None` is a language that has not said, and places
+    /// no restriction.
+    ///
+    /// A borrowed `&'static str` rather than a set: manifests live in a
+    /// `LazyLock` for the life of the process, the sets are at most nine
+    /// characters, and a linear scan of nine characters on the path that
+    /// inserts one is not worth a `HashSet` allocated per keystroke.
+    close_before: Option<&'static str>,
 }
 
 impl PairRules {
@@ -82,6 +91,9 @@ impl PairRules {
         // Enter expansion has never applied to quotes, and no manifest asks it
         // to: `newline = true` appears on no quote row anywhere in the tree.
         expands: BRACKET_MASK,
+        // No restriction on what a closer may be inserted in front of, which is
+        // what every document got before `autoclose_before` was read.
+        close_before: None,
     };
 
     /// The rules for `document`'s language.
@@ -113,7 +125,39 @@ impl PairRules {
             // nothing today; it is here so that one appearing upstream is a
             // deliberate decision rather than a silent behaviour change.
             expands: mask_of(expanding) & BRACKET_MASK,
+            // Read independently of `brackets`: `gitcommit` declares six
+            // brackets and no `autoclose_before`, so a language can close pairs
+            // and place no restriction on where.
+            close_before: manifest.autoclose_before(),
         }
+    }
+
+    /// Whether a closer may be inserted with `next` directly after the caret —
+    /// the manifest's `autoclose_before` rule.
+    ///
+    /// `next` is the character the closer would be pushed in front of, or
+    /// `None` at end of line.
+    ///
+    /// ⚠️ **End of line and whitespace are treated as permitting, and that is
+    /// an assumption rather than a reading of a specification.** No vendored
+    /// set contains a space, a tab or anything standing for a line ending, so
+    /// taken literally every set forbids auto-closing at the end of a line —
+    /// which is where brackets are most often typed, and which would make the
+    /// feature read as broken. The inference is that these sets constrain what
+    /// the closer may be *displaced in front of*, and empty space displaces
+    /// nothing.
+    ///
+    /// If a language ever ships a set where that inference is wrong, this
+    /// comment is what should lead someone to it. Ruled by Tom on 8 Aug 2026;
+    /// see `docs/design/AUTO-PAIR-MAP.md` S-5 and decision B-5.
+    fn permits_close_before(self, next: Option<char>) -> bool {
+        let Some(allowed) = self.close_before else {
+            // The language has not said. Close in front of anything, exactly as
+            // this editor did before manifests were read.
+            return true;
+        };
+        // `None` is end of line, and permits.
+        next.is_none_or(|c| c.is_whitespace() || allowed.contains(c))
     }
 
     /// Whether the pair at `index` in [`PAIRS`] is in `mask`.
@@ -490,7 +534,22 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 /// - **Pair insertion**: a collapsed cursor typing an opener inserts the pair
 ///   with the caret between the halves. Quotes do not pair when the caret is
 ///   directly after a word character (apostrophes inside words), inserting a
-///   single quote instead.
+///   single quote instead; and nothing pairs in front of a character the
+///   language's `autoclose_before` does not list
+///   ([`PairRules::permits_close_before`]).
+///
+/// ⚠️ **`autoclose_before` gates pair insertion and nothing else here**, and
+/// each omission is deliberate:
+///
+/// - **Selection wrap** is not gated. The character after the selection is
+///   whatever the selection happened to end before, and the user asked for a
+///   wrap by selecting; refusing it would turn an explicit request into a
+///   typed-over selection, which destroys the text.
+/// - **Skip-over** is not gated. It fires on typing a *closer*, and the
+///   question there is whether the character is already present, not what
+///   follows it.
+/// - **Backspace pair deletion** ([`backspace_edits_with_pairs`]) is not
+///   gated, for the same reason: it acts on a pair that already exists.
 ///
 /// `pairs` is the document language's set, built once by the caller rather
 /// than per cursor — see [`PairRules::for_document`].
@@ -543,6 +602,12 @@ fn auto_pair_edit_for(
     if let Some(close) = pairs.close(c) {
         // Quotes stay single directly after a word character (don't, it's).
         if is_quote(c) && char_before(document, sel.head).is_some_and(motions::is_word_char) {
+            return plain_char_edit(sel, c);
+        }
+        // …and no pair at all in front of a character the language did not
+        // list. Typing `(` before an identifier gives `(identifier`, not
+        // `()identifier`.
+        if !pairs.permits_close_before(char_at(document, sel.head)) {
             return plain_char_edit(sel, c);
         }
         let text = format!("{c}{close}");

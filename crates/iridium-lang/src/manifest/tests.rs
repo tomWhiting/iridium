@@ -368,3 +368,53 @@ fn only_awl_and_markdown_inline_declare_no_brackets_key() {
         .collect();
     assert_eq!(silent, vec!["awl", "markdown-inline"]);
 }
+
+/// The same `None`-is-not-empty distinction for `autoclose_before`, and it is
+/// reached by a *different* set of manifests than `brackets` is: `gitcommit`
+/// declares six brackets and no `autoclose_before` at all. Reading the absence
+/// as "close in front of nothing" would leave a commit message unable to close
+/// a bracket anywhere but at the end of a line.
+#[test]
+fn the_manifests_that_list_no_autoclose_before_are_named() {
+    let silent: Vec<&str> = super::all()
+        .iter()
+        .filter(|manifest| manifest.autoclose_before().is_none())
+        .map(super::Manifest::id)
+        .collect();
+    assert_eq!(
+        silent,
+        vec!["awl", "diff", "gitcommit", "markdown-inline"],
+        "an absent autoclose_before is a language that has not said"
+    );
+}
+
+/// ⚠️ **The premise the whitespace assumption rests on.** No vendored set
+/// contains a space, a tab or a line ending, which is why treating those as
+/// permitting cannot contradict any language's declaration — there is nothing
+/// to contradict. If an upstream refresh ever adds whitespace to a set, that
+/// premise is gone and the inference in
+/// `input::keyboard::behaviors::PairRules::permits_close_before` has to be
+/// re-argued rather than quietly kept.
+///
+/// A set is also never empty here, so nothing declares "close in front of
+/// nothing" by accident.
+#[test]
+fn no_autoclose_before_set_contains_whitespace_or_is_empty() {
+    for manifest in super::all() {
+        let Some(set) = manifest.autoclose_before() else {
+            continue;
+        };
+        assert!(
+            !set.is_empty(),
+            "{} declares an empty autoclose_before — that means \
+             `close in front of nothing`, which is a decision, not a default",
+            manifest.id()
+        );
+        assert!(
+            !set.chars().any(char::is_whitespace),
+            "{} lists whitespace in autoclose_before ({set:?}); the \
+             end-of-line and whitespace assumption in PairRules needs re-arguing",
+            manifest.id()
+        );
+    }
+}

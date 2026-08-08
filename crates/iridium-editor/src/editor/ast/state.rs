@@ -18,11 +18,12 @@
 //! thing standing between the tree and the truth.
 
 #[cfg(not(feature = "syntax"))]
-use crate::syntax_stubs::{InputEdit, SyntaxTree, Tree};
+use crate::syntax_stubs::{Highlighter, InputEdit, SyntaxTree, Tree};
 use iridium_lang::Language;
 #[cfg(feature = "syntax")]
-use iridium_syntax::{InputEdit, SyntaxTree, Tree};
+use iridium_syntax::{Highlighter, InputEdit, SyntaxTree, Tree};
 
+use super::CaretScopes;
 use super::ExpandStack;
 use super::delta::SyntaxDelta;
 use super::expand::selection_for;
@@ -34,6 +35,16 @@ use crate::input::keyboard::AstRequest;
 pub struct SyntaxState {
     /// The parser and its tree, once a language has been set.
     tree: Option<SyntaxTree>,
+    /// The compiled highlight query for [`Self::language`], or `None` for a
+    /// language that ships no `highlights.scm` — every vendored one does, so
+    /// this is `None` only in the parser-free build and before a language is
+    /// set.
+    ///
+    /// Held here rather than built per lookup because
+    /// [`Highlighter::new`] allocates a per-capture mapping table, and the one
+    /// caller — [`Self::caret_scopes`] — is on the typing path. The query
+    /// itself is already process-wide; this is the small table beside it.
+    highlighter: Option<Highlighter>,
     /// The language the tree is parsed with.
     language: Option<Language>,
     /// The document revision the tree has been *told about*, whether or not it
@@ -94,6 +105,10 @@ impl SyntaxState {
     pub fn set_language(&mut self, language: Language) {
         self.language = Some(language);
         self.tree = SyntaxTree::new(language).ok();
+        // Built here rather than lazily so that a language with no
+        // `highlights.scm` is `None` from the moment it is set, instead of
+        // costing a failed compile on every keystroke that asks for a scope.
+        self.highlighter = Highlighter::new(language).ok();
         self.dirty = false;
         self.replaced = false;
         self.expand.clear();
@@ -139,6 +154,7 @@ impl SyntaxState {
     pub fn clear_language(&mut self) {
         self.language = None;
         self.tree = None;
+        self.highlighter = None;
         self.dirty = false;
         self.replaced = false;
         self.expand.clear();
@@ -166,6 +182,28 @@ impl SyntaxState {
     #[must_use]
     pub fn tree(&self) -> Option<&Tree> {
         self.tree.as_ref().and_then(SyntaxTree::tree)
+    }
+
+    /// A resolver for what the text at a byte offset is syntactically inside,
+    /// over the tree as it currently stands.
+    ///
+    /// Built over [`Self::tree`] and so **never parses** — see
+    /// [`CaretScopes`] for why the resulting one-edit staleness is the
+    /// direction that costs at most an over-fire, and why calling
+    /// [`Self::sync`] here instead would put a reparse on every keystroke.
+    ///
+    /// Returns [`CaretScopes::none`] — a resolver that answers nothing, which
+    /// consumers must read as *unknown* rather than *nothing* — when there is
+    /// no tree yet, no language, or no highlight query for the language.
+    ///
+    /// `document` must be the document this state is tracking. Nothing here can
+    /// check that, and the offsets a lookup returns are indices into its text.
+    #[must_use]
+    pub fn caret_scopes<'a>(&'a self, document: &'a Document) -> CaretScopes<'a> {
+        let (Some(tree), Some(highlighter)) = (self.tree(), self.highlighter.as_ref()) else {
+            return CaretScopes::none();
+        };
+        CaretScopes::over(tree, highlighter, document)
     }
 
     /// Reports an edit against the tree, without parsing.

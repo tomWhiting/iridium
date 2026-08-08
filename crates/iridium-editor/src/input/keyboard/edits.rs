@@ -11,7 +11,7 @@
 
 use crate::commands::CommandArgs;
 use crate::document::{CursorState, Document};
-use crate::editor::EditorConfig;
+use crate::editor::{CaretScopes, EditorConfig};
 use crate::history::Command;
 
 use super::types::{ClipboardOperation, HistoryRequest, KeyResult};
@@ -78,6 +78,7 @@ impl KeyboardHandler {
         document: &Document,
         cursor: &CursorState,
         config: &EditorConfig,
+        scopes: &CaretScopes<'_>,
     ) -> KeyResult {
         if config.auto_pairs {
             // Built once here rather than inside the per-cursor loop: it costs
@@ -85,7 +86,7 @@ impl KeyboardHandler {
             // cursor's.
             let pairs = behaviors::PairRules::for_document(document);
             if pairs.is_trigger(c) {
-                let edits = behaviors::auto_pair_char_edits(document, cursor, c, pairs);
+                let edits = behaviors::auto_pair_char_edits(document, cursor, c, pairs, scopes);
                 return editing::build_multi_cursor_command_placed(document, cursor, edits)
                     .map_or(KeyResult::Handled, KeyResult::Command);
             }

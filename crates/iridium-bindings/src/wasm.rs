@@ -591,6 +591,16 @@ impl WebEditor {
             &state.cursor,
             &state.history,
             &state.config,
+            // Asked of the kernel rather than hard-coded to
+            // `CaretScopes::none()`. It answers `none` today for a reason that
+            // is true of this *build* and not of this call: the browser
+            // compiles the kernel with `syntax` off, because the real
+            // tree-sitter runs in a JavaScript worker whose protocol carries
+            // highlight spans and not a tree. Writing that conclusion in here
+            // would be a fact with a shelf life — the day a tree does reach
+            // this face, the manifests' `not_in` rule should start applying by
+            // itself rather than after someone remembers six call sites.
+            &state.syntax.caret_scopes(&state.document),
         );
 
         self.consume_key_result(result)
@@ -754,6 +764,8 @@ impl WebEditor {
             &state.cursor,
             &state.history,
             &state.config,
+            // See `handle_key_event`: asked of the kernel, not assumed.
+            &state.syntax.caret_scopes(&state.document),
         );
 
         self.palette_mru.record(&CommandId::new(id.to_owned()));
@@ -1025,6 +1037,8 @@ impl WebEditor {
             &state.cursor,
             &state.history,
             &state.config,
+            // See `handle_key_event`: asked of the kernel, not assumed.
+            &state.syntax.caret_scopes(&state.document),
         );
         match result {
             KeyResult::Clipboard(ClipboardOperation::Copy(text)) => Some(text),
@@ -1061,6 +1075,8 @@ impl WebEditor {
             &state.cursor,
             &state.history,
             &state.config,
+            // See `handle_key_event`: asked of the kernel, not assumed.
+            &state.syntax.caret_scopes(&state.document),
         );
         match result {
             KeyResult::Clipboard(ClipboardOperation::Cut { text, command }) => {
@@ -2357,6 +2373,8 @@ impl WebEditor {
             &state.cursor,
             &state.history,
             &state.config,
+            // See `handle_key_event`: asked of the kernel, not assumed.
+            &state.syntax.caret_scopes(&state.document),
         );
         let Ok(KeyResult::Command(command)) = outcome else {
             // `Handled` means every caret produced an empty edit; an error can
@@ -2581,6 +2599,8 @@ impl WebEditor {
             &state.cursor,
             &state.history,
             &state.config,
+            // See `handle_key_event`: asked of the kernel, not assumed.
+            &state.syntax.caret_scopes(&state.document),
         );
         // A motion at the document edge legitimately produces `Handled` and no
         // command; an error can only mean the id left the registry, which the

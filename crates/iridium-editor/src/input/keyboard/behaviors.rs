@@ -20,8 +20,9 @@ use std::collections::BTreeSet;
 
 use iridium_lang::Language;
 
+use crate::HighlightType;
 use crate::document::{CursorState, Document, Position, Range, Selection};
-use crate::editor::EditorConfig;
+use crate::editor::{CaretScopes, EditorConfig};
 
 use super::editing::{CaretPlacement, CursorEdit};
 use super::motions;
@@ -78,7 +79,29 @@ pub(super) struct PairRules {
     /// characters, and a linear scan of nine characters on the path that
     /// inserts one is not worth a `HashSet` allocated per keystroke.
     close_before: Option<&'static str>,
+    /// Which pairs each of [`SUPPRESSIBLE_SCOPES`] switches off, one mask per
+    /// scope in that array's order — the manifest's `not_in`.
+    ///
+    /// An array indexed by the scope list rather than two named fields, so
+    /// teaching the editor a third scope is one entry there and one arm in
+    /// [`HighlightType::is_within`] rather than a new field and a new branch in
+    /// every reader.
+    suppressed: [u8; SUPPRESSIBLE_SCOPES.len()],
 }
+
+/// The syntax scopes a manifest may switch a pair off inside, as the manifests
+/// spell them.
+///
+/// ⭐ **This is a vocabulary, not a policy**, and it is checked rather than
+/// assumed: `not_in_names_only_the_two_scopes_the_editor_can_translate` in
+/// `iridium-lang` fails the build if any vendored manifest names something not
+/// listed here. Without that ratchet a third value would be read, matched
+/// against nothing, and silently ignored — the rule declared and not applied.
+///
+/// Each name must be one [`HighlightType::is_within`] understands; that
+/// function is the translation from the manifests' vocabulary into the capture
+/// vocabulary, and the two must grow together.
+pub(super) const SUPPRESSIBLE_SCOPES: [&str; 2] = ["string", "comment"];
 
 impl PairRules {
     /// Every pair in [`PAIRS`] closes; the three brackets expand.
@@ -94,6 +117,11 @@ impl PairRules {
         // No restriction on what a closer may be inserted in front of, which is
         // what every document got before `autoclose_before` was read.
         close_before: None,
+        // And nothing suppressed anywhere, which is what every document got
+        // before `not_in` was read. ⚠️ Absent means "nowhere", not
+        // "everywhere": the opposite would switch auto-closing off inside every
+        // string in every language that has not said.
+        suppressed: [0; SUPPRESSIBLE_SCOPES.len()],
     };
 
     /// The rules for `document`'s language.
@@ -117,8 +145,10 @@ impl PairRules {
             return Self::ALL;
         };
 
+        let closes = mask_of(closing);
+
         Self {
-            closes: mask_of(closing),
+            closes,
             // Intersected with the brackets because Enter expansion has never
             // applied to quotes and this slice does not change that. No
             // manifest sets `newline` on a quote, so the intersection removes
@@ -129,6 +159,13 @@ impl PairRules {
             // brackets and no `autoclose_before`, so a language can close pairs
             // and place no restriction on where.
             close_before: manifest.autoclose_before(),
+            // Intersected with `closes` for the same reason `pairs_suppressed_in`
+            // already filters on `close`: a pair this editor never auto-inserts
+            // cannot be suppressed from auto-inserting. Belt and braces, and
+            // cheap — a bit that could never be read is a bit that could be
+            // read wrongly later.
+            suppressed: SUPPRESSIBLE_SCOPES
+                .map(|scope| manifest.pairs_suppressed_in(scope).map_or(0, mask_of) & closes),
         }
     }
 
@@ -158,6 +195,34 @@ impl PairRules {
         };
         // `None` is end of line, and permits.
         next.is_none_or(|c| c.is_whitespace() || allowed.contains(c))
+    }
+
+    /// Whether typing `c` could be suppressed by *any* scope this language
+    /// names — the cheap question, asked before the expensive one.
+    ///
+    /// ⚠️ Load-bearing for latency, not just tidiness. The scope lookup behind
+    /// [`Self::suppressed_in`] materialises the whole document as a `String`
+    /// and runs a tree-sitter query; this is a bitwise test against a value
+    /// already in a register. A language whose manifest suppresses nothing —
+    /// which is most of them — must never pay the first, and it is this that
+    /// stops it.
+    fn has_any_suppression(self, c: char) -> bool {
+        self.suppressed
+            .iter()
+            .any(|&mask| Self::lookup(mask, c).is_some())
+    }
+
+    /// Whether this language switches `c`'s pair off inside `highlight`.
+    ///
+    /// The manifest names a scope; `highlight` is what the caret actually sits
+    /// in. [`HighlightType::is_within`] is the translation between the two, and
+    /// it is a containment test rather than an equality one because an escape
+    /// sequence is still inside a string and a doc comment is still a comment.
+    fn suppressed_in(self, c: char, highlight: HighlightType) -> bool {
+        SUPPRESSIBLE_SCOPES
+            .iter()
+            .zip(self.suppressed)
+            .any(|(scope, mask)| Self::lookup(mask, c).is_some() && highlight.is_within(scope))
     }
 
     /// Whether the pair at `index` in [`PAIRS`] is in `mask`.
@@ -534,34 +599,48 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 /// - **Pair insertion**: a collapsed cursor typing an opener inserts the pair
 ///   with the caret between the halves. Quotes do not pair when the caret is
 ///   directly after a word character (apostrophes inside words), inserting a
-///   single quote instead; and nothing pairs in front of a character the
+///   single quote instead; nothing pairs in front of a character the
 ///   language's `autoclose_before` does not list
-///   ([`PairRules::permits_close_before`]).
+///   ([`PairRules::permits_close_before`]); and nothing pairs inside a syntax
+///   scope the language's `not_in` names ([`PairRules::suppressed_in`]).
 ///
-/// ⚠️ **`autoclose_before` gates pair insertion and nothing else here**, and
+/// ⚠️ **Both manifest rules gate pair insertion and nothing else here**, and
 /// each omission is deliberate:
 ///
 /// - **Selection wrap** is not gated. The character after the selection is
 ///   whatever the selection happened to end before, and the user asked for a
 ///   wrap by selecting; refusing it would turn an explicit request into a
-///   typed-over selection, which destroys the text.
+///   typed-over selection, which destroys the text. A wrap inside a string is
+///   still an explicit request.
 /// - **Skip-over** is not gated. It fires on typing a *closer*, and the
 ///   question there is whether the character is already present, not what
-///   follows it.
+///   follows it or what surrounds it.
 /// - **Backspace pair deletion** ([`backspace_edits_with_pairs`]) is not
-///   gated, for the same reason: it acts on a pair that already exists.
+///   gated, for the same reason: it acts on a pair that already exists. A pair
+///   inside a string got there somehow — pasted, or typed before the string
+///   was one — and one backspace must still collapse it.
+///
+/// That is ruling B-7: `not_in` suppresses the *close*, not the pairing
+/// machinery. See `docs/design/AUTO-PAIR-MAP.md` §8.
 ///
 /// `pairs` is the document language's set, built once by the caller rather
 /// than per cursor — see [`PairRules::for_document`].
+///
+/// `scopes` answers what each caret is syntactically inside, and is consulted
+/// **per cursor** rather than once. Two carets in one edit routinely sit in
+/// different scopes — one inside a string literal, one in code — and a single
+/// answer for both would suppress a pair the language permits, which is the
+/// fail-closed direction ruling B-6 rejected.
 pub(super) fn auto_pair_char_edits(
     document: &Document,
     cursor: &CursorState,
     c: char,
     pairs: PairRules,
+    scopes: &CaretScopes<'_>,
 ) -> Vec<(CursorEdit, CaretPlacement)> {
     cursor
         .all_selections()
-        .map(|sel| auto_pair_edit_for(document, sel, c, pairs))
+        .map(|sel| auto_pair_edit_for(document, sel, c, pairs, scopes))
         .collect()
 }
 
@@ -571,6 +650,7 @@ fn auto_pair_edit_for(
     sel: &Selection,
     c: char,
     pairs: PairRules,
+    scopes: &CaretScopes<'_>,
 ) -> (CursorEdit, CaretPlacement) {
     if !sel.is_collapsed() {
         if let Some(close) = pairs.close(c) {
@@ -608,6 +688,19 @@ fn auto_pair_edit_for(
         // list. Typing `(` before an identifier gives `(identifier`, not
         // `()identifier`.
         if !pairs.permits_close_before(char_at(document, sel.head)) {
+            return plain_char_edit(sel, c);
+        }
+        // …and none inside a scope the language switched this pair off in — a
+        // `{` typed inside a string literal is a `{`, not the start of a block.
+        //
+        // ⚠️ Ordered after the two cheap tests and behind `has_any_suppression`
+        // because this is the only branch here that can cost a document-sized
+        // allocation and a tree-sitter query.
+        if pairs.has_any_suppression(c)
+            && let Some(byte) = document.position_to_offset(sel.head)
+            && let Some(highlight) = scopes.scope_at(byte)
+            && pairs.suppressed_in(c, highlight)
+        {
             return plain_char_edit(sel, c);
         }
         let text = format!("{c}{close}");

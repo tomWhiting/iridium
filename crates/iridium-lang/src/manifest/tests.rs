@@ -488,4 +488,54 @@ fn an_unknown_scope_suppresses_nothing() {
 fn a_language_with_no_brackets_key_answers_none_for_suppression_too() {
     let awl = by_id("awl").expect("vendored");
     assert!(awl.pairs_suppressed_in("string").is_none());
+    assert!(awl.suppression_scopes().is_none());
+}
+
+/// ⭐ The ratchet under the whole of S-4.
+///
+/// Every consumer of `not_in` has to translate each scope name into its own
+/// terms — the editor maps `"string"` and `"comment"` onto highlight captures
+/// through `HighlightType::is_within`, and those two are the only names it
+/// knows. A vendor refresh introducing a third would be silently ignored
+/// everywhere: `pairs_suppressed_in` is only ever *asked* about names the
+/// caller already knows, so a new one is never asked about and never
+/// suppresses anything.
+///
+/// That failure is invisible — auto-pairing keeps working, just not where the
+/// manifest now says it should not. This test is the only thing that turns it
+/// into a red build, so it asserts the vocabulary rather than counting it.
+#[test]
+fn not_in_names_only_the_two_scopes_the_editor_can_translate() {
+    const KNOWN: [&str; 2] = ["string", "comment"];
+
+    for manifest in super::all() {
+        let Some(scopes) = manifest.suppression_scopes() else {
+            continue;
+        };
+        for scope in scopes {
+            assert!(
+                KNOWN.contains(&scope),
+                "{} names {scope:?} in `not_in`, which no consumer translates. \
+                 Teach `HighlightType::is_within` what it means and add it to \
+                 `SUPPRESSIBLE_SCOPES` in the editor's `behaviors`, or the rule \
+                 is declared and ignored",
+                manifest.id()
+            );
+        }
+    }
+}
+
+/// And the vocabulary is not empty in either direction: both known names are
+/// actually in use, so neither arm of `is_within` is dead code kept alive by
+/// this test alone.
+#[test]
+fn both_known_scopes_are_used_by_some_manifest() {
+    let used: BTreeSet<&str> = super::all()
+        .iter()
+        .filter_map(super::Manifest::suppression_scopes)
+        .flatten()
+        .collect();
+
+    assert!(used.contains("string"), "got {used:?}");
+    assert!(used.contains("comment"), "got {used:?}");
 }

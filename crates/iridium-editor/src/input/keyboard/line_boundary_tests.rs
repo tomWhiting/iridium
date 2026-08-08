@@ -13,6 +13,7 @@ use super::tests::{cursors_at, cursors_with, heads};
 use super::*;
 
 use crate::commands::builtin::{EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START};
+use crate::editor::CaretScopes;
 
 /// Runs a command by id — the only route these verbs have, since the
 /// platform-neutral default keymap deliberately leaves them unbound — and
@@ -27,6 +28,7 @@ fn run(id: &str, document: &mut Document, cursor: &mut CursorState) {
             cursor,
             &UndoTree::new(),
             &EditorConfig::default(),
+            &CaretScopes::none(),
         )
         .expect("the kernel implements this command");
     match result {
@@ -183,6 +185,7 @@ fn every_caret_is_restored_by_a_single_undo() {
             &cursor,
             &UndoTree::new(),
             &EditorConfig::default(),
+            &CaretScopes::none(),
         )
         .expect("the kernel implements this command");
     let KeyResult::Command(command) = result else {

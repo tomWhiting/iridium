@@ -253,6 +253,32 @@ pub enum HighlightType {
     Error,
 }
 
+impl HighlightType {
+    /// Whether this highlight is inside the scope a language manifest names.
+    ///
+    /// ⚠️ **Not a stub in the "does nothing" sense.** This mirrors the real
+    /// `iridium_syntax` implementation exactly, and it must: it is the
+    /// translation from the manifests' vocabulary (`not_in = ["string"]`) into
+    /// the capture vocabulary, and the auto-pair suppression that reads it
+    /// compiles in *both* feature configurations. A stub answering `false` to
+    /// everything would make the parser-free build's tests pass against a rule
+    /// that never fires, and the pair of them could then drift apart with
+    /// nothing to notice — which is exactly what happened to `Language` before
+    /// it was unified.
+    ///
+    /// Nothing here can *reach* a non-`false` answer today: the stub
+    /// `Highlighter` finds no spans, so no caret ever resolves to a highlight.
+    /// The agreement is what is being kept, not the reachability.
+    #[must_use]
+    pub const fn is_within(self, scope: &str) -> bool {
+        match scope.as_bytes() {
+            b"string" => matches!(self, Self::String | Self::StringEscape),
+            b"comment" => matches!(self, Self::Comment | Self::CommentDoc),
+            _ => false,
+        }
+    }
+}
+
 /// Stub [`HighlightSpan`] — a highlighted region.
 #[derive(Debug, Clone)]
 pub struct HighlightSpan {
@@ -289,6 +315,24 @@ impl Highlighter {
     without the `syntax` feature and fail with it"
     )]
     pub fn spans_in(&self, _tree: &Tree, _source: &str) -> Vec<HighlightSpan> {
+        Vec::new()
+    }
+
+    /// Produces highlight spans for a byte window (always empty without
+    /// syntax).
+    #[must_use]
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "the real `iridium_syntax` counterpart is not const, and a stub \
+    that accepted a const context the real one refuses would let code compile \
+    without the `syntax` feature and fail with it"
+    )]
+    pub fn spans_in_range(
+        &self,
+        _tree: &Tree,
+        _source: &str,
+        _range: std::ops::Range<usize>,
+    ) -> Vec<HighlightSpan> {
         Vec::new()
     }
 }

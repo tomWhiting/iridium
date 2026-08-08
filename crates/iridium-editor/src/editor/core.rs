@@ -551,12 +551,18 @@ impl Editor {
         // a page key hopping yesterday's layout.
         self.keyboard_handler
             .set_page_rows(self.state.viewport.visible_lines);
+        // Built over the retained tree, which `caret_scopes` reads without
+        // parsing. `self.keyboard_handler` and `self.state` are disjoint
+        // fields, so the mutable borrow of the handler coexists with the
+        // immutable borrow the resolver holds.
+        let scopes = self.state.syntax.caret_scopes(&self.state.document);
         let result = self.keyboard_handler.handle_key(
             event,
             &self.state.document,
             &self.state.cursor,
             &self.state.history,
             &self.state.config,
+            &scopes,
         );
         self.consume_key_result(result)
     }
@@ -618,6 +624,11 @@ impl Editor {
         // page a keypress would.
         self.keyboard_handler
             .set_page_rows(self.state.viewport.visible_lines);
+        // See `handle_key`. A palette-invoked `edit.insertCharacter` reaches
+        // the same suppression rule a typed character does — it has no event
+        // to take a character from, so it inserts nothing, but the two paths
+        // must not be able to diverge later.
+        let scopes = self.state.syntax.caret_scopes(&self.state.document);
         let result = self.keyboard_handler.run_command(
             id,
             args,
@@ -625,6 +636,7 @@ impl Editor {
             &self.state.cursor,
             &self.state.history,
             &self.state.config,
+            &scopes,
         )?;
         Ok(self.consume_key_result(result))
     }

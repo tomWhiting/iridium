@@ -16,6 +16,7 @@ use crate::commands::builtin::{
     TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
     TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE,
 };
+use crate::editor::CaretScopes;
 
 /// Runs a command by id — the only route the `transform.*` verbs have — and
 /// applies whatever it produces. Returns the command, for undo tests.
@@ -29,6 +30,7 @@ fn run(id: &str, document: &mut Document, cursor: &mut CursorState) -> Option<Co
             cursor,
             &UndoTree::new(),
             &EditorConfig::default(),
+            &CaretScopes::none(),
         )
         .expect("the kernel implements this command");
     match result {

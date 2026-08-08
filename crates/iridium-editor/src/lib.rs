@@ -86,6 +86,13 @@ pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResu
 pub use render::{CurrentLineRenderer, CursorRenderer, SelectionRenderer};
 #[cfg(feature = "syntax")]
 pub use syntax::{HighlightSpan, HighlightType};
+// The same two names in the parser-free build, so a consumer that only needs
+// to *name* the type — `input::keyboard`'s auto-pair suppression does — writes
+// one import instead of a `cfg` pair. The types themselves are genuinely
+// different (the stub's `Highlighter` finds nothing, by construction); what is
+// shared is the spelling.
+#[cfg(not(feature = "syntax"))]
+pub use syntax_stubs::{HighlightSpan, HighlightType};
 
 // One type in both feature configurations, rather than a pair selected by
 // `cfg`. The pair disagreed — see `iridium_lang` — and could not be tested,

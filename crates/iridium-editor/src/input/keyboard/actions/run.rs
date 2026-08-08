@@ -103,7 +103,9 @@ impl KeyboardHandler {
             // The only command that reads the raw event. Invoked by id, with no
             // keystroke to take a character from, there is nothing to insert.
             Action::InsertCharacter => match ctx.event.map(|event| event.key) {
-                Some(KeyCode::Char(c)) => Self::handle_char_input(c, document, cursor, ctx.config),
+                Some(KeyCode::Char(c)) => {
+                    Self::handle_char_input(c, document, cursor, ctx.config, ctx.scopes)
+                },
                 _ => KeyResult::Ignored,
             },
             Action::InsertNewline => Self::handle_enter(document, cursor, ctx.config),

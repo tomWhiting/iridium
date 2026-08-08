@@ -29,6 +29,7 @@ use crate::commands::builtin::{
 use crate::commands::{
     CommandArgs, CommandId, KeyBinding, ModifierPattern, ModifierState, StrokePattern,
 };
+use crate::editor::CaretScopes;
 
 const CTRL: Modifiers = Modifiers {
     shift: false,
@@ -111,6 +112,7 @@ fn press(
         cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     );
     if let KeyResult::Command(cmd) = &result {
         cmd.apply(document, cursor).expect("command must apply");
@@ -131,6 +133,7 @@ fn probe(
         cursor,
         &UndoTree::new(),
         &EditorConfig::default(),
+        &CaretScopes::none(),
     )
 }
 
@@ -436,6 +439,7 @@ fn adding_a_cursor_vertically_by_id_matches_the_key() {
             &key_cursor,
             &UndoTree::new(),
             &EditorConfig::default(),
+            &CaretScopes::none(),
         );
         if let KeyResult::Command(cmd) = key_result {
             cmd.apply(&mut key_doc, &mut key_cursor)
@@ -454,6 +458,7 @@ fn adding_a_cursor_vertically_by_id_matches_the_key() {
                 &id_cursor,
                 &UndoTree::new(),
                 &EditorConfig::default(),
+                &CaretScopes::none(),
             )
             .expect("the kernel implements this command");
         if let KeyResult::Command(cmd) = id_result {

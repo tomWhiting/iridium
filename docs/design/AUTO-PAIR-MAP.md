@@ -775,3 +775,116 @@ needs arbitrary bytes, (a) does not block it — the resolver still exists on
 suppressed-scope masks on `PairRules`, and the gate in the collapsed-opener
 branch only. **And every suppression test must first assert the scope
 resolved** — under B-6, unknown and not-suppressed are the same answer.
+
+### 9.3 S-4b — the editor half, LANDED 8 Aug 2026
+
+Steps 3, 4 and 5 of the build order. **Gates: all nine green, 2,591 / 1,070 /
+1,185, 0 failed** (2,568 / 1,068 / 1,164 before).
+
+#### ⚠️ Shape (a) was recommended in §9.2 and is **wrong**. Built (b)-shaped.
+
+§9.2 priced "(a) resolve above, pass down an `Option<HighlightType>`" and
+recommended it because "the only question this slice asks is about the caret".
+That sentence contains the error: there is not *a* caret. `auto_pair_char_edits`
+maps over `cursor.all_selections()`, and multi-cursor routinely puts one caret
+inside a string literal and another in code in the same edit — select every
+occurrence of a token that appears both in a string and as an identifier, which
+is an ordinary thing to do.
+
+One resolved answer for all of them means the string caret's answer is applied
+to the code caret. That **suppresses a pair the language permits**, which is the
+fail-*closed* direction ruling B-6 explicitly rejected. So (a) is not a cheaper
+approximation of (b); it is a violation of a ruling already taken.
+
+What landed is (b)'s shape without (b)'s price:
+
+- **`CaretScopes` is a concrete borrowed value, not a trait object.** No `dyn`,
+  no new lifetime — `CommandContext<'a>` already had one, and the resolver is
+  one more `&'a` field beside `document` and `cursor`.
+- **It is asked per caret**, in `auto_pair_edit_for`, so each caret gets its own
+  answer.
+- **It is lazy.** `Document::text` materialises the whole rope into a `String`;
+  resolving eagerly per keystroke would put an O(n) copy on every arrow key. A
+  `OnceCell` takes the text on the first question and never if none is asked —
+  and `PairRules::has_any_suppression` is a bitmask test that stops the question
+  ever being asked in a language whose manifest suppresses nothing, which is
+  most of them.
+
+#### ⭐ Rule L — when several rules produce the same refusal, a test of one must rule out the others
+
+`auto_pair_edit_for` declines to insert a pair for **four** independent reasons:
+the scope did not resolve (B-6 fail-open), `autoclose_before` (S-5), the
+apostrophe-after-a-word-character rule, and now `not_in`. All four produce the
+identical observable: one character where two would have gone.
+
+The first draft of `scope_suppression_tests.rs` was green at every position and
+was testing almost nothing. Two of its three carets sat in front of an ordinary
+letter, which `autoclose_before` refuses on its own; the third was preceded by
+a word character, which the apostrophe rule refuses on its own. **Removing the
+whole `not_in` gate would have left those tests green.**
+
+The fix is not a better assertion, it is a fixture that eliminates the
+alternatives, and the elimination itself has to be a test:
+
+- `the_fixture_resolves_to_the_three_scopes_the_tests_assume` — the tree parses
+  and each caret resolves to the specific scope named.
+- `every_caret_is_one_autoclose_before_permits` — types `(`, which Go never
+  suppresses, at all three carets and requires it to pair.
+- `every_caret_is_one_the_apostrophe_rule_permits` — types the same `'` at the
+  same three carets with **no language set**, where no manifest is read at all,
+  and requires it to pair.
+
+Only then does "the quote did not pair" mean `not_in`. This is Rule J's family —
+assert the premise — but sharper: the premise is not just "the probe was set up
+right", it is **"nothing else could have produced this outcome."**
+
+Red proof, with the gate removed: exactly the four suppression tests fail and
+the eight guarding everything else stay green.
+
+#### What landed, concretely
+
+| where | what |
+| --- | --- |
+| `iridium-lang` `schema.rs` | `Manifest::suppression_scopes()` — the *vocabulary*, not the rules |
+| `iridium-lang` `tests.rs` | ⭐ the ratchet: no manifest may name a `not_in` value the editor cannot translate |
+| `editor/ast/scope.rs` | `CaretScopes` — lazy, per-byte, never parses |
+| `editor/ast/state.rs` | a `Highlighter` beside the tree; `SyntaxState::caret_scopes` |
+| `syntax_stubs.rs` | `spans_in_range` and `HighlightType::is_within`, mirroring the real ones |
+| `behaviors.rs` | `SUPPRESSIBLE_SCOPES`, the per-scope masks, `has_any_suppression`, `suppressed_in`, the gate |
+| `actions/mod.rs` | `CommandContext::scopes` |
+| `keyboard/mod.rs`, `dispatch.rs` | one more parameter on `handle_key`, `dispatch_key`, `run_command` |
+| `editor/core.rs`, `wasm.rs` | the six call sites, all asking the kernel rather than assuming |
+
+#### Two smaller decisions, recorded rather than buried
+
+- **`SUPPRESSIBLE_SCOPES` is a two-element array in the editor, and that is a
+  hard-coded vocabulary.** It is defensible only because it is *checked*:
+  `not_in_names_only_the_two_scopes_the_editor_can_translate` fails the build if
+  any vendored manifest names a third. Without that test the array would be
+  exactly the "hard-coded barrage" this project keeps refusing — a rule read
+  from data, matched against a fixed list, and silently dropped on the floor
+  when it does not match. Teaching the editor a third scope is one entry there
+  and one arm in `HighlightType::is_within`.
+- **The web face asks `state.syntax.caret_scopes(...)` rather than passing
+  `CaretScopes::none()`.** It answers `none` today, for a reason that is true of
+  the *build* (the browser compiles the kernel with `syntax` off) and not of the
+  call. Writing the conclusion into six call sites would be a fact with a shelf
+  life; the day a tree reaches that face, `not_in` starts applying by itself.
+- **`KeyboardHandler::run_command` carries an `#[expect(too_many_arguments)]`**
+  with its reason: its five state parameters are exactly `CommandContext`'s
+  fields, and a public input struct would put a second name on the same set —
+  one the kernel builds, one every caller builds — while `handle_key` beside it
+  takes the same five and sits inside the limit.
+
+#### ▶ What is left of the auto-pair map
+
+**S-3** — multi-character openers (`"""`, `r#"`, `/*`). ⚠️ Note the interaction
+this slice makes visible: `Manifest::pairs_suppressed_in` reports only
+single-character rows, so a language's *effective* suppressed set today is a
+subset of what its manifest declares. Rust declares `not_in` on four rows —
+`r#"`, `r##"`, `r###"`, `/*` (all multi-character), `<` (`close = false`, so
+not an auto-close rule at all) and `"` — and only the last of those reaches
+`PairRules`. Nothing is wrong: each excluded row is excluded for a reason
+already argued (S-3 for the multi-character ones, B-7's "a row that does not
+close cannot be suppressed from closing" for `<`). It is worth knowing when
+reading a manifest and wondering why a rule seems not to fire.

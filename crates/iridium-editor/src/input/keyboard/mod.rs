@@ -73,6 +73,8 @@ mod line_boundary_tests;
 mod line_ops_tests;
 #[cfg(test)]
 mod multi_cursor_tests;
+#[cfg(all(test, feature = "syntax"))]
+mod scope_suppression_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -88,7 +90,7 @@ use crate::commands::{
     ModeName, default_keymap_stack,
 };
 use crate::document::{CursorState, Document, Selection};
-use crate::editor::EditorConfig;
+use crate::editor::{CaretScopes, EditorConfig};
 use crate::history::{Command, UndoTree};
 
 /// Re-exported for the `use super::*` in the module's test files, which build
@@ -299,6 +301,13 @@ impl KeyboardHandler {
     /// for bracket/quote pairing; and `line_comment_token` as the comment
     /// syntax fallback for the comment-toggle commands when the document's
     /// language provides none.
+    ///
+    /// `scopes` answers what the text at a byte offset is syntactically inside,
+    /// for the one manifest rule that needs it: a language's `not_in` says a
+    /// bracket must not auto-close inside a string or a comment. Pass
+    /// [`CaretScopes::none`] where there is no parse tree — it means *unknown*,
+    /// and under ruling B-6 unknown suppresses nothing, which is behaviour as
+    /// it was before the rule was read.
     pub fn handle_key(
         &mut self,
         event: &KeyEvent,
@@ -306,8 +315,9 @@ impl KeyboardHandler {
         cursor: &CursorState,
         history: &UndoTree,
         config: &EditorConfig,
+        scopes: &CaretScopes<'_>,
     ) -> KeyResult {
-        let (result, action) = self.dispatch_key(event, document, cursor, history, config);
+        let (result, action) = self.dispatch_key(event, document, cursor, history, config, scopes);
         self.note_operation(action, &result);
         result
     }
@@ -332,6 +342,15 @@ impl KeyboardHandler {
     /// [`CommandRunError::Unimplemented`] when this kernel implements no command
     /// with that id. A host command registered in the registry lands here, and the
     /// caller — which owns the implementation — is the right place to notice.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the five state parameters are exactly `CommandContext`'s \
+        fields, and bundling them into a public input struct would put a \
+        second name on the same set — one the kernel builds, one every caller \
+        builds — for a lint about readability. `handle_key` beside it takes \
+        the same five and sits inside the limit, so the shapes would then \
+        differ for no reason a reader could see."
+    )]
     pub fn run_command(
         &mut self,
         id: &str,
@@ -340,6 +359,7 @@ impl KeyboardHandler {
         cursor: &CursorState,
         _history: &UndoTree,
         config: &EditorConfig,
+        scopes: &CaretScopes<'_>,
     ) -> Result<KeyResult, CommandRunError> {
         let Some(action) = actions::action_for(id) else {
             return Err(CommandRunError::Unimplemented { id: id.to_owned() });
@@ -350,6 +370,7 @@ impl KeyboardHandler {
             document,
             cursor,
             config,
+            scopes,
         };
         let result = self.run_action(action, &ctx);
         self.note_operation(Some(action), &result);

@@ -426,3 +426,49 @@ comes back `Refused`.
 3. **What applies?** `⌘S` reads as "save this buffer", which is the oil idea.
 
 Told him I will take my own suggestions on any he does not care about.
+
+---
+
+## 4b — the integration map, ground-verified 9 Aug 2026
+
+**Read, not yet written.** Recorded so the next sitting opens in the editor
+rather than re-deriving this.
+
+### Where the wiring goes
+
+`file_tree/keys.rs:37` — `pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerOutcome`,
+dispatching on `match (chord(event.modifiers), event.key)`.
+
+⛔ **The four ruled keys cannot simply be added as arms.** `:95` is
+`(Chord::Plain, KeyCode::Char(character))` → the filter, which swallows every
+plain character. In edit mode those characters must reach the ROW, so
+`handle_key` needs an **edit-mode branch taken before the existing match**, not
+four more arms inside it.
+
+| ruled key | arm | calls |
+| --- | --- | --- |
+| `Tab` | `(Chord::Plain, KeyCode::Tab)` | `mode::begin_edit(&[SourceRow])` — currently unreachable |
+| `Ctrl+D` | `(Chord::Ctrl, KeyCode::Char('d' \| 'D'))` | mark deleted, strike-through |
+| `Ctrl+Enter` | `(Chord::Ctrl, KeyCode::Enter)` | new row |
+| `⌘S` | `(Chord::Meta, KeyCode::Char('s' \| 'S'))` | `request_confirm()` → apply |
+
+⚠️ `Ctrl+N` / `Ctrl+P` are already bound at `:53`/`:57` as move down/up, which is
+why "new row" could never be `Ctrl+N`. Confirmed in the source, not assumed.
+
+### The surface it calls into
+
+`mode.rs` is complete and public: `begin_edit`, `note_edit`, `request_confirm`,
+`back_to_edit`, `leave`, `discard`, `applied`, `refusals`. `mod.rs:64` carries
+the scoped `#[allow(dead_code)]` whose own comment says it is **self-removing
+the moment `keys` calls in** — so the wiring must delete that attribute in the
+same commit, and a leftover allow is the signal the job is half done.
+
+### ⚠️ Size
+
+`file_tree/` is **5,060 lines across 17 files**; `keys.rs` is 316 and `panel.rs`
+412. The edit-mode branch should be its own module (`edit_keys.rs`) rather than
+growing `keys.rs` toward the 500-line bar.
+
+⛔ **Not started: no file under `file_tree/` has been modified.** This is a read
+of the integration points, and it is written down because a partially wired key
+table on a panel that DELETES FILES is the one state worse than an unwired one.

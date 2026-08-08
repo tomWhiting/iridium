@@ -4017,3 +4017,36 @@ green from a passing CI badge in this window.
 
 Reported to Tom by Meridian and by push notification, since it is his account
 setting and nothing here can move it.
+
+## 8 Aug ~03:55 — Rule E on `Workspace::run_command`: the guard is wider than its name
+
+The baton's item 1, second choke point. **No defect, one real trap.**
+
+Rule E asks what the parameter type cannot express. `run_command(&mut self,
+id: &CommandId)` cannot express **arguments** — a count prefix or a captured
+character — so a binding carrying either would have it silently dropped, and
+next-tab would move one tab whatever count was typed.
+
+That gap is already guarded. What was wrong is the *labelling*:
+
+⚠️ **`no_host_command_is_bound_to_a_sequence_that_carries_arguments` filters on
+`Editor::implements_command`, so it covers eight ids, not three.** Measured
+with a throwaway integration test, since assuming it would have been the whole
+mistake: all five `workspace.*` ids report `implements_command == false`,
+exactly as the three `HOST` ids do. The kernel's default keymap binds three of
+them (`default_keymap.rs:508,520`), so they are genuinely in scope.
+
+Its two assertion messages said "**is a host command**". A failure naming
+`workspace.nextTab` would have sent the reader through `builtin::host` looking
+for an id that was never in it. Messages now say "a command this kernel does
+not implement" and name both destinations — a face's host dispatch *or*
+`Workspace::run_command`. Same correction in both face counterparts.
+
+⚠️ **Do not narrow the filter to `HOST` to match the name.** That is the
+tempting "fix", and it would silently drop the workspace ids from a guard that
+currently covers them. Both the test and `Workspace::run_command`'s doc now say
+so at the point someone would do it.
+
+**Gates: all nine green** — 2,541 / 1,061 / 1,157 passed, 0 failed, four clippy
+targets and fmt clean. Run in full rather than by reasoning about reach,
+because GitHub Actions is billing-blocked and there is no second net.

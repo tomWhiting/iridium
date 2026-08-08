@@ -628,6 +628,14 @@ mod tests {
         //
         // **When this fails, thread `args` through `run_host_command` rather
         // than relaxing it.**
+        //
+        // ⚠️ `implements_command` is wider than "host command": it also admits
+        // the five `workspace.*` ids, which the kernel does not implement
+        // either and which reach `Workspace::run_command` — an id and nothing
+        // else, so it discards arguments for the same reason this face does.
+        // The message says so, because a failure naming `workspace.closeTab`
+        // would otherwise send the reader looking through `builtin::host` for
+        // an id that is not in it.
         for binding in keymap().bindings() {
             let Some(command) = binding.command() else {
                 continue;
@@ -637,8 +645,8 @@ mod tests {
             }
             assert!(
                 !binding.accepts_count() && !binding.has_capture_stroke(),
-                "{command} is a host command bound to a sequence that carries \
-                 arguments, and this face discards them"
+                "{command} is a command the kernel does not implement, bound to \
+                 a sequence that carries arguments, and this face discards them"
             );
         }
     }

@@ -691,9 +691,17 @@ impl OverlayPainter {
     /// A refused size leaves the painter at its previous one; see the call
     /// site in `app` for why that is handled by surviving rather than by
     /// reporting.
-    pub fn set_font(&mut self, size: f32, data: Vec<u8>) {
+    ///
+    /// # Returns
+    ///
+    /// `false` when the bytes held no readable face. The desktop face passes a
+    /// font compiled into the binary, so a `false` here means the build itself
+    /// is wrong rather than the input — which is worth surfacing to the caller
+    /// instead of being swallowed, precisely because it should be impossible.
+    #[must_use = "an overlay with no font measures an approximation and draws nothing"]
+    pub fn set_font(&mut self, size: f32, data: Vec<u8>) -> bool {
         let _ = self.text.set_font_size(size);
-        self.text.load_font(data);
+        self.text.load_font(data)
     }
 
     /// Sets the window scale factor the chrome's logical measurements are

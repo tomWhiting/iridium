@@ -140,7 +140,16 @@ impl Shell {
         // default size, which is legible. There is nowhere to report it to:
         // this face writes nothing to a console by design (see `run`).
         let _ = compositor.set_font_size(font_size);
-        compositor.load_font(FONT.to_vec());
+        // Ignored deliberately, and the reason is not the one above. A refused
+        // *size* is a runtime value that could be wrong; `FONT` is compiled
+        // into this binary, so a refusal here would mean the build itself
+        // shipped bytes that are not a font, and there is no runtime response
+        // to that — the window is still opening and this face has no console.
+        //
+        // Not left to trust: `the_embedded_font_holds_a_readable_face` below
+        // asserts these exact bytes parse, and it needs no GPU, so unlike the
+        // screenshot harness it actually runs in the battery.
+        let _ = compositor.load_font(FONT.to_vec());
 
         let mut overlay = OverlayPainter::new(
             surface.device(),
@@ -150,7 +159,8 @@ impl Shell {
             surface.height(),
         )
         .map_err(|error| format!("cannot create the overlay painter: {error}"))?;
-        overlay.set_font(font_size, FONT.to_vec());
+        // Same compiled-in `FONT`, same reasoning as the compositor above.
+        let _ = overlay.set_font(font_size, FONT.to_vec());
         overlay.set_scale(scale_to_f32(window.scale_factor()));
 
         Ok(Self {
@@ -273,5 +283,31 @@ impl DesktopApp {
             title: String::new(),
             failure: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FONT;
+
+    /// ⭐ The screenshot harness asserts the same thing and **cannot be relied
+    /// on for it**: it is `#[ignore]`d because it needs a real GPU, so it does
+    /// not run in the battery. This one needs no device — it parses the bytes
+    /// into a throwaway database — which is the only reason the claim "the
+    /// embedded font loads" is checked at all rather than merely believed.
+    ///
+    /// What it catches: a vendor refresh, an `include_bytes!` path edited to
+    /// something that is not a font, or a well-meant swap to `.woff2`, which
+    /// this build cannot decode. Any of those leaves every face measuring an
+    /// approximated advance width and drawing no glyphs, and nothing else
+    /// would report it.
+    #[test]
+    fn the_embedded_font_holds_a_readable_face() {
+        assert!(
+            iridium_editor::render::font_data_holds_a_face(FONT),
+            "the font compiled into this binary holds no face the renderer \
+             can read; raw sfnt (.ttf/.otf/.ttc) is required and .woff2 is \
+             not decoded"
+        );
     }
 }

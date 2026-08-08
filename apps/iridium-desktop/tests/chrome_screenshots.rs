@@ -297,7 +297,10 @@ fn shot_compositor(gpu: &Gpu, theme: &Theme) -> Result<FrameCompositor, String> 
     )
     .map_err(|error| format!("the compositor could not be created: {error}"))?;
     compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
+    assert!(
+        compositor.load_font(FONT.to_vec()),
+        "the vendored test font holds no readable face"
+    );
     compositor.set_theme(theme.clone());
     Ok(compositor)
 }
@@ -933,7 +936,10 @@ fn run() -> Result<Vec<PathBuf>, String> {
         HEIGHT,
     )
     .map_err(|error| format!("the overlay painter could not be created: {error}"))?;
-    overlay.set_font(FONT_SIZE, FONT.to_vec());
+    assert!(
+        overlay.set_font(FONT_SIZE, FONT.to_vec()),
+        "the vendored test font holds no readable face"
+    );
     overlay.set_scale(SCALE);
 
     let fit = overlay

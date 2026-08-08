@@ -207,8 +207,12 @@ impl DesktopApp {
             // refusal means the previous, legible size survives, and this
             // face has no console to report it on.
             let _ = shell.compositor.set_font_size(font_size);
-            shell.compositor.load_font(FONT.to_vec());
-            shell.overlay.set_font(font_size, FONT.to_vec());
+            // Both ignored for the reason given at the startup call site:
+            // `FONT` is compiled in, so a refusal is a broken build rather
+            // than a runtime condition, and it is covered by a test that runs
+            // without a GPU.
+            let _ = shell.compositor.load_font(FONT.to_vec());
+            let _ = shell.overlay.set_font(font_size, FONT.to_vec());
             shell.overlay.set_scale(scale_to_f32(scale_factor));
         }
         // After the reload, not before: the strip's height is the overlay's

@@ -168,3 +168,81 @@ question no longer holds an unknown, only a step.
 be verified without running the builder, which clones nineteen grammar
 repositories. That is a network and disk call on a shared box, not a code
 decision, and it is the only thing standing between here and a finished fix.
+
+---
+
+# ✅ CLOSED — 8 Aug 2026, all three steps landed in order
+
+Tom ruled delete. **Restore gzip → repoint → delete**, exactly as the ordering
+warning above demands, all in one commit so no intermediate state exists.
+
+## ⚠️ The green light above was not needed, because the claim was wrong
+
+I wrote that "restoring gzip cannot be verified without running the builder."
+**That is false, and it was checkable.** Running the builder is the only way to
+verify the *clone-and-compile* half — but the compression is a different half
+entirely: bytes in, source text out, pure. It never needed a network; it needed
+separating from the code that does.
+
+So the encoder moved to **`packages/tree-sitter-builder/bundle.ts`** and grew
+**`bundle.test.ts`**, which generates a module from known bytes, imports it, and
+asks the *emitted loader* for the bytes back. Nine tests, no network, 95 ms.
+
+**The rule this leaves:** *"it cannot be verified without X" is a claim about a
+seam, not about the work.* Ask what is actually entangled with X before pricing
+a green light for it.
+
+## Why the test decodes through the emitted loader and not through zlib
+
+Decoding with `gunzipSync` would prove only that zlib is symmetric. It would
+pass just as well against a loader left uncompressed — which is precisely the
+regression that shipped in January. The test is only worth having because it
+runs the generated module.
+
+**Proven discriminating in both directions**, against the real code:
+
+| break | red |
+|---|---|
+| encoder drops `gzipSync`, loader keeps `DecompressionStream` | **6 of 9**, `Z_DATA_ERROR` |
+| encoder keeps `gzipSync`, loader drops decompression | **4 of 9** |
+
+A tenth test decodes the **live shipped `grammars.gen.ts`** through its own
+loader and asserts the first four bytes are `\0asm`. That is what catches the
+builder's format drifting away from the artefact it is supposed to produce —
+nothing else in the repo would notice, since the file says `DO NOT EDIT
+MANUALLY` and was last written in January.
+
+## Two counts in this document were wrong
+
+- **Three vite aliases, not five.** The two `iridium-bindings/wasm` entries
+  point at `pkg/`, which is the wasm build and was never part of this. They
+  stay. The three that went: `iridium-bindings` in both examples, and
+  `iridium-bindings/element` in the web-component one. Two `optimizeDeps.exclude`
+  entries went with them.
+- **`crates/iridium-bindings/package.json` also had to change**, which this
+  document did not mention. Its `exports` pointed `.`, `./controller`,
+  `./syntax` and `./element` into the deleted tree; `files` listed `ts/`. `.`
+  now resolves to `pkg/`, matching the `main`/`types` it always had, and only
+  `./wasm` remains beside it. Nothing imported any of the removed subpaths —
+  checked for `from`, `import(` and `require(` across every `.ts`, `.tsx`,
+  `.js`, `.jsx` and `.html` in the repo.
+
+## Also landed with it
+
+- **One timestamp for all three generated files.** `build.ts` called
+  `new Date()` three times, so a run crossing a second boundary stamped one
+  artefact with two dates.
+- **`generateGrammarsTs` takes bytes, not paths.** The `readFileSync` moved to
+  the caller, which is what makes the generator testable at all.
+
+## What is still open
+
+⚠️ **The builder has not been run.** Its clone-and-compile half is unchanged and
+untested — it always was. What is now true is that a rebuild will write to the
+live path and will write compressed, and both of those are pinned by tests. The
+nineteen-repo green light is still worth having before anyone regenerates the
+grammars, but it is no longer standing between here and a finished fix.
+
+Gates: all nine Rust green (2,545 / 1,061 / 1,157, 0 failed) plus `deno check`,
+`bun test src/` (104 pass), `tsc --noEmit` in `examples/web`, and the nine new
+builder tests.

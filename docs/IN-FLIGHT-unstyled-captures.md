@@ -1,5 +1,36 @@
 # #70 — the nine unstyled captures, each traced to its query site
 
+> ## ⭐ RULED 9 Aug 2026 — the six colours are decided, at this seat
+>
+> Tom, 9 Aug: *"just make them, just make them right… I just want you to
+> make them."* §"Six that are genuinely Tom's call" is therefore no longer
+> his call. The table there stands as written, with the one open pick
+> resolved:
+>
+> | capture | → |
+> |---|---|
+> | `title.markup` | `Keyword` |
+> | `link_uri.markup` | `String` |
+> | `link_text.markup` | `Function` |
+> | `selector.class` | `Type` |
+> | `selector.id` | **`Constant`** |
+> | `selector.pseudo` | `Attribute` |
+>
+> **`selector.id` → `Constant`, not `Type`.** The prose below leans `Type`
+> "for coherence"; that lean is withdrawn. Coherence between class and id
+> is the weaker argument, because in CSS the two behave differently in the
+> one way that matters most — an id is unique and outranks a class on
+> specificity — and a palette that renders them identically hides a
+> distinction the author is actively reasoning about. `Constant` is also
+> what the name means: a unique, fixed handle.
+>
+> ⚠️ **This shrinks `KNOWN_UNSTYLED_GAP` to empty, so the const and its
+> doc comment go entirely** — the comment is already stale (it still
+> claims JSX tags render unstyled, which stopped being true when #72
+> landed `tag.jsx` → `Tag`). An emptied exception list left in place is a
+> rot site; `the_unstyled_lists_name_only_captures_that_are_still_unstyled_and_still_used`
+> is what proves the shrink was real.
+
 > **STATUS.** The three that needed no ruling have **landed** (#72) — see the
 > correction below and `IN-FLIGHT-span-precedence.md`, which is where running
 > them led. `KNOWN_UNSTYLED_GAP` is now **six** names, all of them the colour

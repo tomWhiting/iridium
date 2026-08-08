@@ -1,5 +1,30 @@
 # Light Theme Map — the switch, and a classic-Mac light face
 
+> ## ⭐ RULED 9 Aug 2026 — D-1..D-8 all decided, build may start
+>
+> Tom, 9 Aug: *"in terms of the two decisions, just make them, just make
+> them right. I'm sick of being asked about them. I just want you to make
+> them. And get on with it."* So they are made here, at this seat, and
+> they are not to be re-raised with him. Every one takes §5's
+> recommendation; the reasoning is in §5 and is not repeated.
+>
+> | | ruling |
+> |---|---|
+> | **D-1** | **Variant A "Platinum"** ships as `Theme::light()`. B "Paper" and C "Monochrome" ship as JSON files under `themes/`, which costs one file each and nothing in the binary. |
+> | **D-2** | Follow the system appearance **and** allow a manual pin; a manual toggle stops following until the window closes. **Do not call `Window::set_theme`** — it permanently silences `ThemeChanged`. |
+> | **D-3** | A kernel **host** command `view.toggleTheme`, `Ctrl+Alt+T` in the kernel keymap and `⌘⌥T` in the desktop ⌘ layer. One toggle, not a light/dark pair. |
+> | **D-4** | Light inherits all ruled geometry and takes its own value for exactly three black-ink constants: backdrop dim `0.45 → 0.16`, shadow `16/48/0.55 → 3/2/0.34`, hairline `0.18 → 0.55` at 1 **logical** px. |
+> | **D-4b** | **Radius 8 in both modes.** One chrome geometry across light and dark. Rounded corners with genuine arcs are Tom's standing rule and were never in question; this only settles the number. |
+> | **D-5** | `panel_border` becomes a real 25th `EditorColors` field. Backdrop dim and shadow stay face constants keyed on `is_dark`. |
+> | **D-6** | The TUI follows, with no special deference, and the two `Ansi16` caveats recorded rather than designed around. |
+> | **D-7** | Add `--theme` to the desktop face, reusing the TUI's `ThemeChoice`. **No config file** in this change — the estate's first preferences store is not something a light theme should smuggle in. |
+> | **D-8** | Fix the two-palette divergence **in this change**. Without it a designed light theme sits on an undesigned fallback, which is exactly the half-landed work this repo's standards forbid. |
+>
+> ⚠️ **§4.1's render-and-pick step is now a verification artefact, not a
+> decision gate.** It was designed to let Tom choose from pixels; he has
+> delegated the choice, so the shots are taken *after* A is built, to
+> prove what was built, not to select it. Do not block the build on them.
+
 Produced 5 Aug 2026 from a full read of the theme module, both syntax
 palettes, the compositor's theme plumbing, the desktop overlay's derived
 chrome, the terminal face's palette resolver, the command/keymap

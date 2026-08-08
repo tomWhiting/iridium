@@ -74,6 +74,11 @@ thiserror.workspace = true
 # save tests write into.
 iridium-file = { workspace = true, features = ["test-support"] }
 
+# The config crate's theme fixtures: the two light faces D-1 ruled out of the
+# binary and into `themes/`, which the overlay's derivation sweeps and the
+# screenshot harness both need alongside the preset that did ship.
+iridium-config = { workspace = true, features = ["test-support"] }
+
 # PNG encoding and decoding for the chrome screenshot harness, which used to
 # hand-roll an encoder to avoid exactly this dependency and paid 23.7 MB a
 # frame for it — a measured 1.00008 compression ratio, 546 MB a run.

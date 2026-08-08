@@ -414,8 +414,9 @@ mod tests {
 
     /// The pair promise on [`SyntaxColors::light`], kept where it is made.
     ///
-    /// `classic`'s sweep asks the same question of all three variants through
-    /// `ClassicVariant`; this asks it of the two public constructors a caller
+    /// `classic`'s sweep asks the same question of all three light faces —
+    /// this preset plus the two shipped as files; this asks it of the two
+    /// public constructors a caller
     /// actually reaches, which is a different claim. They agree today only
     /// because `light()` delegates — and the delegation is precisely the thing
     /// a future edit might replace with a copy.

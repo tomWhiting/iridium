@@ -11,6 +11,13 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exposes the `test_support` module — the repository's shipped `themes/` files,
+# loaded through this crate's own `--theme` path. A feature rather than always
+# public because it reads the working tree, and nothing outside a test should
+# ever want that. The same shape as `iridium-file`'s.
+test-support = []
+
 [lib]
 name = "iridium_config"
 path = "src/lib.rs"

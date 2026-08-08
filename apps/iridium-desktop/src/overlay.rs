@@ -1424,7 +1424,8 @@ pub(crate) const fn scroll_for(caret: usize, cells: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use iridium_editor::theme::{ClassicVariant, Theme};
+    use iridium_config::test_support::classic_light_faces;
+    use iridium_editor::theme::Theme;
 
     use super::{
         Color, GridMetrics, PAD_X, PAD_Y, PANEL_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret,
@@ -1799,9 +1800,8 @@ mod tests {
     /// would fail; the strip would simply stop saying which file you are in.
     #[test]
     fn the_active_tab_is_distinguishable_from_the_band_in_every_preset() {
-        let themes = [Theme::dark(), Theme::light()]
-            .into_iter()
-            .chain(ClassicVariant::ALL.into_iter().map(ClassicVariant::theme));
+        let lights = classic_light_faces().expect("the shipped light themes load");
+        let themes = std::iter::once(Theme::dark()).chain(lights.into_iter().map(|(_, it)| it));
         for theme in themes {
             let band = strip_background(&theme);
             let card = super::tab_card_color(&theme);
@@ -1975,16 +1975,12 @@ mod tests {
         };
         let dark_separation = separation(&dark);
 
-        // `Theme::light()` is Platinum, so it is already in `ALL` — named
-        // separately anyway, because it is the one a user actually gets, and
-        // a future ruling that pointed `light()` at a different variant
-        // should not quietly drop it out of this sweep.
-        let lights = ClassicVariant::ALL
-            .into_iter()
-            .map(ClassicVariant::theme)
-            .chain(std::iter::once(Theme::light()));
-
-        for theme in lights {
+        // `classic_light_faces` opens with `Theme::light()` under the slug
+        // `platinum`, which is the one a user actually gets, and follows it
+        // with the two that ship as files under `themes/`. A future ruling
+        // that pointed `light()` at a different variant would change what the
+        // first entry is without dropping anything out of this sweep.
+        for (_, theme) in classic_light_faces().expect("the shipped light themes load") {
             assert!(
                 separation(&theme) > dark_separation,
                 "{}: its frame is no crisper than the dark preset's, so the \

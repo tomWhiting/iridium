@@ -61,6 +61,8 @@ pub mod location;
 pub mod problem;
 pub mod settings;
 pub mod suggest;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod theme;
 
 pub use install::{Refusal, install};

@@ -6284,10 +6284,67 @@ where the three-variant sweeps can reach them; `colors.rs` delegates.
    less than a following default.
 8. ~~**D-7**~~ — done. `--theme` on the desktop face, both spellings, plus
    `--` and unknown-flag rejection. No config file, as ruled.
-9. **D-1's tail** — B "Paper" and C "Monochrome" out of Rust and into JSON
-   under `themes/`.
+9. ~~**D-1's tail**~~ — done. B "Paper" and C "Monochrome" are
+   `themes/paper.json` and `themes/monochrome.json`; nothing in the binary.
 10. **§4.1's shots** — a *verification* artefact now, not a decision gate.
-    Taken after A is built, to prove what was built.
+    Taken after A is built, to prove what was built. Unblocked: the harness
+    now reads the two files, so it renders all three faces again.
+
+### D-1's tail, and what a truncated grep cost
+
+The JSON was **generated** from the tables that stood in `theme/classic.rs`,
+by a one-shot `#[cfg(test)]` emitter deleted in the same change. It was never
+retyped from the map. One transcription, not two — the rule that already cost
+`#3354AB` against `#3355AA` once.
+
+Then the Rust went: `paper_editor`, `paper_syntax`, `paper`, the three
+`monochrome_*`, and **`ClassicVariant` itself**, which existed only to iterate
+three candidates that no longer all live in Rust.
+
+⚠️ **I grepped for consumers with `| head -40` and read the truncated list as
+complete**, concluding out loud that `ClassicVariant` had none and that
+`classic.rs`'s module doc was stale in naming the screenshot harness. The doc
+was right and I was wrong; `rustc` found both consumers a minute later. A
+`head` on an evidence-gathering grep is the same defect class as a
+success-only channel: the output cannot express "there is more".
+
+Both consumers — `overlay.rs`'s derivation tests and
+`tests/chrome_screenshots.rs` — now go through
+**`iridium_config::test_support::classic_light_faces()`**, a new module beside
+the theme loader it calls. It returns `[("platinum", Theme::light()), ("paper",
+…), ("monochrome", …)]`, so a sweep asks its question of both halves of D-1's
+ruling at once. `iridium-editor` cannot use it (it is the dependency, not the
+dependent) and keeps its own `THEMES` path constant.
+
+Two things about that module were got wrong first and fixed by the gates,
+both worth keeping:
+
+- I made it unconditionally `pub` and argued in its doc that this matched
+  `iridium_file::test_support`. It does not — that module is behind a
+  `test-support` feature, and **clippy's `panic` lint** killed the first
+  version outright. Feature-gated now, with the same wording, and
+  `iridium-desktop` picks it up as a dev-dependency feature (`cargo test -p
+  iridium-desktop` with no `--all-features` was run separately to prove the
+  feature resolves that way).
+- Under a feature it is ordinary library code, so `panic!`/`unwrap`/`expect`
+  all apply to it. `iridium-file` answers that with `assert!`; this returns
+  **`Result`** instead, which is better here — each caller says what it was
+  looking for, which beats any message the fixture could write.
+
+**The test that matters most is `every_shipped_file_states_every_field`.**
+`EditorColors` and `SyntaxColors` carry container-level `#[serde(default)]`, so
+a field missing from a theme file does not fail to parse — it silently takes
+the **dark** preset's value, and a misspelt key is discarded without comment.
+Paper with a cold blue selection and no error anywhere. Re-serialising the
+parsed theme and comparing bytes catches a dropped field, a misspelt key and a
+hand-reformat in one assertion, and pins the files to canonical output so
+regenerating one is a no-op.
+
+`themes/README.md` states the `--theme` usage, what each file is, that the
+*why* lives in the map's §2.3 and not in the JSON, and that a new file dropped
+in the directory joins every sweep automatically — the sweep lists the
+directory rather than naming two files, with `paper` and `monochrome` required
+back by name so an empty directory cannot make it pass vacuously.
 
 ### D-2 and D-7, and the three things they turned up
 

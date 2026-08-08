@@ -91,6 +91,7 @@
 
 use std::path::{Path, PathBuf};
 
+use iridium_config::test_support::classic_light_faces;
 use iridium_desktop::command_palette::CommandPalette;
 use iridium_desktop::context_menu::ContextMenu;
 use iridium_desktop::highlight::HighlightCache;
@@ -101,7 +102,7 @@ use iridium_desktop::tab_strip::{TabItem, TabStripContent};
 use iridium_desktop::units::u32_to_f32;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
-use iridium_editor::theme::{ClassicVariant, Color, Theme};
+use iridium_editor::theme::{Color, Theme};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Language, Modifiers, Position};
 
 /// Frame width in physical pixels — a 2× desktop window.
@@ -864,51 +865,43 @@ fn variant_shots(
     gpu: &Gpu,
     overlay: &mut OverlayPainter,
     fit: PanelFit,
-    variant: ClassicVariant,
+    slug: &str,
+    theme: &Theme,
     out_dir: &Path,
 ) -> Result<Vec<PathBuf>, String> {
-    let theme = variant.theme();
-    let slug = variant.slug();
     let named = |state: &str| out_dir.join(format!("light-{slug}-{state}.png"));
 
     let editor_path = named("editor");
-    document_shot(gpu, overlay, &theme, Palette::ThemeSyntax, &editor_path)?;
+    document_shot(gpu, overlay, theme, Palette::ThemeSyntax, &editor_path)?;
 
     let selection_path = named("selection");
-    selection_shot(gpu, overlay, &theme, Palette::ThemeSyntax, &selection_path)?;
+    selection_shot(gpu, overlay, theme, Palette::ThemeSyntax, &selection_path)?;
 
     let palette_path = named("palette");
     palette_shot(
         gpu,
         overlay,
         fit,
-        &theme,
+        theme,
         Palette::ThemeSyntax,
         &palette_path,
     )?;
 
     let search_path = named("search");
-    search_shot(
-        gpu,
-        overlay,
-        fit,
-        &theme,
-        Palette::ThemeSyntax,
-        &search_path,
-    )?;
+    search_shot(gpu, overlay, fit, theme, Palette::ThemeSyntax, &search_path)?;
 
     let history_path = named("history");
     history_shot(
         gpu,
         overlay,
         fit,
-        &theme,
+        theme,
         Palette::ThemeSyntax,
         &history_path,
     )?;
 
     let bridge_path = named("bridge");
-    document_shot(gpu, overlay, &theme, Palette::KeywordBridge, &bridge_path)?;
+    document_shot(gpu, overlay, theme, Palette::KeywordBridge, &bridge_path)?;
 
     Ok(vec![
         editor_path,
@@ -1020,9 +1013,20 @@ fn run() -> Result<Vec<PathBuf>, String> {
     )?;
     written.push(tabs_path);
 
-    // The three candidates.
-    for variant in ClassicVariant::ALL {
-        written.extend(variant_shots(&gpu, &mut overlay, fit, variant, &out_dir)?);
+    // The map's three light faces: the ruled preset, plus the two that ship
+    // as files under `themes/` and are read from disk here exactly as a user's
+    // `--theme` reads them.
+    let faces = classic_light_faces()
+        .map_err(|error| format!("the shipped light themes under `themes/` must load: {error}"))?;
+    for (slug, theme) in faces {
+        written.extend(variant_shots(
+            &gpu,
+            &mut overlay,
+            fit,
+            slug,
+            &theme,
+            &out_dir,
+        )?);
     }
 
     Ok(written)
@@ -1040,6 +1044,14 @@ const DARK_CONTROL_SHOTS: usize = 6;
 /// How many frames each candidate light variant contributes, per the
 /// light-theme map §4.1.
 const VARIANT_SHOTS: usize = 6;
+
+/// How many light faces the map designed: Platinum from the binary, Paper and
+/// Monochrome from `themes/`.
+///
+/// A literal rather than `classic_light_faces().len()` so that the expected
+/// count and the produced count come from different places — a list that
+/// silently lost an entry would otherwise agree with itself.
+const CLASSIC_LIGHT_FACES: usize = 3;
 
 /// A generous ceiling on one encoded frame.
 ///
@@ -1180,7 +1192,7 @@ fn chrome_screenshots_render_headlessly() {
         Ok(paths) => {
             assert_eq!(
                 paths.len(),
-                DARK_CONTROL_SHOTS + VARIANT_SHOTS * ClassicVariant::ALL.len(),
+                DARK_CONTROL_SHOTS + VARIANT_SHOTS * CLASSIC_LIGHT_FACES,
                 "the shot set is the dark control plus six frames per variant"
             );
             let mut run_bytes = 0_u64;

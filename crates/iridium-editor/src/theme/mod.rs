@@ -6,10 +6,11 @@
 //! - Light and dark theme presets
 //! - Full color and typography customization
 //!
-//! [`classic`] holds the three classic-Mac light presets of
+//! [`classic`] holds the classic-Mac light preset of
 //! `docs/design/LIGHT-THEME-MAP.md` §2.3. D-1 ruled Variant A, so
-//! [`Theme::light`] *is* [`classic::platinum`]; the other two are unshipped
-//! and reachable only through [`ClassicVariant`].
+//! [`Theme::light`] *is* [`classic::platinum`]; Variants B and C ship as
+//! `themes/paper.json` and `themes/monochrome.json` and are reached through
+//! [`Theme::from_json`] like any other theme file, not through the binary.
 
 pub mod classic;
 mod colors;
@@ -18,7 +19,6 @@ mod vscode;
 #[cfg(test)]
 mod wcag;
 
-pub use classic::ClassicVariant;
 pub use colors::{Color, EditorColors, SyntaxColors};
 pub use fonts::Typography;
 pub use vscode::{VsCodeTheme, VsCodeTokenColor};

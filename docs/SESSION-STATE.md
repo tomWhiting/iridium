@@ -6149,3 +6149,89 @@ a plan's clothes.
 - Queue after #58: **#31 re-render** (Tom authorised), **T-1 vocabulary diff**
   (T-2's "capture everything" depends on it), **#88 steps 1–3**.
 - Owed to Cally: the **H1 caller sweep**, accepted, brief pending from her.
+
+---
+
+## Compaction baton — 9 Aug 2026, ~01:35 (Doug)
+
+### ⛔ UNCOMMITTED WORK IN THE TREE RIGHT NOW
+
+`crates/iridium-editor/src/theme/colors.rs` is **edited and not committed**:
+`EditorColors::light()` and `SyntaxColors::light()` have been rewritten to
+**Variant A "Platinum"** (#31). Nothing else is touched. **It has not been
+compiled or tested since the edit** — existing tests may assert the old light
+values (`ffffff` background, `0000ff` keyword). Check `theme/mod.rs:440`
+`theme_builder_light`, `theme/vscode.rs`, `theme/classic.rs`,
+`crates/iridium-tui/src/frame/palette.rs`, `apps/iridium/src/theme.rs`.
+
+⚠️ **If it must be undone the only sanctioned restore is
+`git show HEAD:crates/iridium-editor/src/theme/colors.rs > crates/iridium-editor/src/theme/colors.rs`** —
+never `checkout`/`restore`/`reset`/`stash`.
+
+The new values are Platinum: background `#EFEFEF`, foreground `#000000`,
+gutter/minimap/current_line `#DDDDDD`, selection `rgba(.20,.33,.67,.30)`,
+search gold `#FFD75F@.55` / `#FFA400@.85`. Syntax: keyword `#00007F`, string
+`#7F0000`, number `#005F5F`, comment `#007000`, function `#5C3D99`, variable
+`#1A1A1A`, type `#005F87`, operator `#000000`, punctuation `#3A3A3A`,
+property `#2A4E8C`, constant `#7A3E00`, tag `#7F0000`, attribute `#5C3D99`,
+error `#B00000`. Full rationale is in `docs/design/LIGHT-THEME-MAP.md` §2.3.
+
+### Landed and pushed this session
+
+| commit | what |
+| --- | --- |
+| `3429823a` | #58 4b — the file tree is editable as text (ten gates, 5,168 tests) |
+| `831c2a0e` | #31 + #70 ruled at this seat |
+| `2e9a224c` | #98 — the web target's font trap (ten gates, 5,173 tests) |
+| `1f346414` | #70 — six capture colours (ten gates, 5,174 tests) |
+
+`/Applications/iridium.app` reinstalled 01:24:20, `codesign --verify --strict`
+exit 0. Tom has been told, through Meridian.
+
+### #31 — what is left, in order
+
+D-1..D-8 are **all ruled** (see the RULINGS block at the top of
+`docs/design/LIGHT-THEME-MAP.md`). **Do not re-raise any of them with Tom.**
+Variant A ships as `Theme::light()`; radius **8** in both modes.
+
+1. ✅ the colours (in the tree, uncommitted — above)
+2. `Theme::light()`'s `name` → `"Iridium Platinum"` (`theme/mod.rs:110`)
+3. `panel_border` as a 25th `EditorColors` field (D-5), additive so existing
+   theme JSON keeps parsing
+4. `render/simple_highlight.rs` — `From<&theme::SyntaxColors>`, and the
+   compositor's `set_theme` maps from `theme.syntax` instead of branching on
+   `is_dark` (D-8; without this a light theme is honest on grammar'd files and
+   shows an unrelated palette on everything else)
+5. `commands/builtin/host.rs` — `view.toggleTheme`; `Ctrl+Alt+T` in the kernel
+   keymap, `⌘⌥T` in the desktop ⌘ layer
+6. `apps/iridium-desktop/src/overlay.rs` — the three light chrome values:
+   backdrop dim `0.45 → 0.16`, shadow `16/48/0.55 → 3/2/0.34`, hairline
+   `0.18 → 0.55` at 1 **logical** px
+7. `--theme` on the desktop face (D-7); **no config file**
+8. B "Paper" and C "Monochrome" as JSON under `themes/`
+
+### ⭐ THE LAW THIS SESSION ADDED
+
+**A channel that can only carry success is a defect** (Waffles' phrasing,
+adopted). Two instances an hour apart:
+
+- `fontdb::load_font_data` returns `()` — a `.woff2` adds no face and reports
+  nothing, so the next line shapes against an empty database and traps.
+- **A background task's completion notification reported `exit code 0` for two
+  batteries that were RED.** It carries the *shell's* status for the compound
+  command, not `ci.sh`'s.
+
+⚠️ Nothing is sloppy in either case — every component reports faithfully and
+the *composition* cannot express failure. **Never accept a notification,
+summary or exit code as a verdict; open the file the runner wrote.** Extends to
+delegated agents: a completion notification says the process ended, never that
+the work passed. Saved as memory `success-only-channels.md`.
+
+### Corrections to carry forward
+
+- **The file-size bar is 800 target / 1000 hard** (`docs/CODING_STANDARDS.md`,
+  tests counted), **not 500**. I told Tom otherwise earlier; 500 is only the
+  informal number in recent split-task titles.
+- `clippy::match_same_arms` forbids grouping capture names into tidy blocks
+  when bodies repeat, and this crate takes **zero `#[allow]`** — so #70's names
+  had to be merged into existing arms. The tidy version does not compile.

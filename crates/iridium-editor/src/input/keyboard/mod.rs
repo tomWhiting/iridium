@@ -36,8 +36,10 @@
 //!
 //! Configuration-dependent behaviors — tab width and spaces-vs-tabs,
 //! indent/outdent, auto-indent on Enter (including bracket-block and code-fence
-//! expansion), and auto-closing pairs — live in [`behaviors`] and are driven by
-//! the [`EditorConfig`] passed to [`KeyboardHandler::handle_key`].
+//! expansion), and auto-pair insertion — live in [`behaviors`] and are driven by
+//! the [`EditorConfig`] passed to [`KeyboardHandler::handle_key`]. Backspace's
+//! half of the auto-pair rules is [`backspace_pairs`], beside the
+//! [`auto_pair_record`] it reads and no longer beside the manifest.
 //!
 //! Comment toggling lives in [`comments`]: the comment syntax is resolved from
 //! the document's language identifier ([`Document::language`]), falling back to
@@ -45,6 +47,8 @@
 //! commands are acknowledged without editing.
 
 mod actions;
+mod auto_pair_record;
+mod backspace_pairs;
 mod behaviors;
 mod comments;
 mod dispatch;
@@ -53,6 +57,7 @@ mod edits;
 mod keymap_api;
 mod line_ops;
 pub mod motions;
+mod multi_char_pairs;
 mod multi_cursor;
 mod multi_cursor_verbs;
 mod navigation;
@@ -72,6 +77,12 @@ mod line_boundary_tests;
 #[cfg(test)]
 mod line_ops_tests;
 #[cfg(test)]
+mod multi_char_backspace_tests;
+#[cfg(test)]
+mod multi_char_pair_tests;
+#[cfg(test)]
+mod multi_char_skip_tests;
+#[cfg(test)]
 mod multi_cursor_tests;
 #[cfg(all(test, feature = "syntax"))]
 mod scope_suppression_tests;
@@ -84,6 +95,8 @@ pub use types::{
     AstRequest, ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
     Modifiers, SearchAction,
 };
+
+use auto_pair_record::AutoPairInsertion;
 
 use crate::commands::{
     CommandArgs, KeyHintIndex, KeyPress, Keymap, KeymapError, KeymapResolver, KeymapStack,
@@ -223,6 +236,26 @@ pub struct KeyboardHandler {
     /// slice a stale range as the search term.
     add_order_revision: Option<u64>,
 
+    /// What the last auto-pair keystroke wrote, or `None` when the last one
+    /// wrote no multi-character closer.
+    ///
+    /// ⭐ **Backspace's multi-character collapse is gated on this and on
+    /// nothing else** — ruling B-13, `docs/design/AUTO-PAIR-MAP.md` §10.12.
+    /// *"Did the editor write this closer"* is a fact about what happened, and
+    /// a buffer records only what is; three rounds of positional probes into
+    /// the post-edit buffer were each refuted by a case at a scope boundary
+    /// the probe could not see. So the insertion says what it wrote and the
+    /// delete believes only that.
+    ///
+    /// Valid *only* for the exact document identity, content revision and
+    /// cursor state recorded in it, which is the same validation discipline
+    /// [`Self::preferred_columns`] describes and for the same reason:
+    /// validating by full identity is what makes every intervening path — a
+    /// motion, another edit, undo, redo, a click, a host-driven cursor jump —
+    /// self-invalidate the record without an explicit reset. Nothing in this
+    /// crate clears it, and nothing needs to.
+    auto_pair: Option<AutoPairInsertion>,
+
     /// How many lines a page motion hops: the viewport height, in text rows.
     ///
     /// View state mirrored from the host, not owned here — the keyboard layer
@@ -273,6 +306,7 @@ impl KeyboardHandler {
             cursor_add_order: Vec::new(),
             add_order_anchor: None,
             add_order_revision: None,
+            auto_pair: None,
             page_rows: 0,
         }
     }

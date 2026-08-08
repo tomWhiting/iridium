@@ -1,6 +1,6 @@
 //! Tests for the manifest reader.
 //!
-//! Two jobs. The first is that the twenty-one vendored files parse and that the
+//! Two jobs. The first is that the twenty-two vendored files parse and that the
 //! table naming them matches the tree on disk — without that, a vendor refresh
 //! could add or drop a language silently. The second is the *derivation* rules:
 //! which comment token wins, which block pair wins, and that the `[overrides.*]`

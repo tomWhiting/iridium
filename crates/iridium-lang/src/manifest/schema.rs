@@ -275,7 +275,7 @@ impl Manifest {
     ///
     /// The trailing space is stripped rather than kept because it is a *Zed*
     /// insertion convention, and two manifests (`gitcommit`, `gomod`) omit it —
-    /// so trimming is the rule that makes all twenty-one agree, not a special
+    /// so trimming is the rule that makes all twenty-two agree, not a special
     /// case for the ones that have it. A token that is nothing but whitespace
     /// is treated as absent.
     #[must_use]
@@ -451,8 +451,8 @@ impl Manifest {
     ///
     /// The same `None`/`Some(empty)` distinction as its three siblings: `None`
     /// is a language with no `brackets` key at all, and an empty iterator is a
-    /// language that has one and declares no multi-character pair — thirteen
-    /// of the twenty-one.
+    /// language that has one and declares no multi-character pair — fourteen
+    /// of the twenty-two.
     #[must_use]
     pub fn multi_char_close_pairs(&self) -> Option<impl Iterator<Item = DelimiterPair<'_>>> {
         Some(

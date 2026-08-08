@@ -30,7 +30,12 @@ fn selections(cursor: &CursorState) -> Vec<((usize, usize), (usize, usize))> {
 
 /// Handles a key event with the given config and applies the resulting
 /// command (if any), returning the command for undo assertions.
-fn press(
+///
+/// ⚠️ `CaretScopes::none()` resolves nothing, so the `not_in` branch of
+/// `auto_pair_edit_for` is unreachable on this harness for every character in
+/// every language. `multi_char_pair_tests` shares this helper and depends on
+/// that; see its module docs.
+pub(super) fn press(
     handler: &mut KeyboardHandler,
     event: &KeyEvent,
     document: &mut Document,
@@ -68,7 +73,7 @@ const SHIFT_TAB: KeyEvent = KeyEvent::new(KeyCode::Tab, Modifiers::shift());
 const ENTER: KeyEvent = KeyEvent::new(KeyCode::Enter, Modifiers::none());
 const BACKSPACE: KeyEvent = KeyEvent::new(KeyCode::Backspace, Modifiers::none());
 
-fn ch(c: char) -> KeyEvent {
+pub(super) fn ch(c: char) -> KeyEvent {
     KeyEvent::simple(KeyCode::Char(c))
 }
 
@@ -950,7 +955,7 @@ fn bracket_after_word_character_still_pairs() {
 
 /// A document holding `text` and tagged with `language`'s identifier, the way
 /// a face tags one after resolving a file's extension.
-fn doc_in(language: Language, text: &str) -> Document {
+pub(super) fn doc_in(language: Language, text: &str) -> Document {
     let mut doc = Document::new(text);
     doc.set_language(Some(language.id().to_owned()));
     doc

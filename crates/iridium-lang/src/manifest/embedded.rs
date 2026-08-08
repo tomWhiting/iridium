@@ -11,7 +11,7 @@
 //! The files are `include_str!`'d, so they cannot go missing after install —
 //! the same reasoning as the queries beside them. Parsing happens on first use
 //! rather than at startup, because a face that never asks about a language
-//! should not pay for twenty-one TOML documents.
+//! should not pay for twenty-two TOML documents.
 //!
 //! A malformed manifest is a build-time defect in a vendored in-tree file, not
 //! a runtime condition, and this crate has no business panicking in an editor.
@@ -142,7 +142,7 @@ pub fn all() -> &'static [Manifest] {
 
 /// The manifest vendored under `id`, if there is one.
 ///
-/// A linear scan: twenty-one entries, and a map would cost an allocation and a
+/// A linear scan: twenty-two entries, and a map would cost an allocation and a
 /// hash to beat a comparison of short strings that almost always fails on the
 /// first byte.
 #[must_use]

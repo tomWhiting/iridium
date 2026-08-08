@@ -61,7 +61,12 @@ pub use iridium_file as file;
 /// The terminal event loop.
 pub mod run;
 /// Loading a theme through the kernel's theme module.
-pub mod theme;
+///
+/// This lived here as `src/theme.rs` until the desktop face grew the same
+/// `--theme` flag; it is now `iridium_config::theme`, re-exported under its old
+/// name so every path in this crate reads as it always did — the same move,
+/// and for the same reason, as `file` above.
+pub use iridium_config::theme;
 
 pub use app::App;
 pub use cli::Invocation;

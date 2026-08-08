@@ -10,7 +10,7 @@ use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::window::WindowId;
+use winit::window::{Theme as WinitTheme, WindowId};
 
 use super::startup::Shell;
 use super::state::{DesktopApp, Flow};
@@ -34,7 +34,16 @@ impl ApplicationHandler for DesktopApp {
         match Shell::open(event_loop, self.workspace.theme().clone()) {
             Ok(shell) => {
                 shell.window.request_redraw();
+                // Read before the shell is stored, because that is the first
+                // moment a window exists to ask. `follow_system_appearance`
+                // declines when `--theme` already pinned the session, and
+                // when winit has no answer (`None` on platforms that do not
+                // report one) the kernel's default stands.
+                let appearance = shell.window.theme();
                 self.shell = Some(shell);
+                if let Some(appearance) = appearance {
+                    self.follow_system_appearance(appearance == WinitTheme::Dark);
+                }
                 self.sync_top_inset();
                 self.sync_kernel_viewport();
                 self.refresh_title();
@@ -127,6 +136,9 @@ impl ApplicationHandler for DesktopApp {
                 }
             },
             WindowEvent::MouseWheel { delta, .. } => self.wheel(&delta),
+            WindowEvent::ThemeChanged(appearance) => {
+                self.follow_system_appearance(appearance == WinitTheme::Dark);
+            },
             WindowEvent::Focused(false) => self.blurred(),
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {},

@@ -15,7 +15,7 @@ use crate::app::title::title_for;
 
 #[test]
 fn the_palette_is_modal_and_escape_gives_the_document_back() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     assert_eq!(
         app.press(&chord(KeyCode::Char('k'), Modifiers::ctrl())),
         Flow::Running
@@ -39,7 +39,7 @@ fn the_palette_is_modal_and_escape_gives_the_document_back() {
 
 #[test]
 fn the_mac_spellings_reach_the_same_overlays() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
     assert!(app.palette_open, "⌘K opens the palette");
     assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
@@ -56,14 +56,14 @@ fn the_mac_spellings_reach_the_same_overlays() {
     );
     assert!(app.history_open, "⌘⌥H toggles the undo tree");
 
-    let mut second = DesktopApp::new(Options { path: None }).expect("a session opened");
+    let mut second = DesktopApp::new(Options::default()).expect("a session opened");
     assert_eq!(second.press(&meta(KeyCode::Char('f'))), Flow::Running);
     assert!(second.search_open, "⌘F opens the search panel");
 }
 
 #[test]
 fn a_kernel_command_runs_from_the_palette_and_is_remembered() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "hello");
     assert_eq!(
         app.press(&chord(KeyCode::Char('k'), Modifiers::ctrl())),
@@ -104,7 +104,7 @@ fn a_face_command_runs_from_the_palette() {
 
 #[test]
 fn reopening_the_palette_clears_the_query() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
     type_into(&mut app, "fold");
     assert_eq!(app.palette.query(), "fold");
@@ -115,7 +115,7 @@ fn reopening_the_palette_clears_the_query() {
 
 #[test]
 fn a_right_press_opens_the_context_menu_at_the_pointer() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "hello");
     app.pointer.set_position(120.0, 240.0);
     app.secondary_pressed();
@@ -136,7 +136,7 @@ fn a_right_press_opens_the_context_menu_at_the_pointer() {
 #[test]
 fn a_right_press_while_a_modal_panel_is_open_opens_no_menu() {
     // Modal means modal: the press is spent on the panel that is up.
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
     app.pointer.set_position(120.0, 240.0);
     app.secondary_pressed();
@@ -146,7 +146,7 @@ fn a_right_press_while_a_modal_panel_is_open_opens_no_menu() {
 
 #[test]
 fn the_context_menu_is_modal_and_escape_gives_the_document_back() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     app.pointer.set_position(10.0, 10.0);
     app.secondary_pressed();
     assert!(app.menu.is_some());
@@ -166,7 +166,7 @@ fn the_context_menu_is_modal_and_escape_gives_the_document_back() {
 
 #[test]
 fn enter_runs_the_highlighted_menu_verb_through_the_kernel() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "hello");
     app.pointer.set_position(10.0, 10.0);
     app.secondary_pressed();
@@ -189,7 +189,7 @@ fn enter_runs_the_highlighted_menu_verb_through_the_kernel() {
 
 #[test]
 fn the_menus_palette_row_opens_the_palette() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     app.pointer.set_position(10.0, 10.0);
     app.secondary_pressed();
     assert_eq!(app.press(&press(KeyCode::End)), Flow::Running);
@@ -203,7 +203,7 @@ fn the_menus_palette_row_opens_the_palette() {
 
 #[test]
 fn losing_focus_closes_the_menu() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     app.pointer.set_position(10.0, 10.0);
     app.secondary_pressed();
     assert!(app.menu.is_some());
@@ -216,7 +216,7 @@ fn losing_focus_closes_the_menu() {
 
 #[test]
 fn a_click_outside_the_open_menu_dismisses_it_and_never_reaches_the_document() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "hello");
     app.pointer.set_position(10.0, 10.0);
     app.secondary_pressed();
@@ -237,7 +237,7 @@ fn a_click_outside_the_palette_dismisses_it_and_never_reaches_the_document() {
     // D-4: a modal panel swallows the click that dismisses it. Before the
     // context-menu slice the press fell straight through to the document
     // while the palette stayed on screen.
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "hello");
     assert_eq!(app.press(&meta(KeyCode::Char('k'))), Flow::Running);
     assert!(app.palette_open, "⌘K opens the palette");
@@ -258,7 +258,7 @@ fn a_click_outside_the_palette_dismisses_it_and_never_reaches_the_document() {
 
 #[test]
 fn a_click_outside_the_undo_tree_dismisses_it_too() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
     assert!(app.history_open, "Ctrl+Alt+H opens the undo tree");
 
@@ -273,7 +273,7 @@ fn a_click_while_the_search_panel_is_open_still_reaches_the_document() {
     // The search panel is deliberately *not* modal — keys it does not bind
     // stay the host's — so D-4 does not touch it: a click while it is open
     // belongs to the document, and the panel stays up.
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     assert_eq!(
         app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),
         Flow::Running
@@ -288,7 +288,7 @@ fn a_click_while_the_search_panel_is_open_still_reaches_the_document() {
 
 #[test]
 fn the_history_panel_toggles_and_is_modal() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "a");
     assert_eq!(app.press(&ctrl_alt(KeyCode::Char('h'))), Flow::Running);
     assert!(app.history_open, "Ctrl+Alt+H opens the undo tree");
@@ -303,7 +303,7 @@ fn the_history_panel_toggles_and_is_modal() {
 
 #[test]
 fn jumping_from_the_history_panel_walks_states_and_keeps_the_panel_open() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     // One node per edit, so the rows are predictable.
     app.test_editor_mut()
         .state_mut()
@@ -330,7 +330,7 @@ fn jumping_from_the_history_panel_walks_states_and_keeps_the_panel_open() {
 
 #[test]
 fn the_search_panel_opens_finds_and_closes_without_disturbing_the_document() {
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "alpha beta alpha");
     assert_eq!(
         app.press(&chord(KeyCode::Char('f'), Modifiers::ctrl())),

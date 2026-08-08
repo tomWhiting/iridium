@@ -21,6 +21,7 @@ use iridium_file::TextFile;
 use winit::keyboard::ModifiersState;
 
 use super::startup::Shell;
+use super::theme::ThemeSource;
 use crate::command_palette::CommandPalette;
 use crate::context_menu::ContextMenu;
 use crate::file_tree::FileExplorer;
@@ -129,6 +130,20 @@ pub struct DesktopApp {
     /// Keydown-to-present measurement, armed by `IRIDIUM_LATENCY`; one
     /// branch per event when it is not. See [`crate::latency`].
     pub(super) latency: LatencyMonitor,
+    /// Who chose the theme, and so whether the system appearance still
+    /// overrides it. See [`ThemeSource`].
+    ///
+    /// Pinned by `--theme` at startup and by the manual toggle, and never
+    /// unpinned: a pin lasts until the window closes. There is nowhere to
+    /// persist it to and nothing to clear it with — the estate has no
+    /// preferences store, and inventing one is not a light theme's decision
+    /// to make (D-7).
+    ///
+    /// The alternative to a pin is worse than it looks. Without one, the next
+    /// `ThemeChanged` — which arrives on a schedule the user did not choose,
+    /// when macOS crosses sunset under "Auto" — silently undoes a deliberate
+    /// choice made ten seconds earlier.
+    pub(super) theme_source: ThemeSource,
     /// The window title as last set, so an unchanged title costs nothing.
     pub(super) title: String,
     /// What killed the session from inside the event loop, if anything;

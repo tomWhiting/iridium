@@ -61,6 +61,7 @@ pub mod location;
 pub mod problem;
 pub mod settings;
 pub mod suggest;
+pub mod theme;
 
 pub use install::{Refusal, install};
 pub use keys::KEYMAP_NAME;

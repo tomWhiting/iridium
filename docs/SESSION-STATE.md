@@ -6276,15 +6276,52 @@ where the three-variant sweeps can reach them; `colors.rs` delegates.
 
 5. ~~`view.toggleTheme`~~ — done, `8e4ae670`
 6. ~~overlay ink constants~~ — done, `7d86cef3`
-7. **D-2** — follow the system appearance, allow a manual pin that stops
-   following until the window closes. ⚠️ **Do not call `Window::set_theme`** —
-   it permanently silences `ThemeChanged`.
-8. **D-7** — `--theme` on the desktop face, reusing the TUI's `ThemeChoice`.
-   **No config file** in this change.
+7. ~~**D-2**~~ — done. The window reads `Window::theme()` at `Shell::open` and
+   follows `WindowEvent::ThemeChanged`; an explicit choice pins and stops it
+   following until the window closes. `Window::set_theme` is **not** called,
+   and `apps/iridium-desktop/src/app/theme.rs`'s module doc records why: it
+   would permanently silence `ThemeChanged`, and a matched titlebar is worth
+   less than a following default.
+8. ~~**D-7**~~ — done. `--theme` on the desktop face, both spellings, plus
+   `--` and unknown-flag rejection. No config file, as ruled.
 9. **D-1's tail** — B "Paper" and C "Monochrome" out of Rust and into JSON
    under `themes/`.
 10. **§4.1's shots** — a *verification* artefact now, not a decision gate.
     Taken after A is built, to prove what was built.
+
+### D-2 and D-7, and the three things they turned up
+
+`ThemeChoice` was in `apps/iridium` — a **binary** crate, so "reuse it in the
+desktop face" was not an import but a move. It now lives in
+`iridium_config::theme`, re-exported by the TUI under its old name so every
+path in that crate reads as it always did. That is the same move `file` made
+for the same reason, and the precedent is why it cost so little.
+
+Three things fell out that were not in the ruling:
+
+- **The desktop face had no flag vocabulary at all**, so `iridium-desktop
+  --wat` opened a file called `--wat`. Anything starting with `-` other than a
+  bare `-` is now named rather than opened.
+- **Clippy refused a fourth `bool` on `DesktopApp`** (`struct_excessive_bools`)
+  and was right to: the other three are open/closed panel flags, and a
+  `theme_pinned` beside them would read like one. It is a `ThemeSource`
+  enum — `System` or `Pinned` — which answers "who decided this?" at the call
+  site instead of requiring you to already know.
+- **#100**: a well-formed JSON document that is nobody's theme loads
+  *successfully* as an empty VS Code theme, because every field of that format
+  is optional in VS Code itself. So a native theme with a structural typo opens
+  a default-coloured window and says nothing. Pinned by a test that asserts the
+  behaviour **that exists**, not the one that should, with a pointer to the
+  task — fixing it means deciding what "too empty to be a theme" means in the
+  kernel's parser, which both faces share.
+
+### ⚠️ A fourth success-only channel, same session
+
+`CI_EXIT=1` twice on this work while the background-task notification said
+**"exit code 0"** both times. Once for five clippy violations, once for
+`cargo fmt --check`. The composition still cannot express failure. **Open the
+file the runner wrote.** Note also that the fmt failure printed **no line
+matching `^error`** — grepping for errors would have called a red run green.
 
 ### ⚠️ #69's flake class is wider than its title
 

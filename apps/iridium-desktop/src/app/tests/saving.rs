@@ -93,7 +93,7 @@ fn a_stale_file_refuses_the_save_and_the_forced_chord_overwrites() {
 #[test]
 fn an_unnamed_buffer_asks_for_a_name_and_saves_under_it() {
     let directory = TempDir::new("desktop-save-as");
-    let mut app = DesktopApp::new(Options { path: None }).expect("an empty session opened");
+    let mut app = DesktopApp::new(Options::default()).expect("an empty session opened");
     type_into(&mut app, "hi");
 
     assert_eq!(app.press(&ctrl_s()), Flow::Running);

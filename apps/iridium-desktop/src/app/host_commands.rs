@@ -11,8 +11,6 @@ use iridium_editor::commands::builtin::{
     EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
     WORKSPACE_CLOSE_TAB,
 };
-use iridium_editor::theme::Theme;
-
 use iridium_file::TextFile;
 
 use std::path::Path;
@@ -116,20 +114,6 @@ impl DesktopApp {
     /// not a failure: `Shell::open` takes the workspace's theme as its
     /// argument, so a toggle pressed against a headless session is picked up
     /// when the window opens.
-    fn toggle_theme(&mut self) -> Flow {
-        let next = if self.workspace.theme().is_dark {
-            Theme::light()
-        } else {
-            Theme::dark()
-        };
-        self.workspace.set_theme(next.clone());
-        if let Some(shell) = self.shell.as_mut() {
-            shell.compositor.set_theme(next);
-        }
-        self.request_redraw();
-        Flow::Running
-    }
-
     /// Opens the file explorer, or closes it if it is already open.
     ///
     /// A toggle, exactly as the kernel names it. Closing **drops** the panel

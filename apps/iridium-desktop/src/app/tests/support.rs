@@ -40,6 +40,7 @@ pub(super) fn open(directory: &TempDir, name: &str, text: &str) -> (DesktopApp, 
     std::fs::write(&path, text).expect("the fixture file was written");
     let app = DesktopApp::new(Options {
         path: Some(path.clone()),
+        ..Options::default()
     })
     .expect("the session opened");
     (app, path)

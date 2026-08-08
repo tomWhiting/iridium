@@ -5022,3 +5022,75 @@ naming for frame-side work. The confirmation was declined and the shas asked
 for instead — **a confirmed-but-unchecked tip is how an integration ends up
 built on something nobody pinned.** Iridium's actual tip at the time of asking
 was `076dc790`.
+
+---
+
+## ⚠️ COMPACTION BATON — S-3 is UNCOMMITTED in the tree. Read this first.
+
+### State right now
+
+**Nothing of S-3 is committed.** The working tree carries the whole slice as
+modified + untracked files under
+`crates/iridium-editor/src/input/keyboard/` (`multi_char_pairs.rs`,
+`multi_char_pair_tests.rs`, `multi_char_skip_tests.rs`,
+`multi_char_backspace_tests.rs`, plus edits to `behaviors.rs`, `mod.rs`,
+`edits.rs`, `behavior_tests.rs`, `scope_suppression_tests.rs`,
+`actions/run.rs`). ⛔ **A `git show HEAD:<path> > <path>` on any of those
+destroys hours of work. There is no undo.**
+
+**Workflow `wf_613bf6d3-3e5` (task `wh75mdsby`) is RUNNING** — building B-13,
+then an adversary and a gate runner. Its script is under the session's
+`workflows/scripts/`. Read its `journal.jsonl` before believing any summary.
+
+**Last measured battery, on the tree as it stood before B-13:**
+**2,658 / 1,117 / 1,244 passing, 0 failed**, nine gates exit 0, plus
+`cargo test -p iridium-lang --all-features` at 81. Use that as the baseline.
+
+### What happened, in one paragraph
+
+S-3 (multi-character auto-pair openers) was built by workflow across four
+rounds. Insertion, longest-match and skip-over are sound and verified. **Step 5,
+backspace, has been wrong four times.** Each round's fix was refuted by the next
+round's adversary, and the rulings are all written up in
+`docs/design/AUTO-PAIR-MAP.md` §10.8 through §10.12 — **read those, not this
+summary.** The short version: B-8 bounded the delete's left side, B-11 tried to
+bound the right with `not_in` at the caret, §10.11 corrected the probe to
+before-the-opener, and round 4 showed that is a *regression* in five measured
+cases. **B-13 (§10.12) abandons positional probing entirely** and gates the
+collapse on remembered insertion — the record of what the editor wrote, matched
+by cursor identity and revision, on the `preferred_columns` precedent.
+
+⭐ **The lesson, if only one survives:** *"Did the editor write this closer"* is
+a fact about **what happened**; the buffer records only **what is**. No position
+in a post-edit buffer reconstructs a decision made in the pre-edit one.
+
+### Do NOT redo these
+
+- The nine-gate battery on `d1157a81` — done, green, recorded above.
+- The theme research — `docs/design/THEME-SYSTEM-MAP.md` is committed (1,092
+  lines, T-1..T-5). Tom has been told; no rush on the T-numbers.
+- The iridium-consumption answer to Waffles — recorded above. He vendors at
+  `aa0b6be5`, whose code tree is byte-identical to the battery-green tree.
+- The figure sweep — 22 manifests / 8 declaring / 14 not, corrected in five
+  places. `build.rs:12`'s "21 languages" is **deliberately** left: it is a
+  query-tree claim and `languages.txt` lists 18 ids against 22 directories,
+  which wants deciding, not swapping.
+
+### Next actions, in order
+
+1. **Read `wf_613bf6d3-3e5`'s result.** If the adversary is clean and the gates
+   are green, **commit S-3** — it is the largest uncommitted thing in the tree
+   and should not stay that way.
+2. **#74** — write `rust-toolchain.toml` pinning **1.97.1**, with
+   `components = ["rustfmt", "clippy"]` and
+   `targets = ["wasm32-unknown-unknown"]`. Verified: 1.97.1 is already the
+   active default here and `1.97.1-aarch64-apple-darwin` already has the wasm
+   target installed, so this is a no-op behaviourally. MSRV stays 1.85.
+3. **#88** — tier-1 groundwork as the first slice of Tom's ruled tier 2.
+4. **#69** — the flaky GPU test.
+
+⏸ **#89 (the git guard) is BLOCKED** — the claim predicate moved to a ref and
+neither the marker nor the hook may be committed. See the task, not this file.
+
+⚠️ **Do not start a new workflow while another is editing
+`input/keyboard/`.** Two agents in that directory will corrupt each other.

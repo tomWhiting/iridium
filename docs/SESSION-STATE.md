@@ -3882,3 +3882,32 @@ this seat added ~3.4 GB of `target/` through repeated nine-gate batteries plus
 wasm builds. Last measured tree 12,812,684 KB, `target/` 11,013,236 KB.
 `cargo clean` would reclaim ~10.5 GB at the cost of cold gates — **not taken
 unilaterally**; raise it if free space nears a band.
+
+---
+
+## 8 Aug ~02:55 — the push landed, and a ruling is waiting
+
+**`main` is pushed.** `fea8c323..907dac18`, 110 commits, fast-forward, `0 0`
+against a fresh fetch afterwards. `origin/main` is level with local.
+
+**There are no worktrees.** Tom asked to merge and prune them; `git worktree
+list` returns only this checkout and `.git/worktrees` does not exist. Do not
+go looking again — this is settled. `libs/iridium-artifacts/` is not a git
+repository.
+
+**What is actually waiting: `docs/IN-FLIGHT-branch-cleanup.md`** — 29 local
+branches, 24 merged and 4 not, all four priced, five decisions recommended and
+**none taken**. Sent to Tom. The load-bearing finding is that three of the
+four unmerged branches **must not be merged**: they are 464-537 commits behind
+against code that no longer exists in that shape, and `vk/c6cf-phase-6-us4-synt`
+would resurrect the ~1,800-line `crates/iridium-editor/src/syntax/` that
+`iridium-syntax` replaced. Only `spike/web-build` (three new docs files,
+cannot conflict) is worth landing.
+
+⚠️ **There are eight stashes, not two.** The earlier baton undercounted.
+Still never to be touched without an instruction naming them — but the count
+was flagged to Tom, because several were taken on branches that cleanup would
+delete.
+
+**Tom now owes:** the five cleanup decisions, plus the standing **#82**,
+**B-2**, **B-5**.

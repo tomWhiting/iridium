@@ -5870,3 +5870,67 @@ self-removing the moment `keys` calls in — so wiring it also clears the only
    everything we already have, and adopting it as native shapes our format
    permanently around their decisions. Flagged as directional rather than
    technical, so it was **not** taken under the delegation.
+
+---
+
+# ⚖️ TOM RULED — #31's switch, #87's T-2, and the re-render authorised
+
+8 Aug 2026, verbatim where it matters.
+
+## ✅ #31 — the light/dark switch is TRI-STATE
+
+> *"It'd be good to be able to set it to either system or manually override to
+> light mode or dark mode."*
+
+**→ Three states: `System` / `Light` / `Dark`.** Not a boolean, and not
+follow-the-system-only. `System` tracks the OS; the other two pin it regardless
+of what the OS says.
+
+⚠️ **Consequence worth catching early:** a boolean `dark: bool` in configuration
+cannot express this, and neither can a two-way toggle in the UI. The setting is
+an **enum with three variants** from the first line of code — retrofitting the
+third state onto a bool is how the manual override ends up as a special case.
+
+⏸ **Still open on #31:** which of the three rendered variants, and the corner
+radius. ✅ **Re-render authorised** — *"go for it and re-render them"* — so the
+next step is to render the three side by side and put them in front of him.
+
+## ✅ #87 T-2 — OUR OWN FORMAT, WITH A ZED IMPORTER
+
+> *"I'm happy for our own format with an importer. I just want to make sure that
+> we capture everything that we can."*
+>
+> *"It would be good if there was a way of capturing the bits from Zed, so we
+> didn't have to reconstruct themes, but things that include icons, colour
+> schemes and all that kind of stuff."*
+
+The recommendation is ruled in. **But the second sentence is the load-bearing
+one, and it is a requirement, not a preference.**
+
+### ⭐ "Capture everything we can" is only meaningful if something MEASURES what was dropped
+
+An importer that silently ignores what it cannot map satisfies the letter of
+this and fails the intent — and it fails **invisibly**, which is the worst
+shape. So the ruling carries three obligations:
+
+1. **The importer reports its own losses.** Every key in a source theme that
+   maps to nothing must be *named*, not skipped. A count is not enough; the
+   reader needs to know *which*.
+2. **A test over real Zed themes asserts the unmapped set.** Either empty, or an
+   explicitly enumerated exception list that cannot grow without a deliberate
+   edit — the `KNOWN_UNSTYLED_GAP` pattern already used for #70's captures.
+3. **Scope is not just syntax colours.** He named **icons** and *"all that kind
+   of stuff"* explicitly, so icon themes are in scope for the importer, not a
+   later phase. That connects T-5 to T-2 rather than leaving it downstream.
+
+⭐ **This makes T-1's vocabulary diff the first piece of work, not a background
+note.** The table of Zed's syntax token names against our `HighlightType`
+variants is exactly what decides which keys have nowhere to land — it is the
+measurement obligation 1 and 2 depend on. It was already flagged in the map as
+*"the most useful thing that map can contain"*; it is now the critical path.
+
+## Next actions
+1. **Re-render #31's three light variants** side by side and send them — Tom
+   authorised this explicitly and it is what unblocks the last two #31 answers.
+2. **T-1's vocabulary diff**, because T-2's ruling now depends on it.
+3. #88 step 1 (price the wasm feature), #58 4b/5 (keys now ruled), #94.

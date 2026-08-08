@@ -387,3 +387,122 @@ design.
 ### Gates
 
 Nine green: **2,530 passed, 0 failed** (2,525 after S-1, plus 5 here).
+
+---
+
+## 6. Rulings of 8 Aug, and the question they came with
+
+Tom ruled on the outstanding decisions and asked a further one that changes
+the shape of the rest.
+
+### The rulings
+
+- **B-2 — Markdown's `<`: NO.** Recommendation taken. `<` stays unpaired.
+- **B-5 — S-5's semantics: BUILD IT**, treating end-of-line and whitespace as
+  permitting, with the assumption stated in the code as the recommendation
+  said. ⚠️ It remains an *inference* from the shape of the declared sets, not
+  a reading of a specification, and the code must say so — if a language ever
+  ships a set where that inference is wrong, the comment is what leads someone
+  to it.
+- **B-4 — S-4: SUPERSEDED.** It was "recommend not yet", on the grounds that
+  a syntax query on the typing path costs more than `/*` behaving perfectly
+  inside a string. **Tom has asked for exactly that behaviour**, so the
+  question is no longer *whether* but *how cheaply*. The rest of this section
+  is that.
+
+### 6.1 The ask
+
+> Currently all of our auto-pairing just goes ahead on any document — curly
+> braces auto-close and all that. Shouldn't that be syntax dependent for the
+> language, and could we make that configurable through tree-sitter queries?
+
+**Yes, and most of the configuration already exists and is already being
+ignored.** Every vendored manifest that declares brackets also declares
+`not_in` per row — overwhelmingly `["string", "comment"]`. Nothing reads it.
+That is the same shape as the original finding behind this map: the data is
+vendored, per-language, and inert.
+
+So "make it configurable" is not a new mechanism. It is S-4, plus the
+question of what the caret consults.
+
+### 6.2 The crux: node kinds are not portable, captures are
+
+Two ways to answer "is the caret inside a string or a comment", and the
+difference is the whole design.
+
+**(a) Walk the node kinds.** `descendant_for_byte_range(n, n)` then climb,
+comparing `node.kind()`. Cheap — O(depth), no query execution, no
+allocation — and needs no query file at all.
+
+⚠️ **But node kinds are grammar-specific and unnormalised.** Rust says
+`string_literal` and `raw_string_literal`; JSON says `string`; Python has a
+dozen prefixed forms; comments are `line_comment`, `block_comment`, `comment`
+depending on the grammar. `not_in = ["string", "comment"]` names *neither* of
+those vocabularies. Matching kinds against it means a per-grammar translation
+table — which is precisely the hard-coded barrage this project exists to
+avoid, and it would have to be extended by hand for AWL and every future
+language.
+
+**(b) Use the highlight captures.** `highlights.scm` already normalises every
+grammar's spelling into `string`, `comment`, `keyword` and the rest — that is
+what a highlight query *is*, and it is the layer the ecosystem already
+maintains per language. `not_in`'s vocabulary is that vocabulary. A new
+language ships `config.toml` + `highlights.scm`, which it must ship anyway to
+be highlighted at all, and it gets scope-aware auto-pairing **for free, with
+no new file kind and no Iridium change**.
+
+**Recommend (b).** It is the only one of the two that answers Tom's
+"configurable through tree-sitter queries" honestly: the query is the one
+already vendored, and the per-language configuration is the `not_in` line.
+
+### 6.3 Making it cheap enough for the typing path
+
+The benchmark claim that **typing never parses** is not negotiable, and (b)
+sounds more expensive than (a). It need not be.
+
+1. **Consult the spans already computed.** The caret is, essentially always,
+   inside the viewport, and the viewport's highlight spans are already
+   resolved and cached for rendering. Looking up the span covering the caret
+   is a binary search over a sorted slice. **Zero parses, zero queries.**
+2. **Fall back to a byte-ranged query** only when the caret is not covered —
+   a `QueryCursor` with `set_byte_range` over the caret's node, not the
+   document.
+3. **Never call `sync()` from the typing path.** `note_edit` already keeps the
+   retained tree edited in nanoseconds; a reparse stays where it is.
+
+⚠️ The kernel has **no** "what scope covers byte N" accessor today —
+`SyntaxState` exposes `tree()` and `sync()` and nothing else, and the only
+span-shifting code lives in `iridium-bindings`. That accessor is the actual
+work of S-4, and it belongs in the kernel so all three faces share one answer.
+
+### 6.4 The policy question the data cannot answer
+
+Spans go stale between an edit and the next highlight pass, and a document may
+have no language, no grammar, or an unparsable tree. So the scope at the caret
+is sometimes simply **unknown**, and that is not an edge case — it is every
+keystroke in an unsupported file.
+
+**B-6 — what does unknown mean?**
+- *Fail open* (auto-close anyway, today's behaviour) — recommend **this**. The
+  failure mode is an unwanted bracket inside a string, which one keystroke
+  fixes. The other direction's failure mode is "my brackets stopped working",
+  in a file the user cannot diagnose.
+- *Fail closed* (no auto-close when unsure) — cleaner in theory, and it would
+  make every grammarless file silently lose a feature.
+
+**B-7 — does `not_in` suppress the closing character, or the pairing
+entirely?** Inside a string, typing `(` should insert `(` alone. But the same
+question applies to *skip-over* (typing `)` when `)` is next) and to Enter
+expansion. Recommend: `not_in` gates **insertion of the close** only; skip-over
+and Enter expansion follow the same scope test but are separate slices, so a
+half-built S-4 cannot leave the two disagreeing.
+
+**B-8 — the AWL question.** `awl` declares **no brackets at all** (§1.2), so
+none of this reaches it until its manifest does. Worth knowing before it is
+mistaken for a bug: scope-aware auto-pairing will look like it does nothing in
+AWL, correctly.
+
+### 6.5 Order
+
+S-5 first (ruled, small, improves every language), then S-4 built on the
+already-computed spans. S-3 after. S-2 is closed as "no".

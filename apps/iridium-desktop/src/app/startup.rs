@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use iridium_config::UserConfig;
+use iridium_config::theme::{ThemeChoice, ThemeError};
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::FrameCompositor;
 use iridium_editor::theme::Theme;
@@ -22,6 +23,7 @@ use winit::window::Window;
 use super::config;
 use super::files::language_of;
 use super::state::{DesktopApp, DesktopDocument, UNTITLED};
+use super::theme::ThemeSource;
 use super::title::TITLE;
 use crate::command_palette::CommandPalette;
 use crate::commands;
@@ -58,6 +60,15 @@ pub enum StartupError {
     /// it returns.
     #[error(transparent)]
     Setup(#[from] FaceSetupError),
+    /// `--theme` named a file that could not be read or parsed.
+    ///
+    /// Fatal, unlike a bad `config.toml`, and the asymmetry is deliberate: a
+    /// configuration file is found by the editor and its absence is normal, so
+    /// falling back to defaults is right. A `--theme` path was typed by the
+    /// person running the command, and silently ignoring it would open a
+    /// window in the wrong colours with no explanation.
+    #[error(transparent)]
+    Theme(#[from] ThemeError),
     /// The session could not open its first tab.
     ///
     /// Unreachable through this code path — the only refusal is a parent
@@ -73,6 +84,10 @@ pub enum StartupError {
 pub struct Options {
     /// The file to edit, if the invocation named one.
     pub path: Option<PathBuf>,
+    /// The theme `--theme` asked for. `None` leaves the session on the
+    /// kernel's default, which is what the system-appearance default then
+    /// overrides once a window exists.
+    pub theme: Option<ThemeChoice>,
 }
 
 /// The window-bound half of the session: everything that cannot exist until
@@ -191,8 +206,16 @@ impl DesktopApp {
         // session carries on — see `iridium_config` for why that is the rule
         // rather than a convenience.
         let user = UserConfig::read();
-        let mut workspace =
-            Workspace::<DesktopDocument>::new(user.editor.clone(), Theme::default());
+        // `--theme` wins over the kernel's default here, and over the system
+        // appearance later: `Shell::open` only reads `Window::theme()` when
+        // the command line asked for nothing, so an explicit flag is a pin
+        // from the first frame rather than a value the first `ThemeChanged`
+        // undoes.
+        let theme = match options.theme.as_ref() {
+            Some(choice) => iridium_config::theme::load(choice)?,
+            None => Theme::default(),
+        };
+        let mut workspace = Workspace::<DesktopDocument>::new(user.editor.clone(), theme);
 
         // Registered on the workspace, not on one editor: it applies the
         // whole set to every tab, present and future. Registering on a
@@ -280,6 +303,15 @@ impl DesktopApp {
             prompt: None,
             message,
             latency: LatencyMonitor::from_env(),
+            // A `--theme` on the command line is an explicit choice, so it
+            // pins from the first frame: the window never reads the system
+            // appearance over the top of it, and the first `ThemeChanged`
+            // does not undo what was asked for.
+            theme_source: if options.theme.is_some() {
+                ThemeSource::Pinned
+            } else {
+                ThemeSource::System
+            },
             title: String::new(),
             failure: None,
         })

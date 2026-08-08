@@ -97,6 +97,7 @@ mod pointer;
 mod startup;
 mod state;
 mod tabs;
+mod theme;
 mod title;
 mod viewport;
 

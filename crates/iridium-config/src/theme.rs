@@ -1,5 +1,11 @@
 //! Loading a theme, through the kernel's theme module and nothing else.
 //!
+//! Lives here rather than in either face because both of them need it and
+//! neither owns it. `--theme` means the same thing to the terminal face and
+//! the desktop one — the same two built-in names, the same two file formats,
+//! the same error text — and a second copy would agree with this one exactly
+//! until the day somebody fixed a message in one of them.
+//!
 //! Every format decision here is [`iridium_editor::theme`]'s:
 //! [`Theme::dark`](iridium_editor::Theme::dark),
 //! [`Theme::light`](iridium_editor::Theme::light),
@@ -161,8 +167,9 @@ pub fn parse(text: &str) -> Result<Theme, (String, String)> {
 mod tests {
     use std::ffi::OsString;
 
+    use iridium_file::test_support::TempDir;
+
     use super::*;
-    use crate::file::test_support::TempDir;
 
     #[test]
     fn the_builtin_names_need_no_file() {

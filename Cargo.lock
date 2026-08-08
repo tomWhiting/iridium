@@ -1138,6 +1138,7 @@ dependencies = [
 name = "iridium"
 version = "0.1.0"
 dependencies = [
+ "iridium-config",
  "iridium-editor",
  "iridium-file",
  "iridium-tui",

@@ -642,3 +642,85 @@ The work is:
 **B-8 stands as recorded:** `awl` declares no brackets, so scope-aware pairing
 will correctly appear to do nothing there. Worth knowing before it is filed as a
 bug.
+
+---
+
+## 9. S-4 — ground verified, 8 Aug 2026. Build plan.
+
+Everything below was read, not remembered.
+
+### The vocabulary matches exactly, and that is the whole argument for captures
+
+Parsed from every vendored manifest, `not_in` uses **two values and no others**:
+
+| value | occurrences |
+| --- | --- |
+| `string` | 60 |
+| `comment` | 45 |
+
+`HighlightType` (`iridium-syntax/src/highlight/capture.rs:17`) carries `String`,
+`StringEscape`, `Comment` and `CommentDoc`, and `from_capture` already folds
+`string.literal` and `string.special` into `String`. So the manifests' vocabulary
+is a **subset** of the capture vocabulary — no translation table, nothing
+per-grammar, which is exactly what node kinds would have required.
+
+### ⚠️ The trap: `String` is not the only string, and `Comment` is not the only comment
+
+A naive `highlight == HighlightType::String` test lets a pair through on an
+**escape sequence inside a string** (`StringEscape`), and `== Comment` lets one
+through inside a **doc comment** (`CommentDoc`). Both are still inside the thing
+the manifest named. The map must be:
+
+- `"string"` → `String` **or** `StringEscape`
+- `"comment"` → `Comment` **or** `CommentDoc`
+
+Written here because the failure is invisible: pairing works everywhere it
+should, and quietly still fires on `"\n|"` and inside `/// `.
+
+### What exists to resolve a scope
+
+- **`Highlighter::spans_in_range(&self, tree, source, range) -> Vec<HighlightSpan>`**
+  (`highlight/highlighter.rs:138`) — a byte window via
+  `QueryCursor::set_byte_range`. ⚠️ Its own doc says `source` must be the
+  **whole** text the tree was parsed from; a windowed `&str` mis-colours and
+  mis-evaluates predicates.
+- **`HighlightSpan { start, end, highlight }`**, `Ord` by `(start, end)`.
+- **`SyntaxState::tree()`** returns the retained tree **without parsing**.
+  `sync()` parses. The typing path may call the first and must never call the
+  second.
+
+### The open question this leaves — decide before building
+
+`note_edit` applies an edit to the retained tree in nanoseconds and marks it
+dirty; it does **not** reparse. So `tree()` on the typing path is a tree whose
+ranges have been shifted but whose *structure* is one or more edits stale.
+Querying it gives an answer that is right almost always and wrong just after a
+keystroke that changed which scope the caret is in — opening a quote, most
+obviously.
+
+Under **B-6 (fail open)** that is the benign direction: a stale tree that has not
+yet seen the opening quote reports "not in a string", and the pair fires as it
+does today. The user's next keystroke lands on a synced tree. So the staleness
+costs at most one over-fire, never a suppression, which is the trade B-6 already
+chose.
+
+**This is worth stating in the code**, not just here: the correctness of S-4 on
+the typing path rests on B-6, and someone later "fixing" the staleness by calling
+`sync()` would put a full reparse on every keystroke.
+
+### Build order
+
+1. `HighlightType::is_within(scope: &str) -> bool` in `iridium-syntax`, with the
+   two-into-four mapping above and a test naming all four variants.
+2. `Bracket::not_in` deserialized in `iridium-lang`, and a `Manifest` accessor.
+   ⚠️ Same `None` vs `Some(empty)` discipline as `brackets` and
+   `autoclose_before` — 17 rows omit `close`, and this key is absent far more
+   often than present.
+3. A scope-at-byte accessor on `SyntaxState`, over `tree()` and
+   `spans_in_range`, returning `Option<HighlightType>` — `None` when there is no
+   tree, no language, or no covering span. **`None` means fail open.**
+4. `PairRules` grows the suppressed-scope set per pair; `auto_pair_edit_for`
+   consults it in the collapsed-opener branch only (§8, B-7).
+5. ⚠️ **Every suppression test must first assert the scope resolved.** Because
+   unknown and not-suppressed are the same answer, a test that only asserts "it
+   did not pair" passes against a resolver returning `None` for everything.

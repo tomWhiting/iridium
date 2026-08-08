@@ -2296,172 +2296,22 @@ impl WebEditor {
         self.set_selection_internal(new_pos, new_pos);
     }
 
-    /// Moves cursor to the previous word boundary (collapses any selection).
-    #[wasm_bindgen(js_name = moveCursorWordLeft)]
-    pub fn move_cursor_word_left(&mut self) {
-        let cursor = self.editor.cursor();
-        let new_pos = self.find_word_boundary_left(cursor);
-        self.set_selection_internal(new_pos, new_pos);
-    }
-
-    /// Moves cursor to the next word boundary (collapses any selection).
-    #[wasm_bindgen(js_name = moveCursorWordRight)]
-    pub fn move_cursor_word_right(&mut self) {
-        let cursor = self.editor.cursor();
-        let new_pos = self.find_word_boundary_right(cursor);
-        self.set_selection_internal(new_pos, new_pos);
-    }
-
-    /// Categorizes a character for word boundary detection.
-    /// Returns: 0 = whitespace, 1 = word (alphanumeric/_), 2 = punctuation
-    fn char_class(c: char) -> u8 {
-        if c.is_whitespace() {
-            0
-        } else if c.is_alphanumeric() || c == '_' {
-            1
-        } else {
-            2 // punctuation and other symbols
-        }
-    }
-
-    /// Helper function to find the previous word boundary.
-    fn find_word_boundary_left(&self, pos: Position) -> Position {
-        let doc = &self.editor.state().document;
-
-        // If at start of line, go to end of previous line
-        if pos.column == 0 {
-            if pos.line > 0 {
-                let prev_line_len = doc.line(pos.line - 1).map_or(0, |l| l.chars().count());
-                return Position::new(pos.line - 1, prev_line_len);
-            }
-            return pos;
-        }
-
-        // Get current line content
-        let Some(line_content) = doc.line(pos.line) else {
-            return pos;
-        };
-        let chars: Vec<char> = line_content.chars().collect();
-
-        if pos.column > chars.len() {
-            return Position::new(pos.line, chars.len());
-        }
-
-        let mut col = pos.column;
-
-        // Skip whitespace going backwards
-        while col > 0 && chars.get(col - 1).is_some_and(|c| c.is_whitespace()) {
-            col -= 1;
-        }
-
-        // If we hit the start, we're done
-        if col == 0 {
-            return Position::new(pos.line, col);
-        }
-
-        // Determine the class of character we're about to skip
-        let target_class = chars.get(col - 1).copied().map_or(0, Self::char_class);
-
-        // Skip characters of the same class going backwards
-        while col > 0 && chars.get(col - 1).copied().map_or(0, Self::char_class) == target_class {
-            col -= 1;
-        }
-
-        Position::new(pos.line, col)
-    }
-
-    /// Helper function to find the next word boundary.
-    fn find_word_boundary_right(&self, pos: Position) -> Position {
-        let doc = &self.editor.state().document;
-        let line_count = doc.line_count();
-
-        // Get current line content
-        let Some(line_content) = doc.line(pos.line) else {
-            return pos;
-        };
-        let chars: Vec<char> = line_content.chars().collect();
-
-        // If at end of line, go to start of next line
-        if pos.column >= chars.len() {
-            if pos.line < line_count.saturating_sub(1) {
-                return Position::new(pos.line + 1, 0);
-            }
-            return pos;
-        }
-
-        let mut col = pos.column;
-
-        // Determine the class of the current character
-        let current_class = chars.get(col).copied().map_or(0, Self::char_class);
-
-        // Skip characters of the same class going forwards
-        while col < chars.len()
-            && chars.get(col).copied().map_or(0, Self::char_class) == current_class
-        {
-            col += 1;
-        }
-
-        // Skip whitespace going forwards
-        while col < chars.len() && chars.get(col).is_some_and(|c| c.is_whitespace()) {
-            col += 1;
-        }
-
-        Position::new(pos.line, col)
-    }
-
-    /// Deletes the word before the cursor (Option+Backspace on Mac).
-    /// No-op in read-only mode.
-    #[wasm_bindgen(js_name = deleteWordBackward)]
-    pub fn delete_word_backward(&mut self) {
-        if self.editor.state().read_only {
-            return;
-        }
-        let cursor = self.editor.cursor();
-        let word_start = self.find_word_boundary_left(cursor);
-
-        if word_start != cursor {
-            let cmd = Command::Delete {
-                range: Range::new(word_start, cursor),
-                deleted_text: self
-                    .editor
-                    .state()
-                    .document
-                    .slice(Range::new(word_start, cursor)),
-            };
-            // track_and_apply records the edit span, refreshes folds, and
-            // resets blink; set_cursor resets the core's sticky columns and
-            // ours must follow.
-            self.track_and_apply(cmd);
-            self.keyboard_handler.reset_vertical_state();
-            self.editor.set_cursor(word_start);
-        }
-    }
-
-    /// Deletes the word after the cursor (Option+Delete on Mac).
-    /// No-op in read-only mode.
-    #[wasm_bindgen(js_name = deleteWordForward)]
-    pub fn delete_word_forward(&mut self) {
-        if self.editor.state().read_only {
-            return;
-        }
-        let cursor = self.editor.cursor();
-        let word_end = self.find_word_boundary_right(cursor);
-
-        if word_end != cursor {
-            let cmd = Command::Delete {
-                range: Range::new(cursor, word_end),
-                deleted_text: self
-                    .editor
-                    .state()
-                    .document
-                    .slice(Range::new(cursor, word_end)),
-            };
-            // track_and_apply records the edit span, refreshes folds, and
-            // resets blink; the edit invalidates sticky columns.
-            self.keyboard_handler.reset_vertical_state();
-            self.track_and_apply(cmd);
-        }
-    }
+    // Word motion and word deletion are deliberately **not** exported here.
+    //
+    // This file once carried its own `char_class` and word-boundary walk behind
+    // `moveCursorWordLeft`/`Right` and `deleteWordBackward`/`Forward` — a second
+    // definition of a kernel behaviour, in the one file no native test compiles.
+    // It was uncalled: the controller rewrites macOS `⌥←`/`⌥→`/`⌥⌫`/`⌥⌦` into
+    // the `Ctrl`-chorded forms and forwards them to `handleKeyEvent`, which
+    // resolves `cursor.wordLeft`, `cursor.wordRight`, `edit.deleteWordBackward`
+    // and `edit.deleteWordForward` in the kernel. The copy also acted on the
+    // primary caret alone, so it would have spared the other carets' lines —
+    // exactly the defect `run_editing_command` below was written to end.
+    //
+    // If a host ever needs these by name rather than by chord, they are two
+    // lines each through `run_selection_command` / `run_editing_command`, the
+    // way `extendSelectionWordLeft` and `deleteToLineEnd` already reach them.
+    // Do not reintroduce a boundary walk in this file.
 
     /// Deletes each caret's selection, or the text back to the start of its own
     /// line (Cmd+Backspace on Mac).

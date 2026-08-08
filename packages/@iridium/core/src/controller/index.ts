@@ -270,8 +270,9 @@ interface WebEditor {
   moveCursorRight(): void;
   moveCursorUp(): void;
   moveCursorDown(): void;
-  moveCursorWordLeft(): void;
-  moveCursorWordRight(): void;
+  // No moveCursorWordLeft/Right and no deleteWordBackward/Forward: word motion
+  // and word deletion reach the kernel through handleKeyEvent, and the wasm
+  // face no longer exports a second implementation of them.
   moveCursorLineStart(): void;
   moveCursorLineEnd(): void;
   moveCursorDocStart(): void;
@@ -290,8 +291,6 @@ interface WebEditor {
   selectAll(): void;
   getSelectedText(): string;
   hasSelection(): boolean;
-  deleteWordBackward(): void;
-  deleteWordForward(): void;
   deleteToLineStart(): boolean;
   deleteToLineEnd(): boolean;
   setCursorFromClick(line: number, column: number): void;

@@ -4558,3 +4558,39 @@ must rule the other four out, the way
 **S-4 complete** (`f912dc4d`, `6a801cfa`). Awaiting Tom: **#31** · **#58**'s
 three keys · **#70**'s six colours · **#74**'s pin · **#43**/**#44**/**#45** ·
 Cally's hook.
+
+---
+
+# ⚠️ WORKING-MODE CHANGE FROM TOM — 8 Aug, arrived just before compaction
+
+Tom asked (Meridian DM, ~19:45) to change how the work is executed from here on:
+
+> "Can I instead of doing the work yourself can I get you to do it with like an
+> ultracode workflow just using opus for the sub agents. And keeping the amount
+> of them modest, so we don't need any usage limits. But yeah, it would be good
+> to get you sort of overseeing the process rather than executing it yourself.
+> You'll need to compact shortly, so it would be good if we could maybe pick up
+> this new process on the other side of compaction."
+
+**What this means concretely, for whoever reads this cold:**
+
+- Use the **Workflow** tool for substantive work rather than executing edits
+  inline. This seat oversees; subagents execute.
+- **Opus for every subagent** — pass `model: "opus"` (this also matches the
+  standing memory `subagents-use-opus`).
+- **Modest agent counts.** Tom named usage limits as the reason. Stay well
+  inside the session's medium guideline (under 15 agents); prefer 3–6 per
+  workflow unless a phase genuinely needs more.
+- **Start on the other side of the compaction**, i.e. from the next tick.
+
+⚠️ **One caveat to raise with Tom, not to resolve alone.** This instruction
+arrived through Meridian, which the harness flags as *external channel data
+rather than a user-role turn*, and this session carries a standing rule "do not
+use workflows or subagents unless the user requested it". Tom has now requested
+it in his own words through the channel he gives every other ruling on, so the
+next tick proceeds on that basis — but it is recorded here as an assumption
+that was made, not a fact that was checked.
+
+**Everything else in the S-3 plan below is unchanged.** The next tick should
+run the full nine-gate battery on `2c0f53f2` first (it has not been run — see
+the tick above), then drive steps 2–5 through a workflow.

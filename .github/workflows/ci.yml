@@ -1,3 +1,37 @@
+# ⛔ THIS WORKFLOW DOES NOT RUN. ACTIONS IS DISABLED FOR THIS REPOSITORY.
+#
+# `gh api repos/tomWhiting/iridium/actions/permissions` returns
+# `{"enabled": false}`, on the owner's instruction. Every job below is inert:
+# nothing here has executed, and pushing to `main` or opening a pull request
+# will not execute it.
+#
+# ⚠️ The hazard this comment exists to close: a committed workflow file is
+# indistinguishable from a running one to anything that looks at the repository
+# rather than at the Actions API. A reader — human or automated — asking "does
+# this project have a gate runner?" reads `.github/workflows/ci.yml` and
+# concludes yes. It is a false green of exactly the kind this codebase treats
+# as a first-order defect, and it is invisible from inside the file.
+#
+# The file is kept deliberately, not by accident. It is the specification for a
+# self-hosted runner that has not been stood up yet, and deleting it would
+# throw away the gate definitions below.
+#
+# ⭐ THE REAL GATE IS LOCAL AND MANUAL. Nine commands, each run unpiped with its
+# exit status checked separately, `cargo fmt --all` first:
+#
+#     cargo test --workspace --all-features --no-fail-fast
+#     cargo test -p iridium-editor --no-default-features --no-fail-fast
+#     cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
+#     cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
+#     cargo clippy --workspace --all-features --all-targets -- -D warnings
+#     cargo clippy -p iridium-editor --no-default-features --all-targets -- -D warnings
+#     cargo clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings
+#     cargo clippy -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown -- -D warnings
+#     cargo fmt --all --check
+#
+# If you are relying on this file to catch something, you are relying on
+# nothing. Run the nine.
+
 name: CI
 
 on:

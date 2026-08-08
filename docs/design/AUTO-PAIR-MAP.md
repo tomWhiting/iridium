@@ -584,3 +584,61 @@ behaviour tests and two manifest guards.
 
 **S-4** remains blocked on **B-6** and **B-7** (§6.4), both put to Tom on 8 Aug.
 S-3 after that. S-2 is closed as "no".
+
+---
+
+## 8. B-6 and B-7 — RULED, 8 Aug 2026
+
+Tom: *"I'll go with your recommendations there."* Both recommendations from §6.4
+are now the decisions, so **S-4 is unblocked**.
+
+### B-6 — an unknown scope means *fail open*
+
+When the scope at the caret cannot be determined — no grammar, no language, an
+unparsable tree, or spans that have not caught up with the last keystroke —
+auto-pairing behaves **exactly as it does today**. It does not suppress.
+
+The argument, recorded because the opposite reads as tidier: the failure mode of
+failing open is one unwanted bracket inside a string, which a single keystroke
+undoes and which the user can see. The failure mode of failing closed is
+"brackets stopped working", in a file whose grammar the user has no way to
+inspect, with no error and nothing to search for. **A feature that silently
+switches itself off is worse than one that occasionally over-fires.**
+
+⚠️ This makes *unknown* the same as *not in a suppressed scope*, which means
+S-4 can never be verified by "it stopped pairing" alone — a test that asserts
+suppression must first assert the scope was actually resolved, or it passes
+against a build where the resolver returns `None` for everything. **That is the
+trap in this slice.** It is the same shape as the atlas probe in #87: assert the
+premise, not only the conclusion.
+
+### B-7 — `not_in` gates the insertion of the closer, and nothing else
+
+Inside a string or a comment, typing `(` inserts `(` alone.
+
+Skip-over and backspace pair-deletion are **not** gated, matching S-5's
+boundary (§7) and for the same reason: both act on a pair that is already in the
+document, and the question they ask is what is *at* the caret, not what scope it
+sits in. A closer this editor never inserted is a character the user typed, and
+stepping over it or eating it would drop input.
+
+Enter expansion (S-6's `newline`) is likewise untouched — it is a separate flag
+on a separate slice, and folding it in here would let a half-built S-4 leave the
+two disagreeing about what a scope means.
+
+### What is still to build
+
+The design in §6.2–6.3 stands unchanged: **highlight captures, not node kinds.**
+The work is:
+
+1. **A scope-at-byte accessor in the kernel.** `SyntaxState` exposes only
+   `tree()` and `sync()`; there is no way to ask what covers byte N. This is the
+   actual work of S-4.
+2. Read `not_in` off the manifest — it is declared everywhere and read by
+   nothing.
+3. Resolve against the **already-computed viewport spans** (a binary search, not
+   a parse). ⚠️ **Never call `sync()` from the typing path.**
+
+**B-8 stands as recorded:** `awl` declares no brackets, so scope-aware pairing
+will correctly appear to do nothing there. Worth knowing before it is filed as a
+bug.

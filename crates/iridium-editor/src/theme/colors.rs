@@ -159,35 +159,29 @@ impl EditorColors {
         }
     }
 
-    /// Creates light theme editor colors.
+    /// Creates light theme editor colors — **Platinum**, faithful Mac OS 8.5.
+    ///
+    /// ⭐ **The document well is grey, not white, and that is the whole
+    /// design.** `#EFEFEF` is the Platinum window well and the single
+    /// strongest signal of the era; the panels sit a step *below* it at
+    /// `#DDDDDD`, inverting the modern instinct to float chrome brighter than
+    /// content. Classic dialogs floated over documents in a darker grey, and
+    /// following that is what makes the face read as Mac OS rather than as a
+    /// pale version of the dark theme.
+    ///
+    /// ⚠️ **The values live in [`classic::platinum_editor`], not here.** The
+    /// map's §2.3 table is transcribed exactly once, beside its two siblings,
+    /// where the sweeps that check all three can see it. A second
+    /// transcription in this file is what a preset change would silently
+    /// diverge from — and it very nearly did: a hand-written float form of the
+    /// same table put `selection` at `#3354AB` against the table's `#3355AA`,
+    /// a drift no test would have caught because both copies would have been
+    /// "the light preset".
+    ///
+    /// [`classic::platinum_editor`]: super::classic::platinum_editor
     #[must_use]
     pub fn light() -> Self {
-        Self {
-            background: Color::from_hex("ffffff").unwrap_or_default(),
-            foreground: Color::from_hex("333333").unwrap_or_default(),
-            selection: Color::new(0.68, 0.85, 1.0, 0.5),
-            selection_inactive: Color::new(0.68, 0.85, 1.0, 0.3),
-            cursor: Color::from_hex("000000").unwrap_or_default(),
-            line_number: Color::from_hex("999999").unwrap_or_default(),
-            line_number_active: Color::from_hex("333333").unwrap_or_default(),
-            current_line: Color::new(0.97, 0.97, 0.97, 1.0),
-            gutter: Color::from_hex("f5f5f5").unwrap_or_default(),
-            minimap_background: Color::from_hex("f5f5f5").unwrap_or_default(),
-            search_match: Color::new(1.0, 0.92, 0.55, 0.6),
-            search_match_current: Color::new(1.0, 0.72, 0.25, 0.8),
-            diff_added_bg: Color::new(0.20, 0.60, 0.30, 0.15),
-            diff_deleted_bg: Color::new(0.70, 0.20, 0.20, 0.15),
-            diff_added_gutter: Color::new(0.15, 0.55, 0.25, 1.0),
-            diff_deleted_gutter: Color::new(0.70, 0.20, 0.20, 1.0),
-            change_added: Color::new(0.15, 0.55, 0.25, 1.0),
-            change_modified: Color::new(0.70, 0.55, 0.10, 1.0),
-            change_deleted: Color::new(0.70, 0.20, 0.20, 1.0),
-            blame_foreground: Color::new(0.50, 0.50, 0.55, 0.5),
-            diagnostic_error: Color::new(0.70, 0.20, 0.20, 1.0),
-            diagnostic_warning: Color::new(0.70, 0.55, 0.10, 1.0),
-            diagnostic_info: Color::new(0.20, 0.40, 0.70, 1.0),
-            diagnostic_hint: Color::new(0.45, 0.45, 0.50, 1.0),
-        }
+        super::classic::platinum_editor()
     }
 }
 
@@ -259,30 +253,27 @@ impl SyntaxColors {
         }
     }
 
-    /// Creates light theme syntax colors.
+    /// Creates light theme syntax colors — **Platinum**'s MPW/CodeWarrior inks.
+    ///
+    /// The palette a Mac developer actually saw in 1998, not a lightened
+    /// version of the dark preset. Navy keywords, maroon strings and forest
+    /// green comments are MPW's; the aubergine on functions and the steel blue
+    /// on types are what keep the two apart at a glance, which matters more on
+    /// a grey well than on a black one.
+    ///
+    /// ⚠️ Read against [`EditorColors::light`]'s `#EFEFEF`, not against white.
+    /// Every colour here clears 4.5:1 on that grey and several would not clear
+    /// it on a darker one, so this preset and that background are a **pair**:
+    /// changing one without re-checking the other breaks the promise
+    /// `the_light_syntax_palette_is_legible_on_its_own_background` keeps.
+    ///
+    /// ⚠️ The values live in [`classic::platinum_syntax`], for the reason
+    /// given on [`EditorColors::light`].
+    ///
+    /// [`classic::platinum_syntax`]: super::classic::platinum_syntax
     #[must_use]
     pub fn light() -> Self {
-        Self {
-            keyword: Color::from_hex("0000ff").unwrap_or_default(),
-            string: Color::from_hex("a31515").unwrap_or_default(),
-            number: Color::from_hex("098658").unwrap_or_default(),
-            comment: Color::from_hex("008000").unwrap_or_default(),
-            function: Color::from_hex("795e26").unwrap_or_default(),
-            variable: Color::from_hex("001080").unwrap_or_default(),
-            type_name: Color::from_hex("267f99").unwrap_or_default(),
-            // Body ink, matching `EditorColors::light().foreground`. Pure
-            // black here would paint separators darker than the code.
-            operator: Color::from_hex("333333").unwrap_or_default(),
-            punctuation: Color::from_hex("333333").unwrap_or_default(),
-            property: Color::from_hex("001080").unwrap_or_default(),
-            constant: Color::from_hex("0070c1").unwrap_or_default(),
-            tag: Color::from_hex("800000").unwrap_or_default(),
-            // The identifier family, beside `variable` and `property` — the
-            // same grouping the dark preset makes at #9cdcfe. Sharing the
-            // error red instead left broken markup looking well-formed.
-            attribute: Color::from_hex("001080").unwrap_or_default(),
-            error: Color::from_hex("ff0000").unwrap_or_default(),
-        }
+        super::classic::platinum_syntax()
     }
 }
 
@@ -297,6 +288,7 @@ impl Default for SyntaxColors {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::wcag::contrast;
 
     #[test]
     fn color_from_hex() {
@@ -363,21 +355,74 @@ mod tests {
 
     #[test]
     fn separators_are_never_louder_than_the_code_they_separate() {
-        // Operators and punctuation carry no meaning of their own: they take
-        // plain body ink, which is what the dark preset does. A light preset
-        // that leaves them at pure black while body text moved to #333333
-        // paints every comma darker than the code around it.
+        // Operators and punctuation carry no meaning of their own, so neither
+        // may out-shout body text. The defect this catches is a preset that
+        // paints every comma *darker* than the code around it — which the old
+        // light preset did, leaving them at pure black while body text sat at
+        // #333333.
+        //
+        // ⚠️ Stated as a contrast ceiling, not as equality with `foreground`.
+        // Equality was the original assertion and it was too strong: Platinum
+        // deliberately steps `punctuation` back to #3A3A3A under #000000 ink,
+        // so structure recedes. That is the rule being kept — quieter is
+        // always fine, louder never is — and equality could only express it by
+        // forbidding the quieter half too.
         for (name, editor, syntax) in [
             ("dark", EditorColors::dark(), SyntaxColors::dark()),
             ("light", EditorColors::light(), SyntaxColors::light()),
         ] {
-            assert_eq!(
-                syntax.operator, editor.foreground,
-                "the {name} preset's operators are not body ink"
-            );
-            assert_eq!(
-                syntax.punctuation, editor.foreground,
-                "the {name} preset's punctuation is not body ink"
+            let ink = contrast(editor.foreground, editor.background);
+            for (field, color) in [
+                ("operators", syntax.operator),
+                ("punctuation", syntax.punctuation),
+            ] {
+                let separator = contrast(color, editor.background);
+                assert!(
+                    separator <= ink + 0.01,
+                    "the {name} preset's {field} are {separator:.2}:1 against the page \
+                     where body text is {ink:.2}:1 — a separator louder than the code"
+                );
+            }
+        }
+    }
+
+    /// The pair promise on [`SyntaxColors::light`], kept where it is made.
+    ///
+    /// `classic`'s sweep asks the same question of all three variants through
+    /// `ClassicVariant`; this asks it of the two public constructors a caller
+    /// actually reaches, which is a different claim. They agree today only
+    /// because `light()` delegates — and the delegation is precisely the thing
+    /// a future edit might replace with a copy.
+    ///
+    /// 4.5:1 is WCAG AA for body-size text, and every one of the 14 inks must
+    /// clear it against `#EFEFEF`. `comment` is the tight one by design, at
+    /// roughly 5.4:1: a comment should be readable when looked at and quiet
+    /// when not, and there is not much room between those.
+    #[test]
+    fn the_light_syntax_palette_is_legible_on_its_own_background() {
+        let background = EditorColors::light().background;
+        let syntax = SyntaxColors::light();
+
+        for (field, color) in [
+            ("keyword", syntax.keyword),
+            ("string", syntax.string),
+            ("number", syntax.number),
+            ("comment", syntax.comment),
+            ("function", syntax.function),
+            ("variable", syntax.variable),
+            ("type_name", syntax.type_name),
+            ("operator", syntax.operator),
+            ("punctuation", syntax.punctuation),
+            ("property", syntax.property),
+            ("constant", syntax.constant),
+            ("tag", syntax.tag),
+            ("attribute", syntax.attribute),
+            ("error", syntax.error),
+        ] {
+            let ratio = contrast(color, background);
+            assert!(
+                ratio >= 4.5,
+                "the light preset's {field} is {ratio:.2}:1 against its own page, below 4.5:1"
             );
         }
     }

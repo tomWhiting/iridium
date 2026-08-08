@@ -36,7 +36,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tomWhiting/iridium"
+    "url": "git+https://github.com/tomWhiting/iridium.git"
   },
   "engines": {
     "node": ">= 18"

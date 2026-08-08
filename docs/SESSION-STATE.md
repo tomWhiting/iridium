@@ -4698,3 +4698,131 @@ small.
    test that survives deletion of the feature, that test is wrong and the
    commit waits.
 3. Then #69.
+
+---
+
+## ⭐ Tom's rulings — 8 Aug 2026, second message. Six of them, and one retirement.
+
+### 0. The Meridian caveat is RETIRED — stop repeating it
+
+> *"You don't have to keep repeating that caveat. I am happy for you to receive
+> instructions like this and I can shoot you a direct message if you need so."*
+
+Every previous tick appended a paragraph noting that his instructions arrive
+through a channel the harness labels external. He has now said, in that channel,
+that this is how he intends to instruct this seat. **Do not append that
+paragraph again.** It was honest the first time and it is friction now.
+
+### 1. L-0 → **TIER 2**, overriding the tier-1 call taken an hour earlier
+
+> *"In terms of the adding languages, it would be good to get that to tier two,
+> just because we're gonna have to be updating stuff for AWL if nothing else."*
+
+The **6.6 MiB and 90 crates on every native build are accepted**, with his
+reason on the record: AWL's grammar will change and he does not want a rebuild
+in that loop. Task **#88**.
+
+⚠️ **Tier 1 is still the first slice.** It is a strict prerequisite, not an
+alternative — the language enum has to stop being an enum either way. Building
+tier 1 first is following the ruling, not hedging it.
+
+⚠️ **This re-opens four decisions the tier-1 reading would have deferred.**
+`IN-FLIGHT-languages.md` §5: **L-1** (do the thirteen built-ins become
+extensions too, or stay statically linked and fast?), **L-3** (may a *project*
+carry a grammar — useful, and a code-execution vector, because opening
+somebody's repository would load their wasm), **L-5** (browser parity), **L-7**
+(grammar ABI version checking). L-3 is the one that needs a real answer before
+anything ships; the rest can ride the build.
+
+### 2. #74 → pin to **1.97.1**
+
+> *"Just pin it to the latest one (1.97.1)."*
+
+⭐ **Verified before acting: `rustc 1.97.1 (8bab26f4f 2026-07-14)` is already
+the active default here, and `1.97.1-aarch64-apple-darwin` is installed.** So
+the pin lands on the exact toolchain **today's nine-green battery was measured
+with** — it is a no-op behaviourally and already proven, which is the cheapest
+possible version of this change.
+
+The file must carry `components = ["rustfmt", "clippy"]` and
+`targets = ["wasm32-unknown-unknown"]`, because gates 4 and 8 build for wasm.
+
+⚠️ **The pin is not the MSRV.** `Cargo.toml:20` declares
+`rust-version = "1.85"` and that stays — it is the promise about what compiles,
+not the choice of what we build with. `clippy::incompatible_msrv` keeps firing
+against 1.85, so the `String::as_str`-in-`const fn` trap is unchanged.
+
+### 3. Cally's history-rewrite guard → **YES**
+
+> *"I'm happy for you to just go ahead with your recommendation there."*
+
+Task **#89**. ⚠️ **Arm it after S-3 is committed, not during a running
+workflow.** Needs a tracked `.shared-tree` marker and `core.hooksPath` pointed
+at a tracked relative directory; the hook lives in Cally's tree and has still
+not been read at this seat.
+
+### 4. Themes → a real system, not a second hard-coded palette
+
+> *"Look up how Zed does its themes because it would be good to be able to sort
+> of bundle up themes and icons and all that kind of stuff together for it
+> without sort of having to hard code stuff in."*
+
+Task **#87**. Research workflow `wf_7b830cd6-f36` running: three parallel
+readers (Zed's theme schema; Zed's icon themes and extension packaging;
+Iridium's current theme ground across all three faces) then a synthesis agent
+writing `docs/design/THEME-SYSTEM-MAP.md` with T-numbered decisions.
+
+⭐ **The most useful thing that map can contain is the vocabulary diff** — Zed's
+syntax token names against Iridium's `HighlightType` variants — because that
+single table decides whether a Zed theme file can be *consumed* or only
+*translated*.
+
+⚠️ **This supersedes the mechanism half of #31, not the taste half.** The
+variant, the corner radius and follow-the-system are still his.
+
+### 5. #70's six colours → folded into the theme conversation
+
+> *"In terms of colors, that probably comes back to the theme conversation."*
+
+So the six capture colours are **no longer a standalone ruling to chase**. They
+become rows in whatever theme format lands. Do not re-ask him for them.
+
+### 6. A new want, explicitly backlogged — task **#90**
+
+> *"I'd really like a pretty renderer for Markdown to be able to view it as rich
+> text like you would in GitHub with showing mermaid diagrams... maybe a bit
+> more of a chat but something to add to the list."*
+
+**He named it as a chat, not a start.** Price it before designing it. ⚠️ The GPU
+face today has no rich-text layout, no image path and no SVG; mermaid means
+either a layout engine or a rendered raster. It also touches #87, because a
+rendered view needs style keys no code view uses.
+
+### 7. Keys → through the config, task **#91**
+
+> *"In terms of the oil case and keys generally, it would be good to have that
+> keybindings configuration thing so we can set it to other things easily."*
+
+⭐ **This partly exists and the next reader should not rebuild it.** `#59`
+landed `~/.config/iridium/config.toml` with a `[keys]` table — chord on the
+left, command id on the right, layered on top of the defaults, with an
+unbinding form and a refusal when a bare chord would shadow a longer sequence
+(`docs/CONFIG.md`). What it binds is **commands in the keymap stack**, and
+`apps/iridium-desktop/src/file_tree/` handles its own keys *outside* that stack.
+
+So the work is **registering panel actions as real commands** so they flow
+through the table that already exists — not adding a second configuration
+mechanism beside it. That also dissolves #58's three-key question into "pick
+sane defaults, let the config move them."
+
+### The queue, as it now stands
+
+1. **S-3 steps 2–5** — workflow `wf_3af29b71-d77` in flight.
+2. **#74** — the pin. Minutes, and already verified green on 1.97.1.
+3. **#89** — arm the git guard, with Cally.
+4. **#88** — tier 1 as the first slice of tier 2. Unblocks #43 → #44 → #45.
+5. **#87** — the theme system, once its map is read and T-numbers are ruled.
+6. **#69** — the flaky GPU test, still unreproduced.
+
+Still genuinely his: **#31's three taste decisions**, **L-3**, and #87's
+T-numbers when they exist.

@@ -3694,3 +3694,63 @@ The two highest-yield routes are exhausted. Remaining, in expected-yield order:
 All nine green, **2,539 passed, 0 failed** (up three, all new guards).
 Load 10.6 at tick open. No Meridian send — Tom got a full update 20 minutes
 ago and nothing here changes what he owes.
+
+## TICK — 8 Aug ~12:20 — I got one wrong and caught it one tick later
+
+### ⚠️ CORRECTION to `d0f8a989` — landed as `5afac26c`
+
+Last tick I wrote, in three test comments and a commit message, that
+"`KeyBinding::parse` — the text form a config file uses — cannot express
+either [a count prefix or a capture], so a user cannot create one."
+
+**Half wrong.** A count prefix really is unreachable — `parse` builds through
+`KeyBinding::new` and never sets `count_prefix`. **A capture is reachable:**
+`{char}` is `keynames::ANY_CHAR_NAME` and `stroke_text.rs` turns it into
+`StrokePattern::any_char`, so `"ctrl+f {char}" = "some.hostCommand"` in
+`[keys]` is a capturing binding on a host command — **in a layer none of the
+three guards can see.**
+
+**How I got it wrong:** I grepped the in-code producers of `any_char`, saw
+only test files and one line in `stroke_text.rs`, and read past the parser's
+own line as though it were another test. The check that would have caught it
+is the one I then wrote: *ask the question from the config surface, not from
+the call graph.*
+
+⭐ **Rule H — a call-graph grep answers "who calls this", not "who can reach
+this".** A parser is a caller that turns *user input* into the call. Confirm
+reachability at the surface a person actually touches.
+
+`iridium-config/src/keys.rs` now asserts both halves from that surface:
+`a_configuration_file_can_ask_for_a_capturing_stroke` and
+`a_configuration_file_cannot_ask_for_a_count_prefix`.
+
+**What did not change: the consequence is still none today**, and that is a
+fact about the *commands*, not the plumbing. No host command in any face reads
+its arguments, so a character the desktop and terminal discard is one the
+browser forwards to a host that ignores it too. It matters the day a host
+command wants one.
+
+### Also learned this tick
+
+Both native faces **already carried a comment** explaining why they drop
+`args` — so last tick's "drop them on the floor" was unfair phrasing. What the
+comments actually get wrong is scope: the desktop's says "nothing in *this
+face's keymap* can produce them", and the guarantee needed is over the whole
+**stack** — kernel layer, face layer, and the user's file. The terminal's
+argues only about counts and never mentions captures. Both are hedges narrower
+than the clearance they license (Rule B), which is why the guards are worth
+having even though the drop was deliberate.
+
+### Gates
+
+All nine green, **2,541 passed, 0 failed** (up two). Load 25.6 at tick open.
+No Meridian send: this corrects my own record, not anything Tom was told.
+
+### Next
+
+Rule E on the remaining choke points — `FrameCompositor::compose` (what can
+`FrameTarget` + `HighlightSource` not express?) and `Workspace::run_command`
+(id-only, same shape as `dispatch_host_command`). Then `EditorKeyResult`'s
+other three variants across the three faces: `Clipboard` and `Search` were
+read this tick and both are handled in all three, but their *inner* enums
+(`ClipboardOperation`, `SearchAction`) have not been diffed face by face.

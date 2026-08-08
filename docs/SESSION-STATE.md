@@ -3367,3 +3367,122 @@ call; Waffles has ruled it falls to the attention states.
 
 **B-2**, **B-5**, **#82**, and everything on the old list. Nothing here
 changes those.
+
+---
+
+# ▶▶▶ BATON — 8 Aug ~10:35, written under a compaction warning
+
+Supersedes every earlier BATON in this file. Everything below is committed.
+
+## Do these, in order
+
+**1. One Meridian attempt per tick. ⚠️ One, not five.** Attempts 14–16 all
+succeeded; the bridge is healthy but was not overnight. Tom's last message
+(this tick) covered the manifold read and #83. He owes **B-2** and **B-5**,
+and now **#82** as well.
+
+**2. Read `docs/MANIFOLD-EDITOR-READ.md` before touching the web face.**
+Iridium is now one of three organs of manifold's face. Three rounds with
+Waffles, all rulings recorded there. Do not re-derive it.
+
+**3. Then the next slice, by the routes below.**
+
+## ⭐ The six rules earned, in the order they cost something
+
+- **A. Parse the format, do not match it.** `\{[^}]*\}` terminates on the `}`
+  inside `end = "}"`. `tomllib` disagreed with the regex on two of nine claims.
+- **B. A hedge inside a clearance is a defect waiting.** "For the languages
+  checked" reads as diligence and functions as cover.
+- **C. A fix applied to the path you are standing on is not a fix to the
+  defect.** Twelve lines below #80's panic, the sibling branch was already
+  hardened *with a comment explaining that exact hazard*. Ask **where else
+  does this shape appear** — often three lines away.
+- **D. A claim of uniqueness is checkable, so check it.** The hedge route's
+  twin: a hedge admits a gap, a uniqueness claim denies one.
+- **E. A choke point only funnels what is shaped like the thing it funnels.**
+  `record_edit` takes an `EditSpan`; a document *replacement* has none, so it
+  never arrives and its absence reads as coverage.
+- **F. A comment saying a guard is untested is worse than no comment** — it
+  stops the next reader looking for the test that exists.
+
+⭐ **The productive routes, in yield order:** read a document's own hedge ·
+check a claim of uniqueness · ask what the choke point's parameter type
+cannot express · **and when someone challenges an absence claim, look again**
+(that is how the worker's retained tree turned up and reclassified G1).
+
+## This session's commits
+
+`815bec99` #80 · `fdcd3051` tick · `edffe6e1` #81 · `dc72b23c` revision
+comment · `bb73bd3a` manifold read · `5792a248` #83 · plus tick records.
+Earlier: `88dde26a` #79 S-1 · `d013abfc` #79 S-6.
+
+## Gate state
+
+**All nine green.** Rust: **2,533 passed, 0 failed** (last full run before
+`bb73bd3a`; everything after is documentation or TypeScript).
+TypeScript: **104 passed, 0 failed** — ⚠️ run with `bun test src/` from
+`packages/@iridium/core`, **not** `deno test` (the suites import `bun:test`).
+Type-check is `deno check src/element/index.ts`.
+
+## The uniqueness sweep — where it stands
+
+**Checked and sound (8):** `runs.rs:134` duplicate-at-top · `core.rs:288`
+folds · `binding.rs:15` non-empty sequence · `types.rs:235` AST verb parity ·
+`viewport.rs:215` (loose but harmless) · `geometry.rs:55` (not a claim about
+today) · **`tree.rs:9` `SyntaxTree` single owner — verified, no `Parser` or
+`Tree` field anywhere else in `iridium-syntax`** · `suffix.rs:130`
+`entry_claims` byte index (guarded by the length test above it).
+
+**Checked and wrong (2):** `wasm.rs:1164` → #81 · `windowed.rs:120` →
+`dc72b23c`.
+
+**Unchecked (~14):** `iridium-tui/src/input.rs:28` and `:183` ·
+`frame/line.rs:3` · `workspace/model.rs:282` · `actions/mod.rs:10` ("the only
+place an id string is tied to behaviour" — ⚠️ host commands are a second
+place ids meet behaviour; worth reading) · `expand.rs:197` ·
+`app/mod.rs:12` · `file_tree/panel.rs:346` · `apps/iridium/src/app/mod.rs:292`
+· `compositor/mod.rs:1` · `commands.rs:76` · `suffix.rs:21` ·
+`iridium-tui/src/frame/search/matches.rs:19`.
+
+## Open work
+
+- **#79** — S-1 and S-6 landed. **S-2** needs B-2, **S-5** needs B-5, **S-3**
+  is an *addition* (auto-closing `/*`, `"""`, `r#"`) so it wants a ruling too,
+  **S-4** recommend not yet. ⚠️ Trap: `single_char_pairs` drops multi-char
+  rows **at the reader**, deliberately — do not take the first `char` of `r#"`.
+- **#82** — the web face's uncalled second word-motion implementation. Tom's
+  call, same species as #64. Recommend delete.
+- **Blocked on Tom:** L-0..L-8 (#43/#44/#45) · D-1..D-8 (#31) · #58's three
+  keys · #64 · #70's six colours · #74's pin · Cally's hook · nineteen grammar
+  repos · **B-2** · **B-5** · **#82** · the `cargo doc` pair.
+
+⚠️ **If a later tick sees the `#[allow(dead_code)]` on #58's `mod mode;`, the
+fix is to wire `keys`, not to widen the allow.**
+
+## ⚠️ Both ends of the web face are outside their own gate battery
+
+`wasm.rs` is `cfg(target_arch = "wasm32")` and its gate is a `check`;
+`element/index.ts` needs a DOM and the 104 TS tests are all pure state
+machines. **I closed a real defect in each today and could write a red test
+for neither** (#81, #83) — said plainly in both commits. The landed fix
+pattern is extraction: `web_span_index` and `web_highlight_cache` are gated
+`any(target_arch = "wasm32", test)` precisely so tests reach them
+(`iridium-bindings/src/lib.rs:90-106`). #43 owns that territory and is
+blocked.
+
+## Box — and a correction I owe
+
+Load ~74, not this seat's. Disk **111 GB free**, down 139 → 121 → 111 across
+three ticks.
+
+⚠️ **Two ticks ago I wrote that the slide "was not this seat". That was
+wrong.** Measured now: tree **12,812,684 KB**, of which `target/` is
+**11,013,236 KB**. The last recorded measure was 9,437,108 KB, so **this seat
+has added ~3.4 GB** — the nine-gate battery across four feature configurations
+plus a wasm target, run many times. Some oscillation is external; a
+measurable share is mine, and I attributed it away without measuring.
+`cargo clean` would reclaim ~10.5 GB at the cost of every later gate run
+being cold — **not taken unilaterally**; flag it if free space nears a band.
+
+Working tree clean apart from `?? .claude/skills/`, untracked at session start
+and not mine.

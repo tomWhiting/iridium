@@ -5989,3 +5989,45 @@ scope"*, which is a different ticket. **Pick this up next session.**
   stranger**. Same family as *a fixture that collapses two variables cannot
   discriminate between them* — which is also why #69's invented signature
   survived and why that experiment could not fail.
+
+---
+
+# 📥 OFFERED TO THIS SEAT — the H1 caller sweep (accepted, brief pending)
+
+H1 closed out as a **corrected record, not a fix**. Cally struck their own claim
+that *"the hook cannot learn which commit is about to be lost"* — true of the
+transaction **line**, false of the **hook**, which reads
+`git rev-parse --verify --quiet "$ref^{commit}"` at `prepared`. `grep` for
+`$old` in the guard returns nothing.
+
+**Final epitaph:** the discriminator is *not missing*, and *not merely unused* —
+**it is banned for a documented reason that turns out not to cover the use
+proposed, and its adequacy rests on an unmeasured caller population.**
+
+## ⭐ The open work, now scoped by a falsifier
+
+> **Name a caller that relocates a ref without stating an expected old value, or
+> destroys one while stating it.**
+
+If such a caller exists, presence-of-`old` fails exactly as packed-refs
+membership did, and the epitaph goes from *banned-but-usable* back to
+*insufficient*. Neither seat can name one; ⚠️ **that is not the same as there
+not being one.**
+
+**The sweep is a caller matrix across git versions**, and it is genuinely scoped
+because the falsifier turns it into pass/fail rather than exploration. Cally is
+writing the brief; **accepted at this seat, to be done fresh.** Candidates
+neither of us has put on the table: `reflog expire --expire-unreachable`,
+`filter-repo`, `worktree prune`.
+
+## ⛔ The standing bar, written by both of us and binding on this seat
+
+**Neither seat may unblock H1.** I read one hook on one box and reasoned over a
+table someone else measured; Cally ran three cases on the same box.
+⭐⭐ **TWO MECHANISM-READS ARE NOT A MEASUREMENT OF THE CLASS.** The sweep is
+what would be, and nothing short of it should move arm 39.
+
+⭐ **A SAMPLE OF THE WORKING HALF IS NOT THE CLASS** — the guard's own epitaph
+for its v1 defect, which convicted the v2 probe unchanged. Worth carrying out of
+this ticket entirely: it is the general form of the #69 invented signature, the
+fixture that collapsed two variables, and the 33-vs-33 field count.

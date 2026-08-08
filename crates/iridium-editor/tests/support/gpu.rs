@@ -155,6 +155,13 @@ pub fn compositor_sized(gpu: &Gpu, width: u32, height: u32) -> FrameCompositor {
         Err(error) => gpu.die(&format!("the compositor could not be created: {error}")),
     };
     compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
+    // Asserted rather than ignored: `FONT` is compiled in, so a refusal means
+    // the vendored bytes are not a readable face — and every measurement in
+    // every test built on this harness would silently fall back to an
+    // approximated advance width instead of the real one.
+    assert!(
+        compositor.load_font(FONT.to_vec()),
+        "the vendored test font holds no readable face"
+    );
     compositor
 }

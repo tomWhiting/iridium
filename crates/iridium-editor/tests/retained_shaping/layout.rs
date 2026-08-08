@@ -95,7 +95,7 @@ fn loading_a_font_misses_and_recomposes_identically() {
     let mut highlights = ActiveLanguageNoSpans;
 
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
-    warm.load_font(FONT.to_vec());
+    assert!(warm.load_font(FONT.to_vec()), "the test font must load");
     compose(&mut warm, &editor, 0.0, &mut highlights, &gpu, &tgt);
     assert_eq!(warm.shape_rebuilds(), 2, "a font load is a miss");
     let after = pixels(&gpu, &tgt);
@@ -107,7 +107,7 @@ fn loading_a_font_misses_and_recomposes_identically() {
         0.0,
         &mut ActiveLanguageNoSpans,
         |fresh| {
-            fresh.load_font(FONT.to_vec());
+            assert!(fresh.load_font(FONT.to_vec()), "the test font must load");
         },
     );
     assert_same_frame(
@@ -179,7 +179,10 @@ fn a_font_size_change_remeasures_the_character_width() {
     // uses, and the order both faces use at startup.
     let mut measured_at_the_new_size = compositor(&gpu);
     measured_at_the_new_size.set_font_size(doubled);
-    measured_at_the_new_size.load_font(FONT.to_vec());
+    assert!(
+        measured_at_the_new_size.load_font(FONT.to_vec()),
+        "the test font must load"
+    );
     let honest = measured_at_the_new_size.char_width();
 
     // The path a display change takes: a font is already loaded, and only the

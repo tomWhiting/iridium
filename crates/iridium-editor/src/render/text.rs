@@ -7,7 +7,7 @@ use glyphon::cosmic_text::{BidiParagraphs, LineEnding, LineIter};
 use glyphon::{
     Attrs, AttrsList, Buffer, BufferLine, Cache, Color as GlyphonColor, Family, FontSystem,
     Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds,
-    TextRenderer as GlyphonTextRenderer, Viewport,
+    TextRenderer as GlyphonTextRenderer, Viewport, fontdb,
 };
 use wgpu::{Device, MultisampleState, Queue, TextureFormat};
 
@@ -20,6 +20,35 @@ const DEFAULT_FONT_SIZE: f32 = 14.0;
 
 /// Default line height multiplier.
 const DEFAULT_LINE_HEIGHT: f32 = 1.4;
+
+/// Whether these bytes hold at least one font face this build can read.
+///
+/// Answers the same question [`TextRenderer::load_font`] answers, without a
+/// GPU, a device or a renderer — it loads into a throwaway database. That is
+/// the whole point: the renderer's own answer is only reachable from a test
+/// that can build a `wgpu` device, and those tests are `#[ignore]`d because
+/// they need real hardware. ⭐ A font constant proven loadable only by a test
+/// that never runs in the battery is not proven loadable at all.
+///
+/// Raw sfnt only — `.ttf`, `.otf`, `.ttc`. Compressed web formats such as
+/// `.woff2` are **not** decoded and return `false` here.
+#[must_use]
+pub fn font_data_holds_a_face(data: &[u8]) -> bool {
+    let mut database = fontdb::Database::new();
+    database.load_font_data(data.to_vec());
+    !database.is_empty()
+}
+
+/// Advance width to assume, as a fraction of the font size, when the real one
+/// cannot be measured.
+///
+/// Two callers, and they are not the same situation. One is a shaped run that
+/// produced no glyphs; the other is a font database with no faces in it at
+/// all, which is every web build before its embedder supplies a face. `0.6` is
+/// the usual advance ratio of a monospace face at a given size — near enough
+/// that a first frame drawn before the font arrives has plausible geometry
+/// rather than collapsing to zero-width columns.
+const FALLBACK_CHAR_WIDTH_RATIO: f32 = 0.6;
 
 /// The largest font size [`TextRenderer::set_font_size`] will accept, in
 /// pixels.
@@ -307,6 +336,25 @@ impl TextRenderer {
 
     /// Internal method to measure character width. Called once and cached.
     fn measure_char_width(&mut self) -> f32 {
+        // ⛔ SHAPING WITH AN EMPTY DATABASE PANICS. cosmic-text's shaper ends
+        // at `no default font found`, and there is no fallback face to reach
+        // for — a `wasm32` target has no system fonts at all, so this is the
+        // *normal* state of a web build until the embedder supplies one.
+        //
+        // ⭐ The approximation at the bottom of this function was written for
+        // "measurement fails" and could never run in this case: the panic
+        // happens inside `set_text`, several lines above it. A fallback the
+        // real failure mode cannot reach is not a fallback. This guard is what
+        // gives it its population back.
+        //
+        // Deliberately not an error. A width is wanted by layout on every
+        // frame, and a renderer with no font has nothing to draw anyway — the
+        // honest signal belongs at `load_font`, which now reports, rather than
+        // in a geometry query that cannot do anything with it.
+        if self.font_system.db().is_empty() {
+            return self.config.font_size * FALLBACK_CHAR_WIDTH_RATIO;
+        }
+
         // Create a temporary buffer to measure a character
         let metrics = Metrics::relative(self.config.font_size, self.config.line_height);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
@@ -328,7 +376,7 @@ impl TextRenderer {
         }
 
         // Fallback to approximation if measurement fails
-        self.config.font_size * 0.6
+        self.config.font_size * FALLBACK_CHAR_WIDTH_RATIO
     }
 
     /// Returns the metrics for the current font configuration.
@@ -786,8 +834,38 @@ impl TextRenderer {
     ///
     /// The font is added to the system's font database and becomes available
     /// for use via `set_font_family()`.
-    pub fn load_font(&mut self, data: Vec<u8>) {
+    ///
+    /// # Returns
+    ///
+    /// `true` when at least one face was added, `false` when the bytes held
+    /// none the parser could read.
+    ///
+    /// ⛔ **`fontdb::load_font_data` returns `()` and reports nothing.** It
+    /// takes raw sfnt — `.ttf`, `.otf`, `.ttc` — and *silently adds no faces*
+    /// for anything else, `woff2` most of all, which is the format a web page
+    /// actually serves. So the count is taken here, by measuring the database
+    /// either side of the call, because there is no other way to find out.
+    ///
+    /// ⭐ The failure this makes visible was total and silent. Handing the web
+    /// face a `woff2` added nothing, and the very next line measured a
+    /// character — which shaped against an empty database and panicked "no
+    /// default font found" inside cosmic-text. On wasm a panic is an
+    /// `unreachable` trap, and a trap does **not** reject the awaited promise:
+    /// the caller's `await` never settled, never threw, and the page sat there
+    /// looking like it was still loading. A silent load failure two lines
+    /// upstream became an editor that could not be distinguished from a slow
+    /// one.
+    #[must_use = "a font that failed to load leaves the renderer with nothing to shape"]
+    pub fn load_font(&mut self, data: Vec<u8>) -> bool {
+        let before = self.font_system.db().len();
         self.font_system.db_mut().load_font_data(data);
+        let added = self.font_system.db().len() > before;
+        if added {
+            // A new face can change what `Family::Monospace` resolves to, and
+            // the cached width belongs to whatever was resolvable before.
+            self.cached_char_width = None;
+        }
+        added
     }
 
     /// Loads a font from a file path (T148).
@@ -798,14 +876,26 @@ impl TextRenderer {
     ///
     /// # Errors
     ///
-    /// Returns an error if the file cannot be read.
+    /// Returns an error if the file cannot be read, or if it could be read and
+    /// held no face the parser recognised — a readable file that contributes
+    /// no font is a failure to load, and reporting only the first of those two
+    /// would leave the more confusing one silent.
     pub fn load_font_file(&mut self, path: &std::path::Path) -> Result<(), IridiumError> {
         let data = std::fs::read(path).map_err(|e| IridiumError::FontLoadFailed {
             message: format!("Failed to read font file {}: {e}", path.display()),
         })?;
 
-        self.load_font(data);
-        Ok(())
+        if self.load_font(data) {
+            return Ok(());
+        }
+        Err(IridiumError::FontLoadFailed {
+            message: format!(
+                "{} contains no font face this build can read; raw sfnt \
+                 (.ttf/.otf/.ttc) is required and compressed web formats such \
+                 as .woff2 are not decoded",
+                path.display()
+            ),
+        })
     }
 
     /// Returns the current configuration.
@@ -1138,6 +1228,80 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The bytes a web page actually serves are `woff2`, and this build cannot
+    /// read them.
+    ///
+    /// ⭐ The defect this pins was total and silent, and it cost a consumer a
+    /// day. `fontdb::load_font_data` returns `()`: handed a `woff2` it adds no
+    /// face and says nothing, so the load "succeeded". The next line measured a
+    /// character, which shaped against an empty database and panicked inside
+    /// cosmic-text with "no default font found" — and on wasm a panic is an
+    /// `unreachable` trap, which does **not** reject the promise the caller is
+    /// awaiting. The `await` never settled and never threw.
+    ///
+    /// ⚠️ The header alone is what makes this a `woff2` rather than a `ttf`:
+    /// `wOF2` where sfnt would carry `0x00010000` or `OTTO`. The rest is
+    /// plausible padding, so this exercises the parser's verdict rather than a
+    /// length check.
+    #[test]
+    fn woff2_bytes_hold_no_face_this_build_can_read() {
+        let mut woff2 = b"wOF2".to_vec();
+        woff2.extend_from_slice(&[0x00; 64]);
+        assert!(
+            !font_data_holds_a_face(&woff2),
+            "woff2 must be reported as unreadable rather than silently loading \
+             nothing"
+        );
+    }
+
+    /// The other half of the claim: the check is not simply always `false`.
+    ///
+    /// ⭐ Without this, the test above would pass against a function that
+    /// rejected everything, including the fonts the faces actually ship —
+    /// which would turn every build into the failure it is meant to catch.
+    #[test]
+    fn a_real_sfnt_face_is_recognised() {
+        static FONT: &[u8] =
+            include_bytes!("../../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
+        assert!(
+            font_data_holds_a_face(FONT),
+            "the vendored JetBrains Mono .ttf must be recognised"
+        );
+    }
+
+    /// Empty and truncated input is a verdict, not a crash.
+    #[test]
+    fn nothing_and_almost_nothing_hold_no_face() {
+        assert!(!font_data_holds_a_face(&[]));
+        assert!(!font_data_holds_a_face(&[0x00, 0x01]));
+    }
+
+    /// ⛔ **The reason [`TextRenderer::measure_char_width`]'s empty-database
+    /// guard exists**, pinned directly rather than asserted about.
+    ///
+    /// This is the discrimination proof for the whole fix: it reproduces the
+    /// exact failure — shaping with no faces available — in isolation, with no
+    /// GPU and no renderer, and shows that cosmic-text's answer is a **panic**
+    /// rather than an empty layout. That is what made the fallback below the
+    /// shaping call unreachable, and on wasm it is what became a trap that
+    /// never rejected the caller's promise.
+    ///
+    /// If a future cosmic-text returns an empty run instead of panicking, this
+    /// test fails — and that is the correct outcome, because the guard's
+    /// justification would have expired and the comment above it would have
+    /// become false. A guard whose reason has quietly stopped being true is
+    /// exactly the kind of thing nobody re-checks.
+    #[test]
+    #[should_panic(expected = "no default font found")]
+    fn shaping_with_an_empty_font_database_panics() {
+        let mut font_system =
+            FontSystem::new_with_locale_and_db("en-US".to_owned(), fontdb::Database::new());
+        let metrics = Metrics::relative(DEFAULT_FONT_SIZE, DEFAULT_LINE_HEIGHT);
+        let mut buffer = Buffer::new(&mut font_system, metrics);
+        let attrs = Attrs::new().family(Family::Monospace);
+        buffer.set_text(&mut font_system, "MM", &attrs, Shaping::Advanced, None);
     }
 
     // Note: Actual rendering tests require GPU and are run as integration tests

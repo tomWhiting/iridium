@@ -248,6 +248,13 @@ interface WebEditor {
   getPendingClipboardText(): string | undefined;
   copyText(): string | undefined;
   cutText(): string | undefined;
+  /**
+   * Loads a font from raw sfnt bytes (.ttf/.otf/.ttc).
+   *
+   * Throws when the bytes hold no readable face — `.woff2` is not decoded.
+   * This used to trap instead of throwing, which on wasm meant the awaited
+   * promise never settled at all.
+   */
   loadFont(data: Uint8Array): void;
   setContent(content: string): void;
   getContent(): string;
@@ -657,12 +664,29 @@ export class IridiumEditor {
   }
 
   private async initialize(): Promise<void> {
-    // Load font
+    // Load font.
+    //
+    // A wasm target has NO system fonts, so this is not an enhancement that
+    // can be skipped — without it the renderer has nothing to shape and draws
+    // no glyphs at all. Both failures below therefore throw rather than fall
+    // through: `initialize` is awaited by `create`, so a throw here rejects
+    // the caller's promise, which is the only way an embedder can tell "this
+    // editor is dead" from "this editor is slow".
+    //
+    // The previous `if (ok)` swallowed a failed fetch entirely and left an
+    // editor that looked constructed and could never render.
     const fontResponse = await fetch(this.options.fontUrl);
-    if (fontResponse.ok) {
-      const fontData = new Uint8Array(await fontResponse.arrayBuffer());
-      this.editor.loadFont(fontData);
+    if (!fontResponse.ok) {
+      throw new Error(
+        `Iridium could not fetch its font from ${this.options.fontUrl} ` +
+          `(HTTP ${fontResponse.status}). A wasm build has no system font to ` +
+          `fall back on, so the editor cannot render without it.`,
+      );
     }
+    const fontData = new Uint8Array(await fontResponse.arrayBuffer());
+    // Throws when the bytes hold no readable face — most often because the
+    // URL serves .woff2, which this build does not decode. Raw sfnt only.
+    this.editor.loadFont(fontData);
 
     // Initialize syntax highlighting via Web Worker (only if enabled)
     // DISABLED BY DEFAULT: Web worker parsing causes 1-3s delays on large files.

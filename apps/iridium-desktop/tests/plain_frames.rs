@@ -118,7 +118,10 @@ fn compositor(gpu: &Gpu) -> FrameCompositor {
         Err(error) => die(&format!("the compositor could not be created: {error}")),
     };
     compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
+    assert!(
+        compositor.load_font(FONT.to_vec()),
+        "the vendored test font holds no readable face"
+    );
     compositor
 }
 

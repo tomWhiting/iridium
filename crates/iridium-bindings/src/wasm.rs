@@ -457,19 +457,51 @@ impl WebEditor {
     /// This MUST be called before any rendering on WASM, since there are no
     /// system fonts available. Pass the raw bytes of a .ttf or .otf font file.
     ///
+    /// ⛔ **Raw sfnt only.** `.woff2` — the format a web page normally serves —
+    /// is *not* decoded, and passing it is the mistake this method now reports
+    /// instead of dying on.
+    ///
     /// # Arguments
     ///
     /// * `data` - Raw font file bytes
+    ///
+    /// # Errors
+    ///
+    /// Rejects when the bytes hold no readable face.
+    ///
+    /// ⭐ **This used to be a trap, not an error, and that is the whole reason
+    /// it returns a `Result`.** `fontdb` reports nothing when it parses no
+    /// face, so a `.woff2` loaded "successfully" into an empty database; the
+    /// very next line measured a character, which shaped against no font and
+    /// panicked inside cosmic-text with "no default font found". On wasm a
+    /// panic is an `unreachable` trap, and **a trap does not reject the
+    /// promise a caller is awaiting** — so `await create(...)` never settled
+    /// and never threw. The page looked like it was still loading, forever.
+    /// An editor that cannot initialise must fail in a way its caller can
+    /// catch, which is what this signature is for.
     #[wasm_bindgen(js_name = loadFont)]
-    pub fn load_font(&mut self, data: &[u8]) {
+    pub fn load_font(&mut self, data: &[u8]) -> Result<(), JsValue> {
         log("[Iridium] Loading font...");
-        // The compositor measures the actual character width from the loaded font.
-        self.compositor.load_font(data.to_vec());
+        // The compositor measures the actual character width from the loaded
+        // font — safe to call now whatever happened, because measuring against
+        // an empty database returns an approximation instead of panicking.
+        if !self.compositor.load_font(data.to_vec()) {
+            let message = format!(
+                "[Iridium] The {} bytes passed to loadFont hold no readable \
+                 font face. Raw sfnt is required — .ttf, .otf or .ttc — and \
+                 compressed web formats such as .woff2 are not decoded. \
+                 Convert the face to .ttf, or fetch a .ttf build of it.",
+                data.len()
+            );
+            log(&message);
+            return Err(JsValue::from_str(&message));
+        }
         log(&format!(
             "[Iridium] Font loaded, char_width: {:.2}px",
             self.compositor.char_width()
         ));
         self.needs_redraw = true;
+        Ok(())
     }
 
     /// Sets the editor content.

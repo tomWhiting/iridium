@@ -19,13 +19,25 @@ use crate::theme::{Color, Theme};
 impl FrameCompositor {
     /// Loads a font from raw TTF/OTF data and remeasures the character
     /// width, which every layout answer above depends on.
-    pub fn load_font(&mut self, data: Vec<u8>) {
-        self.text_renderer.load_font(data);
+    ///
+    /// # Returns
+    ///
+    /// `false` when the bytes held no readable face — see
+    /// [`TextRenderer::load_font`](crate::render::TextRenderer::load_font).
+    /// The remeasure and the generation bump still happen: the width becomes
+    /// the fallback approximation and every retained shape is invalidated, so
+    /// a caller that ignores the answer gets a legible frame in a default
+    /// metric rather than a stale one measured against a font that is no
+    /// longer what the caller believes it loaded.
+    #[must_use = "a font that failed to load leaves the compositor measuring an approximation"]
+    pub fn load_font(&mut self, data: Vec<u8>) -> bool {
+        let loaded = self.text_renderer.load_font(data);
         // Measure actual character width from the loaded font
         self.cached_char_width = self.text_renderer.char_width();
         // New font data can change how Family::Monospace resolves — every
         // retained shape is stale.
         self.font_generation = self.font_generation.wrapping_add(1);
+        loaded
     }
 
     /// Sets the font size in pixels (already scaled for DPI by the face).

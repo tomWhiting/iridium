@@ -252,7 +252,10 @@ fn compose_benchmark(c: &mut Criterion) {
         Err(error) => die(&format!("the compositor could not be created: {error}")),
     };
     compositor.set_font_size(FONT_SIZE);
-    compositor.load_font(FONT.to_vec());
+    assert!(
+        compositor.load_font(FONT.to_vec()),
+        "the vendored bench font holds no readable face"
+    );
 
     let mut editor = Editor::with_defaults();
     editor.set_content(&ten_thousand_lines());

@@ -94,6 +94,23 @@ pub struct EditorColors {
     pub gutter: Color,
     /// Minimap background
     pub minimap_background: Color,
+    /// The hairline frame around a floating panel, and the rule that closes
+    /// the tab strip and the search bar.
+    ///
+    /// ⚠️ **Translucent by design, and composited by the face over whatever
+    /// surface the panel sits on.** A border is a colour a theme should
+    /// state — the classic-Mac variants genuinely disagree about it, wanting
+    /// alphas of 0.55 and 0.85 where the dark preset wants 0.18 — but it is
+    /// still ink over a surface, so a preset that stated an opaque colour
+    /// here would frame every panel identically regardless of what it floats
+    /// above. The desktop face composites; the terminal face has no hairline
+    /// at all and ignores this.
+    ///
+    /// Added as the 25th field after the dark chrome shipped (D-5). Absent
+    /// from every theme file written before it, which is why the container's
+    /// `#[serde(default)]` matters: they fall back to the dark preset's value
+    /// and keep the frame they already had.
+    pub panel_border: Color,
     /// Search match highlight
     pub search_match: Color,
     /// Current search match highlight
@@ -142,6 +159,15 @@ impl EditorColors {
             current_line: Color::new(0.15, 0.15, 0.15, 0.3),
             gutter: Color::from_hex("1a1a1a").unwrap_or_default(),
             minimap_background: Color::from_hex("1a1a1a").unwrap_or_default(),
+            // Exactly the derivation this field replaces — `foreground` at the
+            // desktop face's old `HAIRLINE_ALPHA` of 0.18 — so the shipped
+            // dark chrome renders the pixel it rendered before D-5. Written
+            // as the parse of `d4d4d4` rather than as a repeated literal, and
+            // pinned by `the_dark_panel_border_is_the_derivation_it_replaced`.
+            panel_border: Color {
+                a: 0.18,
+                ..Color::from_hex("d4d4d4").unwrap_or_default()
+            },
             search_match: Color::new(0.52, 0.37, 0.13, 0.6),
             search_match_current: Color::new(0.82, 0.67, 0.33, 0.8),
             diff_added_bg: Color::new(0.14, 0.40, 0.22, 0.25),

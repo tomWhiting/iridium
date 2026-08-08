@@ -4594,3 +4594,107 @@ that was made, not a fact that was checked.
 **Everything else in the S-3 plan below is unchanged.** The next tick should
 run the full nine-gate battery on `2c0f53f2` first (it has not been run — see
 the tick above), then drive steps 2–5 through a workflow.
+
+---
+
+## Tick — 8 Aug 2026, first tick under the new working mode
+
+### 1. The unverified commit is now verified
+
+The nine-gate battery ran in full against `d1157a81` (which carries
+`2c0f53f2`'s S-3 step 1). **All nine green.**
+
+| gate | result |
+| --- | --- |
+| `cargo test --workspace --all-features --no-fail-fast` | **2,599 passed, 0 failed** |
+| `cargo test -p iridium-editor --no-default-features` | **1,070 passed, 0 failed** |
+| `cargo test -p iridium-editor --no-default-features --features syntax` | **1,185 passed, 0 failed** |
+| `cargo check -p iridium-bindings … wasm32-unknown-unknown` | exit 0 |
+| `cargo clippy --workspace --all-features --all-targets -- -D warnings` | exit 0 |
+| `cargo clippy -p iridium-editor --no-default-features …` | exit 0 |
+| `cargo clippy -p iridium-editor --no-default-features --features syntax …` | exit 0 |
+| `cargo clippy -p iridium-bindings … wasm32 …` | exit 0 |
+| `cargo fmt --all --check` | exit 0 |
+
+2,591 → **2,599** is S-3 step 1's eight manifest tests. The caveat carried in
+`2c0f53f2`'s commit message and in the tick above is now discharged; nothing
+further is owed on it.
+
+### 2. The first workflow is running
+
+Run id `wf_3af29b71-d77`, script persisted under the session's
+`workflows/scripts/`. Seven Opus subagents, three phases:
+
+- **Ground** (2, parallel, read-only) — the editor seam in `input/keyboard/`,
+  and the test-design ground including the Rule-L elimination fixtures.
+- **Implement** (2, sequential) — steps 2+3 (`PairRules` holds
+  `Option<&'static Manifest>`, the trigger set grows, longest-match lookup, the
+  insertion branch), then steps 4+5 (generalised skip-over, backspace collapse).
+- **Verify** (3, parallel) — a Rule-L auditor whose single question is *"would
+  this test still pass if the feature were deleted?"*, a correctness adversary
+  briefed on the Proxy Law, and a gate runner.
+
+⭐ **Shape notes for whoever writes the next one.** Every brief names each
+banned git command individually, states that the overseeing seat commits and
+the agent does not, and repeats the "redirect and check exit status separately"
+rule. The implementation agents run sequentially rather than in parallel
+because both edit the same file — a barrier is correct there, and a pipeline
+would corrupt the tree. The verify phase is genuinely parallel because all
+three are read-only.
+
+⚠️ **`behaviors.rs` is 755 lines against a 500-line bar before this slice
+adds anything.** Both implementation briefs say: put new machinery in a new
+sibling module, and do not attempt a general split of `behaviors.rs` in this
+slice. If the next reader finds it grew instead, that instruction was not
+followed and the split is owed.
+
+### 3. Tom asked whether the pending decisions were real, and said: *"If
+they're just technical decisions, I just want the best possible outcome."*
+
+Arrived through Meridian, so the standing caveat applies and was restated to
+him in the reply. Sorted, and **the sort itself was reported to him so he can
+veto any line of it**:
+
+**Left with Tom — genuinely his:**
+
+- **#31, the light theme.** Three of its eight sub-decisions carry taste: the
+  variant, the corner radius (Platinum's real 4–5 px against today's 8), and
+  follow-the-system versus manual-only. The other five are plumbing and are
+  taken. This is the one piece of Iridium that is supposed to look like him;
+  ruling it for him would be the wrong kind of helpful.
+- **Cally's history-rewrite guard.** Recommended yes, clone hole closed — but
+  it changes how git behaves for *him* and refuses rewrites he may want. Was
+  already declined once at this seat for that reason; that stands.
+
+**Taken under the grant, each with the reason stated to him:**
+
+- **L-0 → tier 1 now.** The highest-leverage ruling in the backlog: four items
+  sit behind it. Tier 1 costs no dependency and no bytes and gets AWL
+  highlighted; tier 2 costs a **measured 6.6 MiB and 90 crates on every native
+  build**, paid whether or not anyone installs an extension. Tier 1 is
+  unavoidable groundwork for tier 2 either way, so taking it defers the 6.6 MiB
+  question rather than foreclosing it. ⭐ It also collapses **L-1, L-3, L-5 and
+  L-7 into "later, if tier 2 ever happens"**, and unblocks **#43 → #44 → #45**.
+- **#74 → a `rust-toolchain.toml` on a named stable.** Two of the nine gates
+  are verdicts rendered by the toolchain rather than by the code.
+- **#70 → the recommendation table in `IN-FLIGHT-unstyled-captures.md`**,
+  including the lean on the one arguable case: CSS `#id` goes on `Type`,
+  matching `class`, for selector-family coherence rather than `Constant`.
+- **#58 → Tab enters edit, Ctrl+D marks deleted, ⌘S applies**, with the
+  "new row" key picked at this seat since Ctrl+N is taken by move-down.
+
+⚠️ **None of these four are built yet — they are rulings, not commits.** The
+queue order after S-3 and #69 is therefore: **L-0's tier-1 work** (because
+#43/#44/#45 are behind it), then #74, then #70 and #58's bindings, which are
+small.
+
+### 4. What the next tick does
+
+1. Read the workflow's result. It returns the two implementation reports and
+   the three verdicts; **read `journal.jsonl` in the transcript dir before
+   believing any of them**, and re-run the battery at this seat rather than
+   taking the gate agent's word for it.
+2. Commit S-3 steps 2–5 if the verdicts hold. If the Rule-L auditor finds a
+   test that survives deletion of the feature, that test is wrong and the
+   commit waits.
+3. Then #69.

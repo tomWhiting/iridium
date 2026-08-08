@@ -120,10 +120,24 @@ impl ShapeKey {
             gutter_text_generation,
             tab_width,
         } = *self;
-        // Refused rather than diffed, for the same reason as `tab_width`
-        // below: the per-line path reuses the *previous* buffer, so diffing a
-        // different document's text into it would leave every line the diff
-        // did not touch showing the old document's.
+        // Refused, and — unlike `tab_width` below — **not** because a known
+        // staleness would otherwise get through. Checked rather than assumed:
+        // the diff bottoms out in cosmic-text's `BufferLine::set_text`, which
+        // compares text, line ending *and* the attribute list, so a line it
+        // skips is one that would render identically anyway. Diffing one
+        // document into another's buffer produces a correct frame today.
+        //
+        // It is refused because the claim "this buffer may be reused for a
+        // different document" is about *buffer-level* state, which the
+        // per-line diff cannot see at all — and `tab_width` is exactly that
+        // trap, discovered only in #86. A document switch reshapes essentially
+        // every line regardless, so the refusal costs nothing measurable and
+        // removes a way for the next buffer-level property to be wrong
+        // silently.
+        //
+        // ⚠️ So `a_document_change_refuses_the_line_diff` pins a *policy*, not
+        // a repro. Removing this line does not fail any GPU test today, and
+        // that was verified rather than supposed.
         document_id == previous.document_id
             && viewport_start == previous.viewport_start
             && viewport_end == previous.viewport_end
@@ -244,6 +258,31 @@ mod shape_key_tests {
         assert!(
             !next.permits_line_diff(&key()),
             "a tab width change must force a full reshape, not a per-line diff"
+        );
+    }
+
+    #[test]
+    fn a_document_change_refuses_the_line_diff() {
+        // ⚠️ **This pins a policy, not a repro.** Removing the refusal from
+        // `permits_line_diff` fails no GPU test — verified, not assumed —
+        // because the diff bottoms out in cosmic-text's `BufferLine::set_text`,
+        // which compares text, ending *and* attributes, so a skipped line
+        // would render identically anyway.
+        //
+        // What it defends is the *next* buffer-level property that turns out to
+        // be document-derived. `tab_width` was exactly that and reached the
+        // renderer only in #86; the per-line diff cannot see buffer-level state
+        // at all. A document switch reshapes essentially every line regardless,
+        // so refusing costs nothing measurable.
+        //
+        // The key member itself is a different matter and *is* a repro: see
+        // `tests/retained_shaping/document_identity.rs`, where dropping it puts
+        // the previous file's text on screen.
+        let mut next = key();
+        next.document_id = 2;
+        assert!(
+            !next.permits_line_diff(&key()),
+            "a different document must force a full reshape, not a per-line diff"
         );
     }
 

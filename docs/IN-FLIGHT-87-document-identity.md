@@ -97,7 +97,7 @@ Not yet checked, and named so it is not forgotten:
 
 ---
 
-# ▶ IN FLIGHT — written at a context ceiling, 8 Aug ~16:10
+# ~~▶ IN FLIGHT~~ — superseded by the closing section below
 
 **Nothing is committed. The working tree carries a half-built fix.** Below is
 everything needed to finish it.
@@ -171,3 +171,80 @@ anything on a box where the test always passes**: they are already identical.
 The experiment that could is the inverse — perturb the atlas hard and see
 whether the signature appears — and that is what the probe was, before it found
 something else.
+
+---
+
+# ✅ CLOSED — 8 Aug 2026. Tom approved the fix.
+
+**Gates: all nine green, 2,559 / 1,068 / 1,164, 0 failed** — 2,554 before, plus
+four GPU tests and one unit test.
+
+## What landed
+
+- **`Document::id()`** — a `u64` from a process-wide `AtomicU64`, taken at
+  construction, never reused, never derived from content. `continuing_from`
+  takes a fresh one. A `Clone` keeps it, because the one clone site
+  (`input/keyboard/editing/mod.rs:386`) is a scratch copy to compute against,
+  not a second editable document.
+- **`ShapeKey::document_id`**, first field, and `permits_line_diff` requires it.
+- **`tests/retained_shaping/document_identity.rs`** — four tests.
+
+## The red proofs, and the one that came back negative
+
+Two separate breaks, run separately, because the key member and the line-diff
+refusal are two different claims.
+
+| break | result |
+| --- | --- |
+| the key stops identifying the document | **2 of 4 red** — `a_second_document_through_the_same_compositor_is_not_a_cache_hit` and `switching_back_to_the_first_document_is_a_miss_as_well` |
+| only the `permits_line_diff` refusal removed | **no GPU test fails.** Only the unit test catches it. |
+
+⭐ **The second result is the one worth keeping**, and it corrects a comment I
+had already written. I had claimed the refusal prevented "every line the diff
+did not touch showing the old document's". **That cannot happen.** Checked in
+the dependency rather than assumed: the diff bottoms out in cosmic-text's
+`BufferLine::set_text` (`cosmic-text-0.15.0/src/buffer_line.rs:73`), which
+compares text, line ending **and** the attribute list — so a line it skips is
+one that would render identically anyway. Diffing one document into another's
+buffer produces a correct frame today.
+
+The refusal is **kept**, with its real justification written down: it guards
+*buffer-level* state, which the per-line diff cannot see at all, and `tab_width`
+is exactly that trap — discovered only in #86. A document switch reshapes
+essentially every line regardless, so the refusal costs nothing measurable. Both
+the code comment and the unit test now say they pin a **policy, not a repro**.
+
+⚠️ **A guard justified by a mechanism that cannot occur is worse than no guard**,
+because the next reader trusts the comment instead of re-deriving it. Same
+family as the rule about comments claiming a guard is untested.
+
+## The two controls, and why they are there
+
+- `the_same_document_twice_is_still_a_hit` — without it the fix could be "never
+  cache anything", which passes every other assertion and discards the entire
+  point of the retained-shaping cache.
+- `first_frame != cold` inside the main test — without it the comparison would
+  pass against a compositor that rendered nothing for either document.
+
+Neither goes red under either break. That is by design.
+
+## Step 5 answered: the highlight cache is clean
+
+`HighlightCache` is a field of `DesktopDocument`, which rides in the
+`Workspace` **one per open document** (`app/state.rs:58-68`) — two tabs onto one
+file share exactly one, and two different files never share any. So it cannot
+confuse two documents; there is no second instance of this defect there.
+
+Its `generation()` *is* read by `ShapeKey`, and two documents' caches reporting
+the same generation is precisely why `document_id` was needed. That is now
+covered.
+
+The compositor's own between-frames caches (`cpu_visible_content`,
+`cpu_line_numbers`, and the rest) are guarded by `ShapeKey`, which now carries
+the identity.
+
+## Still true, and worth remembering
+
+⚠️ `Document::clone()` keeps the id. If a face ever clones a document to make a
+*second editable* one, they would share an identity and this returns. Nothing
+does that today.

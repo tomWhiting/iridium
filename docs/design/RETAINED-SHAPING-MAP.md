@@ -110,6 +110,7 @@ visual staleness bug.
 
 | # | Input | Enters at | Change signal available today |
 |---|---|---|---|
+| 0 | **Which document** — identity, not change | `editor.state().document` is whatever the face composed; one `FrameCompositor` serves every tab (`app/paint.rs:80`) | `Document::id()` — a process-wide counter taken at construction. **Added 8 Aug 2026 (#87).** Row 1 cannot do this job: every document's revision starts at zero, so equal revisions say nothing about two *different* documents, and a tab switch between two files edited the same number of times was a cache hit that re-presented the previous file |
 | 1 | Document content | `doc.line(doc_line)` C:727-729; `line_to_byte_offset` C:413 | `Document::revision()` D:124-131 — bumps on every text mutation, never on cursor moves (test D:455) |
 | 2 | Viewport line range `viewport_start..viewport_end` | derived from `scroll_y`, `line_height`, surface height C:404-408 | recompute; **key the range, not raw `scroll_y`** — the sub-line remainder is applied at `TextArea.top` (C:537, 544), so pixel scrolls within one line are cache hits |
 | 3 | Content (wrap) width = surface width − gutter width − padding | C:425-428 | recompute per frame; folds in **surface width**, **`gutter_enabled`** (C:771-773), **`custom_gutter_lines`** (C:776-786), **`cached_char_width`**, and **digit rollover** (999→1000 lines widens the gutter, C:777 → gutter.rs `calculate_width`) — all reduce to one f32; key its bits |

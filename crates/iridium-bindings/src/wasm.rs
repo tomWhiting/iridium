@@ -290,6 +290,32 @@ pub fn sanitize_pixel_ratio_js(ratio: f64) -> f32 {
     }
 }
 
+/// Every host command id the kernel names, as JSON.
+///
+/// A free function rather than a method: the ids are the same before any
+/// editor exists, and a face reads them once at creation. See
+/// [`crate::host_commands`] for why they cross the boundary at all — in
+/// short, a TypeScript face comparing against an id it typed out itself has
+/// nothing keeping it level with the kernel, and a rename would leave it
+/// compiling, passing and quietly inert.
+///
+/// The fallback below is unreachable — a struct of three `String`s has no
+/// value `serde_json` can refuse, and `host_commands::tests` pins the exact
+/// output — but it is *logged* rather than returned silently. An empty object
+/// reaches TypeScript as three `undefined`s, every comparison against which
+/// fails, so the palette would simply stop opening with nothing said.
+#[wasm_bindgen(js_name = hostCommandIds)]
+#[must_use]
+pub fn host_command_ids_js() -> String {
+    serde_json::to_string(&crate::host_commands::host_command_ids()).unwrap_or_else(|error| {
+        log(&format!(
+            "[Iridium] Could not serialize the host command ids ({error}); \
+             the palette and the undo tree will not open"
+        ));
+        String::from("{}")
+    })
+}
+
 /// Creates a new `WebEditor` attached to a canvas element.
 ///
 /// Use this instead of `new WebEditor()` since async constructors are deprecated.

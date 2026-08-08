@@ -6,10 +6,26 @@
 //! two steps rather than one:
 //!
 //! 1. [`ACTIONS`](table::ACTIONS) maps every built-in `CommandId` to a
-//!    [`KeyboardAction`] — a `Copy` token with one variant per command. The
-//!    table is the only place an id string is tied to behaviour, and it names
-//!    the ids through the constants in [`crate::commands::builtin`], so there is
-//!    no second transcription of the id text to drift.
+//!    [`KeyboardAction`] — a `Copy` token with one variant per command. It
+//!    names the ids through the constants in [`crate::commands::builtin`], so
+//!    there is no transcription of the id text here to drift.
+//!
+//! It is **not** the only place an id is tied to behaviour, and reading it as
+//! though it were is how the real hazard gets missed.
+//! [`Workspace::run_command`](crate::Workspace::run_command) is a second, in
+//! this crate, for the `workspace.*` ids; every face's host-command dispatch is
+//! a third, for the ids
+//! [`builtin::host`](crate::commands::builtin::host) names but the kernel
+//! cannot implement. All of them name the constants too, so a rename breaks
+//! their build — which is the property that actually matters, and it is
+//! *naming the constant*, not being alone.
+//!
+//! The one place that property was ever missing is worth knowing about: the
+//! browser face compared against `"palette.open"` typed out in TypeScript,
+//! where a rename costs nothing at compile time and shows up as a chord that
+//! silently stopped opening anything. It reads the ids from the kernel now
+//! (`iridium_bindings::host_commands`). A face that re-introduces a literal
+//! gets that back.
 //! 2. [`KeyboardHandler`](super::KeyboardHandler)'s `run_action` matches on the
 //!    token. Because the match is
 //!    exhaustive over an enum, a command added to [`ACTIONS`](table::ACTIONS)

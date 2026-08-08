@@ -17,6 +17,7 @@ import React, {
 import {
   IridiumEditor,
   type EditorState,
+  type HostCommandIds,
   type HostCommandRequest,
   type PaletteCommand,
   type UndoTreeSnapshot,
@@ -91,6 +92,14 @@ export interface IridiumHandle {
   historySnapshot(): UndoTreeSnapshot;
   /** Moves the document to a state, by node id. */
   jumpToHistoryNode(nodeId: string): boolean;
+  /**
+   * The ids of the commands the kernel reports rather than runs — what
+   * `onHostCommand` should compare against instead of a literal.
+   *
+   * `null` until the editor exists. Nothing is lost by that: the only thing
+   * that produces a host command is a key the editor resolved.
+   */
+  readonly hostCommands: HostCommandIds | null;
   /** Whether key labels should read `⌘K` rather than `Ctrl+K`. */
   readonly usesMacKeyLabels: boolean;
   /** How many carets are active — `1` unless multi-cursor is in play. */
@@ -249,6 +258,11 @@ export const Iridium = forwardRef<IridiumHandle, IridiumProps>(function Iridium(
       historySnapshot: () => editorRef.current?.historySnapshot() ?? EMPTY_HISTORY,
       jumpToHistoryNode: (nodeId: string) =>
         editorRef.current?.jumpToHistoryNode(nodeId) ?? false,
+      // A getter for the same reason the two below are: the editor does not
+      // exist yet when this handle is built.
+      get hostCommands(): HostCommandIds | null {
+        return editorRef.current?.hostCommands ?? null;
+      },
       // A getter, not a captured value: the editor does not exist yet when this
       // handle is built, and the answer is a property of the platform anyway.
       get usesMacKeyLabels(): boolean {

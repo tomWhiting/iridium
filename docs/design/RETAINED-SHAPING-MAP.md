@@ -120,25 +120,30 @@ visual staleness bug.
 | 8 | Highlight spans (the resolver's answer) | `highlights.resolve` C:812; desktop spans gated on `{parses, revision}` H:79-115; web spans replaced wholesale at W:1687 (`setTreeSitterHighlights`), legacy at W:1691, cleared at W:1737, and viewport-scoped in the resolver itself W:2799-2816 | **none at the seam — the `HighlightSource` trait must carry a generation** (§3.1). The resolver's own viewport dependence is subsumed by row 2. Desktop subtlety: `HighlightCache::refresh` clears `entry` **without** bumping `rebuilds` when the language is removed (H:108-110), so `rebuilds` alone is not a sufficient generation — presence/language must fold in |
 | 9 | `syntax_theme` capture-name map | C:809; mutated through the **raw `&mut` accessor** C:1626-1628, used by the web face at W:1709-1726 | **none — the raw accessor defeats change tracking** (§6, R3) |
 | 10 | Fold state (hidden lines skipped C:716-718; fold placeholder text appended C:731-744) | `fold_state` parameter | **none — `FoldState` has no generation counter** (F:62-72; every mutator ends in `rebuild_line_mapping`, F:270, 280, 317, 335, 356, 422, none bumps anything observable). Folding does **not** touch document revision — this is the sharpest staleness trap in the whole set: fold a region, revision unchanged, retained buffer shows the unfolded text |
-| 11 | Wrap/shaping constants: `Wrap::WordOrGlyph` (cosmic default, never set), tab width (default, never set), `Shaping::Advanced` (T:267, 293) | fixed today | not key members; **two triggers**, either of which makes one a key member — (a) `docs/SOFT-WRAP-DESIGN.md` landing `Wrap::None`, (b) a configured tab width reaching the renderer (see below) |
+| 11 | Wrap/shaping constants: `Wrap::WordOrGlyph` (cosmic default, never set), `Shaping::Advanced` (T:267, 293) | fixed today | not key members; becomes one the day `docs/SOFT-WRAP-DESIGN.md` lands `Wrap::None` — note left for that change |
+| 12 | **Tab width** — how many character advances a literal tab occupies | `EditorConfig::tab_width` → `usable_tab_width` → `TextRenderer::create_buffer` (`Buffer::set_tab_width`) | `ShapeKey::tab_width`, **added 8 Aug 2026 (#86)** |
 
-**Row 11's second trigger, re-checked 8 Aug 2026.** "Tab width, never set" was
-written before the configuration file existed and is *still* accurate, but only
-because of a split worth stating: `EditorConfig::tab_width` is an **editing**
-input. It is read by `input/keyboard/behaviors.rs` alone — indent, unindent,
-and the one-level indent string — and the edits it produces move
-`document_revision`, which is keyed. Nothing under `render/` reads a tab width
-at all, so a literal tab measures at cosmic-text's default whatever the file
-says.
+**Row 12's history, because the reasoning is the useful part.** Tab width used
+to be part of row 11 — "default, never set" — and that was accurate right up
+until the configuration file existed. Even then it survived a re-check, because
+of a split worth stating: `EditorConfig::tab_width` was an **editing** input
+only, read by `input/keyboard/behaviors.rs` for indent and unindent, and the
+edits it produced moved `document_revision`, which is keyed. Nothing under
+`render/` read a tab width at all.
 
-⚠️ That is also a **live inconsistency**, not merely a dormant one:
-`insert_spaces = false` is settable (`[editor]` deserializes into
-`EditorConfig`, which derives `Deserialize` with `#[serde(default)]`), and any
-file opened off disk may contain tabs regardless. So a user can ask for
-two-column tabs, get two-column *unindent*, and see eight-column tabs on
-screen. Whether to close that is a behaviour ruling, not a cache fix — but
-whoever closes it must add a key member to `ShapeKey`, or changing the setting
-will re-measure nothing and the retained buffers will keep the old columns.
+That made it a live inconsistency rather than a dormant one — `insert_spaces =
+false` is settable, and any file off disk may hold tabs regardless — so
+`tab_width = 2` bought two-column *unindent* and eight-column tabs on screen.
+Tom ruled to wire it through, and the cache half came with it.
+
+⚠️ **Two places, not one.** The key member alone is insufficient: a key miss
+routes through `ShapeKey::permits_line_diff`, and that path **reuses the
+previous buffer**, which carries the tab width it was constructed with.
+Diffing text into it leaves every tab at the old width with no line marked
+dirty to say so. `permits_line_diff` therefore refuses on a tab-width change,
+and `a_tab_width_change_refuses_the_line_diff` is the test that holds it —
+proven red by deleting that one comparison, with three controls alongside so
+the assertion cannot pass vacuously.
 
 Inputs that are **not** buffer inputs and deliberately stay out of the
 key (they feed quads or separate buffers that stage 1 keeps rebuilding

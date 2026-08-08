@@ -5809,3 +5809,64 @@ baton flags to survive today, and once is enough.
 **Next tick opens with:** re-measure disk, enable the feature, timed background
 build, `du -sk target` after, then either commit with the number or revert via
 `git show HEAD:Cargo.toml > Cargo.toml` and report the number anyway.
+
+---
+
+# ⚖️ FOUR RULINGS TAKEN AT THIS SEAT — Tom delegated, so these are decisions
+
+> *"If they're more technical questions, I'm happy to take a recommendation from
+> you so long as it's not a half measure or temporary shortstop."* — Tom, 8 Aug
+> 2026. For #58 he had already said he would take my suggestions on any key he
+> did not care about.
+
+⚠️ **Recorded as rulings, not proposals.** Tom was told each one and told that
+silence confirms it. If he overrides any, that supersedes this section.
+
+## L-9 — a document saved under an extension that was later removed
+
+**→ Opens as plain text, and reports which extension is missing.**
+
+Rejected: today's refuse-the-identifier behaviour, which would fail the load of
+a whole session file over one absent language. Rejected: preserving the unknown
+id opaquely for later re-binding — better behaviour, more machinery, and it can
+be added on top without changing this. ⭐ This is #59's existing extension
+failure rule (*a bad extension never stops the editor; a mistake costs its own
+line*), so it is the rule already in the codebase rather than a new one.
+
+## L-3 — may a project carry its own grammar?
+
+**→ Yes, and never silently.** `.iridium/languages/` is **discovered**, the user
+is asked **once** per project, and the answer is **remembered in a trust store**.
+
+⛔ **The half measure this deliberately is not:** auto-load with a warning
+logged. Without the prompt, opening a repository executes its author's code —
+this is the only one of the four with a security boundary in it, and it was
+flagged to Tom as such. **He may still rule "global directory only", which is
+cheaper and legitimate; that would supersede this.**
+
+**Cost, stated:** a trust store and a prompt. It lands with #88 step 4, which is
+the first user-visible step.
+
+## #58 — the three oil-buffer keys
+
+| | ruling | why |
+| --- | --- | --- |
+| enter edit mode | **`Tab`** | unbound in the panel, and it is the mode key everywhere else. Cannot be a letter — every plain character goes to the filter. |
+| mark deleted | **`Ctrl+D`**, strike-through | as proposed in the doc |
+| new row | **`Ctrl+Enter`** | `Ctrl+N` is *move down*, so it was never available |
+| apply | **`⌘S`** | Tom's own reading — "save this buffer" is the oil idea |
+
+⭐ **This unblocks 4b and 5**, whose logic was finished and deliberately left
+unwired rather than guessed at. `mod mode;`'s scoped `#[allow(dead_code)]` is
+self-removing the moment `keys` calls in — so wiring it also clears the only
+`#[allow]` in that module.
+
+## Still genuinely Tom's — narrowed to two
+
+1. **#31** — which of the three rendered light variants, the corner radius, and
+   whether it follows the system. Offered to re-render the three side by side.
+2. **#87 T-2** — is Zed's theme format native, or ours with a Zed importer?
+   ⭐ Recommended **ours plus an importer**: their vocabulary does not cover
+   everything we already have, and adopting it as native shapes our format
+   permanently around their decisions. Flagged as directional rather than
+   technical, so it was **not** taken under the delegation.

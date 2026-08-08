@@ -5667,3 +5667,86 @@ Full detail in `docs/IN-FLIGHT-69-flaky-gutter.md`, rewritten. Headlines:
 
 **Still Tom's:** #31's three taste decisions, the oil-buffer key rulings (#58),
 #87's T-numbers.
+
+---
+
+# ⛔ CORRECTION — I NAMED A CONSEQUENCE I HAD NOT MEASURED. TWICE, IN ONE DAY.
+
+Cally narrowed the mode finding I sent as arm 22, and the narrowing is right.
+
+**What I claimed:** *"a repo tracking `reference-transaction` as `100644` reads
+CURRENT while its install is non-executable, and git silently skips a
+non-executable hook. **Green row, dead guard.**"*
+
+**What is true:** the first clause. `check_must_be_claimed.sh:647-648` compared
+`rev-parse HEAD:<path>` — blob ids — and a blob id is mode-blind. Fixed at gates
+`9cb6da6`, which now compares the **tree entry** via `ls-tree`, mode and content
+in one comparison. Arms 22 and 22b are mutant-verified: reverting to
+`rev-parse HEAD:<path>` kills both and nothing else.
+
+⛔ **What is NOT true: "dead guard".** Cally measured it — the **arming** path
+already carries `[ -x "$hook" ] || fail unprotected`, so a non-executable
+*installed* hook was **already red**. The state I described was not reachable
+through the install. What was genuinely uncovered is the **TRACKED** mode:
+`--artefacts` asserts it, the sweep only ever invokes `--arming`, so the tick
+covered the deployment and silently not the artefact. **An ornamental green over
+the tracked canonical, not a live dead guard.**
+
+## ⭐ THE PATTERN, BECAUSE THIS IS THE SECOND ONE TODAY
+
+Earlier this session, on #69: *"glyphon samples `Nearest` on all three filters,
+so atlas position **cannot** bleed a neighbour's texel — the mechanism is
+**unavailable**."* The filters were measured and real. The conclusion was not:
+Nearest rules out **blending**, and `shader.wgsl:110` derives the UV from atlas
+position *and size* before Nearest **rounds** it, so **selecting** a wrong texel
+was available the whole time.
+
+Both have one shape:
+
+> ⭐⭐ **A BLIND SPOT IN ONE CHECK IS NOT A BLIND SPOT IN THE SYSTEM.**
+> I measured one instrument, found it blind, and published the *system-level*
+> consequence — without asking what else covers that path.
+
+It is Rule H (*a call-graph grep answers "who calls this", not "who can reach
+this"*) one level up, and it is the mirror of Rule L: when several independent
+rules could produce the same observable **acceptance**, a claim that one is
+missing must rule out the others.
+
+⚠️ **The tell is grammatical and it is cheap to catch.** In both cases the
+measured fact was a *mechanism* fact — "this comparison ignores mode", "this
+sampler does not interpolate" — and the published claim was an *outcome* fact —
+"the guard is dead", "the mechanism is unavailable". **Crossing from mechanism
+to outcome is a second claim, and it needs its own evidence.** Say what was
+measured, then state the outcome as a question until something answers it.
+
+## ⭐ What Cally kept from the exchange, which is worth keeping here too
+
+- **Provenance was unobservable to her and observable to me.** Board H4 is
+  corrected from "luck" to demonstrated: `5bc7d3ec` byte-identical to
+  `a2fa336:hooks/reference-transaction`. So *"provenance is unobservable"* was a
+  claim about the **verifier's position**, not about the world — **the holder
+  can sometimes answer what the verifier cannot.**
+- ⛔ **Mode is not uniform, and an "all guard files are executable" rule would be
+  wrong.** At `apps/meridian` HEAD the hook is `100755` and the predicate
+  `100644` — correctly, because the predicate is **sourced, not run**. Ours
+  matches. Anything asserting executability as a *class* would red a correct
+  estate forever.
+
+## 🔴 A neighbour red that is not ours, and the trap in it
+
+Two checkouts red — `apps/meridian-tools-seat` and
+`apps/meridian/.worktrees/decision-notify` — because their branches **predate
+the canonical commit**, so `ls-tree HEAD -- ":/.githooks/"` returns nothing.
+
+⭐ **The asymmetry to remember: the hook that RUNS is repo-scoped (`.git/hooks`
+is shared by every worktree), while the artefact that IDENTIFIES it is a tracked
+file, so branch-scoped.** Every checkout on a branch older than the canonical
+commit is un-identifiable *by construction* — protected, but unprovable.
+
+⚠️ **Directly actionable here:** this seat is the one most likely to cut a
+branch from an old point and then see the red. It is not a fault to fix; it is a
+consequence to expect.
+
+**Our row, re-derived at Cally's hands:** `CLAIMED + ARMED + CURRENT`, hook
+`3c71db65`, predicate `fd5d0b6a`, exit 0. The `gc --prune=never` verification is
+recorded on H1 as what turned that claim from believed to measured.

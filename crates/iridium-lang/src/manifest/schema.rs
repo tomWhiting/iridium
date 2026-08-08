@@ -78,6 +78,69 @@ const fn default_close() -> bool {
     true
 }
 
+/// One auto-close rule with both delimiters as text, for the pairs a `char`
+/// cannot express.
+///
+/// [`Manifest::auto_close_pairs`] yields `(char, char)` because every pair it
+/// reports fits in one; the multi-character rows do not, and they carry a
+/// `not_in` a caller needs alongside them rather than through a second lookup
+/// keyed on text it would have to match again.
+///
+/// Borrowed from the manifest, which lives in a `LazyLock` for the life of the
+/// process — so a caller holding a `&'static Manifest` gets `&'static str`s
+/// here and needs no allocation to keep them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DelimiterPair<'a> {
+    /// The opener, exactly as the manifest spells it — `r#"`, `"""`, `/*`.
+    start: &'a str,
+    /// The closer, exactly as the manifest spells it.
+    ///
+    /// ⚠️ Including any leading space. All seven `/*` rows declare `" */"`,
+    /// and that space is the point: typing `/*` is meant to leave the caret
+    /// with a space in front of the closer. Nothing may trim this.
+    end: &'a str,
+    /// The scopes this rule is suppressed in, as the manifest spells them.
+    not_in: &'a [String],
+}
+
+impl<'a> DelimiterPair<'a> {
+    /// Reads one row.
+    ///
+    /// Not `const`: `String::as_str` and `Vec::as_slice` only became callable
+    /// in a const context in 1.87, and this workspace's MSRV is 1.85.
+    fn from_bracket(bracket: &'a Bracket) -> Self {
+        Self {
+            start: bracket.start.as_str(),
+            end: bracket.end.as_str(),
+            not_in: bracket.not_in.as_slice(),
+        }
+    }
+
+    /// The opener, exactly as the manifest spells it.
+    #[must_use]
+    pub const fn start(self) -> &'a str {
+        self.start
+    }
+
+    /// The closer, exactly as the manifest spells it — leading space included.
+    #[must_use]
+    pub const fn end(self) -> &'a str {
+        self.end
+    }
+
+    /// Whether this rule is switched off inside `scope`.
+    ///
+    /// `scope` is the manifest's own vocabulary; across the vendored tree only
+    /// `"string"` and `"comment"` appear, and an unknown name matches nothing.
+    /// The same answer [`Manifest::pairs_suppressed_in`] gives for the
+    /// single-character rows, asked per pair rather than per scope because a
+    /// caller that has already matched an opener has the row in hand.
+    #[must_use]
+    pub fn is_suppressed_in(self, scope: &str) -> bool {
+        self.not_in.iter().any(|named| named == scope)
+    }
+}
+
 /// One language's vendored manifest.
 ///
 /// Constructed only by this module's `embedded` sibling, which owns the `include_str!`
@@ -335,6 +398,70 @@ impl Manifest {
                 .as_ref()?
                 .iter()
                 .flat_map(|bracket| bracket.not_in.iter().map(String::as_str)),
+        )
+    }
+
+    /// Every row this language auto-closes, both delimiters as text.
+    ///
+    /// The one source [`Self::auto_close_pairs`] and
+    /// [`Self::multi_char_close_pairs`] are views of: the first keeps the rows
+    /// that fit in a `char` on both sides, the second keeps the rows with a
+    /// longer opener. Having the unfiltered list reachable is what lets
+    /// `every_closing_row_is_reported_by_one_accessor_or_the_other` check the
+    /// two views against the data instead of against each other.
+    ///
+    /// The `close = false` filter is applied here, once, so the three cannot
+    /// disagree about what an auto-close rule is — which is the same reason
+    /// `single_char_pairs` is shared by the rules accessors.
+    #[must_use]
+    pub fn close_rules(&self) -> Option<impl Iterator<Item = DelimiterPair<'_>>> {
+        Some(
+            self.fields
+                .brackets
+                .as_ref()?
+                .iter()
+                .filter(|bracket| bracket.close)
+                .map(DelimiterPair::from_bracket),
+        )
+    }
+
+    /// The pairs this language auto-closes whose **opener is more than one
+    /// character**, as the manifest spells them.
+    ///
+    /// The other half of [`Self::auto_close_pairs`], which reports only pairs
+    /// single-character on both sides. Together the two cover every row with
+    /// `close = true`, and
+    /// `every_closing_row_is_reported_by_one_accessor_or_the_other` holds them
+    /// to it — a row falling between them would be a rule declared and read by
+    /// nobody, which is the failure `not_in` had before S-4a.
+    ///
+    /// Eight languages declare these: Python's twelve string prefixes and two
+    /// triple quotes, Rust's three raw-string widths, and the `/*` seven
+    /// languages share.
+    ///
+    /// ⚠️ **`close = false` rows are excluded here as everywhere**, and it
+    /// matters more here than anywhere else: bash declares `do`→`done`,
+    /// `then`→`fi` and `in`→`esac` as matching rules for navigation. Reporting
+    /// them would have this editor typing `done` after somebody's `do`.
+    ///
+    /// Order is the manifest's, which puts the longer openers first — but a
+    /// caller must **not** rely on that. Matching an opener against the text
+    /// before a caret needs the longest match, and the only safe way to get it
+    /// is to compare lengths. See `docs/design/AUTO-PAIR-MAP.md` §10.3.
+    ///
+    /// The same `None`/`Some(empty)` distinction as its three siblings: `None`
+    /// is a language with no `brackets` key at all, and an empty iterator is a
+    /// language that has one and declares no multi-character pair — thirteen
+    /// of the twenty-one.
+    #[must_use]
+    pub fn multi_char_close_pairs(&self) -> Option<impl Iterator<Item = DelimiterPair<'_>>> {
+        Some(
+            self.fields
+                .brackets
+                .as_ref()?
+                .iter()
+                .filter(|bracket| bracket.close && bracket.start.chars().count() > 1)
+                .map(DelimiterPair::from_bracket),
         )
     }
 

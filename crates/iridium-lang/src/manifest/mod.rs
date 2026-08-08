@@ -31,7 +31,7 @@ mod embedded;
 mod schema;
 
 pub use embedded::{all, by_id, parse_failures};
-pub use schema::Manifest;
+pub use schema::{DelimiterPair, Manifest};
 
 #[cfg(test)]
 mod tests;

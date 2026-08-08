@@ -539,3 +539,223 @@ fn both_known_scopes_are_used_by_some_manifest() {
     assert!(used.contains("string"), "got {used:?}");
     assert!(used.contains("comment"), "got {used:?}");
 }
+
+// ========== Multi-character openers (auto-pair map S-3) ==========
+
+/// ⭐ The two auto-close accessors partition the closing rows exactly.
+///
+/// [`Manifest::auto_close_pairs`] reports rows that fit in a `char` on both
+/// sides; [`Manifest::multi_char_close_pairs`] reports rows whose *opener* is
+/// longer than one character. A row with a one-character opener and a longer
+/// closer falls between them — reported by neither, and so a rule the manifest
+/// declares that no consumer can act on.
+///
+/// No vendored manifest has such a row today. This is what makes that a
+/// guarantee rather than an observation, because the failure is invisible: the
+/// pair simply never fires, exactly as it never fired before either accessor
+/// existed. Checked against `close_rules`, the unfiltered list, so the two
+/// views are held to the data rather than to each other.
+#[test]
+fn every_closing_row_is_reported_by_one_accessor_or_the_other() {
+    for manifest in super::all() {
+        let Some(rules) = manifest.close_rules() else {
+            continue;
+        };
+        let all_rows = rules.count();
+        let single = manifest
+            .auto_close_pairs()
+            .expect("a manifest with brackets answers")
+            .count();
+        let multi = manifest
+            .multi_char_close_pairs()
+            .expect("a manifest with brackets answers")
+            .count();
+
+        assert_eq!(
+            single + multi,
+            all_rows,
+            "{} declares {all_rows} rows with close = true, but the two \
+             accessors report {single} single-character and {multi} \
+             multi-character. A row with a one-character opener and a longer \
+             closer is reported by neither and can never fire",
+            manifest.id()
+        );
+    }
+}
+
+/// The eight languages with multi-character openers, named rather than
+/// counted, so a vendor refresh that drops one is a visible change.
+#[test]
+fn the_languages_with_multi_character_openers_are_named() {
+    let mut with_multi: Vec<&str> = super::all()
+        .iter()
+        .filter(|manifest| {
+            manifest
+                .multi_char_close_pairs()
+                .is_some_and(|mut pairs| pairs.next().is_some())
+        })
+        .map(super::Manifest::id)
+        .collect();
+    with_multi.sort_unstable();
+
+    assert_eq!(
+        with_multi,
+        [
+            "c",
+            "cpp",
+            "go",
+            "javascript",
+            "python",
+            "rust",
+            "tsx",
+            "typescript"
+        ],
+        "the set of languages with multi-character auto-close openers changed"
+    );
+}
+
+/// ⚠️ bash declares `do`→`done`, `then`→`fi` and `in`→`esac`, all with
+/// `close = false`. They are matching rules for navigation, and reporting them
+/// here would have this editor typing `done` after somebody's `do`.
+#[test]
+fn bash_keyword_pairs_are_not_reported_as_auto_close_rules() {
+    let bash = by_id("bash").expect("vendored");
+    let openers: Vec<&str> = bash
+        .multi_char_close_pairs()
+        .expect("bash declares brackets")
+        .map(super::DelimiterPair::start)
+        .collect();
+    assert!(
+        openers.is_empty(),
+        "bash must contribute no multi-character auto-close pairs, got {openers:?}"
+    );
+
+    // And the rows really are there to be wrongly reported — without this the
+    // assertion above would also pass against a bash manifest with no
+    // multi-character rows at all.
+    assert!(
+        bash.suppression_scopes()
+            .expect("bash declares brackets")
+            .next()
+            .is_some(),
+        "bash's keyword rows carry not_in, so they exist to be filtered"
+    );
+}
+
+/// Rust's three raw-string widths and its block comment, read out whole.
+#[test]
+fn rusts_multi_character_rows_are_read_whole() {
+    let rust = by_id("rust").expect("vendored");
+    let pairs: Vec<(&str, &str)> = rust
+        .multi_char_close_pairs()
+        .expect("rust declares brackets")
+        .map(|pair| (pair.start(), pair.end()))
+        .collect();
+
+    assert_eq!(
+        pairs,
+        [
+            ("r#\"", "\"#"),
+            ("r##\"", "\"##"),
+            ("r###\"", "\"###"),
+            ("/*", " */"),
+        ],
+        "rust's multi-character rows, in manifest order"
+    );
+
+    for pair in rust
+        .multi_char_close_pairs()
+        .expect("rust declares brackets")
+    {
+        assert!(
+            pair.is_suppressed_in("string") && pair.is_suppressed_in("comment"),
+            "{:?} must be suppressed in both scopes",
+            pair.start()
+        );
+        assert!(
+            !pair.is_suppressed_in("nonesuch"),
+            "an unknown scope matches nothing"
+        );
+    }
+}
+
+/// ⚠️ The `/*` closer carries a **leading space**, in all seven languages that
+/// declare it. Typing `/*` is meant to leave `/*| */`, and a caller that
+/// trimmed this would quietly change what the manifest asked for.
+#[test]
+fn the_block_comment_closer_keeps_its_leading_space() {
+    for id in ["c", "cpp", "go", "javascript", "typescript", "tsx", "rust"] {
+        let manifest = by_id(id).expect("vendored");
+        let block = manifest
+            .multi_char_close_pairs()
+            .expect("declares brackets")
+            .find(|pair| pair.start() == "/*")
+            .unwrap_or_else(|| panic!("{id} declares a /* row"));
+        assert_eq!(block.end(), " */", "{id}");
+    }
+}
+
+/// Python's twelve string prefixes each close with their own final quote —
+/// the same character the single-character row would insert.
+///
+/// ⭐ Which makes them look pointless, and they are not. The editor keeps a
+/// quote single when the character before the caret is a word character, so
+/// that `don't` stays `don't`; `f` is a word character, so without these rows
+/// `f"` never pairs. See `docs/design/AUTO-PAIR-MAP.md` §10.2.
+#[test]
+fn pythons_string_prefixes_all_close_with_their_own_final_quote() {
+    let python = by_id("python").expect("vendored");
+    let prefixes: Vec<(&str, &str)> = python
+        .multi_char_close_pairs()
+        .expect("python declares brackets")
+        .filter(|pair| pair.end().chars().count() == 1)
+        .map(|pair| (pair.start(), pair.end()))
+        .collect();
+
+    assert_eq!(prefixes.len(), 12, "twelve prefixes: {prefixes:?}");
+    for (start, end) in prefixes {
+        let last = start.chars().last().expect("a non-empty opener");
+        assert_eq!(
+            end.chars().next(),
+            Some(last),
+            "{start:?} must close with its own final quote, got {end:?}"
+        );
+        assert!(
+            start.chars().count() >= 2,
+            "{start:?} reached the multi-character accessor"
+        );
+    }
+}
+
+/// The triple quotes, which are the rows whose closer is *not* one character.
+#[test]
+fn pythons_triple_quotes_close_with_three() {
+    let python = by_id("python").expect("vendored");
+    let triples: Vec<(&str, &str)> = python
+        .multi_char_close_pairs()
+        .expect("python declares brackets")
+        .filter(|pair| pair.end().chars().count() > 1)
+        .map(|pair| (pair.start(), pair.end()))
+        .collect();
+    assert_eq!(triples, [("\"\"\"", "\"\"\""), ("'''", "'''")]);
+}
+
+/// A language with no `brackets` key answers `None` here too, and one with
+/// brackets and no multi-character row answers `Some(empty)` — the same
+/// distinction every other rules accessor draws.
+#[test]
+fn the_none_and_empty_distinction_holds_for_multi_character_rows_too() {
+    let awl = by_id("awl").expect("vendored");
+    assert!(awl.multi_char_close_pairs().is_none());
+    assert!(awl.close_rules().is_none());
+
+    let json = by_id("json").expect("vendored");
+    assert_eq!(
+        json.multi_char_close_pairs()
+            .expect("json declares brackets")
+            .count(),
+        0,
+        "json has brackets and no multi-character row: it has said, and the \
+         answer is none"
+    );
+}

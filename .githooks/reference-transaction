@@ -97,10 +97,35 @@
 # `--exclude=<ref> --all` cannot suppress HEAD, so on the CHECKED-OUT branch the
 # commit about to be orphaned is still reachable from HEAD and the question
 # answers "nothing lost" for an amend. The ref set is now built explicitly from
-# `for-each-ref`, HEAD is deliberately absent -- it is not an independent anchor,
-# it is a pointer AT the ref under transaction -- and every arm then reads
-# correctly. A PREDICATE AND THE REF SET YOU ASK IT ABOUT ARE ONE INSTRUMENT;
-# the earlier measurement was of a different instrument wearing the same name.
+# `for-each-ref`, HEAD is deliberately absent, and every arm then reads correctly.
+# A PREDICATE AND THE REF SET YOU ASK IT ABOUT ARE ONE INSTRUMENT; the earlier
+# measurement was of a different instrument wearing the same name.
+#
+# ⛔ WHY HEAD IS OMITTED -- WRITTEN AS THREE CASES ON PURPOSE, BECAUSE THE
+# ONE-CASE VERSION INVITES A "SIMPLIFICATION" THAT REOPENS THE HOLE. This comment
+# previously read "HEAD is not an independent anchor, it is a pointer AT the ref
+# under transaction". CORRECTED by Waffles the Terrible 2026-08-08, who measured
+# it: that sentence is true in ONE of the three states and false in another, and a
+# reader who believes the one-case reason will helpfully add HEAD back.
+#
+#   1. HEAD SYMBOLIC TO THE REF UNDER TRANSACTION -- redundant. It resolves to the
+#      same tip, so including it adds nothing except the defect above: on the
+#      checked-out branch it still holds the PRE-transaction value, which is
+#      exactly how an amend came to read as lossless.
+#   2. HEAD SYMBOLIC TO SOME OTHER REF -- already covered. That other ref is in
+#      the `for-each-ref` set on its own account, so HEAD is a duplicate of it.
+#   3. HEAD DETACHED -- ⭐ A GENUINE INDEPENDENT ANCHOR, and omitting it is
+#      DELIBERATELY STRICTER. Commits held only by a detached HEAD are treated as
+#      unreachable, so a delete that was in fact safe is REFUSED. A false refusal,
+#      arguable down by a human in the moment; the alternative failure is a false
+#      allow, which is argued down by nobody because nobody sees it.
+#
+# ⭐ SO THE OMISSION IS NOT "HEAD IS NEVER AN ANCHOR". It is: in two cases HEAD
+# adds nothing, in the third it would relax the guard, and NO CASE NEEDS IT.
+# Waffles' two-arm measurement, git 2.47.1: with `refs/heads/main` excluded and
+# HEAD symbolic to it, the ruled form returned EMPTY (allowed the amend); with
+# HEAD detached one commit back and nothing else changed, it returned the commit
+# (refused). Same command, opposite verdict, HEAD the only variable.
 #
 # ⭐ THE PRUNE IS SEPARATED BY SURVIVAL EVIDENCE, NOT BY INTENT. A `pack-refs`
 # prune deletes a LOOSE ref whose value git has ALREADY written into

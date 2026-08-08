@@ -807,18 +807,31 @@ fn no_host_command_is_bound_to_a_sequence_that_carries_arguments() {
     // forwards `count` and `captures` to the host, while the desktop and
     // terminal faces destructure `HostCommand { command, .. }` and drop them.
     //
-    // Nothing is wrong today because nothing produces arguments — no binding
-    // anywhere calls `with_count_prefix`, no stroke captures, and the text
-    // form a configuration file uses cannot express either. The trap is that
-    // the day one does, the browser acts on the count and the two native
-    // faces silently act as though it were absent. `⌘5` meaning "five tabs
-    // forward" would move one tab, and no test would say so.
+    // No binding in this keymap, or in either native face's layer, produces
+    // arguments: nothing calls `with_count_prefix` and no stroke captures.
+    // This test and its two counterparts keep that true.
+    //
+    // ⚠️ **What they cannot see is a user keymap**, and the two halves of
+    // `CommandArgs` are not equally out of reach there:
+    //
+    // - A **count prefix** is unreachable. `KeyBinding::parse` builds through
+    //   `Self::new` and never sets `count_prefix`, so no `[keys]` line can ask
+    //   for one.
+    // - A **capture is reachable.** `{char}` (`keynames::ANY_CHAR_NAME`) parses
+    //   to `StrokePattern::any_char` (`stroke_text.rs`), so
+    //   `"ctrl+f {char}" = "some.hostCommand"` in a configuration file is a
+    //   capturing binding on a host command, and no test sees that layer.
+    //
+    // It has no observable consequence today, and that is a fact about the
+    // *commands*, not about the plumbing: no host command in any face reads
+    // its arguments, so the character the two native faces drop is one the
+    // browser forwards to a host that ignores it too. The day a host command
+    // wants an argument, the browser gets it and the native faces do not.
     //
     // Threading an argument through two faces' dispatch when no branch can
-    // read it would be ceremony; refusing the situation until someone
-    // deliberately creates it is not. **When this test fails, the fix is to
-    // thread `args` through `run_host_command` in both native faces — not to
-    // relax the assertion.**
+    // read it would be ceremony; refusing the situation in the keymaps we own
+    // is not. **When this test fails, the fix is to thread `args` through
+    // `run_host_command` in both native faces — not to relax the assertion.**
     let editor_implements = |id: &str| crate::Editor::implements_command(id);
 
     for binding in default_non_modal_keymap().bindings() {

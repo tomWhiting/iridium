@@ -1,12 +1,19 @@
 #!/bin/sh
 # CLASS-A HISTORY-REWRITE GUARD — #158.
 #
-# Refuses any NON-FAST-FORWARD move of a local branch in a shared working
-# tree. That is the harm class observed in the libs/iridium incident: two
+# Refuses any change to a local branch in a shared working tree that would
+# leave a commit reachable from NOTHING -- whether by moving the branch or by
+# deleting it. That is the harm class observed in the libs/iridium incident: two
 # seats writing one tree, one seat's amend destroying the other's commit,
 # with NO PUSH ANYWHERE IN THE HARM PATH. Branch protection cannot see this
 # class at all -- the damage completes before anything reaches a remote --
 # so this hook is AUTHORITATIVE here, not advisory.
+#
+# ⚠️ THIS SUMMARY SAID "REFUSES ANY NON-FAST-FORWARD MOVE" until 2026-08-08.
+# Corrected AT THE TOP as well as at the predicate, because ⭐ THIS IS THE LINE
+# A READER STOPS AT, so a stale sentence here outranks a correct one 300 lines
+# down. Two things changed: the rule is orphaning rather than non-fast-forward,
+# and deletion is in scope.
 #
 # WHY THIS HOOK AND NOT prepare-commit-msg
 #
@@ -26,10 +33,25 @@
 # irrelevant. It also survives `--no-verify` (which bypasses only `pre-commit`
 # and `commit-msg`).
 #
-# ⭐ ONE PREDICATE, TWO SURFACES. "Old is not an ancestor of new" is exactly
-# the predicate a remote uses to reject a force-push. Class A enforces it
-# locally where the remote cannot see; class B enforces it at the remote where
-# the local hook can be skipped. Same rule, two fault domains.
+# ⚠️ CORRECTED 2026-08-08 — THIS BLOCK NAMED THE WRONG PREDICATE. It read:
+# *"'Old is not an ancestor of new' is exactly the predicate a remote uses to
+# reject a force-push."* That sentence is still TRUE ABOUT REMOTES and was the
+# wrong rule for HERE, ruled by Waffles the Terrible and then measured.
+#
+# ⭐⭐ THE ANCESTOR TEST IS A SPELLING; THE HARM IS ORPHANING COMMITS. They are
+# not the same set, and the difference is wrong in BOTH directions:
+#   · it REFUSES a harmless move -- retargeting a branch whose old tip is still
+#     held by another ref loses nothing, and the ancestor test calls it a rewrite;
+#   · it PERMITS the delete that orphans -- `git branch -D` on unmerged work
+#     moves no ref non-fast-forward and so never reached the test at all.
+# A remote genuinely wants the ancestor rule, because it must protect refs it
+# cannot enumerate on a client it does not trust. A local guard CAN enumerate
+# every ref, so it can ask the real question: after this transaction, would any
+# commit become unreachable? That is what this hook now asks.
+#
+# TWO SURFACES, TWO PREDICATES -- and that is not a weakening. Class B at the
+# remote keeps the ancestor rule for the reason above. Same harm, two fault
+# domains, and the domain decides the instrument.
 #
 # ⛔ THE REPORTED `old` IS NOT THE REF'S OLD VALUE, AND MUST NOT BE USED
 #
@@ -55,27 +77,51 @@
 # the dependence on a field that is only sometimes populated, rather than
 # trying to interpret it.
 #
-# ⛔ DELETION IS OUT OF SCOPE, AND THAT IS A MEASUREMENT, NOT AN OVERSIGHT
+# ⚠️ DELETION IS NOW IN SCOPE. CORRECTED 2026-08-08, and the block it replaces
+# is reproduced because its REASONING was sound and only its INSTRUMENT was
+# narrow. It read: *"DELETION IS OUT OF SCOPE, AND THAT IS A MEASUREMENT, NOT AN
+# OVERSIGHT"*, on the grounds that `git pack-refs` prunes loose refs by emitting
+# `refs/heads/*` deletions through this very hook, so refusing deletion aborts
+# `pack-refs` and `git gc`; and that three separations had been tried and failed
+# (packed-refs membership, reachability from another ref, the reported `old`).
 #
-# `git pack-refs` prunes loose refs by emitting `refs/heads/*` deletions
-# through this very hook, so a rule refusing deletion aborts `pack-refs` AND
-# `git gc` with rc 128 in every flagged repo. Attempts to separate the two
-# were measured and all failed:
-#
-#   - packed-refs membership: `branch -D` of a PACKED branch reports exactly
-#     what a pack-refs prune reports, and additionally emits a deletion for
-#     `refs/heads/main`, which nobody asked to delete.
-#   - reachability of the tip from another ref: a single-branch repo running
-#     `git gc` looks identical to a real deletion.
-#   - the reported `old` field: incidentally differs, but it is the very
-#     field proven unreliable above, and `update-ref -d <ref> <old>` is a
-#     genuine deletion that states it.
-#
+# ⭐⭐ THE STANDING RULE IT ESTABLISHED IS UNCHANGED AND IS WHY THIS IS SAFE:
 # A CONTROL THAT CANNOT DISTINGUISH THE HARM FROM ROUTINE MAINTENANCE ON THE
-# SAME SURFACE MUST NOT CLAIM THAT HARM. Breaking `git gc` would get this
-# hook uninstalled, which is a worse outcome than the gap. Deletion is left
-# to git's own `branch -d` unmerged-work refusal; `branch -D` remains
-# unguarded here and is recorded as open in the #158 findings.
+# SAME SURFACE MUST NOT CLAIM THAT HARM. Breaking `git gc` would get this hook
+# uninstalled, which is worse than the gap. Nothing below relaxes that; the
+# separation is now MEASURED to exist rather than assumed absent.
+#
+# ⭐ WHAT CHANGED IS THE CONSTRUCT, NOT THE VERDICT ON THE OLD ONE. "Reachability
+# from another ref" failed before because it was asked with `--all`, and
+# re-measured 2026-08-08 on git 2.47.1 the failure is exact and explainable:
+# `--exclude=<ref> --all` cannot suppress HEAD, so on the CHECKED-OUT branch the
+# commit about to be orphaned is still reachable from HEAD and the question
+# answers "nothing lost" for an amend. The ref set is now built explicitly from
+# `for-each-ref`, HEAD is deliberately absent -- it is not an independent anchor,
+# it is a pointer AT the ref under transaction -- and every arm then reads
+# correctly. A PREDICATE AND THE REF SET YOU ASK IT ABOUT ARE ONE INSTRUMENT;
+# the earlier measurement was of a different instrument wearing the same name.
+#
+# ⭐ THE PRUNE IS SEPARATED BY SURVIVAL EVIDENCE, NOT BY INTENT. A `pack-refs`
+# prune deletes a LOOSE ref whose value git has ALREADY written into
+# `packed-refs`, so the ref survives the transaction at the same value. Measured:
+#   pack-refs/gc prune      loose=yes  packed-refs holds THIS EXACT value  -> allow
+#   branch -D, loose only   loose=yes  no packed entry                     -> refuse
+#   branch -D, packed only  loose=no   packed entry                        -> refuse
+#   branch -D, both, stale  loose=yes  packed entry DISAGREES with current -> refuse
+# The old block's "packed-refs membership" attempt compared MEMBERSHIP; this
+# compares membership AND VALUE, which is what makes it a survival test.
+#
+# ⛔ ONE MEASURED FALSE ALLOW, STATED HERE BECAUSE IT IS A HOLE IN A GUARD AND
+# MUST NOT BE DISCOVERED BY SOMEONE RELYING ON IT. `git pack-refs --all
+# --no-prune` leaves the loose file in place AND writes packed-refs at the same
+# value, which is byte-for-byte the survival signature above. A `git branch -D`
+# of unmerged work while a repository sits in that state is WAVED THROUGH.
+# Reachable, deliberate, unusual -- `--prune` is the default and plain
+# `pack-refs --all` was measured to leave loose=no -- and narrow is not the same
+# as closed. It is recorded as open in the #158 findings.
+#   ⭐ AND IT IS STILL A STRICT IMPROVEMENT: before this change `branch -D` on
+#   unmerged work was unguarded in EVERY state, not just that one.
 #
 # SCOPE
 #
@@ -194,6 +240,135 @@ is_zero() {
     esac
 }
 
+# common_dir -- ABSOLUTE. `--git-common-dir` alone returns a path relative to
+# the repository, and this hook's cwd is not guaranteed to be the repository
+# root, so the relative form silently reads a directory that does not exist and
+# every packed-refs probe answers "absent". Measured: that exact substitution
+# turned a real false-allow measurement into a meaningless one. The claim ref
+# lives in the COMMON dir for the same reason the install does.
+common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common_dir=""
+if [ -z "$common_dir" ] || [ ! -d "$common_dir" ]; then
+    printf '⛔ REFUSED: the class-A guard cannot resolve this repository'\''s common\n' >&2
+    printf '   git directory, so it cannot tell a pruned ref from a deleted one.\n' >&2
+    printf '   Refusing rather than guessing: the guard applies here (the claim is\n' >&2
+    printf '   set) and an unanswerable question is not a pass.\n' >&2
+    exit 1
+fi
+
+# orphans_exist <ref-under-transaction> <positive-rev> [<additional-exclusion>...]
+#
+# TRUE (0) when at least one commit is reachable from <positive-rev> but from
+# NOTHING ELSE that will survive this transaction.
+#
+# ⭐ THE REF UNDER TRANSACTION IS PASSED, NOT INHERITED. An earlier draft read
+# `$ref` straight out of the enclosing loop. That works and it is the same class
+# of defect as a hand-kept predicate: correct only while the one caller happens to
+# be inside that loop, and silently wrong for the second caller.
+#
+# ⭐ THE REF SET IS BUILT EXPLICITLY, AND `--all` IS REFUSED ON PURPOSE. `--all`
+# feeds in HEAD, `--exclude` cannot suppress it, and HEAD points AT the ref being
+# moved -- so `--all` reports an amend as lossless. Measured on git 2.47.1.
+#
+# Refs are fed through `--stdin` rather than argv: a repository can hold more
+# refs than an argument list, and `--stdin` also removes all dependence on word
+# splitting, which is not something to rely on in a script other people edit.
+#
+# NON-COMMIT REFS ARE FILTERED BY OBJECT TYPE, NOT BY NAME, AND THE FILTER IS
+# PRECAUTIONARY -- NOT LOAD-BEARING. `refs/guards/shared-tree` points at a BLOB
+# (this guard's own claim ref), so the set genuinely contains a non-commit in
+# every repository the guard is installed in.
+#
+# ⚠️ WHAT THIS COMMENT CLAIMED BEFORE, AND IT WAS MY OWN UNMEASURED INFERENCE:
+# that feeding a blob to `rev-list` as an exclusion is a FATAL ERROR which would
+# make the guard refuse every transaction. MEASURED on git 2.47.1 -- deleting
+# this filter leaves the suite at 62/62, and `^refs/guards/shared-tree` on a blob
+# returns rc 0, empty stderr, and the correct answer. git tolerates it silently.
+# ⭐⭐ I WROTE A FAILURE MODE IN THE GRAMMAR OF A MEASUREMENT WITHOUT TAKING ONE,
+# inside the same edit that strikes other people's expired sentences. The mutant
+# that survived is what caught it; re-reading the comment never would have.
+#
+# The filter STAYS, as a deliberate choice with the reason stated honestly: this
+# file is a COPY that travels into every guarded repo and runs on whatever git
+# that box has, and "an undocumented tolerance in the version I happened to
+# measure" is not a property to depend on. Filtering on `%(objecttype)` also
+# covers every future non-commit ref, where a name filter would have covered only
+# the one ref I knew about. ⛔ But it is defence in depth, and the arm that would
+# prove it necessary does not exist -- so do not cite it as one.
+orphans_exist() {
+    _under="$1"
+    _positive="$2"
+    shift 2
+    {
+        printf '%s\n' "$_positive"
+        for _extra in "$@"; do
+            printf '^%s\n' "$_extra"
+        done
+        # Every ref except the one under transaction. Exact string compare --
+        # a refname is not a pattern and must not be matched as one.
+        git for-each-ref --format='%(objecttype) %(refname)' 2>/dev/null |
+            while read -r _type _name; do
+                case "$_type" in
+                    commit|tag) ;;
+                    *) continue ;;
+                esac
+                [ "$_name" = "$_under" ] && continue
+                printf '^%s\n' "$_name"
+            done
+    } | {
+        # --max-count=1 : the question is existence, so stop at the first
+        # orphan instead of enumerating a potentially huge set.
+        _found=$(git rev-list --max-count=1 --stdin 2>/dev/null) || _found=""
+        [ -n "$_found" ]
+    }
+}
+
+# ref_survives_as_packed <ref> <current>
+#
+# TRUE (0) when `packed-refs` already holds THIS EXACT value for this ref while a
+# loose file still exists -- the signature of a `pack-refs`/`gc` prune, where the
+# ref survives the transaction unchanged. See the measured table above, including
+# the one false allow this cannot separate.
+ref_survives_as_packed() {
+    [ -f "$common_dir/$1" ] || return 1
+    [ -f "$common_dir/packed-refs" ] || return 1
+    _packed=$(awk -v r="$1" '$2==r{print $1; exit}' "$common_dir/packed-refs" 2>/dev/null) || _packed=""
+    [ -n "$_packed" ] && [ "$_packed" = "$2" ]
+}
+
+# refusal_escape -- the sanctioned way out, printed under EVERY refusal.
+#
+# ⭐ ONE COPY, TWO ARMS. The move arm and the delete arm both need this text, and
+# Finding 22 is that two hand-kept copies of one rule drift. It is a function for
+# the same reason the claim predicate is a sourced file.
+refusal_escape() {
+    printf '   If this is genuinely yours to discard, the sanctioned escape is to\n'
+    printf '   UNCLAIM the repository deliberately:\n'
+    printf '       git update-ref -d refs/guards/shared-tree\n'
+    printf '   ⛔ AND SAY SO OUT LOUD, because unlike the old marker THIS LEAVES NO\n'
+    printf '   TRACE -- no reflog survives the deletion, so nothing else will ever\n'
+    printf '   report that this repo was unguarded. If the unclaiming is permanent,\n'
+    printf '   it must also be recorded as an edit to the must-be-claimed list in\n'
+    printf '   the estate ledger; that edit is the commit that makes it reviewable:\n'
+    printf '       ablative/docs/tracking/must-be-claimed.tsv\n'
+    printf '   That edit is the record. Whether anything CHASES you for skipping\n'
+    printf '   it depends on wiring that lives outside this repository, so this\n'
+    printf '   hook does not tell you -- go and look if it matters to you.\n'
+    # ⛔ THE STRUCK SENTENCE SAID "NOTHING WILL CHASE YOU FOR IT ... RIGHT NOW IT
+    # IS THE ONLY RECORD THERE WILL EVER BE." RULED OUT ENTIRELY by Waffles the
+    # Terrible 2026-08-08 -- STRICKEN, not reworded to name its population,
+    # because the sentence had TWO defects and naming the population cures only
+    # one.
+    #   1. SCOPE. A per-repository hook asserted a fact about THE WHOLE ESTATE.
+    #   2. ⭐⭐ EXPIRY. It was true when written and false four hours later in
+    #      four repositories -- and this artefact is a COPY that travels into
+    #      every guarded repo and outlives the wiring that made it false.
+    # ⭐⭐ AN ARTEFACT THAT TRAVELS MUST NOT CARRY A FACT THAT EXPIRES. Keep only
+    # what is permanently true: unclaiming leaves no trace, and the sanctioned
+    # disarm is a ledger edit. Found by Robo Doug, who rated it fix-first
+    # precisely because it is load-bearing text that fires DURING the incident
+    # and read as a licence to skip the ledger edit.
+}
+
 refused=0
 while read -r old new ref; do
     # `old` is deliberately unread -- see the block above. Named for the
@@ -208,19 +383,36 @@ while read -r old new ref; do
         *) continue ;;
     esac
 
-    # DELETION -- out of scope, measured, documented above. Allowed so that
-    # `git gc` and `git pack-refs` keep working.
-    if is_zero "$new"; then
-        continue
-    fi
-
     # THE REF'S REAL PRIOR VALUE, read rather than trusted. At "prepared" the
     # transaction has not been committed, so this still resolves to the value
-    # the ref held before the move.
+    # the ref held before the move. Read BEFORE the deletion arm, because a
+    # deletion needs it too -- it is the whole question.
     current=$(git rev-parse --verify --quiet "$ref^{commit}" 2>/dev/null) || current=""
 
     # Ref does not exist yet: this is a creation. Nothing can be lost.
     if [ -z "$current" ]; then
+        continue
+    fi
+
+    # DELETION. In scope as of 2026-08-08 -- see the measured block above.
+    if is_zero "$new"; then
+        # A prune whose value is already safe in packed-refs is routine
+        # maintenance: the ref survives unchanged. Allowed FIRST, so that
+        # `git gc` and `git pack-refs` cannot be broken by the check below.
+        if ref_survives_as_packed "$ref" "$current"; then
+            continue
+        fi
+        if orphans_exist "$ref" "$current"; then
+            printf '⛔ REFUSED: deleting %s would ORPHAN COMMITS in a shared working tree.\n' "$ref" >&2
+            printf '   tip: %s\n' "$current" >&2
+            printf '   Commits reachable only from this branch are held by no other ref,\n' >&2
+            printf '   so deleting it discards them -- and in a shared tree they may be\n' >&2
+            printf '   another seat'\''s. `git branch -d` would have refused this; `-D`\n' >&2
+            printf '   overrides that refusal, and this guard does not honour the override.\n' >&2
+            printf '   If the work is genuinely finished with, merge it or tag it first.\n' >&2
+            refusal_escape >&2
+            refused=1
+        fi
         continue
     fi
 
@@ -235,31 +427,24 @@ while read -r old new ref; do
         continue
     fi
 
-    # THE PREDICATE. If the current tip is an ancestor of the new one, no
-    # committed work is lost. If it is not, this move discards commits --
-    # amend, reset backwards, rebase, branch -f, checkout -B. In a shared
-    # tree there is no such move that is safe to wave through, because HEAD's
-    # author tells you NOTHING about whose work it is (git identity does not
-    # vary across seats on one box).
-    if ! git merge-base --is-ancestor "$current" "$target" 2>/dev/null; then
-        printf '⛔ REFUSED: %s would move NON-FAST-FORWARD in a shared working tree.\n' "$ref" >&2
+    # THE PREDICATE. Not "is the old tip an ancestor of the new one" -- that is a
+    # spelling of the harm, and it is wrong in both directions (see the corrected
+    # block at the top). The question is whether this move leaves any commit
+    # reachable from NOTHING: the incoming value is offered as an anchor, every
+    # other ref is offered as an anchor, HEAD is not (it points at this ref).
+    #
+    # Refuses amend, reset backwards, rebase, branch -f and checkout -B whenever
+    # they discard work. ALLOWS a retarget whose old tip another ref still holds,
+    # which the ancestor test refused for no reason. In a shared tree there is no
+    # ORPHANING move safe to wave through, because HEAD's author tells you NOTHING
+    # about whose work it is -- git identity does not vary across seats on one box.
+    if orphans_exist "$ref" "$current" "$target"; then
+        printf '⛔ REFUSED: %s would ORPHAN COMMITS in a shared working tree.\n' "$ref" >&2
         printf '   %s -> %s\n' "$current" "$target" >&2
-        printf '   Commits reachable only from the current tip would be lost, and in a\n' >&2
-        printf '   shared tree they may be another seat'\''s. A correction is a NEW COMMIT.\n' >&2
-        printf '   If this is genuinely yours to discard, the sanctioned escape is to\n' >&2
-        printf '   UNCLAIM the repository deliberately:\n' >&2
-        printf '       git update-ref -d refs/guards/shared-tree\n' >&2
-        printf '   ⛔ AND SAY SO OUT LOUD, because unlike the old marker THIS LEAVES NO\n' >&2
-        printf '   TRACE -- no reflog survives the deletion, so nothing else will ever\n' >&2
-        printf '   report that this repo was unguarded. If the unclaiming is permanent,\n' >&2
-        printf '   it must also be recorded as an edit to the must-be-claimed list in\n' >&2
-        printf '   the estate ledger; that edit is the commit that makes it reviewable:\n' >&2
-        printf '       ablative/docs/tracking/must-be-claimed.tsv\n' >&2
-        printf '   ⛔ AND NOTHING WILL CHASE YOU FOR IT. As of 2026-08-08 NO BATTERY\n' >&2
-        printf '   RUNS check_must_be_claimed.sh anywhere in the estate, so an unclaim\n' >&2
-        printf '   you do not record is not caught late -- it is not caught. The edit\n' >&2
-        printf '   above is not paperwork behind an alarm; RIGHT NOW IT IS THE ONLY\n' >&2
-        printf '   RECORD THERE WILL EVER BE.\n' >&2
+        printf '   Commits reachable only from the current tip are held by no other\n' >&2
+        printf '   ref, so this move discards them -- and in a shared tree they may be\n' >&2
+        printf '   another seat'\''s. A correction is a NEW COMMIT.\n' >&2
+        refusal_escape >&2
         refused=1
     fi
 done

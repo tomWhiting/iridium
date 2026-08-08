@@ -6286,9 +6286,41 @@ where the three-variant sweeps can reach them; `colors.rs` delegates.
    `--` and unknown-flag rejection. No config file, as ruled.
 9. ~~**D-1's tail**~~ — done. B "Paper" and C "Monochrome" are
    `themes/paper.json` and `themes/monochrome.json`; nothing in the binary.
-10. **§4.1's shots** — a *verification* artefact now, not a decision gate.
-    Taken after A is built, to prove what was built. Unblocked: the harness
-    now reads the two files, so it renders all three faces again.
+10. ~~**§4.1's shots**~~ — done. 24 frames rendered headlessly (6 dark control
+    + 6 each for Platinum, Paper and Monochrome), 8.9 MB, `exit=0`.
+
+### §4.1, and the eyeball that was nearly wrong
+
+`IRIDIUM_CHROME_SHOT_DIR=<dir> cargo test -p iridium-desktop --test
+chrome_screenshots -- --ignored`. The harness defaults to `temp_dir()`.
+
+Looking at `light-monochrome-palette.png`, its page read **grey**, not
+Monochrome's `#FFFFFF` — which would have meant the palette shot was wearing
+the wrong theme. Decoding the top-left pixel of six frames instead of trusting
+the eye:
+
+| face | editor shot | its table | palette shot |
+|---|---|---|---|
+| Platinum | `(239,239,239)` | `#EFEFEF` ✅ | `(201,201,201)` |
+| Paper | `(251,248,241)` | `#FBF8F1` ✅ | `(211,208,202)` |
+| Monochrome | `(255,255,255)` | `#FFFFFF` ✅ | `(214,214,214)` |
+
+A uniform ×0.84 across all three, per channel — **D-4's backdrop dim**, doing
+exactly what it was built to do. Nothing was wrong. But "grey where white was
+expected" is indistinguishable by eye from a real defect, and the measurement
+is four lines of `zlib.decompress`.
+
+⭐ What §4.1 actually proves, now that it has run: **both files survive JSON →
+parse → GPU clear colour byte-exact.** `theme.editor.background` is taken
+verbatim as the compositor's clear colour, so the shipped bytes and the map's
+tables agree at the pixel, not merely at the assertion.
+
+One thing seen and deliberately not changed: **Paper's gutter is 6/255 from its
+page** and is nearly invisible in the shot. That is §2.3's stated character for
+B ("minimal chrome"), and the map sets a distance floor only for the panel
+surface (17/255), not for the gutter — `every_face_gutter_is_distinct_from_its_background`
+asserts inequality alone. Correct as designed; recorded because a future reader
+will notice it before the reason.
 
 ### D-1's tail, and what a truncated grep cost
 

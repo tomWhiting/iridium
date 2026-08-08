@@ -23,24 +23,28 @@ fn source() -> Vec<SourceRow> {
             name: "p".to_owned(),
             path: PathBuf::from("/p"),
             directory: true,
+            open: true,
         },
         SourceRow {
             depth: 1,
             name: "src".to_owned(),
             path: PathBuf::from("/p/src"),
             directory: true,
+            open: true,
         },
         SourceRow {
             depth: 2,
             name: "main.rs".to_owned(),
             path: PathBuf::from("/p/src/main.rs"),
             directory: false,
+            open: false,
         },
         SourceRow {
             depth: 1,
             name: "README.md".to_owned(),
             path: PathBuf::from("/p/README.md"),
             directory: false,
+            open: false,
         },
     ]
 }
@@ -49,8 +53,8 @@ fn source() -> Vec<SourceRow> {
 fn editing_with_a_rename() -> Mode {
     let mut mode = Mode::default();
     assert!(mode.begin_edit(&source()), "the fixture must start editing");
-    let buffer = mode.buffer_mut().expect("editing holds a buffer");
-    buffer.rename(2, "lib.rs");
+    let editing = mode.editing_mut().expect("editing holds a session");
+    editing.buffer.rename(2, "lib.rs");
     mode.note_edit();
     mode
 }
@@ -197,8 +201,8 @@ fn a_refused_plan_holds_its_reasons_and_does_not_advance() {
     mode.begin_edit(&source());
     // `README.md` given the name the sibling folder already has — a collision
     // under one parent, which the planner refuses rather than resolves.
-    let buffer = mode.buffer_mut().expect("editing holds a buffer");
-    buffer.rename(3, "src");
+    let editing = mode.editing_mut().expect("editing holds a session");
+    editing.buffer.rename(3, "src");
     mode.note_edit();
 
     assert_eq!(mode.request_confirm(), Confirmation::Refused);
@@ -218,14 +222,14 @@ fn a_refused_plan_holds_its_reasons_and_does_not_advance() {
 fn editing_after_a_refusal_clears_it() {
     let mut mode = Mode::default();
     mode.begin_edit(&source());
-    let buffer = mode.buffer_mut().expect("editing holds a buffer");
-    buffer.rename(3, "src");
+    let editing = mode.editing_mut().expect("editing holds a session");
+    editing.buffer.rename(3, "src");
     mode.note_edit();
     assert_eq!(mode.request_confirm(), Confirmation::Refused);
     assert!(!mode.refusals().is_empty(), "the premise");
 
-    let buffer = mode.buffer_mut().expect("still editing");
-    buffer.rename(3, "NOTES.md");
+    let editing = mode.editing_mut().expect("still editing");
+    editing.buffer.rename(3, "NOTES.md");
     mode.note_edit();
 
     assert!(
@@ -268,8 +272,8 @@ fn the_buffer_cannot_be_edited_from_behind_a_confirmation() {
     assert_eq!(mode.request_confirm(), Confirmation::Ready);
 
     assert!(
-        mode.buffer_mut().is_none(),
-        "confirming must not hand out an editable buffer"
+        mode.editing_mut().is_none(),
+        "confirming must not hand out an editable session"
     );
     assert!(
         mode.buffer().is_some(),
@@ -309,8 +313,8 @@ fn the_full_round_trip_ends_where_it_started() {
     let mut mode = Mode::default();
     assert!(mode.begin_edit(&source()));
 
-    let buffer = mode.buffer_mut().expect("editing");
-    buffer.rename(2, "lib.rs");
+    let editing = mode.editing_mut().expect("editing");
+    editing.buffer.rename(2, "lib.rs");
     mode.note_edit();
 
     assert_eq!(mode.leave(), Leaving::Unsaved, "dirty, so it holds");

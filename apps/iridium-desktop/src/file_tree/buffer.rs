@@ -31,18 +31,6 @@
 //! folders they were never drawn in. That failure is silent, and the operation
 //! it produces is a rename into the wrong directory.
 
-// Step 3 of #58, and nothing calls it yet — the panel's edit mode is the
-// caller. Scoped to the non-test build because the tests below do exercise
-// every item; when a real caller lands this expectation goes unfulfilled and
-// the build warns, so it removes itself.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 3 of the editable file list; wired up by the panel's edit mode"
-    )
-)]
-
 use std::path::PathBuf;
 
 use iridium_explorer::NodeId;
@@ -51,11 +39,6 @@ use super::panel::FileExplorer;
 use super::plan::{EditedRow, Plan, Refusal, RowOrigin};
 
 impl FileExplorer {
-    /// The buffer for what is on screen right now.
-    pub(super) fn buffer(&self) -> Buffer {
-        Buffer::load(&self.source_rows())
-    }
-
     /// The rows the panel is drawing, in the shape the buffer takes them.
     ///
     /// **The two row sources are read through the same two facts** — a node
@@ -66,16 +49,20 @@ impl FileExplorer {
     /// alone.
     pub(super) fn source_rows(&self) -> Vec<SourceRow> {
         if self.is_filtering() {
+            // A filtered view draws every folder showing its contents —
+            // [`super::compose`] hard-codes the disclosure to point down,
+            // because a query has already decided what is inside each one. So
+            // a row typed under a folder here is drawn inside it.
             return self
                 .view
                 .rows
                 .iter()
-                .filter_map(|row| self.source_row(row.id, row.depth))
+                .filter_map(|row| self.source_row(row.id, row.depth, true))
                 .collect();
         }
         (0..self.tree.len())
             .filter_map(|index| self.tree.row(index))
-            .filter_map(|row| self.source_row(row.id, row.depth))
+            .filter_map(|row| self.source_row(row.id, row.depth, row.expanded))
             .collect()
     }
 
@@ -88,13 +75,18 @@ impl FileExplorer {
     /// computing paths against the wrong parent. It should not happen: a node
     /// is in the arena because it appeared in a listing. Nothing here depends
     /// on that.
-    fn source_row(&self, id: NodeId, depth: usize) -> Option<SourceRow> {
+    fn source_row(&self, id: NodeId, depth: usize, open: bool) -> Option<SourceRow> {
         let info = self.files.info(id)?;
+        let directory = info.kind.is_expandable();
         Some(SourceRow {
             depth,
             name: info.name.to_owned(),
             path: info.path.to_path_buf(),
-            directory: info.kind.is_expandable(),
+            directory,
+            // Only a folder can be showing anything, and a caller that passed
+            // `true` for a file would otherwise make it look like one a row
+            // could be typed into.
+            open: open && directory,
         })
     }
 }
@@ -115,6 +107,17 @@ pub struct SourceRow {
     pub path: PathBuf,
     /// Whether the node is a directory, so a row typed under it nests.
     pub directory: bool,
+    /// Whether the row is drawn **showing its contents**.
+    ///
+    /// Separate from [`Self::directory`] because the two answer different
+    /// questions and only together decide where a typed row lands. A closed
+    /// folder's contents are not on screen, so a row typed under it is drawn
+    /// beside it and belongs beside it; an open one's are, so a row typed
+    /// under it is drawn inside it. Getting this wrong creates the file in the
+    /// wrong directory, and it is the one such mistake [`super::plan`] cannot
+    /// catch — a typed row has no origin, so there is no real nesting to check
+    /// the drawn nesting against.
+    pub open: bool,
 }
 
 /// The editable buffer.
@@ -150,11 +153,6 @@ impl Buffer {
     #[must_use]
     pub fn is_dirty(&self) -> bool {
         self.rows != self.loaded
-    }
-
-    /// Throws away every edit, restoring what loaded.
-    pub fn discard(&mut self) {
-        self.rows.clone_from(&self.loaded);
     }
 
     /// What the buffer now says, as operations, or every reason it says

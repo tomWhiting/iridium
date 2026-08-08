@@ -24,7 +24,19 @@
 use iridium_editor::KeyCode;
 
 use super::support::{lines, open_directory, opened, press, project, settle, type_query};
+use crate::file_tree::FileExplorer;
+use crate::file_tree::buffer::Buffer;
 use crate::file_tree::plan::Operation;
+
+/// The buffer for what the panel is drawing right now.
+///
+/// A helper rather than a method on the panel: the only caller that builds a
+/// buffer in a shipped build is [`crate::file_tree::mode::Mode::begin_edit`],
+/// which takes the rows and loads them itself, so a `FileExplorer::buffer`
+/// would exist for these tests alone.
+fn buffer(explorer: &FileExplorer) -> Buffer {
+    Buffer::load(&explorer.source_rows())
+}
 
 #[test]
 fn the_buffer_holds_every_row_the_panel_is_drawing() {
@@ -33,7 +45,7 @@ fn the_buffer_holds_every_row_the_panel_is_drawing() {
     open_directory(&mut explorer, "engine");
 
     let drawn = lines(&mut explorer);
-    let buffer = explorer.buffer();
+    let buffer = buffer(&explorer);
 
     assert_eq!(
         buffer.rows().len(),
@@ -61,7 +73,7 @@ fn a_real_project_is_nested_the_way_it_really_is() {
     open_directory(&mut explorer, "engine");
     open_directory(&mut explorer, "widgets");
 
-    let buffer = explorer.buffer();
+    let buffer = buffer(&explorer);
     let plan = buffer
         .plan()
         .unwrap_or_else(|refusals| panic!("a real project was refused: {refusals:?}"));
@@ -81,7 +93,7 @@ fn renaming_a_row_plans_a_rename_of_the_file_that_row_draws() {
     let mut explorer = opened(&directory);
     open_directory(&mut explorer, "engine");
 
-    let mut buffer = explorer.buffer();
+    let mut buffer = buffer(&explorer);
     let index = buffer
         .rows()
         .iter()
@@ -107,7 +119,7 @@ fn striking_a_row_plans_a_delete_of_the_path_on_disk() {
     let directory = project();
     let explorer = opened(&directory);
 
-    let mut buffer = explorer.buffer();
+    let mut buffer = buffer(&explorer);
     let index = buffer
         .rows()
         .iter()
@@ -138,7 +150,7 @@ fn a_filtered_buffer_holds_only_what_the_query_left_on_screen() {
     type_query(&mut explorer, "button");
     settle(&mut explorer);
 
-    let buffer = explorer.buffer();
+    let buffer = buffer(&explorer);
     let names: Vec<&str> = buffer.rows().iter().map(|row| row.name.as_str()).collect();
 
     assert!(
@@ -161,7 +173,7 @@ fn a_filtered_buffer_keeps_the_folders_the_matches_live_in() {
     type_query(&mut explorer, "button");
     settle(&mut explorer);
 
-    let mut buffer = explorer.buffer();
+    let mut buffer = buffer(&explorer);
     let index = buffer
         .rows()
         .iter()
@@ -188,12 +200,12 @@ fn the_buffer_follows_the_panel_back_out_of_a_filter() {
     // rebuilt from whatever is showing rather than remembering a view.
     let directory = project();
     let mut explorer = opened(&directory);
-    let before = explorer.buffer().rows().len();
+    let before = buffer(&explorer).rows().len();
 
     type_query(&mut explorer, "button");
     settle(&mut explorer);
     assert_ne!(
-        explorer.buffer().rows().len(),
+        buffer(&explorer).rows().len(),
         before,
         "the filter did not change what is on screen, so this proves nothing"
     );
@@ -203,7 +215,7 @@ fn the_buffer_follows_the_panel_back_out_of_a_filter() {
     }
     settle(&mut explorer);
 
-    assert_eq!(explorer.buffer().rows().len(), before);
+    assert_eq!(buffer(&explorer).rows().len(), before);
 }
 
 #[test]
@@ -215,7 +227,7 @@ fn the_root_is_the_only_row_with_no_folder_above_it() {
     let mut explorer = opened(&directory);
     open_directory(&mut explorer, "engine");
 
-    let buffer = explorer.buffer();
+    let buffer = buffer(&explorer);
     let rootless: Vec<&str> = buffer
         .rows()
         .iter()

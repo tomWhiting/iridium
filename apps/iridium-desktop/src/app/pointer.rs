@@ -118,7 +118,18 @@ impl DesktopApp {
         if !self.pointer_is_on_a_panel() {
             self.palette_open = false;
             self.history_open = false;
-            self.explorer = None;
+            // ⚠️ The explorer is the one of the three that can be holding work.
+            // Its rows are editable as text and applied to the filesystem, and
+            // a click on the document is not a decision to throw a buffer full
+            // of renames away — so a dirty panel stays up and keeps its
+            // dismissal for the keys that mean it.
+            if !self
+                .explorer
+                .as_ref()
+                .is_some_and(crate::file_tree::FileExplorer::has_unapplied_edits)
+            {
+                self.explorer = None;
+            }
             // Only a dismissal changed the frame; a press on the panel itself
             // leaves the screen exactly as it was.
             self.request_redraw();

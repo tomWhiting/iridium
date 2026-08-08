@@ -4,4 +4,4 @@ mod buffer;
 mod crawl;
 mod filter;
 mod panel;
-mod support;
+pub(super) mod support;

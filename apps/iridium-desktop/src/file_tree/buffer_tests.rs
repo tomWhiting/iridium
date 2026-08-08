@@ -29,6 +29,9 @@ fn node(depth: usize, path: &str, directory: bool) -> SourceRow {
         name: path.rsplit('/').next().unwrap_or(path).to_owned(),
         path: PathBuf::from(path),
         directory,
+        // The fixture below is drawn fully expanded, which is what makes a row
+        // typed under a folder land inside it.
+        open: directory,
     }
 }
 
@@ -217,13 +220,15 @@ fn a_depth_that_jumps_is_refused_rather_than_planned_into_the_wrong_folder() {
 
 // ---------------------------------------------------------------- editing
 
+/// "Dirty" is a comparison against what loaded, not a flag somebody sets — so
+/// a rename typed back by hand is genuinely undone, and nothing is planned.
 #[test]
-fn renaming_a_row_makes_the_buffer_dirty_and_discarding_restores_it() {
+fn renaming_a_row_makes_the_buffer_dirty_and_renaming_it_back_cleans_it() {
     let mut buffer = Buffer::load(&fixture());
     buffer.rename(2, "renamed.rs");
     assert!(buffer.is_dirty());
 
-    buffer.discard();
+    buffer.rename(2, "one.rs");
     assert!(!buffer.is_dirty());
     assert!(operations(&buffer).is_empty());
 }
@@ -447,8 +452,11 @@ fn removing_a_typed_row_leaves_the_rows_below_it_in_their_own_folders() {
     assert_eq!(parents(&buffer), expected);
 }
 
+/// ⭐ Undoing three different kinds of edit by hand and getting back exactly
+/// what loaded — no oracle needed, because "indistinguishable from the buffer
+/// that loaded" is the strongest statement there is about an undo.
 #[test]
-fn discarding_undoes_an_insertion_as_well_as_an_edit() {
+fn taking_back_an_insertion_and_an_edit_and_a_strike_leaves_what_loaded() {
     let mut buffer = Buffer::load(&fixture());
     let at = buffer.insert_below(4, true);
     buffer.rename(at, "new.rs");
@@ -456,7 +464,10 @@ fn discarding_undoes_an_insertion_as_well_as_an_edit() {
     buffer.toggle_deleted(3);
     assert!(buffer.is_dirty());
 
-    buffer.discard();
+    assert!(buffer.remove_typed(at));
+    buffer.rename(2, "one.rs");
+    buffer.toggle_deleted(3);
+
     assert!(!buffer.is_dirty());
     assert_eq!(buffer.rows().len(), fixture().len());
     assert!(operations(&buffer).is_empty());

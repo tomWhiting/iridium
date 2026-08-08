@@ -1,14 +1,130 @@
 //! Composing one explorer row: indent, disclosure, name, and what it has to
 //! say for itself.
+//!
+//! Two builders, because the two modes read their names from different places.
+//! [`entry_row`] takes a node and asks the tree what it is called;
+//! [`edited_row`] takes a row of the buffer and draws what it now *says*,
+//! which is the only thing that could be right while somebody is typing into
+//! it. A row the user typed has no node at all, so the first builder could not
+//! draw it under any argument.
 
-use iridium_editor::theme::Theme;
+use iridium_editor::theme::{Color, Theme};
 use iridium_explorer::{EntryKind, FileTree, NodeId};
 
+use super::plan::EditedRow;
 use crate::line::{highlighted_spans, match_color};
 use crate::overlay::{PanelRow, Span};
 
 /// One indent level, in characters.
 const INDENT: usize = 2;
+
+/// The column an edited name starts at, which is where its caret is measured
+/// from.
+///
+/// The indent plus the two-character marker every row pays for whether or not
+/// it carries one — the same rule [`entry_row`] follows with the disclosure,
+/// and for the same reason: names that stepped in and out as rows were struck
+/// through would be names nobody could read down the panel.
+pub const fn edited_name_column(depth: usize) -> usize {
+    depth.saturating_mul(INDENT).saturating_add(2)
+}
+
+/// How deep each buffer row is drawn, from the parent chain it carries.
+///
+/// The buffer stores a parent index rather than a depth, because the parent is
+/// what every path is derived from and a depth beside it would be a second
+/// answer that could disagree. Drawing needs the other one, so it is computed
+/// here — in one forward pass, which is enough because a parent always comes
+/// before its children and the buffer maintains that on every edit.
+///
+/// A parent index that somehow pointed forwards would read a depth that has
+/// not been written yet; the `get` answers `0` for it rather than panicking,
+/// and [`super::plan`] refuses such a row before anything can be done to it.
+#[must_use]
+pub fn depths(rows: &[EditedRow]) -> Vec<usize> {
+    let mut depths = Vec::with_capacity(rows.len());
+    for row in rows {
+        let depth = row.parent.map_or(0, |parent| {
+            depths.get(parent).map_or(0, |above: &usize| above + 1)
+        });
+        depths.push(depth);
+    }
+    depths
+}
+
+/// One row of the edited buffer, at `width` characters.
+///
+/// # There is no strike-through, and this is what stands in for one
+///
+/// ⚠️ The overlay's [`Span`] carries text and a colour and nothing else, and
+/// the painter lays glyphs on a fixed `char × char_width` grid — so combining
+/// marks would not advance-match it and there is no line-through attribute to
+/// set. A row marked for deletion is therefore drawn in
+/// `change_deleted` with a `✗` in the marker column, and a row the user typed
+/// in `change_added` with a `+`. Those are the same two colours
+/// [`super::confirm`] spends on a delete and a create, so the buffer and the
+/// confirmation cannot disagree about which rows are which.
+///
+/// The marker is not decoration: colour alone fails anyone who cannot tell
+/// these two apart, and a row that will destroy a directory tree is the last
+/// place to rely on it.
+pub fn edited_row(
+    row: &EditedRow,
+    depth: usize,
+    selected: bool,
+    theme: &Theme,
+    width: usize,
+) -> PanelRow {
+    let mut prefix = " ".repeat(depth.saturating_mul(INDENT));
+    let (marker, marker_color) = marker(row, theme);
+    prefix.push_str(marker);
+
+    let mut name = row.name.clone();
+    if row.directory && !name.is_empty() {
+        name.push('/');
+    }
+
+    let prefix_width = prefix.chars().count();
+    let mut spans = vec![Span::new(truncate(&prefix, width), marker_color)];
+    let shown = truncate(&name, width.saturating_sub(prefix_width));
+    if !shown.is_empty() {
+        spans.push(Span::new(shown, name_color(row, theme)));
+    }
+
+    if selected {
+        PanelRow::selected(spans)
+    } else {
+        PanelRow::new(spans)
+    }
+}
+
+/// The two characters before an edited name, and their colour.
+const fn marker(row: &EditedRow, theme: &Theme) -> (&'static str, Color) {
+    if row.deleted {
+        return ("✗ ", theme.editor.change_deleted);
+    }
+    if row.origin.is_none() {
+        return ("+ ", theme.editor.change_added);
+    }
+    ("  ", theme.editor.line_number)
+}
+
+/// The colour an edited name is drawn in.
+///
+/// Struck first, because what is about to happen to a row matters more than
+/// what kind of thing it is — and a deleted directory that read like every
+/// other directory would be the one row in this panel worth telling apart.
+const fn name_color(row: &EditedRow, theme: &Theme) -> Color {
+    if row.deleted {
+        theme.editor.change_deleted
+    } else if row.origin.is_none() {
+        theme.editor.change_added
+    } else if row.directory {
+        theme.editor.foreground
+    } else {
+        theme.editor.line_number
+    }
+}
 
 /// Everything about a row that is not read out of the tree.
 ///

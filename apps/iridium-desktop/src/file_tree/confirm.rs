@@ -28,19 +28,6 @@
 //! reads the same as a rename is the one distinction in this panel worth
 //! spending a colour on, and it is a distinction the theme has already made.
 
-// Step 4 of #58, and nothing calls it yet — the panel's edit mode reaches the
-// confirmation, and which key gets it there is still Tom's to rule on. Scoped
-// to the non-test build because the tests below do exercise every item; when a
-// real caller lands this expectation goes unfulfilled and the build warns, so
-// it removes itself.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "step 4 of the editable file list; wired up by the panel's edit mode"
-    )
-)]
-
 use std::path::Path;
 
 use iridium_editor::theme::{Color, Theme};

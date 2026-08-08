@@ -369,6 +369,136 @@ fn deletes_run_after_every_rename() {
     );
 }
 
+/// ⚠️ A delete's path is where the row will be *when the delete runs*, not
+/// where it was when the buffer loaded.
+///
+/// Deletes are emitted last, so every rename above the row has already
+/// happened by then. Against the row's original path this plans
+/// `/project/old/keep.rs`, which the rename has just emptied — the run stops
+/// half-applied on a path that is not there.
+#[test]
+fn a_delete_inside_a_renamed_folder_names_where_the_row_will_be() {
+    let mut rows = [
+        root(),
+        existing("old", 0, "/project/old"),
+        existing("keep.rs", 1, "/project/old/keep.rs"),
+    ];
+    rows[1].name = "new".to_owned();
+    rows[2].deleted = true;
+
+    assert_eq!(
+        planned(&rows).operations,
+        vec![
+            rename("/project/old", "/project/new"),
+            Operation::Delete {
+                path: PathBuf::from("/project/new/keep.rs"),
+            },
+        ],
+        "the delete must follow the folder that moved under it"
+    );
+}
+
+/// ⭐ The one that destroys the wrong file, and the reason the derivation
+/// above is not merely tidier.
+///
+/// `a` and `b` swap names — a cycle, routed through a temporary and resolved
+/// correctly — and `a/x` is struck through. Afterwards `/project/a` **is the
+/// directory that was `/project/b`**, so a delete of the row's original path
+/// removes the file the user knows as `b/x`: a live file they never marked,
+/// while the confirmation showed them the entirely reasonable line
+/// `delete a/x`.
+#[test]
+fn a_delete_inside_a_swapped_folder_does_not_take_the_other_folders_file() {
+    let mut rows = [
+        root(),
+        existing("a", 0, "/project/a"),
+        existing("x", 1, "/project/a/x"),
+        existing("b", 0, "/project/b"),
+    ];
+    rows[1].name = "b".to_owned();
+    rows[3].name = "a".to_owned();
+    rows[2].deleted = true;
+
+    let operations = planned(&rows).operations;
+    let deleted = operations
+        .iter()
+        .find_map(|operation| match operation {
+            Operation::Delete { path } => Some(path.clone()),
+            _ => None,
+        })
+        .expect("the strike was planned");
+
+    assert_eq!(
+        deleted,
+        PathBuf::from("/project/b/x"),
+        "the struck file ends up in `b` once the swap has run, and `/project/a/x` \
+         is by then a different, live file: {operations:?}"
+    );
+}
+
+/// A row typed inside one that is struck through has nowhere to be created.
+///
+/// When the folder above is itself typed it is never created at all, so the
+/// create underneath it fails on a path with no parent and stops the run
+/// half-applied. Refused rather than dropped: the rows say to make something,
+/// and a plan that quietly declined would not match the screen.
+#[test]
+fn a_row_typed_inside_one_that_is_struck_through_is_refused() {
+    let mut rows = [
+        root(),
+        typed("new-folder", 0, true),
+        typed("inside.rs", 1, false),
+    ];
+    rows[1].deleted = true;
+
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 2);
+    assert!(
+        refusals[0].reason.contains("struck through"),
+        "the message must name the cause: {}",
+        refusals[0].reason
+    );
+}
+
+/// The same rule for an existing folder, where the create would succeed and
+/// then be removed again by the delete that runs after it.
+#[test]
+fn a_row_typed_inside_an_existing_folder_that_is_struck_through_is_refused() {
+    let mut rows = [
+        root(),
+        existing("widgets", 0, "/project/widgets"),
+        typed("button.rs", 1, false),
+    ];
+    rows[1].deleted = true;
+
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 2);
+}
+
+/// A *rename* out of a struck folder stays legitimate — that is exactly what
+/// "deletes run last" exists to allow, and the refusal above must not have
+/// taken it away.
+#[test]
+fn a_rename_out_of_a_struck_folder_is_still_planned() {
+    let mut rows = [
+        root(),
+        existing("old", 0, "/project/old"),
+        existing("keep.rs", 1, "/project/old/keep.rs"),
+    ];
+    rows[1].deleted = true;
+    rows[2].name = "kept.rs".to_owned();
+
+    assert!(
+        planned(&rows)
+            .operations
+            .iter()
+            .any(|operation| matches!(operation, Operation::Rename { .. })),
+        "a rename inside a folder being deleted must still be planned"
+    );
+}
+
 #[test]
 fn a_row_drawn_inside_a_folder_it_does_not_live_in_is_refused() {
     // The check that makes the whole target computation safe. A target is

@@ -110,7 +110,20 @@ impl DesktopApp {
     /// the strip rather than swallowed; the key was consumed, and silence
     /// would look like a dead key.
     fn toggle_explorer(&mut self) -> Flow {
-        if self.explorer.is_some() {
+        if let Some(explorer) = self.explorer.as_ref() {
+            // ⚠️ The panel's rows can be edited as text and applied to the
+            // filesystem, and closing here drops the panel outright — the
+            // refusal `FileExplorer` keeps for its own escape key never gets
+            // asked. So it is asked here instead: the command is refused while
+            // there is unapplied work, and the panel says how to get rid of
+            // it.
+            if explorer.has_unapplied_edits() {
+                self.message = Some(Message::error(
+                    "the file explorer has unapplied edits — esc twice in it to throw them away"
+                        .to_owned(),
+                ));
+                return Flow::Running;
+            }
             self.explorer = None;
             return Flow::Running;
         }

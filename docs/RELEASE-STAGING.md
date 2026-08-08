@@ -1,27 +1,48 @@
 # Publishing the Iridium packages — staging assessment
 
-> ## ✅ PUBLISHED — 8 Aug 2026 21:51 UTC (9 Aug, 07:51 AEST). Nothing here is pending.
+> ## ⛔ DO NOT READ THE VERSIONS BELOW AS CURRENT. ASK THE REGISTRY.
 >
-> | package | version | published |
+> ```bash
+> npm view iridium-bindings version
+> npm view @iridium-editor/core version
+> npm view @iridium-editor/syntax-worker version
+> ```
+>
+> This banner has been wrong **twice in one hour**, in both directions. It is
+> kept as a pointer to the registry and a record of the two failures, not as a
+> source of truth about what is live.
+>
+> ### The two rounds, and what each one taught
+>
+> **Round 1 — published, while this file said "pending".** `0.2.0 / 0.2.0 /
+> 0.1.1` went out at `2026-08-08T21:51Z`. An hour later this seat read the
+> "waits on Tom's npm credentials" section below and repeated it to Tom as
+> current. He re-ran three publishes and got "cannot publish over the previously
+> published version" three times — which reads exactly like a broken release.
+> **A staging document cannot know whether it has been acted on.**
+>
+> **Round 2 — stale, while this banner said "nothing is pending".** Those 0.2.0
+> bytes were compiled from `4704baae`. Six commits later `crates/iridium-editor/src`
+> had moved by +212/−368 (Paper and Monochrome left the binary), so the
+> published wasm no longer matched head — hash `75460012…` against a rebuild's
+> `cc142177…`. The banner declared success and said nothing about *which
+> source* had succeeded. **"Published" is not a state; "published *from what*"
+> is.** That is what `pkg/PROVENANCE.txt` is for, and why it ships in the
+> tarball.
+>
+> ### Prepared at `b4d4426a`, awaiting Tom's `npm publish`
+>
+> | package | prepared | last verified live |
 > |---|---|---|
-> | `iridium-bindings` | **0.2.0** | `2026-08-08T21:51:10Z` |
-> | `@iridium-editor/core` | **0.2.0** | `2026-08-08T21:51:15Z` |
-> | `@iridium-editor/syntax-worker` | **0.1.1** | `2026-08-08T21:51:18Z` |
+> | `iridium-bindings` | **0.2.1** | 0.2.0 @ `21:51:10Z` |
+> | `@iridium-editor/core` | **0.2.1** | 0.2.0 @ `21:51:15Z` |
+> | `@iridium-editor/syntax-worker` | **0.1.2** | 0.1.1 @ `21:51:18Z` |
 >
-> Verified against the registry and against the **live tarballs**, not against
-> this document: `@iridium-editor/core@0.2.0`'s `dist/controller/index.js`
-> contains `await import("iridium-bindings")` — the bare specifier — and
-> `iridium-bindings@0.2.0`'s `pkg/PROVENANCE.txt` reads `commit: 4704baae`,
-> `tree: clean`, rustc 1.97.1, wasm-pack 0.15.0, with all 11 grammars in the
-> tarball. Manifold can pin these three exactly and drop the vendored subtree.
->
-> ⚠️ **This banner exists because the sections below outlived their truth.**
-> They said "waits on Tom's npm credentials", and an hour after the publish had
-> already happened this seat repeated that to Tom as current — sending him to
-> re-run three commands that then failed with "cannot publish over the
-> previously published version", which reads exactly like a broken release.
-> **A staging document cannot know whether it has been acted on.** The registry
-> can: `npm view <pkg> time --json`. Ask it, not this file.
+> The wasm is already built; `pkg/PROVENANCE.txt` stamps `b4d4426a`, clean tree.
+> Only `iridium-bindings` has a content change — core's and syntax-worker's
+> `src/` are byte-identical to what is live, and are bumped so the three carry
+> one coherent set. **"Last verified live" is a timestamp, not a promise;** run
+> the commands above.
 >
 > ⚠️ **npm auth here is browser + security key. There is no OTP prompt**, and no
 > OTP is configured. Any instruction that mentions one is wrong.

@@ -1,5 +1,34 @@
 # `iridium-bindings` web build spike
 
+> ⚠️ **This is a dated snapshot, not current truth.** It records what was
+> measured on **17 July 2026**, and it was cherry-picked onto `main` on 8 Aug
+> 2026 from `spike/web-build`, which by then was **464 commits behind**. The
+> measurements are left exactly as they were taken — a record that is edited to
+> stay plausible stops being a record — so read every claim below as *"was true
+> on 17 July"*.
+>
+> Known stale, verified on 8 Aug:
+>
+> * **All three warnings listed under the build gate are gone.**
+>   `in_line_comment` no longer exists in `syntax_stubs.rs`, `pixel_ratio` is
+>   now read (it goes through `DisplayScale` / `sanitize_pixel_ratio`), and
+>   `WebSpanIndex::len` has been removed. The crate now builds under a
+>   `-D warnings` clippy gate on the wasm target, so a warning list of any kind
+>   is stale by construction.
+> * **The `WebEditor` method inventory is substantially incomplete.** The
+>   palette, the workspace, host command ids, folds and the highlight cache all
+>   post-date it.
+> * **The commands quoted below pin `CARGO_TARGET_DIR` to a path that no longer
+>   exists** and serve on port 8000, which this repository bans. They are left
+>   as-quoted because they are the record of what was run; the *live* script,
+>   `docs/web-build-harness/run.sh`, was corrected on both counts when it
+>   landed.
+>
+> What has **not** gone stale is the part worth keeping: the browser-embedding
+> gap list, the input contract, and the finding that `web` does not enable
+> `syntax`. That last one is still the reason syntax-node navigation cannot
+> reach the browser.
+
 Verified 2026-07-17 from `spike/web-build` at `8a2ecb93654263dae08832ee1998207aa0283fae` on macOS/aarch64. No toolchain component was installed or updated.
 
 ## Verdict
@@ -54,8 +83,12 @@ Run:
 
 ```sh
 docs/web-build-harness/run.sh
-# open http://127.0.0.1:8000/docs/web-build-harness/
+# open http://127.0.0.1:14571/docs/web-build-harness/
 ```
+
+*(Port updated 8 Aug 2026 — this block is an instruction rather than a
+measurement, so it tracks the corrected script rather than the banned port the
+spike used.)*
 
 A Chrome headless probe loaded the page, JS glue, wasm binary, and font over HTTP (all 200). Chrome's `--dump-dom` remained at `starting` because the asynchronous WebGPU adapter callback did not settle under that headless/virtual-time probe, so this run is **not claimed as a completed render pass**. The harness is the honest interactive render check: it reports `PASS` only after `createWebEditor`, `loadFont`, and `forceRender` all return; it displays and rethrows the original error otherwise. Chrome and Safari were present locally. No browser automation dependency was installed.
 

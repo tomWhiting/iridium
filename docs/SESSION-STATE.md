@@ -3992,3 +3992,28 @@ from, so the next reader does not have to trace three levels to find it.
 `cfg(target_arch = "wasm32")` file — wasm `check` (0) and wasm `clippy
 -D warnings` (0). The full nine-gate battery was **not** run: the change is a
 comment in a file no native target compiles. Said plainly rather than implied.
+
+## 8 Aug ~03:42 — ⚠️ CI is blocked on GitHub billing, not on code
+
+Run **31237700826** (commit `48998e7f`) is red. **It is not a code failure and
+there is nothing to fix in the repository.** All four jobs — Format, Test,
+Clippy, Check — failed to *start*, each with the same annotation:
+
+> The job was not started because recent account payments have failed or your
+> spending limit needs to be increased. Please check the 'Billing & plans'
+> section in your settings
+
+The shape confirms it: the run died in **11s**, where every previous run took
+6–7 minutes.
+
+**Every run before it today was green**, including `31236027753` at 02:54 —
+the head of the 110-commit push — at 7m20s. So the whole pushed backlog is
+CI-verified; only pushes from roughly 03:40 onward are unverified.
+
+⚠️ **Until Tom clears the billing, no push is CI-checked.** The local gate
+battery is the only verification, which raises the bar on running it rather
+than reasoning about which gates a change can reach. Nothing should be inferred
+green from a passing CI badge in this window.
+
+Reported to Tom by Meridian and by push notification, since it is his account
+setting and nothing here can move it.

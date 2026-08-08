@@ -5321,3 +5321,69 @@ that ships. The ones that state a *mechanism* are fine; the ones that state a
 My deviation (branch-ref probe instead of a scratch worktree) was **ratified
 and goes into the runbook as the preferred shape**, not as an exception.
 
+
+---
+
+## S-3 and #74 LANDED — `47e91eb7` and `711400dc`, pushed
+
+The nine-gate battery re-run **at this seat**, under the pinned toolchain, each
+command separate with its exit status checked as its own statement:
+
+| gate | exit |
+| --- | --- |
+| all eleven (fmt, 3 test, wasm check, 4 clippy, fmt --check, iridium-lang) | **0** |
+
+**2,671 / 1,125 / 1,257 passing, 0 failed**, `iridium-lang` 81. Exactly +2 on
+each against the workflow's 2,669 / 1,123 / 1,255, which reconciles to the two
+ungated tests I added. Toolchain recorded in the run:
+`1.97.1-aarch64-apple-darwin (overridden by rust-toolchain.toml)`.
+
+### ⭐ The re-run was not ceremony — the agent's green was stale
+
+The workflow's gate agent reported all nine exit 0, truthfully, **about the
+tree it left**. My two added tests then put three clippy gates at **exit 101**
+(`redundant_clone` ×3, all mine). Fixed and re-run to green.
+
+*A gate result is a fact about a tree, not about a slice.* Anything that edits
+the tree after the gate ran has invalidated it, including the person reading
+the report. This is the concrete case for the standing rule that a reported
+green is re-run at this seat before a commit.
+
+### The adversary pass, and the two findings that mattered
+
+Recorded in full in `AUTO-PAIR-MAP.md` **§11**. Both are now pinned and both
+red-proved by their own one-line mutation, each failing exactly one test:
+
+- **F1** — deleting the document-identity term from `describes` left the
+  *entire* suite green, because `set_content` uses `continuing_from`, which
+  bumps the revision, so that term is never the reason for a `false`. A term
+  the examined set agreed with its own absence on — the same shape that refuted
+  rounds 2–4, this time **inside the fix rather than the probe**. Pinned
+  directly against the predicate (no keystroke can reach it), not deleted.
+- **F2** — the motion round-trip revival was argued at length and tested
+  nowhere. ⭐ **Refusal tests cannot catch a guard that became too eager.**
+  Red-proved with the feared change itself: `self.auto_pair = None` in
+  `reset_vertical_state`, where anyone would naturally group it with the sticky
+  columns.
+
+F3's four rotted doc links fixed. F4 was my own held ci.yml, now landed. F5 is
+a perf note the adversary declines to call a defect; left as written, recorded
+so the next reader knows it was seen.
+
+### ⚠️ The debt this slice created, stated not buried
+
+`behaviors.rs` **755 → 806** against an explicit do-not-grow instruction;
+`mod.rs` **475 → 509** and `editing/mod.rs` **479 → 515** newly over the bar.
+`mod.rs` crossing counts twice — the standing rule is that it carries
+declarations only. The directory goes 9 → 13 files over 500. Three of the four
+biggest additions are test files (expected mass for a feature this contested);
+these three are not. **#92**, and it is mine.
+
+### Queue after this
+
+1. **#92** — the file-size debt, which this slice just made worse.
+2. **#88** — tier-2 language extensions (Tom's ruling), unblocks #43→#44→#45.
+3. **#69** — the flaky GPU test.
+4. **#95** — the expiring-coverage-comment sweep, new law from the guard work.
+5. **#94** — the `cargo ci` alias that runs three of the nine gates.
+

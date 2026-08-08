@@ -5387,3 +5387,49 @@ these three are not. **#92**, and it is mine.
 4. **#95** — the expiring-coverage-comment sweep, new law from the guard work.
 5. **#94** — the `cargo ci` alias that runs three of the nine gates.
 
+
+---
+
+## #92 attempted and reverted — the obvious `mod.rs` split cannot pass the gate
+
+Tried the debt S-3 created, starting with the clearest violation: `mod.rs` at
+509 lines when the rule is declarations only. Moved `KeyboardHandler` — struct,
+`Default`, impl, 380 of the 509 lines — into `handler.rs`. `mod.rs` came out at
+115 lines. It compiles. **It cannot pass `clippy -D warnings`.**
+
+**Step 1 was fine.** Siblings (`dispatch.rs`, `keymap_api.rs`, `edits.rs`) read
+`KeyboardHandler`'s *private fields*, which only worked because the struct sat
+in `mod.rs` and privacy extends to descendants. Twelve fields and
+`create_selection_command` became `pub(super)`; nine call sites fixed; arguably
+an improvement in its own right.
+
+**Step 2 is the trap, and it is worth remembering.** `mod.rs` imports
+`Document`, `Command`, `CursorState`, `Selection`, `CaretScopes`,
+`EditorConfig`, `UndoTree` and four `commands::` names — and **ten files here
+consume them through `use super::*`**. The moment `mod.rs` stops using them
+itself, rustc calls every one an **unused import**.
+
+⛔ **The warning is a false positive, and it is a convincing one.** Acting on
+it — deleting the eleven imports it names — produced **625 errors across nine
+modules**. `unused_imports` does not credit a descendant's glob or `super::X`
+as a use.
+
+It also cannot be silenced honestly: `pub(super) use` does **not** clear it
+(measured: still 9 warnings, plus E0365 — a `pub(super)` item cannot be
+re-exported `pub(super)`), and `#[allow]` is banned outright by CLAUDE.md.
+
+⭐ **So the real task is not a file split.** It is that ten files reach through
+`mod.rs` for names `mod.rs` merely happened to import — a hidden coupling that
+made the split look cheap and is exactly why it wasn't. Replacing `use super::*`
+with explicit `crate::…` imports is its own slice with its own battery.
+
+**Tree returned byte-identical to `47e91eb7`** (`git diff --stat HEAD` empty).
+Nothing of the attempt committed. The full finding, the measurements, and a
+four-step order for the next attempt are on **#92**.
+
+⚠️ **The lesson generalises past this directory:** *an "unused import" on a
+module whose descendants glob it is a claim the compiler cannot check.* The
+same shape as everything else this week — a cheap signal standing in for a fact
+it does not actually observe. The difference is that here the signal is the
+compiler's, which makes it far more likely to be obeyed without measurement.
+

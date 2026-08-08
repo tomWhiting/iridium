@@ -995,8 +995,8 @@ borrowed pairs. It gains **`Option<&'static Manifest>`** instead —
 keeps `iridium_lang` the owner of the rules rather than copying them into a
 second shape. The multi-character walk then happens only when it can matter:
 the openers' final characters become triggers, and the walk is skipped
-entirely for a language declaring no multi-character rows, which is thirteen
-of the twenty-one.
+entirely for a language declaring no multi-character rows, which is fourteen
+of the twenty-two.
 
 ⚠️ **`*` and `#` must become triggers.** `handle_char_input` enters auto-pair
 handling only when `PairRules::is_trigger(c)` says so, and today that is the
@@ -1194,3 +1194,84 @@ said of it.
 unwanted character**, because the user's correction for the second is Backspace
 and their correction for the first is to wonder whether the keyboard is broken.
 That asymmetry should govern any future skip-over question.
+
+### 10.10 B-11 — the delete was bounded on the left and not on the right. And the law behind all three.
+
+🔴 **§10.9's claim that "B-8 fixes both by construction" is FALSE for any closer longer
+than one character, and this file must stop saying it.** The same claim sits in
+`multi_char_pairs.rs`'s module doc and must go from there too.
+
+B-8 bounded the *left* side to one character — the trigger the user typed — and that part
+holds. The *right* side is still sized by `closer.chars().count()`, **with nothing checking
+the editor ever wrote that closer.**
+
+#### The case, in Rust, on the shipped path
+
+```rust
+fn main() {
+    /* keep */
+}
+```
+
+Caret after `keep`. Type `/` — no longer a trigger, so it is written plainly:
+`/* keep/ */`. Now type `*`:
+
+- skip-over declines (the character at the caret is a space)
+- `insertion_for` finds the opener `/*`, `autoclose_before` permits — and **`not_in` refuses,
+  because the caret is inside a comment and Rust declares `/*` with
+  `not_in = ["string", "comment"]`**
+- so one character is written and **no closer**
+
+Buffer: `/* keep/*| */`. One Backspace, and the collapse matches `/*` behind and `" */"` in
+front, and deletes four characters:
+
+```text
+    /* keep/          ← the */ that closed the enclosing comment is GONE
+```
+
+**The rest of the file is now commented out**, from one typed character and one Backspace.
+The single-character branch would have deleted exactly one. The multi-character rule is
+purely additive harm here.
+
+⭐ **Why it survived a fix that was aimed at exactly this class.** All three reproductions
+the fix was verified against — `print(verb"|")`, `it'|'`, `# verb"|"` — are **Python, where
+every prefix row's closer is a single `"` or `'`.** For a one-character closer the
+multi-character answer and the single-character answer are byte-identical, so the
+disagreement cannot be observed. **The verification set could not distinguish the fix from
+its absence on the right-hand side.** That is the Proxy Law applied to a *test suite* rather
+than to code, and it is the third time this slice has produced it.
+
+#### ⭐⭐ THE LAW, since three separate defects in one slice are the same sentence
+
+> **A reversal must be sized by what the editor would have written — never by what the
+> manifest declares.**
+
+- **B-9** — a skip-over may only step over a character the editor would itself have written.
+  (Markdown declares `<`→`>`; the editor does not write it; stepping would eat a keystroke.)
+- **B-8** — backspace's *left* bound is the one character the user typed, not the opener the
+  manifest declares.
+- **B-11** — backspace's *right* bound is the closer **the editor actually wrote**, not the
+  closer the manifest declares.
+
+Every one of the three read a declaration as evidence of an action. The manifest says what
+*may* happen; only the insertion path says what *did*.
+
+#### The ruling
+
+**B-7 is narrowed, not reversed.** It still stands that `not_in` gates the insertion of a
+closer and does not gate the single-character collapse. But **the multi-character collapse
+must consult `not_in` at the caret**, because it is the only thing that can tell a closer the
+editor wrote from a closer that was already in the buffer. Suppressed row → decline, and fall
+through to the single-character answer.
+
+⚠️ `autoclose_before` deliberately is **not** re-checked. At collapse time the closer's
+presence has been *observed*, and `autoclose_before` would be evaluated against a different
+character than it saw at insertion. `not_in` is the gate that could have refused this row at
+this position, and it is the one that must be asked.
+
+⚠️ **This needs a test where `not_in` is live**, and no existing harness can host it: the S-3
+section of `scope_suppression_tests.rs` has three insertion tests and **no backspace test**,
+while `multi_char_backspace_tests.rs` runs on a harness where `CaretScopes::none()` makes
+`not_in` unreachable by construction. **The one path where the disagreement can appear is the
+one path with no test on it** — which is why the defect was invisible, and fixing the
+coverage hole is part of the fix, not a follow-up.

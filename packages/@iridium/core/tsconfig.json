@@ -1,5 +1,12 @@
 {
+  "//": "The editor/dev config: type-checking only, tests included. Emission is",
+  "//2": "tsconfig.build.json's job, which is why `noEmit` is set here and turned",
+  "//3": "back off there. `allowImportingTsExtensions` goes with it — the sources",
+  "//4": "write ./thing.ts, and without this an editor shows an error on every one",
+  "//5": "of them.",
   "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",

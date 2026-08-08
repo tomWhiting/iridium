@@ -6,12 +6,13 @@
   "//5": "consumer's resolver actually needs.",
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "noEmit": false,
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
-    "declarationMap": false,
-    "sourceMap": false
+    "declarationMap": true,
+    "sourceMap": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts"]

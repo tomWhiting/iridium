@@ -1,0 +1,26 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "@iridium-editor/syntax-worker",
+      "dependencies": {
+        "web-tree-sitter": "0.25.6",
+      },
+      "devDependencies": {
+        "@iridium-editor/core": "file:../core",
+        "typescript": "^5.9.3",
+      },
+      "peerDependencies": {
+        "@iridium-editor/core": "^0.2.0",
+      },
+    },
+  },
+  "packages": {
+    "@iridium-editor/core": ["@iridium-editor/core@file:../core", { "dependencies": { "web-tree-sitter": "0.25.6" }, "devDependencies": { "typescript": "^5.9.3" }, "peerDependencies": { "iridium-bindings": ">=0.2.0" } }],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "web-tree-sitter": ["web-tree-sitter@0.25.6", "", {}, "sha512-WG+/YGbxw8r+rLlzzhV+OvgiOJCWdIpOucG3qBf3RCBFMkGDb1CanUi2BxCxjnkpzU3/hLWPT8VO5EKsMk9Fxg=="],
+  }
+}

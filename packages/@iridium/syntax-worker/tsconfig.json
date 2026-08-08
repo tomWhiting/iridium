@@ -1,0 +1,23 @@
+{
+  "//": "The editor/dev config. `lib` names WebWorker rather than DOM because",
+  "//2": "worker.ts calls `self.postMessage(response)` with one argument — the",
+  "//3": "worker signature. Under the DOM lib `self` is a Window, whose",
+  "//4": "postMessage demands a targetOrigin, and the file would not compile.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "lib": ["ES2022", "WebWorker"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -23,16 +23,19 @@ export default defineConfig({
       "@iridium/core": resolve(__dirname, "../../packages/@iridium/core/src/controller/index.ts"),
       // The wasm bundle. The `ts/` half of iridium-bindings was deleted with
       // #64 — a January fork of @iridium/core that nothing imported — so the
-      // bare "iridium-bindings" alias is gone with it. These two are the wasm
-      // build, which is a different thing and very much alive.
+      // bare specifier now means the wasm build and nothing else, which is why
+      // it is aliased again here: since 0.2.0 the controller loads its core
+      // with `import("iridium-bindings")` rather than by walking a relative
+      // path out of the package, so this alias is what the example resolves.
       "iridium-bindings/wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
+      "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
       "iridium-wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
       // Resolve web-tree-sitter for files outside this directory
       "web-tree-sitter": resolve(__dirname, "node_modules/web-tree-sitter"),
     },
   },
   optimizeDeps: {
-    exclude: ["@iridium/core", "iridium-bindings/wasm", "iridium-wasm"],
+    exclude: ["@iridium/core", "iridium-bindings", "iridium-bindings/wasm", "iridium-wasm"],
   },
   build: {
     target: "esnext",

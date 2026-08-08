@@ -5,22 +5,29 @@
   "description": "Web Worker for tree-sitter syntax highlighting - moves parsing off the main thread",
   "exports": {
     ".": {
-      "types": "./src/client.ts",
-      "default": "./src/client.ts"
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
     },
     "./worker": {
-      "types": "./src/worker.ts",
-      "default": "./src/worker.ts"
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
     },
     "./protocol": {
-      "types": "./src/protocol.ts",
-      "default": "./src/protocol.ts"
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
     }
   },
+  "main": "./dist/client.js",
+  "types": "./dist/client.d.ts",
   "files": [
-    "src/"
+    "dist/",
+    "src/",
+    "!src/**/*.test.ts",
+    "CHANGELOG.md"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "tsc -p tsconfig.build.json",
     "test": "bun test src/"
   },
   "keywords": [
@@ -39,5 +46,9 @@
   },
   "dependencies": {
     "web-tree-sitter": "0.25.6"
+  },
+  "devDependencies": {
+    "@iridium-editor/core": "file:../core",
+    "typescript": "^5.9.3"
   }
 }

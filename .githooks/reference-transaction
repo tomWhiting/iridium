@@ -1,0 +1,267 @@
+#!/bin/sh
+# CLASS-A HISTORY-REWRITE GUARD — #158.
+#
+# Refuses any NON-FAST-FORWARD move of a local branch in a shared working
+# tree. That is the harm class observed in the libs/iridium incident: two
+# seats writing one tree, one seat's amend destroying the other's commit,
+# with NO PUSH ANYWHERE IN THE HARM PATH. Branch protection cannot see this
+# class at all -- the damage completes before anything reaches a remote --
+# so this hook is AUTHORITATIVE here, not advisory.
+#
+# WHY THIS HOOK AND NOT prepare-commit-msg
+#
+# The mechanism first ruled for #158 was `prepare-commit-msg` keyed on
+# `$2 = "commit"`. Measured, that is holed:
+#
+#     git commit --amend            -> source=[commit]  sha=[HEAD]
+#     git commit --amend -m "..."   -> source=[message] sha=[]
+#     git commit -m "..."           -> source=[message] sha=[]
+#
+# An amend WITH `-m` is INDISTINGUISHABLE from a plain commit at that hook --
+# and `-m` is the form scripts and agents use, which is almost certainly the
+# form that caused the incident. A guard must fire on the incident that
+# minted it; that one would have waved it through, for the second time.
+#
+# `reference-transaction` sees the REF MOVE itself, so the invocation form is
+# irrelevant. It also survives `--no-verify` (which bypasses only `pre-commit`
+# and `commit-msg`).
+#
+# ⭐ ONE PREDICATE, TWO SURFACES. "Old is not an ancestor of new" is exactly
+# the predicate a remote uses to reject a force-push. Class A enforces it
+# locally where the remote cannot see; class B enforces it at the remote where
+# the local hook can be skipped. Same rule, two fault domains.
+#
+# ⛔ THE REPORTED `old` IS NOT THE REF'S OLD VALUE, AND MUST NOT BE USED
+#
+# git supplies the old OID on stdin ONLY when the caller stated an expected
+# old value. Otherwise it sends all-zero. Measured on git 2.47.1:
+#
+#     git commit --amend                 old=REAL   (refuses correctly)
+#     git reset --hard HEAD~1            old=REAL   (refuses correctly)
+#     git branch -f <b> <earlier>        old=ZERO   <-- discards commits
+#     git update-ref <ref> <earlier>     old=ZERO   <-- discards commits
+#     git checkout -B <b> <earlier>      old=ZERO   <-- discards commits
+#     git rebase                         old=ZERO   <-- discards commits
+#     git branch -D <b>                  old=ZERO, new=ZERO
+#
+# The first version of this hook read all-zero `old` as "branch creation" and
+# allowed it, so it waved through rebase, `branch -f` and `checkout -B` --
+# and its own acceptance test passed, because amend and reset happen to sit
+# in the half of the class where git does state an expected value. A SAMPLE
+# OF THE WORKING HALF IS NOT THE CLASS.
+#
+# So the ref's real prior value is READ HERE, with `rev-parse`, which at the
+# "prepared" state still resolves to the pre-transaction value. That removes
+# the dependence on a field that is only sometimes populated, rather than
+# trying to interpret it.
+#
+# ⛔ DELETION IS OUT OF SCOPE, AND THAT IS A MEASUREMENT, NOT AN OVERSIGHT
+#
+# `git pack-refs` prunes loose refs by emitting `refs/heads/*` deletions
+# through this very hook, so a rule refusing deletion aborts `pack-refs` AND
+# `git gc` with rc 128 in every flagged repo. Attempts to separate the two
+# were measured and all failed:
+#
+#   - packed-refs membership: `branch -D` of a PACKED branch reports exactly
+#     what a pack-refs prune reports, and additionally emits a deletion for
+#     `refs/heads/main`, which nobody asked to delete.
+#   - reachability of the tip from another ref: a single-branch repo running
+#     `git gc` looks identical to a real deletion.
+#   - the reported `old` field: incidentally differs, but it is the very
+#     field proven unreliable above, and `update-ref -d <ref> <old>` is a
+#     genuine deletion that states it.
+#
+# A CONTROL THAT CANNOT DISTINGUISH THE HARM FROM ROUTINE MAINTENANCE ON THE
+# SAME SURFACE MUST NOT CLAIM THAT HARM. Breaking `git gc` would get this
+# hook uninstalled, which is a worse outcome than the gap. Deletion is left
+# to git's own `branch -d` unmerged-work refusal; `branch -D` remains
+# unguarded here and is recorded as open in the #158 findings.
+#
+# SCOPE
+#
+# Fires only when this repository carries the claim ref
+# `refs/guards/shared-tree` in its common ref store. Ruled at ablative/docs
+# `f3016c7`, amended `15b0fd5`, `09740ee`, `63c6339`, `b63bf0d`.
+#
+# ⛔ THE CLAIM IS A FACT ABOUT A DEPLOYMENT, NOT ABOUT THE PROJECT: it
+# asserts that THIS working tree, ON THIS BOX, is shared by more than one
+# seat. A clone is a different working tree. It cannot inherit sharedness --
+# only acquire it.
+#
+# ⭐ SO THE CLAIM MUST NOT TRAVEL, AND THE HOOK MUST. Those are opposite
+# requirements and the earlier design ran them together: the marker was a
+# TRACKED FILE, which made a local fact travel and handed every laptop clone
+# a shared-tree guard for a tree nobody shares. That was a second defect, not
+# robustness. A plain `git clone` does not fetch `refs/guards/*` (the default
+# refspec is heads-only), and under this ruling THAT IS THE MECHANISM
+# WORKING. Claiming a clone is an explicit act on arrival, done as part of
+# provisioning.
+#
+# ⛔ MAKING THE CLAIM TRAVEL IS THEREFORE EXPLICITLY REFUSED. A mirror
+# refspec or per-clone fetch config would resurrect claim-about-a-box-you-
+# are-not-on AND add a manual step as a load-bearing dependency -- the same
+# class as the stale absolute `core.hooksPath` below.
+#
+# ⛔ A tracked file also forked with every branch: two checkouts of one
+# repository could disagree about whether the guard was claimed, while the
+# refs they protect are shared. The ref is per-repository by construction,
+# so no branch and no worktree can hold a different answer.
+#
+# ⛔ NOT A GIT-CONFIG KEY EITHER, and not for the reason this block used to
+# give. A config key is per-repository too, but it is content-free and
+# invisible to git tooling. The ref points at a blob recording seat, date
+# and scope, so the claim IS its own citation: a reader who finds a repo
+# guarded can ask WHO claimed it and WHY without leaving the repository.
+# The ref is equally immune to the failure that motivated the old wording:
+# it lives inside the repository, so it moves when the repository moves --
+# unlike a stale ABSOLUTE `core.hooksPath`, which is what silently disabled
+# hooks in four estate repos after directories moved.
+#
+# ⛔ WHAT THE REF DOES NOT CARRY IS ITS OWN REMOVAL. MEASURED 2026-08-08:
+# default `core.logAllRefUpdates` writes NO reflog for `refs/guards/*`;
+# `always` writes one and `git update-ref -d` DESTROYS IT along with the
+# ref. Afterwards there is no ref, no `logs/refs/guards/*`, and no mention
+# in HEAD's reflog. The blob's self-citation holds for a claim that is
+# STILL SET and says nothing about one silently dropped. An earlier draft
+# of this block said the ref "carries a reflog"; that was measured false
+# and STRUCK at `b63bf0d`. It is recorded here rather than quietly deleted
+# because A FALSE PREMISE IN A RULING IS A FUTURE LICENCE TO SKIP THE
+# REMEDY IT WAS USED TO JUSTIFY.
+#
+# ⭐ THE WITNESS IS RELOCATED, NOT LOST. The legitimate disarm of a shared
+# repository is AN EDIT TO THE MUST-BE-CLAIMED LIST in the estate ledger --
+# a commit: visible, reviewable, attributable, exactly as the tracked file
+# was. What IS genuinely lost is act-time detection: the list catches an
+# unclaim at the next battery run rather than at the moment of the act, so
+# the list's coverage and the battery's cadence are GUARD PROPERTIES now,
+# not test hygiene.
+#
+# KNOWN GAP, STATED NOT HIDDEN
+#
+# This hook cannot defend a repo it is not installed in, and `.git/hooks` is
+# not carried by a clone. Install via a RELATIVE `core.hooksPath` into a
+# tracked directory (`git config core.hooksPath .githooks`) -- relative,
+# because the four repos that broke did so by being ABSOLUTE. Installation
+# remains a manual step and therefore remains the residual gap.
+#
+# ⭐ NOTE THE ASYMMETRY THIS SECTION EXISTS TO KEEP STRAIGHT: the INSTALL
+# must travel (tracked directory, relative path) and the CLAIM must not.
+# A change that makes one of them behave like the other is a regression
+# even when it looks like an improvement.
+
+set -eu
+
+state="${1:-}"
+
+# Only the "prepared" state can abort the transaction. "committed"/"aborted"
+# are notifications and a non-zero exit there means nothing.
+[ "$state" = "prepared" ] || exit 0
+
+# THE CLAIM PREDICATE — sourced, never hand-copied. Ruling point 1: this hook
+# and check_guard_active.sh shared a defect BY SHARING A PREDICATE THEY EACH
+# KEPT BY HAND, so they now share one implementation by construction.
+#
+# ⛔ A MISSING PREDICATE FILE IS A REFUSAL, NOT A SKIP. Every other failure in
+# this file's scope check exits 0, and that is correct for "the guard does not
+# apply here". It is CATASTROPHIC for "the guard could not be loaded": those two
+# states are indistinguishable to anyone downstream, and the second one is the
+# guard being silently absent in a repo that asked for it. Absence ⇒ RAISE.
+predicate_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || predicate_dir=""
+if [ -z "$predicate_dir" ] || [ ! -f "$predicate_dir/claim_predicate.sh" ]; then
+    printf '⛔ REFUSED: the class-A guard cannot load its claim predicate.\n' >&2
+    printf '   Expected: %s/claim_predicate.sh\n' "${predicate_dir:-<unresolved>}" >&2
+    printf '   The hook is installed but INCOMPLETE — claim_predicate.sh must be\n' >&2
+    printf '   tracked and shipped alongside this hook, or the guard cannot run.\n' >&2
+    printf '   Refusing rather than skipping: a guard that cannot load is not a\n' >&2
+    printf '   guard that does not apply, and only one of those is safe to ignore.\n' >&2
+    exit 1
+fi
+# shellcheck source=claim_predicate.sh
+. "$predicate_dir/claim_predicate.sh"
+
+# Unclaimed repository ⇒ the guard does not apply here. Ruling point 3: this is
+# the LEGITIMATE unclaimed state, not a defect.
+claim_is_set || exit 0
+
+# The all-zero OID marks "no value". Its LENGTH differs between sha1 and
+# sha256 repositories, so it is detected by "contains no non-zero character"
+# rather than by comparing against a hardcoded 40-char literal.
+is_zero() {
+    case "$1" in
+        *[!0]*) return 1 ;;
+        '') return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+refused=0
+while read -r old new ref; do
+    # `old` is deliberately unread -- see the block above. Named for the
+    # protocol's shape, discarded on purpose.
+    :
+
+    # Local branches only. refs/remotes/* moves on fetch and is not our
+    # business; refs/tags, refs/stash, HEAD and the rebase/merge pseudo-refs
+    # are handled by their own rules.
+    case "$ref" in
+        refs/heads/*) ;;
+        *) continue ;;
+    esac
+
+    # DELETION -- out of scope, measured, documented above. Allowed so that
+    # `git gc` and `git pack-refs` keep working.
+    if is_zero "$new"; then
+        continue
+    fi
+
+    # THE REF'S REAL PRIOR VALUE, read rather than trusted. At "prepared" the
+    # transaction has not been committed, so this still resolves to the value
+    # the ref held before the move.
+    current=$(git rev-parse --verify --quiet "$ref^{commit}" 2>/dev/null) || current=""
+
+    # Ref does not exist yet: this is a creation. Nothing can be lost.
+    if [ -z "$current" ]; then
+        continue
+    fi
+
+    # Resolve the incoming value. A `new` that will not resolve to a commit
+    # (a symref payload such as "ref:refs/heads/x", or a corrupt OID) cannot
+    # be proved safe, and unprovable means refused -- the safe direction.
+    target=$(git rev-parse --verify --quiet "$new^{commit}" 2>/dev/null) || target=""
+    if [ -z "$target" ]; then
+        printf '⛔ REFUSED: %s -- incoming value %s does not resolve to a commit,\n' "$ref" "$new" >&2
+        printf '   so this move cannot be shown to preserve history.\n' >&2
+        refused=1
+        continue
+    fi
+
+    # THE PREDICATE. If the current tip is an ancestor of the new one, no
+    # committed work is lost. If it is not, this move discards commits --
+    # amend, reset backwards, rebase, branch -f, checkout -B. In a shared
+    # tree there is no such move that is safe to wave through, because HEAD's
+    # author tells you NOTHING about whose work it is (git identity does not
+    # vary across seats on one box).
+    if ! git merge-base --is-ancestor "$current" "$target" 2>/dev/null; then
+        printf '⛔ REFUSED: %s would move NON-FAST-FORWARD in a shared working tree.\n' "$ref" >&2
+        printf '   %s -> %s\n' "$current" "$target" >&2
+        printf '   Commits reachable only from the current tip would be lost, and in a\n' >&2
+        printf '   shared tree they may be another seat'\''s. A correction is a NEW COMMIT.\n' >&2
+        printf '   If this is genuinely yours to discard, the sanctioned escape is to\n' >&2
+        printf '   UNCLAIM the repository deliberately:\n' >&2
+        printf '       git update-ref -d refs/guards/shared-tree\n' >&2
+        printf '   ⛔ AND SAY SO OUT LOUD, because unlike the old marker THIS LEAVES NO\n' >&2
+        printf '   TRACE -- no reflog survives the deletion, so nothing else will ever\n' >&2
+        printf '   report that this repo was unguarded. If the unclaiming is permanent,\n' >&2
+        printf '   it must also be recorded as an edit to the must-be-claimed list in\n' >&2
+        printf '   the estate ledger; that edit is the commit that makes it reviewable:\n' >&2
+        printf '       ablative/docs/tracking/must-be-claimed.tsv\n' >&2
+        printf '   ⛔ AND NOTHING WILL CHASE YOU FOR IT. As of 2026-08-08 NO BATTERY\n' >&2
+        printf '   RUNS check_must_be_claimed.sh anywhere in the estate, so an unclaim\n' >&2
+        printf '   you do not record is not caught late -- it is not caught. The edit\n' >&2
+        printf '   above is not paperwork behind an alarm; RIGHT NOW IT IS THE ONLY\n' >&2
+        printf '   RECORD THERE WILL EVER BE.\n' >&2
+        refused=1
+    fi
+done
+
+exit "$refused"

@@ -5433,3 +5433,102 @@ same shape as everything else this week — a cheap signal standing in for a fac
 it does not actually observe. The difference is that here the signal is the
 compiler's, which makes it far more likely to be obeyed without measurement.
 
+
+---
+
+# ⭐ COMPACTION BATON — 8 Aug 2026, ~21:5x
+
+## Committed and pushed earlier this session
+`47e91eb7` S-3 · `711400dc` toolchain pin · `fe54c56b` guard install ·
+`3d2071a2`, `0440e387`, plus #92's finding. All pushed.
+
+## ⚠️ UNPUSHED: the guard currency commit
+
+The last commit (guard update to gates `a2fa336`) **is committed but I did NOT
+get to `git push`.** Push it.
+
+### What it was
+Cally reported, and I **red-proved here before changing anything**, that the
+guard I installed this morning had a live bypass:
+
+```
+git commit-tree HEAD^{tree} -p HEAD     # commit reachable from one throwaway branch
+git update-ref refs/heads/<probe> <it>
+git branch -D <probe>                   # -> exit 0, COMMIT ORPHANED
+```
+
+Install and tracked canonical were **both** `22e2dd4e` — stale *together*, so
+the identity check passed and was right to. Integrity held; currency did not.
+
+Updated to gates `a2fa336`. Hashes now: hook `5bc7d3ec`, predicate `fd5d0b6a`
+(both match what Cally predicted). Install copied **before** the commit,
+deliberately.
+
+### Verified at this seat
+- `check_must_be_claimed.sh` → iridium reads **`CLAIMED + ARMED + CURRENT`**.
+  (The script's overall exit is 1 because **another** repo's row is red — NOT
+  iridium. Confirm which before anyone reports iridium red.)
+- Same `branch -D` probe under `a2fa336` → **exit 128, ref survived**, refusal
+  names orphaning. Bypass closed.
+
+### ⛔ TWO LOOSE ENDS
+1. **`refs/heads/guard-orphan-probe2` still exists** — the probe branch, left
+   because the guard now (correctly) refuses to delete it. Its commit is
+   `HEAD^{tree}` with HEAD as parent, so it is harmless. Removing it needs a
+   deliberate unclaim; **leaving it is the safer default.**
+2. **`git gc --prune=never` timed out at my 2-minute limit** — NOT a failure,
+   but NOT a pass either. ⚠️ The old hook's whole reason for leaving deletion
+   out of scope was that a deletion rule breaks `gc`/`pack-refs`. `a2fa336`
+   claims to separate prunes by *survival evidence* rather than intent. **That
+   claim is UNVERIFIED here.** Run `git gc` with a long timeout and check the
+   exit status before telling anyone gc is fine on this repo.
+
+## #69 — in flight, experiment running
+
+**A 50×-paired repetition job (`bhucp08b5`) may still be running.** It runs
+`experiment_69_maximised_atlas_divergence` and the original test 50 times each
+and prints `runs= experiment_failures= original_failures=`. Read
+`…/scratchpad/` for `FAIL-exp-*` / `FAIL-orig-*` files.
+
+⚗️ **There is an UNCOMMITTED temporary test appended to
+`crates/iridium-editor/tests/retained_shaping/gutter.rs`
+(`experiment_69_maximised_atlas_divergence`). It must be REVERTED, not
+committed** — `git show HEAD:crates/iridium-editor/tests/retained_shaping/gutter.rs > …`
+is safe, that file is committed.
+
+### Two findings that outlive the experiment
+1. ⭐ **The doc's own proposed experiment cannot discriminate.**
+   `IN-FLIGHT-69-flaky-gutter.md` proposes warming the cold compositor so both
+   atlases match. The test already passes 160/160, so making the two *more*
+   alike cannot fail either way — a proxy that agrees with its target on the
+   entire examined set. My experiment inverts it: **maximise** divergence (warm
+   composes a `#` gutter first, so its atlas holds `#`, digits, then `+`, while
+   cold sees only digits and `+`). That one *can* fail.
+2. ⭐⭐ **The atlas hypothesis' edge-sampling half is DEAD.** Measured in
+   glyphon 0.10 `src/cache.rs:50-52`: `min_filter`, `mag_filter` and
+   `mipmap_filter` are **all `FilterMode::Nearest`**. With nearest sampling
+   inside an allocated rect, a glyph's atlas *position* cannot bleed a
+   neighbour's texel into the output. So "sampling picks up a neighbouring
+   glyph's texel at an edge" is not an available mechanism, and the doc states
+   it as one.
+3. **A better-fitting candidate, not yet tested:** 1 pixel / 1 channel /
+   magnitude 23 looks like an **antialiasing** difference, i.e. the glyph was
+   *rasterised* differently — which points at a **subpixel-position bin**, not
+   at atlas packing. The custom gutter changes the measured gutter width and
+   hence the content column (`frame.rs:94-96`), so a float difference between
+   the warm and cold width paths could flip a subpixel bin. Worth checking
+   `frame_gutter_width` vs `gutter_width` in
+   `render/compositor/gutter_column.rs` — the file's own doc says there are
+   "two width answers".
+4. **A discriminator already in the tree, unused by the doc:** three sibling
+   tests use the identical warm/cold pattern and only this one is reported
+   flaky. It is also the only one that **introduces a new glyph** (`+`); the
+   fold and gutter-toggle tests only remove glyphs.
+
+## Next actions, in order
+1. **Push the guard commit.**
+2. **Verify `git gc` exits 0** (loose end 2 above).
+3. **Read `bhucp08b5`'s counts, then REVERT the temporary test in `gutter.rs`.**
+4. Fold the #69 findings into `docs/IN-FLIGHT-69-flaky-gutter.md`.
+5. Then #88 (tier-2 language extensions), #95, #94, #92-proper.
+

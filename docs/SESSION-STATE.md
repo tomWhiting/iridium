@@ -5094,3 +5094,164 @@ neither the marker nor the hook may be committed. See the task, not this file.
 
 ⚠️ **Do not start a new workflow while another is editing
 `input/keyboard/`.** Two agents in that directory will corrupt each other.
+
+---
+
+## Post-compaction tick — #74's CI half landed, the toolchain file is held
+
+`wf_613bf6d3-3e5` is **still running** (builder agent, transcript growing, ~10
+minutes in at 20:15). S-3 remains uncommitted. Nothing in `input/keyboard/` was
+touched this tick.
+
+### ⚠️ Correction to "Next actions" item 2 above
+
+It said "1.97.1 is already the active default here". That is wrong in the way
+that matters. Measured:
+
+```
+rustup show            -> active toolchain: stable-aarch64-apple-darwin
+rustc +stable --version                     -> rustc 1.97.1 (8bab26f4f 2026-07-14)
+rustc +1.97.1-aarch64-apple-darwin --version -> rustc 1.97.1 (8bab26f4f 2026-07-14)
+```
+
+The **version** is identical; the **toolchain identity** is not. `stable` and
+`1.97.1` are two separate rustup installations in two separate directories.
+Cargo's rustc fingerprint keys on the compiler binary, not only on the version
+string, so pinning switches identity and **the first build after the pin lands
+is a full cold rebuild**. That is a one-time cost, not a symptom — but it is
+also why the file must not land while a workflow is running cargo: it would
+blow the running agent's incremental cache mid-gate and make its timings and
+its verdict unreadable.
+
+Rule M again, in toolchain clothing: *"already the active default" was a claim
+about a version, and the population it needed to be about was an installation.*
+
+### Verified, so the pin is not a leap
+
+| claim | command | result |
+| --- | --- | --- |
+| `1.97.1-aarch64-apple-darwin` is installed | `rustup show` | listed |
+| it has clippy and rustfmt | `rustup component list --toolchain 1.97.1-… --installed` | `clippy-…`, `rustfmt-…` both present |
+| it has the wasm target | `rustup target list --toolchain 1.97.1-… --installed` | `aarch64-apple-darwin`, `wasm32-unknown-unknown` |
+| no toolchain file exists anywhere above us | `ls` in repo root, `ablative/`, `Developer/`, `~` | none — nothing to override or be overridden by |
+| nothing builds for a third target | grep `--target` across `*.sh *.toml *.yml *.json *.md` | only `wasm32-unknown-unknown`; wasm-pack's `--target web` is an output flag, same triple |
+
+The pinned toolchain carries **two** targets where `stable` carries ten. That
+is fine by the last row and not by assumption.
+
+### Done this tick
+
+- **`.github/workflows/ci.yml`** — all four `dtolnay/rust-toolchain@stable`
+  steps replaced with `rustup show`, so the workflow **names no version
+  anywhere**; the version lives in `rust-toolchain.toml` alone. `components:`
+  and `targets:` inputs deleted from the three jobs that carried them — the
+  toolchain file declares them once, which is what equips a developer's
+  checkout as well as a runner. The two long "Record the toolchain" comments
+  argued at length *from the premise that no pin exists*; both were rewritten
+  rather than edited, because the pin falsifies their first sentence. The
+  version print **stays**, with its reason changed: the pin says what was asked
+  for, `rustc --version` says what was resolved, and they come apart if rustup
+  is too old to honour the file or a runner sets `RUSTUP_TOOLCHAIN`.
+- **Task #94 opened** — `.cargo/config.toml:19` calls `cargo ci` "what CI would
+  run" while running three of the nine gates, and its `test --workspace` has
+  neither `--all-features` nor `--no-fail-fast`. Same false-green shape as the
+  committed-but-disabled workflow file, except this one executes, so it looks
+  more like evidence rather than less.
+
+### Held, deliberately
+
+`rust-toolchain.toml` is **written but not in place** — it sits at
+`…/scratchpad/rust-toolchain.toml`. It lands the moment the workflow is done,
+together with the ci.yml change, **never before**: ci.yml's new comments point
+at a file that must exist when they are read, and a commit of the CI half alone
+would be a live reference to nothing.
+
+
+---
+
+## #89 CLOSED — the class-A guard is installed, claimed and PROVEN
+
+Unblocked by the ref-predicate migration actually landing. The old blocker was
+that `.shared-tree` could not be committed and the hook keyed on it. Measured
+today: `tools/gates/hooks/claim_predicate.sh` names `refs/guards/shared-tree`
+and nothing else, and `reference-transaction` **sources** that predicate from
+`dirname $0` rather than hand-keeping its own copy — which is the exact defect
+I flagged earlier, now fixed at the source. Blocker gone.
+
+### The install, and why it has no pointer in it
+
+    cp -p <gates>/hooks/claim_predicate.sh    .git/hooks/    # predicate FIRST
+    cp -p <gates>/hooks/reference-transaction .git/hooks/
+    chmod +x .git/hooks/reference-transaction
+
+**Predicate first, deliberately.** The hook fails CLOSED when it cannot load
+its predicate — it refuses *every* reference transaction, not just rewrites —
+so the reverse order opens a window in which an ordinary commit is refused.
+
+⛔ **`core.hooksPath` stays UNSET**, and this inverts what the detector used to
+require. The default hooks directory is already repository-scoped; a *relative*
+hooksPath is a working-tree property that only guards trees whose branch
+carries it, and an *absolute* one is the stale-path class that silently
+disarmed four estate repos when directories moved. Verified unset here.
+
+`.githooks/reference-transaction` + `.githooks/claim_predicate.sh` committed as
+the tracked canonical (`fe54c56b`), hook staged **100755** — a 100644 hook is
+ignored by git silently. The detector compares the installed copies against the
+**index**, and iridium is obligated, so an unverifiable identity is itself red.
+
+### ⭐ Acceptance is a refused rewrite, not an install — and the probe was run red first
+
+The negative control matters more than the pass. Same command, same repo, same
+two commits; the **only** variable is the claim:
+
+| state | `git update-ref refs/heads/guard-acceptance HEAD~5` | ref after |
+| --- | --- | --- |
+| unclaimed | **exit 0** — five commits discarded, no complaint | moved back |
+| claimed | **exit 128**, refusal printed | **UNMOVED** |
+
+Not bricked, proven two ways: the fast-forward move back to HEAD was allowed,
+and commit `fe54c56b` itself landed under the armed guard.
+
+**Non-fast-forward via `update-ref`, chosen over amend deliberately.** git
+reports an all-zero `old` for `update-ref`, `branch -f`, `checkout -B` and
+`rebase`, and a real one only for amend and reset. An acceptance test built on
+amend alone samples the half of the class that happens to work — which is how
+the hook's own first version shipped waving `rebase` through with a passing
+test. It also needs no worktree and no checkout, both banned in this tree.
+
+Detector, run at this seat:
+
+    check_guard_active.sh --arming    -> exit 0, "class-A guard ARMED",
+                                         hooksPath [UNSET], hook AND predicate
+                                         byte-identical to the tracked pair
+    check_guard_active.sh --artefacts -> exit 0, "the class-A guard SHIPS"
+    check_must_be_claimed.sh          -> exit 0, 4 obligations, every one
+                                         CLAIMED + ARMED
+
+### ⚠️ Three stale statements I did NOT edit, because gates is not my tree
+
+1. **`docs/tracking/must-be-claimed.tsv`'s header contradicts its own body.** It
+   still carries a loud `⛔⛔ THIS FILE IS EMPTY OF OBLIGATIONS` block and says
+   `libs/iridium ... is NOT written in below` — above four rows, the first of
+   which is libs/iridium. A reader who reads the header block and stops
+   concludes the estate has no obligations.
+2. **Both instruments still state that nothing runs them.** `claim_predicate.sh`
+   and `check_guard_active.sh` carry `MEASURED 2026-08-08: no battery invokes
+   this script ... anywhere in the estate`. That was true when written and is
+   false now.
+3. ⭐ **The hook's refusal text is wrong at the worst possible moment.** It tells
+   the reader `NOTHING WILL CHASE YOU FOR IT ... RIGHT NOW IT IS THE ONLY RECORD
+   THERE WILL EVER BE` — printed exactly when someone is deciding whether to
+   record an unclaim. It now argues, falsely, that the ledger edit is optional.
+
+### ⚠️ And the leg's population is four, not six
+
+Cally's note said the check runs as a leg in six repos (aion, beamr, frame,
+haematite, liminal, meridian). Measured across every `gates.json` in the estate,
+the leg is `check_must_be_claimed.sh` and it is present in **four**: aion,
+frame, haematite, apps/meridian. **beamr and liminal carry no reference to
+either guard instrument anywhere in their trees** — their legs are fmt, clippy
+and tests. Two of the six would have shown green today by not running the check.
+
+Rule M, third time this week: *a green must state its population.*
+

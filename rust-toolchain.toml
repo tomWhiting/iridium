@@ -1,0 +1,59 @@
+# The toolchain this repository is built and gated with.
+#
+# ⭐ WHY THIS FILE EXISTS. Two of the nine gates are verdicts rendered by the
+# toolchain rather than by the code: `cargo clippy -- -D warnings` gains lints
+# on every new stable, and `cargo fmt --all --check` can change its mind across
+# a rustfmt revision or a style edition. Without a pin, a tree that is green
+# today goes red the morning a new stable lands, with no commit in between —
+# and the failure is attributed to whatever change happened to be in flight.
+# The 500-line-bar work, the clippy gate (#33, #60, #75) and the warning
+# clearances were all done on the assumption that a green gate means something
+# durable. This file is what makes that true. A toolchain move is now a
+# deliberate, reviewable one-line commit.
+#
+# ⚠️ THIS IS NOT THE MSRV. `Cargo.toml`'s `rust-version = "1.85"` is the oldest
+# compiler the crates claim to support and is what `clippy::incompatible_msrv`
+# is checked against; this is the single compiler the gates are actually run
+# with. They are allowed to differ and they do — deliberately. Raising one does
+# not raise the other, and neither should be edited on the assumption that it
+# does.
+#
+# ⚠️ THE VERSION LIVES HERE AND NOWHERE ELSE. `.github/workflows/ci.yml` names
+# no version: it runs `rustup show`, which reads this file and installs what it
+# names. That was `dtolnay/rust-toolchain@stable` before, which is how CI and
+# the developer's box were free to disagree. A version written in two places is
+# a version that can disagree with itself.
+#
+# Measured before pinning, on the box this was written on:
+#
+#   rustc +stable                     -> rustc 1.97.1 (8bab26f4f 2026-07-14)
+#   rustc +1.97.1-aarch64-apple-darwin -> rustc 1.97.1 (8bab26f4f 2026-07-14)
+#
+# Byte-identical, so the pin changes no compiler behaviour. It does change the
+# toolchain IDENTITY — `stable` and `1.97.1` are separate rustup installations
+# with separate directories — and cargo's rustc fingerprint includes the
+# compiler binary, so the first build after this file lands is a cold one. That
+# is a one-time cost, not a symptom.
+
+[toolchain]
+# Pinned to an exact patch release, not `stable`, because `stable` is the thing
+# being pinned against. Bumping this is the deliberate act; do it in its own
+# commit, re-run the nine gates, and record the counts.
+channel = "1.97.1"
+
+# The gates need exactly these two beyond the default profile. They are
+# declared here rather than in CI so the same mechanism equips a runner and a
+# developer's checkout — a component installed by a workflow step is a
+# component the developer does not have.
+components = ["rustfmt", "clippy"]
+
+# `wasm32-unknown-unknown` is not optional: `crates/iridium-bindings/src/wasm.rs`
+# is double-gated on `feature = "web"` AND `target_arch = "wasm32"`, so a native
+# check compiles none of it and reports success over a broken web face. Two of
+# the nine gates target it.
+#
+# The host target comes with the toolchain and is not listed. Nothing in this
+# repository builds for any third target — the only `--target` in any script,
+# workflow or documented command is this one (wasm-pack's `--target web` is an
+# output-format flag, not a Rust target, and resolves to this same triple).
+targets = ["wasm32-unknown-unknown"]

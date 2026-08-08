@@ -331,12 +331,26 @@ this section lands in.
 13. **Tests green**: core `bun test` 104 pass / 0 fail, syntax-worker 17 pass /
     0 fail.
 
+14. **The wasm was rebuilt on the clean committed tree.** `WASM_EXIT=0`,
+    `PROVENANCE.txt` now reads commit `4704baae`, tree `clean`, `rustc 1.97.1`,
+    `wasm-pack 0.15.0`. The compile itself was a cache hit — nothing under
+    `crates/` changed in that commit, so the bytes are the same ones the
+    earlier dirty build produced and the new stamp is a true claim about them,
+    not a re-derivation.
+
+15. **The ten gates are green.** `./scripts/ci.sh`, output redirected to a file
+    and `CI_EXIT` read **from that file** rather than from a completion
+    notification — twice this session a notification reported exit 0 over a red
+    run. `CI_EXIT=0`, every gate named and reached: `test/workspace` 1282,
+    `test/kernel` 1111, `test/syntax` 1243, `test/lang` 81, `check/wasm`,
+    `clippy/all`, `clippy/kernel`, `clippy/syntax`, `clippy/wasm`, `fmt`. Zero
+    failures anywhere.
+
 ## Still to do before Tom can publish
 
-- [ ] Re-run `./scripts/build-wasm.sh` on the **clean** committed tree, so
-      `PROVENANCE.txt` says `clean` and names this commit.
-- [ ] `./scripts/ci.sh` — ten gates, redirected to a file, `CI_EXIT` read from
-      the file and not from a notification.
+Nothing on this side. The staging is complete; the only remaining step needs
+Tom's npm credentials.
+
 - [ ] Reply to Waffles (`dm:896955e1-86dd-4d6a-9c25-f3f978b189a9`) with the
       command sequence below.
 

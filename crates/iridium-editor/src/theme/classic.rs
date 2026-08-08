@@ -167,6 +167,12 @@ pub(super) fn platinum_editor() -> EditorColors {
         current_line: rgb8(0xDD, 0xDD, 0xDD),
         gutter: rgb8(0xDD, 0xDD, 0xDD),
         minimap_background: rgb8(0xDD, 0xDD, 0xDD),
+        // A crisp near-black frame: 0.55 of the ink, where the dark chrome
+        // uses 0.18. The map (§2.6) states the alpha rather than a composited
+        // hex, because what a frame must do is hold a panel off the page it
+        // floats over — and 0.18 of anything is a modern half-tone rule, not
+        // a Platinum frame.
+        panel_border: rgba8(0x00, 0x00, 0x00, 0.55),
         // The Appearance panel's "Gold" accent, the era's canonical
         // alternative, and the same gold driven hard for the current match.
         search_match: rgba8(0xFF, 0xD7, 0x5F, 0.55),
@@ -270,6 +276,9 @@ fn paper_editor() -> EditorColors {
         // Between paper and card; distinct from `background`.
         gutter: rgb8(0xF5, 0xF0, 0xE6),
         minimap_background: rgb8(0xF5, 0xF0, 0xE6),
+        // The warm ink at the same 0.55 as A. Warm rather than black, so the
+        // frame does not turn out to be the one cold thing on the page.
+        panel_border: rgba8(0x24, 0x21, 0x1C, 0.55),
         // Aged-gold highlighter, and the same gold driven.
         search_match: rgba8(0xE8, 0xC4, 0x6A, 0.55),
         search_match_current: rgba8(0xD9, 0x8E, 0x28, 0.85),
@@ -370,6 +379,11 @@ fn monochrome_editor() -> EditorColors {
         current_line: rgb8(0xE6, 0xE6, 0xE6),
         // One dither step below the panel; distinct from `background`.
         gutter: rgb8(0xE0, 0xE0, 0xE0),
+        // 0.85, not the 0.55 of A and B: this is the variant with no colour
+        // and almost no tonal range to hold a panel off the page, so the
+        // frame does the whole job and is very nearly the solid 1-bit rule a
+        // System 6 window actually had.
+        panel_border: rgba8(0x00, 0x00, 0x00, 0.85),
         minimap_background: rgb8(0xE0, 0xE0, 0xE0),
         // A 25% dither wash, against a current match dark enough that black
         // text on it still reads.

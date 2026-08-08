@@ -141,11 +141,6 @@ const ROW_RADIUS: f32 = 4.0;
 /// pixels, so its rounded corners never overhang the panel's.
 const ROW_INSET: f32 = 4.0;
 
-/// The hairline border's opacity: the theme's foreground at this alpha,
-/// composited over the panel background — the derivation standing in for the
-/// web demo's `border: "1px solid #444"` until a theme colour exists for it.
-const HAIRLINE_ALPHA: f32 = 0.18;
-
 /// The hairline border's width in **physical** pixels — one device pixel,
 /// like the web demo's `1px` border on a `devicePixelRatio` display.
 const HAIRLINE: f32 = 1.0;
@@ -1303,15 +1298,19 @@ fn tab_colors(theme: &Theme) -> TabColors {
     }
 }
 
-/// The hairline border colour: the theme's foreground at [`HAIRLINE_ALPHA`],
-/// composited opaque over the panel background — a derivation rather than a
-/// new theme field, so existing theme files keep deserializing untouched.
+/// The hairline border colour: the theme's own `panel_border`, composited
+/// opaque over the panel background.
+///
+/// ⭐ **The alpha is the theme's, not the face's.** This used to derive the
+/// border as `foreground` at a face constant of 0.18, which quietly asserted
+/// that every theme wants the same strength of frame. The classic-Mac light
+/// presets disagree — 0.55 for Platinum and Paper, 0.85 for Monochrome, whose
+/// page has no tone left to hold a panel off it — so D-5 made the border a
+/// stated `EditorColors` field. The compositing stays here, because whether
+/// a panel floats over the document or over another panel is the face's fact,
+/// not the theme's.
 fn hairline_color(theme: &Theme) -> Color {
-    let foreground = theme.editor.foreground;
-    composite(
-        Color::new(foreground.r, foreground.g, foreground.b, HAIRLINE_ALPHA),
-        panel_background(theme),
-    )
+    composite(theme.editor.panel_border, panel_background(theme))
 }
 
 /// `over` alpha-composited onto an opaque `under`.
@@ -1771,6 +1770,71 @@ mod tests {
         for theme in [Theme::dark(), Theme::light()] {
             let hairline = hairline_color(&theme);
             assert!((hairline.a - 1.0).abs() < f32::EPSILON);
+        }
+    }
+
+    /// D-5 moved the border's alpha out of this file and into the theme. The
+    /// dark chrome must not have moved with it.
+    ///
+    /// ⭐ This is the discrimination proof for that refactor, and it is worth
+    /// stating because the change is invisible from the outside: the field
+    /// could have been added with any plausible value, every test above would
+    /// still pass, and the only symptom would be a frame that got heavier or
+    /// lighter in a face nobody re-screenshotted. So the old derivation is
+    /// recomputed here, by hand, from the constant this file used to hold —
+    /// `foreground` at 0.18 — and the shipped result must equal it.
+    #[test]
+    fn the_dark_panel_border_is_the_derivation_it_replaced() {
+        let theme = Theme::dark();
+        let foreground = theme.editor.foreground;
+        let derived = super::composite(
+            Color::new(foreground.r, foreground.g, foreground.b, 0.18),
+            super::panel_background(&theme),
+        );
+        assert_eq!(
+            hairline_color(&theme),
+            derived,
+            "the dark hairline moved when D-5 made the border a theme field"
+        );
+    }
+
+    /// And the light face must genuinely have taken the crisper frame the
+    /// ruling asked for, rather than inheriting the dark alpha through a
+    /// missed field.
+    ///
+    /// Stated as "further from its panel than the dark one is from its own",
+    /// which is the thing the ruling is actually about — a Platinum frame is
+    /// a rule you can see, where 0.18 is a modern half-tone. A bare `assert_ne`
+    /// against the dark value would pass on any difference at all, including
+    /// one in the wrong direction.
+    #[test]
+    fn every_light_preset_frames_its_panels_harder_than_the_dark_one_does() {
+        let dark = Theme::dark();
+        let separation = |theme: &Theme| {
+            let panel = super::panel_background(theme);
+            let hairline = hairline_color(theme);
+            (panel.r - hairline.r).abs()
+                + (panel.g - hairline.g).abs()
+                + (panel.b - hairline.b).abs()
+        };
+        let dark_separation = separation(&dark);
+
+        // `Theme::light()` is Platinum, so it is already in `ALL` — named
+        // separately anyway, because it is the one a user actually gets, and
+        // a future ruling that pointed `light()` at a different variant
+        // should not quietly drop it out of this sweep.
+        let lights = ClassicVariant::ALL
+            .into_iter()
+            .map(ClassicVariant::theme)
+            .chain(std::iter::once(Theme::light()));
+
+        for theme in lights {
+            assert!(
+                separation(&theme) > dark_separation,
+                "{}: its frame is no crisper than the dark preset's, so the \
+                 0.55/0.85 the ruling asked for did not reach the screen",
+                theme.name
+            );
         }
     }
 }

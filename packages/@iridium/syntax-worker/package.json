@@ -1,6 +1,6 @@
 {
   "name": "@iridium-editor/syntax-worker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Web Worker for tree-sitter syntax highlighting - moves parsing off the main thread",
   "exports": {

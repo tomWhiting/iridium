@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.1
+
+### Changed
+
+- **Rebuilt from a newer kernel.** 0.2.0's wasm was compiled from `4704baae`.
+  `crates/iridium-editor` has moved since — the classic-Mac light presets
+  "Paper" and "Monochrome" left the binary for `themes/*.json`, taking
+  `ClassicVariant` with them — so the 0.2.0 bytes no longer matched the source
+  at head. `pkg/PROVENANCE.txt` in this tarball states the commit it was
+  actually built from; compare it against the repository rather than trusting a
+  version number.
+
+### Fixed
+
+- `repository.url` is written as `git+https://…​.git`, the form npm normalises
+  to. Every publish of 0.2.0 and earlier printed a warning about it.
+
 ## 0.2.0
 
 ### Added

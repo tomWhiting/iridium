@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+**No change to this package's own code.** `src/` is byte-identical to 0.2.0.
+Released so the three packages carry one coherent set of versions after
+`iridium-bindings` was rebuilt; if you are on 0.2.0 there is nothing here to
+upgrade for.
+
+### Fixed
+
+- `repository.url` is written as `git+https://…​.git`, the form npm normalises
+  to. Every publish of 0.2.0 and earlier printed a warning about it.
+
 ## 0.2.0
 
 **The first version of this package that can actually be installed from npm and

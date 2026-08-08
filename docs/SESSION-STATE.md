@@ -3945,3 +3945,50 @@ were; `.git/worktrees` does not exist. Settled.
 Archive tags: `archive/seam-spike`, `archive/spike-web-build`,
 `archive/web-tree-sitter-standalone` (all three on origin), plus
 `archive/vk-c6cf-phase-6-us4-syntax` (**local only, deliberately**).
+
+## 8 Aug ~03:35 — `ClipboardOperation` diffed arm by arm: all three faces clean
+
+The baton's item 2. **No defect.** Recorded so nobody re-opens it.
+
+`ClipboardOperation` has three variants — `Copy(String)`, `Cut { text, command }`,
+`Paste` — and all three faces handle all three.
+
+**Read-only is honoured everywhere, by three different mechanisms:**
+
+* **Kernel** — `consume_key_result` (`core.rs:750`) returns early unless the op
+  is `Copy`, so both native faces receive `EditorKeyResult::Clipboard` only when
+  the kernel has already allowed it.
+* **Web, Cut** — guarded twice, in `cut_text` (`wasm.rs:1049`) and in
+  `apply_clipboard_result` (`:1109`), each commented as mirroring the kernel.
+* **Web, Paste** — `apply_clipboard_result` returns `"ignored"`
+  **unconditionally**, which looks like a hole and is not: the browser's native
+  paste event then calls `insert()`, which guards read-only at `wasm.rs:1499`.
+  The guard is one layer later, not missing.
+* **Terminal bracketed paste** — `TerminalInput::Paste` bypasses the keymap
+  entirely and reaches `Editor::paste`, guarded at `core.rs:1160`.
+
+### The lead that looked like a defect and was not
+
+`Editor::paste` calls `reset_vertical_state()` **and**
+`invalidate_cursor_order()`; the web's `insert()` calls only the first. Three
+sources say paste must do both — `invalidate_cursor_order`'s own doc names
+paste as a caller, `Editor::paste` does it, and the web face's
+`apply_remote_edit` (`wasm.rs:965-966`) does it while claiming "like every
+other host-driven jump".
+
+**It is still correct.** `insert()` applies through `track_and_apply` →
+**public** `Editor::apply_command` (`core.rs:991`), which resets *both* before
+delegating. `Editor::paste` looks different only because it applies through
+`apply_command_internal`, which deliberately touches neither and leaves both to
+its caller. Same guarantee, opposite mechanism.
+
+⚠️ The hazard is real even though the behaviour is not: switching
+`track_and_apply` to the internal path would silently strand the addition-order
+stack, and a browser paste would leave remove-last-cursor and skip acting on a
+stale one. A comment at `wasm.rs:1502` now names where the other half comes
+from, so the next reader does not have to trace three levels to find it.
+
+**Gates run:** `cargo fmt --all --check` (0), and the two that can see a
+`cfg(target_arch = "wasm32")` file — wasm `check` (0) and wasm `clippy
+-D warnings` (0). The full nine-gate battery was **not** run: the change is a
+comment in a file no native target compiles. Said plainly rather than implied.

@@ -1499,7 +1499,23 @@ impl WebEditor {
         if self.editor.state().read_only || text.is_empty() {
             return;
         }
-        // Paste-style insertion moves the cursor outside handle_key.
+        // Paste-style insertion moves the cursor outside handle_key, so the
+        // keyboard handler's transient state has to be dropped — both halves of
+        // it. `invalidate_cursor_order` names paste as one of its callers, and
+        // `Editor::paste` calls it directly.
+        //
+        // ⚠️ Only *one* half is visible here. The addition-order stack is
+        // cleared by `track_and_apply` below, which goes through the **public**
+        // `Editor::apply_command` — that resets the sticky column and the
+        // addition-order stack before delegating. `Editor::paste` looks
+        // different only because it applies through `apply_command_internal`,
+        // which deliberately touches neither and leaves both to its caller.
+        //
+        // So a change to `track_and_apply` that switched to the internal path
+        // would silently strand the addition-order stack here, and a browser
+        // paste would leave remove-last-cursor and skip acting on a stale one.
+        // The explicit call below is kept because `handle_paste` can return a
+        // non-`Command` result, in which case nothing downstream runs at all.
         self.keyboard_handler.reset_vertical_state();
         let state = self.editor.state();
         let result = self

@@ -73,13 +73,27 @@
 //! kernel implements and no keymap bound: they have no `Ctrl` spelling to
 //! inherit, and `⌘⌫`/`⌘⌦` is where a mac hand looks for them.
 //!
-//! The last two rows are the one place this face takes a chord *away* from
-//! the default keymap rather than filling a gap in it. `⌥⇧←`/`⌥⇧→` reached
+//! Every row here overrides *something* — that is what a `Required` mac
+//! spelling inside a loose pattern does, and a row that overrode nothing would
+//! be a mistake, which is why a test asserts each one does. Nearly always what
+//! it overrides is a fall-through the displaced verb does not need: `⌥←`
+//! outranks the loose pattern behind `cursor.left`, and `cursor.left` still
+//! answers to a bare `←`.
+//!
+//! **The `⌥⇧←`/`⌥⇧→` row is the one that takes a chord away from a verb's only
+//! home.** Those chords reached
 //! `ast.shrinkSelection`/`ast.expandSelection` through the kernel's loose
 //! patterns, and word-by-word selection had nowhere a mac hand would look for
 //! it. The verbs displaced are rehoused on `⌃⇧⌘`, VS Code's mac spelling,
 //! rather than left unbound — a rebinding that silently deletes a feature is
 //! a worse bug than the one it fixes.
+//!
+//! That last sentence is a promise, so it is machine-checked rather than left
+//! to whoever adds the next row:
+//! `no_verb_the_kernel_could_reach_is_stranded_by_this_layer` compares
+//! *reachability* — `KeyHintIndex` over the defaults against the same over the
+//! session stack — for every command the default keymap binds. A stroke-level
+//! overlap check cannot tell a harmless override from a stranding; this can.
 
 use iridium_editor::commands::builtin::{
     AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE,
@@ -379,7 +393,7 @@ mod tests {
         CURSOR_WORD_RIGHT_SELECT,
     };
     use iridium_editor::commands::{default_keymap_stack, default_non_modal_keymap};
-    use iridium_editor::{Editor, KeyPress, KeymapResolver, KeymapStack, Modifiers};
+    use iridium_editor::{Editor, KeyHintIndex, KeyPress, KeymapResolver, KeymapStack, Modifiers};
 
     use super::*;
 
@@ -545,6 +559,51 @@ mod tests {
             ctrl_shift_meta(),
             &AST_EXPAND_SELECTION,
         );
+    }
+
+    #[test]
+    fn no_verb_the_kernel_could_reach_is_stranded_by_this_layer() {
+        // The general form of the test above it. That one names the two verbs
+        // whose displacement someone noticed; this one asks the question of
+        // every verb, so the next row added to `MAC_CHORDS` cannot strand one
+        // quietly.
+        //
+        // The claim being checked is the module doc's: this face takes chords
+        // *away* from the default keymap, and every verb so displaced keeps a
+        // home. Most rows displace nothing that matters — `⌥←` outranks the
+        // loose pattern behind `cursor.left`, which still answers to a bare
+        // `←` — and the distinction between that and stranding a verb outright
+        // is exactly what a stroke-level overlap check cannot see. So the
+        // comparison is at the level of *reachability*, which is what
+        // `KeyHintIndex` already computes: an empty hint list means there is
+        // no key for this command, suppression, shadowing and rank loss all
+        // accounted for.
+        //
+        // A command already unreachable under the defaults alone is skipped
+        // rather than asserted about: this layer did not do that, and holding
+        // it responsible would fail the moment the kernel gained a
+        // palette-only verb.
+        //
+        // Scoped to the non-modal defaults, which is the surface this face's
+        // layer can reach — every row it pushes is a `CHORD`-mode binding.
+        let before = KeyHintIndex::build(&default_keymap_stack());
+        let after = KeyHintIndex::build(&session_stack());
+
+        for binding in default_non_modal_keymap().bindings() {
+            let Some(command) = binding.command() else {
+                continue;
+            };
+            let id = command.as_str();
+            if before.hints_for(id).is_empty() {
+                continue;
+            }
+            assert!(
+                !after.hints_for(id).is_empty(),
+                "{id} answered to a key under the default keymap and answers to none \
+                 with this face's layer pushed — rehouse it, as the syntax verbs were, \
+                 or say in the table that it is deliberately gone"
+            );
+        }
     }
 
     #[test]

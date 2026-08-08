@@ -3754,3 +3754,131 @@ Rule E on the remaining choke points — `FrameCompositor::compose` (what can
 other three variants across the three faces: `Clipboard` and `Search` were
 read this tick and both are handled in all three, but their *inner* enums
 (`ClipboardOperation`, `SearchAction`) have not been diffed face by face.
+
+---
+
+# ▶▶▶ BATON — 8 Aug ~12:50, written under a compaction warning
+
+Supersedes the 10:35 baton. Everything below is committed; tree clean apart
+from `?? .claude/skills/` (not mine, untracked at session start).
+
+## Do these, in order
+
+**1. One Meridian attempt per tick. ⚠️ One, not five.** Tom asked for an
+update at ~12:20 and got a full one. He owes **#82**, **B-2**, **B-5**.
+Nothing is blocked behind them.
+
+**2. Read `docs/MANIFOLD-EDITOR-READ.md` before touching the web face.**
+Do not re-derive it.
+
+**3. Then the next slice** — see *Where to look next*.
+
+## ⭐ The rules earned, in the order they cost something
+
+- **A. Parse the format, do not match it.** `\{[^}]*\}` terminates on the `}`
+  inside `end = "}"`.
+- **B. A hedge inside a clearance is a defect waiting.** "For the languages
+  checked" reads as diligence and functions as cover.
+- **C. A fix applied to the path you are standing on is not a fix to the
+  defect.** Ask **where else does this shape appear** — often three lines away.
+- **D. A claim of uniqueness is checkable, so check it.**
+- **E. A choke point only funnels what is shaped like the thing it funnels.**
+  Ask what the *parameter type* cannot express.
+- **F. A comment saying a guard is untested is worse than no comment.**
+- **G. A uniqueness claim can be false in ways that do not matter, and the one
+  that matters hides behind them.** Enumerate every counter-example, then ask
+  which lacks the property the claim was reaching for.
+- **H. A call-graph grep answers "who calls this", not "who can reach this".**
+  A parser is a caller that turns user input into the call. Confirm
+  reachability at the surface a person actually touches. *(This is how I got
+  `d0f8a989` wrong — see the correction below.)*
+
+## ⚠️ A claim I made and had to correct
+
+`d0f8a989` said a config file "cannot express either [a count prefix or a
+capture]". **Half wrong**, corrected in `5afac26c`. A count prefix is
+unreachable; **`{char}` is not** — it parses to `StrokePattern::any_char`, so
+`"ctrl+f {char}" = "some.hostCommand"` is a capturing binding on a host
+command in a layer no guard sees. Consequence today is still **none**: no host
+command in any face reads its arguments.
+
+## This session's commits
+
+`815bec99` #80 · `edffe6e1` #81 · `dc72b23c` · `bb73bd3a` manifold read ·
+`5792a248` #83 · `cb4a60b2` baton · **`24d6f266` #84** · **`2efb8aca`
+stranding oracle** · **`d0f8a989` host-arg guards** · **`5afac26c` the
+correction** · plus tick records.
+
+## Gate state
+
+**All nine green. 2,541 passed, 0 failed.**
+TypeScript: `deno check src/element/index.ts` · **`bun test src/` 104 passed**
+— ⚠️ from `packages/@iridium/core`, and **`deno test` fails** (suites import
+`bun:test`). `examples/web`: `./node_modules/.bin/tsc --noEmit`.
+⚠️ `pkg/` is gitignored; rebuilt this session with
+`wasm-pack build crates/iridium-bindings --target web --features web --no-default-features`.
+**#84 requires it** — without a rebuild `doCreate` throws on a missing export.
+
+## ✅ Two sweeps are COMPLETE — do not redo them
+
+- **Uniqueness claims: 23 checked, 19 sound, 4 wrong** (`wasm.rs:1164`→#81 ·
+  `windowed.rs:120`→`dc72b23c` · `actions/mod.rs:10`→#84 ·
+  `file_tree/panel.rs:346`→`24d6f266`).
+- **Hedge / impossibility language: swept, nearly empty.** Every
+  "unreachable" spot-checked was a *model* of how to write one. Route spent.
+
+## Leads closed clean this session (do not re-open)
+
+- **`goto_next_match` and the sticky column.** The web face calls
+  `reset_vertical_state()` before it; the kernel's `handle_search_action`
+  appears not to. **No defect:** `Editor::goto_next_match` (`core.rs:1549`)
+  calls `reset_vertical_state()` *and* `invalidate_cursor_order()` itself. The
+  web face needs its own call because `WebEditor` holds a **second**
+  `KeyboardHandler` beside the one inside `self.editor` — that duplication is
+  the reason, and it is documented at `wasm.rs:222`.
+- `SearchAction` and `ClipboardOperation` are handled in all three faces; all
+  four `SearchAction` variants are covered, and the two native faces'
+  "`NextMatch` needs nothing here" is **correct** because the kernel moved the
+  cursor already.
+- `mouse.rs`'s `line_height * 0.6`; desktop tab switching and the highlight
+  cache; the terminal face needs no stranding oracle (its collision test is
+  strictly stronger).
+
+## Where to look next
+
+1. **Rule E on the remaining choke points** — the route that has paid twice.
+   Not yet asked: `FrameCompositor::compose` (what can `FrameTarget` +
+   `HighlightSource` not express?) and `Workspace::run_command` (id-only, the
+   same shape as `dispatch_host_command`).
+2. **Cross-face contract diffs.** Today's pattern is *one face honouring a
+   kernel contract the other two drop*. `EditorKeyResult`'s four variants are
+   now diffed; the inner `ClipboardOperation` variants have **not** been
+   compared arm by arm across the three faces.
+3. **#79's remaining slices** — S-2 needs B-2, S-5 needs B-5, S-3 is an
+   *addition* so it wants a ruling too, S-4 recommend not yet. ⚠️ Trap:
+   `single_char_pairs` drops multi-char rows **at the reader**, deliberately —
+   do not take the first `char` of `r#"`.
+
+## Open work / blocked on Tom
+
+**#82** (recommend delete) · **B-2** (Markdown `<`→`>`; recommend no) ·
+**B-5** (`autoclose_before` at EOL and before whitespace) · L-0..L-8
+(#43/#44/#45) · D-1..D-8 (#31) · #58's three keys · #64 · #70's six colours ·
+#74's pin · Cally's hook · nineteen grammar repos · the `cargo doc` pair.
+
+⚠️ **If a later tick sees `#[allow(dead_code)]` on #58's `mod mode;`, the fix
+is to wire `keys`, not to widen the allow.**
+
+⚠️ **Both ends of the web face are outside their own gate battery** —
+`wasm.rs` is `cfg(target_arch = "wasm32")` behind a `check`; `element/index.ts`
+needs a DOM. Real defects were closed in each with no red test possible (#81,
+#83). The landed fix pattern is extraction (`lib.rs:90-106`); **#43 owns that
+territory and is blocked.**
+
+## Box
+
+Load 42.8 at tick open, not this seat's. ⚠️ **The disk correction stands:**
+this seat added ~3.4 GB of `target/` through repeated nine-gate batteries plus
+wasm builds. Last measured tree 12,812,684 KB, `target/` 11,013,236 KB.
+`cargo clean` would reclaim ~10.5 GB at the cost of cold gates — **not taken
+unilaterally**; raise it if free space nears a band.

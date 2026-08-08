@@ -4050,3 +4050,45 @@ so at the point someone would do it.
 **Gates: all nine green** — 2,541 / 1,061 / 1,157 passed, 0 failed, four clippy
 targets and fmt clean. Run in full rather than by reasoning about reach,
 because GitHub Actions is billing-blocked and there is no second net.
+
+## 8 Aug ~04:15 — Rule E on `FrameCompositor::compose`: the key is sound
+
+The last unexamined choke point from the baton. **No defect in the cache.**
+The three routes the baton listed are now all spent.
+
+`HighlightSource::resolve` returns `(&str, Color)` runs and the compositor
+**skips calling it entirely** while `ShapeKey` is unchanged, so the Rule E
+question is what can move without moving the key.
+
+**The completeness claim checks out.** `ShapeKey`'s doc claims every row of
+`docs/design/RETAINED-SHAPING-MAP.md` §2 "is a field here or is subsumed by
+one". Checked all 11 rows against the 14 fields: rows 1–10 each map to a field
+or are explicitly subsumed (content width folds in surface width, gutter
+enablement, custom gutter text, char width and digit rollover), and row 11 is
+declared out with a stated reason and a trigger. `permits_line_diff`
+destructures the key so a *new field* cannot be forgotten there — though note
+nothing forces a new shaping *input* to become a field; the map is that
+mitigation.
+
+### What it did turn up — #86, and it needs a ruling
+
+Row 11 rests on "tab width (default, never set)", written before the
+configuration file existed. **Still true, but only because of a split worth
+stating:** `EditorConfig::tab_width` is an *editing* input, read by
+`input/keyboard/behaviors.rs` alone, and its edits move `document_revision`,
+which is keyed. Nothing under `render/` reads a tab width at all.
+
+⚠️ Which means `tab_width` is honoured for indent/unindent and **ignored for
+rendering**. Reachable, not theoretical: `insert_spaces = false` is settable
+(`[editor]` deserializes into `EditorConfig`, deriving `Deserialize` with
+`#[serde(default)]`), and any file off disk may hold tabs anyway. A user can
+ask for two-column tabs, get two-column unindent, and see eight-column tabs.
+
+Filed as **#86, awaiting Tom** — it changes how every tab-containing file
+looks, so it is not mine to take. ⚠️ **Whoever closes it must add a key member
+to `ShapeKey`**, or changing the setting will re-measure nothing. Recorded as
+row 11's *second* trigger in both the map and `ShapeKey`'s own doc, beside the
+soft-wrap one that was already there.
+
+**Gates: all nine green again** — 2,541 / 1,061 / 1,157, 0 failed. Full battery
+because Actions is still billing-blocked.

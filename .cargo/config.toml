@@ -16,8 +16,46 @@ lint-fix = "clippy --workspace --all-targets --all-features --fix --allow-dirty"
 # Format commands
 fmt-check = "fmt --all -- --check"
 
-# Full check (what CI would run)
-ci = ["fmt-check", "lint", "test --workspace"]
+# ⛔ THE NINE GATES. `ci` ran THREE of them and called itself "what CI would
+# run" — so a green `cargo ci` said nothing about the feature-off kernel, the
+# syntax-only build, or the wasm target, which is where three of this year's
+# defects actually landed. A green that names a population it does not cover is
+# worse than no green, because it is trusted.
+#
+# ⚠️ `lint` above is the QUICK one and does not carry `-D warnings`. It is for
+# working, not for gating. Everything below gates.
+#
+# Order matches the battery: tests, then the wasm check, then clippy, then
+# formatting last. Each is its own alias so a failure names the gate that failed
+# rather than a step number.
+ci-test-workspace = "test --workspace --all-features --no-fail-fast"
+ci-test-kernel = "test -p iridium-editor --no-default-features --no-fail-fast"
+ci-test-syntax = "test -p iridium-editor --no-default-features --features syntax --no-fail-fast"
+ci-test-lang = "test -p iridium-lang --all-features"
+ci-check-wasm = "check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown"
+ci-clippy-all = "clippy --workspace --all-features --all-targets -- -D warnings"
+ci-clippy-kernel = "clippy -p iridium-editor --no-default-features --all-targets -- -D warnings"
+ci-clippy-syntax = "clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings"
+ci-clippy-wasm = "clippy -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown -- -D warnings"
+
+# ⛔⛔ THERE IS NO `ci` ALIAS, AND THERE CANNOT BE ONE. Use `scripts/ci.sh`.
+#
+# `ci = ["fmt-check", "lint", "test --workspace"]` stood here and read like a
+# chain. It is not one — **cargo's list form is ONE command with arguments**, so
+# it expanded to a single rustfmt invocation with three stray arguments:
+#
+#     cargo fmt --all -- --check lint test --workspace
+#
+# ⭐ MEASURED, not reasoned: replacing it with a ten-element list of the aliases
+# above failed with `error: unexpected argument 'ci-test-syntax' found` from
+# `cargo test` — the second element became an argument to the first. The task
+# recording this defect said the alias "runs three of the nine gates". It ran
+# NONE. A claim about what a gate covers is worth nothing until someone watches
+# it run, and nobody had.
+#
+# The `ci-*` aliases above DO work and are for running one gate by hand. The
+# full sequence needs per-gate exit checking, which an alias cannot express, so
+# it lives in `scripts/ci.sh`.
 
 [build]
 # Use all available cores

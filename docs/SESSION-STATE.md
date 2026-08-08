@@ -4346,3 +4346,36 @@ anything — see `IN-FLIGHT-legacy-bindings.md`)*.
 ## Box
 
 `.git` 1,409,696 KB at the last measure. Working tree 21 MB lighter after #64.
+
+## TICK addendum — S-4a landed, `fac9710c`
+
+**Gates: all nine green, 2,568 / 1,068 / 1,164, 0 failed.**
+
+The data half of S-4: `HighlightType::is_within`, `Bracket::not_in`,
+`Manifest::pairs_suppressed_in`, nine tests. `not_in` is no longer declared
+everywhere and read by nothing.
+
+### ▶ S-4b is the next thing to build, and it has a fork to settle first
+
+⚠️ **The typing path cannot see the syntax tree.** `handle_char_input` takes
+`(&Document, &CursorState, &EditorConfig)`, and `CommandContext`
+(`input/keyboard/actions/mod.rs:65`) carries those plus event and args and
+*deliberately* no syntax state — the same reason the AST verbs went through
+`KeyResult::Ast` rather than widening it. The tree is on `EditorState::syntax`,
+one level up.
+
+Two shapes, priced in `AUTO-PAIR-MAP.md` §9.2:
+
+- **(a) resolve above, pass `Option<HighlightType>` down** — one `Copy` field on
+  `CommandContext`, `behaviors` stays free of syntax. **Recommended.**
+- **(b) pass a resolver** — general enough for a future verb asking about an
+  arbitrary byte, at the cost of a trait object or a lifetime.
+
+Then: the scope-at-byte accessor on `SyntaxState` over `tree()` and
+`spans_in_range` (**never `sync()`**), suppressed-scope masks on `PairRules`,
+and the gate in the collapsed-opener branch only.
+
+⚠️ **Every suppression test must first assert the scope resolved.** Under B-6
+unknown and not-suppressed are the same answer, so a test that only checks "it
+did not pair" passes against a resolver returning `None` for everything. Same
+family as Rule J.

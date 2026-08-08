@@ -832,6 +832,21 @@ fn no_host_command_is_bound_to_a_sequence_that_carries_arguments() {
     // read it would be ceremony; refusing the situation in the keymaps we own
     // is not. **When this test fails, the fix is to thread `args` through
     // `run_host_command` in both native faces — not to relax the assertion.**
+    // ⚠️ The filter is `implements_command`, which is **wider than this test's
+    // name**. It admits every id the kernel does not implement, and that is
+    // eight ids, not the three in `builtin::HOST`: the five `workspace.*` ids
+    // report `implements_command == false` too, and this keymap binds three of
+    // them (`WORKSPACE_NEXT_TAB`, `WORKSPACE_PREVIOUS_TAB`,
+    // `WORKSPACE_CLOSE_TAB`). They are in scope here, and they should be —
+    // `Workspace::run_command` takes an id and nothing else, so it discards
+    // arguments exactly as the native faces' host dispatch does.
+    //
+    // The messages below therefore say "a command this kernel does not
+    // implement" rather than "a host command": a failure naming
+    // `workspace.nextTab` would otherwise send the reader hunting through
+    // `builtin::host` for an id that was never there. **Do not narrow this
+    // filter to `HOST` to match the name** — that would silently drop the
+    // workspace ids from a guard that currently covers them.
     let editor_implements = |id: &str| crate::Editor::implements_command(id);
 
     for binding in default_non_modal_keymap().bindings() {
@@ -843,13 +858,15 @@ fn no_host_command_is_bound_to_a_sequence_that_carries_arguments() {
         }
         assert!(
             !binding.accepts_count(),
-            "{command} is a host command bound to a count-taking sequence; the \
-             desktop and terminal faces discard the count"
+            "{command} is a command this kernel does not implement, bound to a \
+             count-taking sequence; whoever runs it — a face's host dispatch or \
+             `Workspace::run_command` — receives an id alone and discards the count"
         );
         assert!(
             !binding.has_capture_stroke(),
-            "{command} is a host command bound to a capturing sequence; the \
-             desktop and terminal faces discard the captures"
+            "{command} is a command this kernel does not implement, bound to a \
+             capturing sequence; whoever runs it — a face's host dispatch or \
+             `Workspace::run_command` — receives an id alone and discards the captures"
         );
     }
 }

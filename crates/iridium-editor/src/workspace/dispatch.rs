@@ -45,6 +45,23 @@ impl<T> Workspace<T> {
     /// **not** an error, and treating it as one is how a face ends up
     /// flashing an error at a user who simply reached the end of the strip.
     ///
+    /// # Arguments it cannot receive
+    ///
+    /// The parameter is an id and nothing else, so a count prefix or a
+    /// captured character declared by the binding does not reach here. That is
+    /// deliberate — no workspace verb has a use for one — but it is a promise
+    /// the *keymaps* keep, not this signature: a binding that carried
+    /// arguments would have them silently dropped, and next-tab would move one
+    /// tab whatever count was typed.
+    ///
+    /// `no_host_command_is_bound_to_a_sequence_that_carries_arguments` is what
+    /// holds it. That test filters on
+    /// [`Editor::implements_command`](crate::Editor::implements_command),
+    /// which the five `WORKSPACE` ids fail exactly as the three `HOST` ids do,
+    /// so they are inside its scope despite its name. If a workspace verb ever
+    /// needs a count, the fix is to widen this signature — not to relax that
+    /// test.
+    ///
     /// # Errors
     ///
     /// [`WorkspaceCommandError::NotAWorkspaceCommand`] if `id` is not one of

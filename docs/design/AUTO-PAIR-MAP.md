@@ -1369,3 +1369,68 @@ and the doc sentence was corrected rather than left to rot.
 is a claim about the *query tree*, not the manifests, and its correct value is genuinely
 ambiguous: `languages.txt` lists **18** ids while the query tree has **22** directories. That
 discrepancy wants looking at on its own, not a number swapped in passing.
+
+### 10.12 ⭐⭐ B-13 — stop reconstructing. The buffer is not history.
+
+The before-opener probe is **also** wrong, and worse than wrong — it is a **regression against
+the pre-fix code**, measured in five cases the adversary reproduced against a real editor:
+
+| language | after typing | Backspace **with the fix** | Backspace **before it** |
+| --- | --- | --- | --- |
+| C | `f("a"/* */ x);` | `f("a"/ */ x);` ❌ | `f("a"/ x);` ✅ |
+| JS | `foo("bar"/* */ note);` | `foo("bar"/ */ note);` ❌ | `foo("bar"/ note);` ✅ |
+| C | `if (c == 'x'/* */ why )` | `'x'/ */ why )` ❌ | `'x'/ why )` ✅ |
+| C | `/* a *//* */ x;` | `/* a *// */ x;` ❌ | `/* a *// x;` ✅ |
+| Rust | `let s = /* c */r#""#;` | `let s = /* c */r##;` ❌ | `let s = /* c */r#;` ✅ |
+
+The insertion path asks `not_in` **at the caret byte of the pre-insertion buffer**; the fix
+asks it **before the opener**. Those agree only while the scope is constant across the
+opener, and diverge at **any scope boundary ending immediately in front of it** — a closing
+quote, a `*/`, a passed `//`.
+
+#### The conclusion three rounds have been circling
+
+**Probing after the closer fails too** — in `/* keep/* */` the closer ends the comment, so the
+byte beyond it resolves to *no scope* and the collapse fires exactly where it must not.
+
+⭐⭐ **Every positional probe is a proxy, and they all fail, because the thing being asked is
+not a property of the buffer.** *"Did the editor write this closer"* is a fact about **what
+happened**, and the buffer records only **what is**. No position in a post-edit buffer
+reliably reconstructs a decision made in the pre-edit one. Rounds 2, 3 and 4 each proposed a
+different position and each was refuted by a case at a boundary the position could not see.
+
+> **B-13 — the multi-character collapse is gated on remembered insertion, not on
+> reconstructed scope.** The auto-pair insertion records what it wrote — the caret positions,
+> the closer, and the document revision. Backspace performs the multi-character collapse
+> **only** when that record matches the current carets exactly and the revision is the one the
+> record was taken at. Anything else — a motion, another edit, undo, a click — leaves no
+> match, and the collapse falls through to the single-character answer.
+
+This is B-8's own words taken literally at last: *"backspace **immediately after** an
+auto-pair puts you back where you were."* **Immediately after is a condition on history**, and
+history is the one thing a positional probe cannot see.
+
+#### Why this is the smaller change, not the larger one
+
+- ⭐ **It deletes B-11 and B-12 outright.** No `not_in` on the delete path, no probe position
+  to argue about, no fail-open-versus-closed question, no tri-state scope resolver. The whole
+  §10.10–§10.11 apparatus becomes unnecessary rather than corrected.
+- ⭐ **It fixes Rust**, which `not_in` provably cannot: a record either exists or does not, and
+  an unparseable buffer is irrelevant to it.
+- ⭐ **It works in the no-syntax build.** The record needs no tree, so the web face and the
+  GPU-free kernel get the same behaviour as the desktop — which the scope approach could never
+  have given them.
+- **It is cheaper on the hot path**: an equality check against a small record, instead of a
+  document-sized `String` and a tree-sitter query on a Backspace.
+- **The pattern already exists in the same file, with its discipline written down.**
+  `KeyboardHandler::preferred_columns` is validated against `sticky_state` by *full cursor-state
+  identity*, and its doc says exactly why: *"validating by full cursor-state identity is what
+  makes any intervening path self-invalidate the sticky column without an explicit reset."*
+  The pair record takes the same shape and inherits the same argument.
+
+⚠️ **The single-character collapse keeps its buffer-based rule and is not touched.** It can
+afford to be permissive — over-deleting one character is a nuisance. The multi-character
+collapse cannot, which is the whole reason the two now differ. Say so where a reader will look.
+
+⚠️ **The record must cover multi-cursor**, since one keystroke writes one command across every
+caret. Store the set, and require the whole set to match.

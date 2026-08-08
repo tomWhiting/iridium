@@ -336,3 +336,38 @@ Twice in one night a source read caught what no list held — G5's decorative
 retained tree (found because someone challenged an absence claim instead of
 accepting it). **An absence claim carries the search that failed, and the
 search that failed is the thing worth challenging.**
+
+---
+
+# Round 3 — both ruled, and G5 closed
+
+**G1: reclassified to "widen when structural features arrive."** Corrections
+adopted whole — the widening's first task is the node abstraction in the
+kernel (one trait, two satisfying trees, one implementation of semantics), and
+the shape is the digest push, never request/response on the keystroke path.
+The original refusal in `docs/PLAN.md` §4.5 was of a *different, worse* design
+(reimplement navigation in TypeScript); that distinction is now drawn in
+manifold's record rather than left to look like a contradiction.
+
+**G2: option (a) now, option (b) pre-ruled.** One live editor per resource,
+guaranteed by the slot — an arrangement rule, with "already open here" as
+honest interface. Option (b) — provider owns convergence — is pre-ruled as the
+architecture for the record-native second provider, **with the undo
+consequence chosen in writing at that point rather than discovered**. Tabs
+stay a desktop concept. The kernel's shared-buffer rule
+(`workspace/model.rs:177`) is *why* (a) has to be a guarantee and not a habit.
+
+**G5 is closed** — see #83. The element now applies `readonly` at mount
+(`hasAttribute`, because an element that arrives with the attribute already
+set never fires `attributeChangedCallback` for it) and on change (presence,
+not value, per HTML boolean-attribute semantics).
+
+⚠️ **No red test, and the reason is worth recording alongside the wasm one.**
+The TypeScript suite is 104 tests over six files, and every one of them is a
+pure state machine — `palette/`, `history/` — with no DOM. The custom element
+needs a document and a live WebGPU editor, and neither happy-dom nor jsdom is
+a dependency. So **the layer manifold actually mounts is the least-covered
+layer in the tree**: `wasm.rs` cannot be reached by the Rust gates, and
+`element/index.ts` cannot be reached by the TypeScript ones. Verified by
+`deno check` (clean) and by the suite still passing (104/104). That gap should
+be in manifold's brief next to the extraction pattern.

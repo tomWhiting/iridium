@@ -7,24 +7,12 @@
   "types": "./pkg/iridium_bindings.d.ts",
   "exports": {
     ".": {
-      "types": "./ts/controller/index.ts",
-      "default": "./ts/controller/index.ts"
-    },
-    "./controller": {
-      "types": "./ts/controller/index.ts",
-      "default": "./ts/controller/index.ts"
+      "types": "./pkg/iridium_bindings.d.ts",
+      "default": "./pkg/iridium_bindings.js"
     },
     "./wasm": {
       "types": "./pkg/iridium_bindings.d.ts",
       "default": "./pkg/iridium_bindings.js"
-    },
-    "./syntax": {
-      "types": "./ts/syntax/index.ts",
-      "default": "./ts/syntax/index.ts"
-    },
-    "./element": {
-      "types": "./ts/element/index.ts",
-      "default": "./ts/element/index.ts"
     }
   },
   "files": [
@@ -32,7 +20,6 @@
     "pkg/iridium_bindings.d.ts",
     "pkg/iridium_bindings_bg.wasm",
     "pkg/iridium_bindings_bg.wasm.d.ts",
-    "ts/",
     "grammars/"
   ],
   "keywords": [

@@ -21,8 +21,10 @@ export default defineConfig({
       "@iridium/core/palette": resolve(__dirname, "../../packages/@iridium/core/src/palette/index.ts"),
       "@iridium/core/history": resolve(__dirname, "../../packages/@iridium/core/src/history/index.ts"),
       "@iridium/core": resolve(__dirname, "../../packages/@iridium/core/src/controller/index.ts"),
-      // Legacy iridium-bindings (still supported)
-      "iridium-bindings": resolve(__dirname, "../../crates/iridium-bindings/ts/controller/index.ts"),
+      // The wasm bundle. The `ts/` half of iridium-bindings was deleted with
+      // #64 — a January fork of @iridium/core that nothing imported — so the
+      // bare "iridium-bindings" alias is gone with it. These two are the wasm
+      // build, which is a different thing and very much alive.
       "iridium-bindings/wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
       "iridium-wasm": resolve(__dirname, "../../crates/iridium-bindings/pkg/iridium_bindings.js"),
       // Resolve web-tree-sitter for files outside this directory
@@ -30,7 +32,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ["@iridium/core", "iridium-bindings", "iridium-bindings/wasm", "iridium-wasm"],
+    exclude: ["@iridium/core", "iridium-bindings/wasm", "iridium-wasm"],
   },
   build: {
     target: "esnext",

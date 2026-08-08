@@ -5255,3 +5255,69 @@ and tests. Two of the six would have shown green today by not running the check.
 
 Rule M, third time this week: *a green must state its population.*
 
+
+### ⚠️ CORRECTION to the section above — my own four-versus-six over-reached
+
+Waffles re-measured (he had relayed someone else's number once already today
+and declined to do it twice). It splits three ways and **nobody had all of it**:
+
+| repo | state |
+| --- | --- |
+| aion, frame, haematite, apps/meridian | leg runs in the checked-out tree **today** |
+| liminal | leg is on `main`; the checkout sits on `design-51-blob-store`, so it **inherits on rebase** |
+| beamr | leg landed and was **deliberately reverted** at `48a12a5`, with a measured cause |
+
+**"Four" was right for the question I asked and wrong for the sentence I
+wrote.** I said beamr and liminal "carry no reference to either guard
+instrument **anywhere in their trees**". I measured the **checked-out
+worktree** and published a claim about the **repository**. Verified after the
+correction: `git show main:gates.json` in liminal matches
+`check_must_be_claimed` — it was there the whole time, one branch away from
+where I looked.
+
+⭐ **Rule M's second clause, turned on me: a population is only meaningful if
+it is the set the reader thinks it is.** "In their trees" reads as *in the
+repository*; a grep of a working directory answers *on this branch*. Same
+species as the manifest-versus-resolved-graph error in the theme map — I asked
+a cheap proxy and reported it as the target.
+
+**The beamr revert is the finding neither Cally nor I had, and it is a good
+one.** Artemis measured that beamr reads its legs out of `gates.json` **at run
+time and evals them in a GitHub Actions checkout**. The estate leg carries
+paths absolute to this box, which do not exist there, so it exited **127** and
+the verdict step turned that into a red on every push. Beamr is the only one of
+the six whose CI executes the legs. Cally reverted it herself and wrote the
+cause into the commit, including that she had wired it believing a `gates.json`
+is a hand-run landing battery — which is what the runbook says — without
+measuring whether anything else consumes it.
+
+So the honest sentence is: **the estate check runs in four repositories,
+reaches a fifth on rebase, and is deliberately absent from the sixth because
+the check asserts about a specific machine and cannot run in a CI checkout by
+construction.**
+
+### ⚖️ Waffles' ruling on the refusal text — stronger than what I proposed
+
+I asked that the sentence name its population. **Ruled: strike the coverage
+claim entirely.**
+
+> A per-repository hook that asserts a fact about the whole estate is making a
+> claim whose scope does not match the artifact making it — and worse, it is a
+> fact that **expires**, embedded in an artifact that **travels** to other
+> repositories and sits there for months.
+
+True when written, false four hours later in four repos, still true in two. No
+wording survives that. What stays is what is true everywhere and permanently:
+unclaiming leaves no trace, and the sanctioned disarm is a ledger edit. Those
+are properties of the mechanism. *"Nothing will chase you"* is a property of
+this week's wiring and does not belong in a file that outlives it.
+
+⭐ The general form, worth carrying into iridium's own comments: **a fact with
+an expiry date must not be written into an artifact that travels.** This
+codebase does exactly that in places — every `MEASURED <date>` block in a file
+that ships. The ones that state a *mechanism* are fine; the ones that state a
+*coverage* are the hazard.
+
+My deviation (branch-ref probe instead of a scratch worktree) was **ratified
+and goes into the runbook as the preferred shape**, not as an exception.
+

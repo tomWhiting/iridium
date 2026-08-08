@@ -1,12 +1,23 @@
-//! Candidate classic-Mac light presets — three variants, pending a ruling.
+//! The classic-Mac light presets — three variants, one of them shipped.
 //!
 //! These are the three light faces designed in `docs/design/LIGHT-THEME-MAP.md`
-//! §2.3, transcribed field by field so the owner can judge them from rendered
-//! pixels rather than from a table. They are **candidates**: nothing in the
-//! estate reaches them by default, [`Theme::light`](super::Theme::light) is
-//! untouched, and the winner replaces it only once D-1 is ruled. Until then
-//! their only consumers are this module's own tests and the desktop face's
-//! screenshot harness (`apps/iridium-desktop/tests/chrome_screenshots.rs`).
+//! §2.3, transcribed field by field. **D-1 is ruled: Variant A wins**, so
+//! [`platinum`] is no longer a candidate — it *is*
+//! [`Theme::light`](super::Theme::light), reached through
+//! [`EditorColors::light`] and [`SyntaxColors::light`], which delegate here
+//! rather than carrying a second copy of the table. [`paper`] and
+//! [`monochrome`] remain unshipped, kept in Rust until they move out to JSON
+//! under `themes/`; their consumers are this module's own tests, the desktop
+//! face's screenshot harness (`apps/iridium-desktop/tests/chrome_screenshots.rs`)
+//! and the overlay's derivation tests.
+//!
+//! ⚠️ **One transcription, not two.** The tables are written here, beside each
+//! other, where the sweeps that check all three can reach them. The
+//! alternative — restating Variant A's rows inside
+//! [`EditorColors::light`] — was tried and abandoned: the hand-written float
+//! form put `selection` at `#3354AB` against the table's `#3355AA`, and
+//! nothing would have caught it, because both copies would have been telling
+//! the truth about "the light preset".
 //!
 //! # The three
 //!
@@ -129,7 +140,12 @@ impl ClassicVariant {
 
 /// Variant A's editor chrome — the light-theme map §2.3, table "Variant A ·
 /// Editor colours", transcribed row for row.
-fn platinum_editor() -> EditorColors {
+///
+/// ⭐ **This is the shipped light preset**, reached through
+/// [`EditorColors::light`], and the only transcription of the table. It is
+/// `pub(super)` rather than `pub` so that stays true: a caller outside this
+/// module gets the preset by its name, not by its variant.
+pub(super) fn platinum_editor() -> EditorColors {
     EditorColors {
         // The Platinum window well — grey, not white, the single strongest
         // era signal.
@@ -176,7 +192,10 @@ fn platinum_editor() -> EditorColors {
 
 /// Variant A's code inks — MPW/CodeWarrior colours, the map §2.3's "Variant A
 /// · Syntax colours".
-fn platinum_syntax() -> SyntaxColors {
+///
+/// The shipped light preset's inks, reached through [`SyntaxColors::light`];
+/// `pub(super)` for the reason given on [`platinum_editor`].
+pub(super) fn platinum_syntax() -> SyntaxColors {
     SyntaxColors {
         // CodeWarrior's navy.
         keyword: rgb8(0x00, 0x00, 0x7F),
@@ -210,9 +229,12 @@ fn platinum_syntax() -> SyntaxColors {
 
 /// Variant A — "Platinum": the editor as it might have shipped in 1998.
 ///
-/// A candidate preset pending the owner's D-1 ruling; not reachable from any
-/// runtime path and not a replacement for
-/// [`Theme::light`](super::Theme::light).
+/// ⭐ **The shipped light preset.** D-1 ruled Variant A, so this is exactly
+/// what [`Theme::light`](super::Theme::light) returns — same name, same
+/// fields, asserted below. It stays a named function because the screenshot
+/// harness and the overlay's derivation tests iterate the three variants
+/// together, and Variant A must be in that sweep on the same terms as the
+/// other two.
 #[must_use]
 pub fn platinum() -> Theme {
     Theme {
@@ -419,8 +441,8 @@ pub fn monochrome() -> Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClassicVariant, monochrome, paper, platinum};
-    use crate::theme::{Color, Theme};
+    use super::{ClassicVariant, monochrome, paper, platinum, platinum_editor, platinum_syntax};
+    use crate::theme::{Color, EditorColors, SyntaxColors, Theme};
 
     /// The colour a hex string from the map's tables denotes, parsed by the
     /// crate's own parser rather than by this module's constructors — so an
@@ -429,44 +451,7 @@ mod tests {
         Color::from_hex(hex).expect("the map's tables are six-digit hex")
     }
 
-    /// One channel's contribution to relative luminance (WCAG 2.x).
-    fn linearize(channel: f32) -> f32 {
-        if channel <= 0.03928 {
-            channel / 12.92
-        } else {
-            ((channel + 0.055) / 1.055).powf(2.4)
-        }
-    }
-
-    /// WCAG relative luminance of an opaque colour.
-    fn luminance(color: Color) -> f32 {
-        let red = 0.2126 * linearize(color.r);
-        let green = 0.7152 * linearize(color.g);
-        let blue = 0.0722 * linearize(color.b);
-        red + green + blue
-    }
-
-    /// WCAG contrast ratio between two opaque colours.
-    fn contrast(a: Color, b: Color) -> f32 {
-        let first = luminance(a);
-        let second = luminance(b);
-        let high = first.max(second);
-        let low = first.min(second);
-        (high + 0.05) / (low + 0.05)
-    }
-
-    /// The largest per-channel distance between two colours, in 0-255 steps —
-    /// the measure the map states its surface-separation rule in.
-    ///
-    /// Rounded back onto the 0-255 grid the tables are written on: the
-    /// channels are exact bytes divided by 255, so a distance of exactly one
-    /// step can land a hair either side of the integer in `f32`.
-    fn channel_distance(a: Color, b: Color) -> f32 {
-        let red = (a.r - b.r).abs();
-        let green = (a.g - b.g).abs();
-        let blue = (a.b - b.b).abs();
-        (red.max(green).max(blue) * 255.0).round()
-    }
+    use crate::theme::wcag::{channel_distance, contrast};
 
     /// Every variant's 14 syntax colours, named, for the sweeps below.
     fn syntax_fields(theme: &Theme) -> [(&'static str, Color); 14] {
@@ -688,17 +673,47 @@ mod tests {
         }
     }
 
-    /// The candidates are candidates: nothing here has replaced the shipped
-    /// light preset, which stays exactly as it was until D-1 is ruled.
+    /// D-1's ruling, made mechanical: Variant A **is** the shipped light
+    /// preset, whole — name, chrome, inks and `is_dark` alike.
+    ///
+    /// ⭐ This replaces `no_variant_has_replaced_the_shipped_light_preset`,
+    /// which asserted the exact opposite and was written to hold only until
+    /// D-1 was ruled. Inverting it rather than deleting it is the point: the
+    /// same line that used to guard "nothing has shipped yet" now guards
+    /// "*this* is what shipped", so the transition cannot happen silently in
+    /// either direction.
+    ///
+    /// Whole-`Theme` equality rather than a field sweep, because the failure
+    /// this is really aimed at is partial adoption — Platinum's colours worn
+    /// under the old name, or under `is_dark: true`, which is what the
+    /// compositor keys its fallback keyword bridge on.
     #[test]
-    fn no_variant_has_replaced_the_shipped_light_preset() {
+    fn platinum_is_the_shipped_light_preset() {
         let shipped = Theme::light();
-        assert_eq!(shipped.name, "Iridium Light");
-        for variant in ClassicVariant::ALL {
+        assert_eq!(shipped.name, "Iridium Platinum");
+        assert!(!shipped.is_dark);
+        assert_eq!(shipped, platinum(), "Theme::light must be Variant A whole");
+
+        // And the delegation is what makes that true: the two public halves
+        // must come from the same transcription, not from a copy of it that
+        // happens to agree today.
+        assert_eq!(EditorColors::light(), platinum_editor());
+        assert_eq!(SyntaxColors::light(), platinum_syntax());
+    }
+
+    /// The two that did not win must stay off the shipped path.
+    ///
+    /// Without this, "Variant A is the light preset" would still pass if
+    /// Paper had *also* been wired in somewhere — and the sweeps above, which
+    /// ask each variant only about itself, would not notice.
+    #[test]
+    fn the_unshipped_variants_are_unshipped() {
+        let shipped = Theme::light();
+        for variant in [ClassicVariant::Paper, ClassicVariant::Monochrome] {
             assert_ne!(
                 variant.theme().editor,
                 shipped.editor,
-                "{} must not be the shipped preset yet",
+                "{} is not the ruled preset and must not be reachable as one",
                 variant.slug()
             );
         }

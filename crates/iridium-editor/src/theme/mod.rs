@@ -6,15 +6,17 @@
 //! - Light and dark theme presets
 //! - Full color and typography customization
 //!
-//! [`classic`] holds the three candidate classic-Mac light presets of
-//! `docs/design/LIGHT-THEME-MAP.md` §2.3. They are rendered for the owner to
-//! choose from and are deliberately unreachable from any runtime path until
-//! that choice is made; [`Theme::light`] is untouched.
+//! [`classic`] holds the three classic-Mac light presets of
+//! `docs/design/LIGHT-THEME-MAP.md` §2.3. D-1 ruled Variant A, so
+//! [`Theme::light`] *is* [`classic::platinum`]; the other two are unshipped
+//! and reachable only through [`ClassicVariant`].
 
 pub mod classic;
 mod colors;
 mod fonts;
 mod vscode;
+#[cfg(test)]
+mod wcag;
 
 pub use classic::ClassicVariant;
 pub use colors::{Color, EditorColors, SyntaxColors};
@@ -105,16 +107,17 @@ impl Theme {
         }
     }
 
-    /// Creates the default light theme.
+    /// Creates the default light theme — **Iridium Platinum**.
+    ///
+    /// D-1 ruled Variant A of `docs/design/LIGHT-THEME-MAP.md`, so this is
+    /// [`classic::platinum`] rather than a fourth assembly of the same parts.
+    /// Calling it directly is what keeps `name` in step with the palette: a
+    /// hand-built `Theme` here could take Platinum's colours and keep the old
+    /// name, and the face would then be lying about which theme it is wearing
+    /// in every settings surface that prints it.
     #[must_use]
     pub fn light() -> Self {
-        Self {
-            name: "Iridium Light".to_string(),
-            is_dark: false,
-            editor: EditorColors::light(),
-            syntax: SyntaxColors::light(),
-            typography: Typography::default(),
-        }
+        classic::platinum()
     }
 
     /// Creates a theme from a JSON string (T146).

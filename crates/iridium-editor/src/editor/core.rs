@@ -1790,7 +1790,12 @@ mod tests {
 
         editor.set_theme(Theme::light());
         assert!(!editor.is_dark_theme());
-        assert_eq!(editor.get_theme().name, "Iridium Light");
+        // D-1 ruled Variant A of the light-theme map, so the shipped light
+        // preset is "Iridium Platinum". The name is asserted here, and not
+        // only in `theme::classic`, because `is_dark` and `name` travel
+        // together through `set_theme` and a face that reads one without the
+        // other is how a light theme ends up labelled as the dark one.
+        assert_eq!(editor.get_theme().name, "Iridium Platinum");
     }
 
     #[test]

@@ -1,44 +1,46 @@
 {
   "name": "@iridium-editor/core",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "Core TypeScript modules for Iridium GPU-accelerated text editor",
   "exports": {
     ".": {
-      "types": "./src/controller/index.ts",
-      "default": "./src/controller/index.ts"
+      "types": "./dist/controller/index.d.ts",
+      "default": "./dist/controller/index.js"
     },
     "./controller": {
-      "types": "./src/controller/index.ts",
-      "default": "./src/controller/index.ts"
+      "types": "./dist/controller/index.d.ts",
+      "default": "./dist/controller/index.js"
     },
     "./syntax": {
-      "types": "./src/syntax/index.ts",
-      "default": "./src/syntax/index.ts"
+      "types": "./dist/syntax/index.d.ts",
+      "default": "./dist/syntax/index.js"
     },
     "./element": {
-      "types": "./src/element/index.ts",
-      "default": "./src/element/index.ts"
+      "types": "./dist/element/index.d.ts",
+      "default": "./dist/element/index.js"
     },
     "./palette": {
-      "types": "./src/palette/index.ts",
-      "default": "./src/palette/index.ts"
+      "types": "./dist/palette/index.d.ts",
+      "default": "./dist/palette/index.js"
     },
     "./history": {
-      "types": "./src/history/index.ts",
-      "default": "./src/history/index.ts"
+      "types": "./dist/history/index.d.ts",
+      "default": "./dist/history/index.js"
     },
     "./worker-client": {
-      "types": "./src/worker/client.ts",
-      "default": "./src/worker/client.ts"
+      "types": "./dist/worker/client.d.ts",
+      "default": "./dist/worker/client.js"
     },
     "./worker-protocol": {
-      "types": "./src/worker/protocol.ts",
-      "default": "./src/worker/protocol.ts"
+      "types": "./dist/worker/protocol.d.ts",
+      "default": "./dist/worker/protocol.js"
     }
   },
   "files": [
-    "src/"
+    "dist/",
+    "src/",
+    "!src/**/*.test.ts"
   ],
   "keywords": [
     "editor",
@@ -54,12 +56,19 @@
     "url": "https://github.com/tomWhiting/iridium"
   },
   "peerDependencies": {
-    "iridium-bindings": ">=0.1.0"
+    "iridium-bindings": ">=0.2.0"
   },
   "dependencies": {
     "web-tree-sitter": "0.25.6"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
+  },
+  "main": "./dist/controller/index.js",
+  "types": "./dist/controller/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "tsc -p tsconfig.build.json",
+    "test": "bun test src/"
   }
 }

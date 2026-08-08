@@ -80,3 +80,8 @@ examples/*/dist/
 
 # Grammar build cache
 packages/tree-sitter-builder/.cache/
+
+# Built output for the published @iridium-editor/core package. Built by
+# `npm run build` (tsconfig.build.json) and shipped in the npm tarball via
+# `files`, never committed — the source is the record, the build is derived.
+packages/@iridium/core/dist/

@@ -1,0 +1,18 @@
+{
+  "//": "The publish build. Separate from tsconfig.json because that one is the",
+  "//2": "editor/dev config: it includes tests and leaves .ts specifiers alone.",
+  "//3": "rewriteRelativeImportExtensions is what lets the sources keep writing",
+  "//4": "./thing.ts while the emitted JS says ./thing.js — the specifier a",
+  "//5": "consumer's resolver actually needs.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}

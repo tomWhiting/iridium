@@ -4166,3 +4166,108 @@ is the actual work of S-4. **Never call `sync()` from the typing path.**
 reclaim most of `target/` at the cost of cold gates — **not taken
 unilaterally**, and it matters more now that every change runs the full
 battery.
+
+---
+
+# TICK — 8 Aug ~14:20 — both deletions closed, and a claim of mine was wrong
+
+## Landed
+
+| commit | what |
+|---|---|
+| `30525c94` | **#82** — the web face's second word-motion implementation is gone |
+| `084050bd` | **#64** — gzip restored, builder repointed, legacy `ts/` tree deleted |
+
+Gates on both: all nine Rust green, **2,545 / 1,061 / 1,157, 0 failed** —
+unmoved by #82, since the deleted code had no test that could reach it. Plus
+`deno check`, `bun test src/` (104 pass), `tsc --noEmit` in `examples/web`, and
+nine new builder tests.
+
+## ⭐ Rule I — "it cannot be verified without X" is a claim about a seam, not about the work
+
+I wrote in `IN-FLIGHT-legacy-bindings.md` that restoring the builder's gzip step
+"cannot be verified without running the builder, which clones nineteen grammar
+repositories", and put that to Tom as a green light he owed me. **It was wrong,
+and it was checkable.** Running the builder is the only way to verify the
+*clone-and-compile* half. The compression is a different half — bytes in, source
+text out, pure — and it never needed a network. It needed **separating from the
+code that does**.
+
+That separation is `packages/tree-sitter-builder/bundle.ts`, and the test is
+`bundle.test.ts`: nine tests, no network, 95 ms.
+
+**Ask what is actually entangled with X before pricing a green light for it.**
+
+## The test decodes through the *emitted loader*, never through zlib
+
+`gunzipSync` would prove only that zlib is symmetric — it would pass just as
+well against a loader left uncompressed, which is exactly the regression that
+shipped in January. So each test writes the generated module to disk, imports
+it, and calls the loader that would ship.
+
+Proven red both ways against the real code:
+
+| break | red |
+|---|---|
+| encoder drops `gzipSync`, loader keeps `DecompressionStream` | **6 of 9**, `Z_DATA_ERROR` |
+| encoder keeps `gzipSync`, loader drops decompression | **4 of 9** |
+
+A tenth decodes the **live shipped `grammars.gen.ts`** and asserts `\0asm`.
+Nothing else in the repo would notice the builder's format drifting from the
+artefact it produces — the file says `DO NOT EDIT MANUALLY` and was last written
+in January.
+
+## ⚠️ Bun caches a directory listing at first resolution
+
+Five of the nine tests failed with `Cannot find module … from ''` on files that
+demonstrably existed. Cause: a `mkdtemp` directory is listed once, when the
+runtime first resolves anything inside it, and files written *after* that are
+invisible however plainly they are on disk. `file://` URLs do not help.
+**Write every generated fixture at module scope, ahead of the first
+`import()`.** Reproduced in isolation before believing it.
+
+## Counts I corrected while doing the work
+
+- **#82 said six exports; it is four.** `extendSelectionWordLeft`/`Right`
+  already routed through `run_selection_command` to the kernel and were
+  untouched. The four that went: `moveCursorWordLeft`/`Right`,
+  `deleteWordBackward`/`Forward`.
+- **#64 said five vite aliases; it is three.** The two `iridium-bindings/wasm`
+  entries point at `pkg/`, which is the wasm build and was never in scope. Two
+  `optimizeDeps.exclude` entries went as well.
+- **#64 never mentioned `crates/iridium-bindings/package.json`**, whose
+  `exports` pointed `.`, `./controller`, `./syntax` and `./element` into the
+  deleted tree. `.` now resolves to `pkg/`, matching the `main`/`types` it
+  always had.
+
+## #82 — why delete rather than reroute
+
+Both close the trap. Delete is right because the exports are unreachable from
+the live face: the controller rewrites macOS `⌥←`/`⌥→`/`⌥⌫`/`⌥⌦` into their
+`Ctrl` forms (`controller/index.ts:1204-1214`) and forwards them to
+`handleKeyEvent`. If a host ever wants them by name they are two lines each
+through `run_selection_command` / `run_editing_command`, and the comment left in
+their place says so. The copy also acted on the primary caret alone — the same
+defect `run_editing_command` was written to end.
+
+## ▶ NEXT, unchanged from the last baton except the top two are done
+
+1. **S-5** (`autoclose_before`) — Tom ruled build it. Only auto-close when the
+   character after the caret is in the language's set. ⚠️ Treat **end-of-line
+   and whitespace as permitting**, and **write that as an assumption, not a
+   fact**. See `AUTO-PAIR-MAP.md` §6.
+2. **S-4** — scope-aware pairing. Blocked only on **B-6** and **B-7**.
+3. **`#69`** — the flaky GPU test.
+
+## Still open on #64, stated rather than buried
+
+⚠️ **The builder has not been run.** Its clone-and-compile half is unchanged and
+untested — it always was. What is now true is that a rebuild writes to the live
+path and writes compressed, both pinned by tests. The nineteen-repo green light
+is still worth having before anyone regenerates the grammars; it is no longer
+blocking anything.
+
+## Box
+
+`.git` 1,409,696 KB — up 576 KB across both commits, and unchanged by deleting
+21 MB, since the blobs stay in history. Working tree is 21 MB lighter.

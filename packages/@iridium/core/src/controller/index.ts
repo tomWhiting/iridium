@@ -201,6 +201,36 @@ export interface UndoTreeSnapshot {
   readonly info: UndoTreeInfo;
 }
 
+/**
+ * The ids of the commands the kernel names but leaves to the host to run.
+ *
+ * Read from the kernel at creation rather than written out here, and that is
+ * the whole point of the type. A host command arrives as
+ * {@link HostCommandRequest.command}, a string, and a face has to decide what
+ * it means — which used to be `request.command === "palette.open"`, a literal
+ * typed on this side with nothing keeping it level with the kernel that sends
+ * it. Every Rust face names the constant instead and stops compiling when it
+ * moves; TypeScript would have gone on compiling, type-checking, passing its
+ * suite, and silently never opening the palette again.
+ *
+ * So compare against these. A chord the kernel consumes and a face cannot
+ * recognise is a dead key with nothing to say for itself.
+ */
+export interface HostCommandIds {
+  /** Open the command palette. */
+  readonly paletteOpen: string;
+  /** Show or hide the undo-tree panel. */
+  readonly historyTogglePanel: string;
+  /**
+   * Show or hide the file explorer.
+   *
+   * Named here even though a browser has no directory to show: the kernel
+   * binds the chord regardless, so the key is consumed either way, and a face
+   * that cannot name the command cannot explain why nothing happened.
+   */
+  readonly explorerTogglePanel: string;
+}
+
 // Types for the low-level WASM editor
 interface WebEditor {
   handleKeyEvent(key: string, ctrl: boolean, shift: boolean, alt: boolean, meta: boolean, altGraph: boolean, isRepeat: boolean): KeyEventAction;
@@ -448,6 +478,25 @@ export class IridiumEditor {
   private readonly sanitizePixelRatio: (ratio: number) => number;
 
   /**
+   * The host command ids as the kernel names them, read once at creation.
+   *
+   * Constant for the life of the process — the ids are compile-time constants
+   * in Rust — so there is nothing to re-read, and holding them means the
+   * comparison in a host-command handler costs no boundary crossing.
+   */
+  private readonly hostCommandIds: HostCommandIds;
+
+  /**
+   * The ids of the commands the kernel reports rather than runs.
+   *
+   * What a face compares {@link HostCommandRequest.command} against; see
+   * {@link HostCommandIds} for why it is asked for rather than written down.
+   */
+  get hostCommands(): HostCommandIds {
+    return this.hostCommandIds;
+  }
+
+  /**
    * The sanitised `window.devicePixelRatio`, read fresh.
    *
    * Read rather than cached because it changes when the window moves
@@ -482,12 +531,14 @@ export class IridiumEditor {
     editor: WebEditor,
     options: IridiumEditorOptions,
     sanitizePixelRatio: (ratio: number) => number,
-    initialPixelRatio: number
+    initialPixelRatio: number,
+    hostCommandIds: HostCommandIds
   ) {
     this.canvas = canvas;
     this.editor = editor;
     this.sanitizePixelRatio = sanitizePixelRatio;
     this.appliedPixelRatio = initialPixelRatio;
+    this.hostCommandIds = hostCommandIds;
     this.options = {
       content: options.content ?? "",
       language: options.language ?? "rust",
@@ -577,6 +628,13 @@ export class IridiumEditor {
     canvas.width = rect.width * pixelRatio;
     canvas.height = rect.height * pixelRatio;
 
+    // The ids of the commands the kernel names and hands back rather than
+    // running. Read from the module, not written out here — see
+    // `HostCommandIds`. Parsed once: they are compile-time constants in Rust.
+    const hostCommandIds = JSON.parse(
+      (wasm.hostCommandIds as () => string)()
+    ) as HostCommandIds;
+
     // Create the low-level editor
     const editor = await wasm.createWebEditor(canvas, pixelRatio);
 
@@ -584,7 +642,14 @@ export class IridiumEditor {
     // `pixelRatio` is passed on as the applied ratio, not re-read: the canvas
     // above and the compositor's font size were both derived from this exact
     // number, and that agreement is the invariant `appliedPixelRatio` records.
-    const instance = new IridiumEditor(canvas, editor, options, sanitizePixelRatio, pixelRatio);
+    const instance = new IridiumEditor(
+      canvas,
+      editor,
+      options,
+      sanitizePixelRatio,
+      pixelRatio,
+      hostCommandIds
+    );
 
     // Initialize
     await instance.initialize();

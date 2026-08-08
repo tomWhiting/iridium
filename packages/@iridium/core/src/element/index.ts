@@ -212,16 +212,28 @@ export class IridiumEditorElement extends HTMLElement {
   /**
    * Runs a command the kernel named but left to the host.
    *
-   * `palette.open` and `history.togglePanel` are handled here because this
-   * element owns both overlays; anything else goes out as an event, so a host
-   * that adds its own host commands is never silently ignored.
+   * The palette and the undo tree are handled here because this element owns
+   * both overlays; anything else goes out as an event, so a host that adds its
+   * own host commands is never silently ignored.
+   *
+   * The ids are the kernel's own, read at creation rather than written out
+   * here — see {@link HostCommandIds}. A literal on this side would keep
+   * compiling and keep passing after the kernel renamed the command, and the
+   * only symptom would be a chord that stopped opening anything.
+   *
+   * There is no editor before the wasm module has loaded, and so no ids to
+   * compare against. A host command cannot arrive then either — the only thing
+   * that produces one is a key the editor resolved — but the request still
+   * goes out as an event in that case rather than being dropped, because a
+   * command this element does not claim is the host's to hear about.
    */
   private handleHostCommand(request: HostCommandRequest): void {
-    if (request.command === "palette.open") {
+    const ids = this.editor?.hostCommands;
+    if (ids && request.command === ids.paletteOpen) {
       this.palette?.open();
       return;
     }
-    if (request.command === "history.togglePanel") {
+    if (ids && request.command === ids.historyTogglePanel) {
       this.undoTree?.toggle();
       return;
     }

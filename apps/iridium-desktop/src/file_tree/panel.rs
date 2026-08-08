@@ -343,10 +343,15 @@ impl FileExplorer {
 
     /// Re-reads the query text and rebuilds the view from it.
     ///
-    /// The only place [`Self::pattern`] changes, and therefore the only place
-    /// a regular expression is compiled. Called from the key handlers that
-    /// touch the field, never from [`poll`](Self::poll): a directory landing
-    /// changes the rows, not what the user asked for.
+    /// The only place a regular expression is compiled, and the only place
+    /// [`Self::pattern`] is *derived* from the query. `clear_query` also
+    /// writes it, but writes the one value that needs no query to know —
+    /// [`Pattern::Unfiltered`] — while dropping the query text in the same
+    /// breath, so the two cannot disagree about what was asked.
+    ///
+    /// Called from the key handlers that touch the field, never from
+    /// [`poll`](Self::poll): a directory landing changes the rows, not what
+    /// the user asked for.
     ///
     /// The selection is not held across it. A different query is a different
     /// question, and keeping the previous answer selected under it would put

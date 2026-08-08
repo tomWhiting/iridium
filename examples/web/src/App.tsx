@@ -217,13 +217,21 @@ function App() {
             setCursorCount(editorRef.current?.cursorCount ?? 1);
           }}
           onHostCommand={(request) => {
-            // The kernel binds `palette.open` to Ctrl+K, Ctrl+P and Ctrl+Shift+P,
-            // and `history.togglePanel` to Ctrl+Alt+H, reporting both here
-            // because opening a UI is not something a kernel can do. Any other
-            // host command is not ours to guess at.
-            if (request.command === "palette.open") {
+            // The kernel binds the palette to Ctrl+K, Ctrl+P and Ctrl+Shift+P,
+            // and the undo tree to Ctrl+Alt+H, reporting both here because
+            // opening a UI is not something a kernel can do. Any other host
+            // command is not ours to guess at.
+            //
+            // The ids come from the kernel rather than being written out here:
+            // a literal would keep compiling after a rename and the only
+            // symptom would be a chord that stopped opening anything.
+            const ids = editorRef.current?.hostCommands;
+            if (!ids) {
+              return;
+            }
+            if (request.command === ids.paletteOpen) {
               palette.open();
-            } else if (request.command === "history.togglePanel") {
+            } else if (request.command === ids.historyTogglePanel) {
               undoTree.toggle();
             }
           }}

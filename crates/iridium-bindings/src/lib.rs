@@ -46,6 +46,7 @@
 pub mod display_scale;
 pub mod edit_tracking;
 pub mod highlight_span_shift;
+pub mod host_commands;
 pub mod js_index;
 pub mod key_map;
 pub mod palette;

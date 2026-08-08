@@ -888,3 +888,146 @@ not an auto-close rule at all) and `"` — and only the last of those reaches
 already argued (S-3 for the multi-character ones, B-7's "a row that does not
 close cannot be suppressed from closing" for `<`). It is worth knowing when
 reading a manifest and wondering why a rule seems not to fire.
+
+---
+
+## 10. S-3 — multi-character openers. Ground verified 8 Aug 2026.
+
+Everything below was parsed out of the vendored manifests, not remembered.
+
+### 10.1 The whole data set
+
+**Eight languages, twenty-four rows with `close = true` and more than one
+character on a side, eighteen distinct openers.**
+
+| language | rows |
+| --- | --- |
+| `python` | 14 — `f" f' b" b' u" u' r" r' rb" rb' t" t'` → the matching quote; `"""`→`"""`; `'''`→`'''` |
+| `rust` | 4 — `r#"`→`"#`, `r##"`→`"##`, `r###"`→`"###`, `/*`→`" */"` |
+| `c`, `cpp`, `go`, `javascript`, `typescript`, `tsx` | 1 each — `/*`→`" */"` |
+
+Everything else in the tree with a multi-character side carries
+`close = false` and is therefore not an auto-close rule at all: bash's
+`do`→`done`, `then`→`fi`/`else`/`elif`, `in`→`esac`. Those are matching rules
+for navigation, and S-3 must not start typing `done` for anybody.
+
+⚠️ **The `/*` closer has a leading space**, `" */"`, in all seven languages that
+declare it. That is deliberate in the source data: typing `/*` is meant to give
+`/*| */`, not `/*|*/`. Nothing here should trim it.
+
+### 10.2 ⭐ What Python's twelve prefix rows are actually for
+
+`f"` → `"` looks like a no-op: the closer is the same `"` the single-character
+row already inserts, so why declare it?
+
+**Because the apostrophe rule refuses it.** `auto_pair_edit_for` keeps a quote
+single when the character before the caret is a word character, so that `don't`
+stays `don't`. `f` is a word character. So today, in Python, typing `f"` gives
+`f"` with no closing quote — and the same for `rb"`, `t'`, and the other ten.
+
+That is the entire user-visible payload of S-3 for Python, and it is a bigger
+one than the triple quotes. It also fixes the ordering question before it is
+asked: **the multi-character match must be tried before the apostrophe rule**,
+or the twelve rows stay dead.
+
+### 10.3 The matching rule
+
+At the moment the last character of an opener is typed, the text **before** the
+caret must be checked. For each declared opener whose final character is the
+one being typed, the opener matches if the text before the caret **ends with**
+the rest of it. **Longest match wins.**
+
+Longest-match is load-bearing, not defensive: at `rb|` typing `"`, both `b"`
+(text ends with `b`) and `rb"` (text ends with `rb`) match, and only the longer
+is right. At `r##|` typing `"`, `r#"` does **not** match — `"r##"` ends with
+`"##"`, not `"r#"` — so the three Rust raw-string widths separate correctly by
+this rule alone, with no special casing.
+
+⚠️ **A false match is possible and mostly harmless.** Typing `"` after any
+identifier ending in `b`, `f`, `r`, `t` or `u` matches a Python prefix row —
+`verb"`, `def"`. The closer those rows declare is the same `"` the
+single-character row would have inserted, so the outcome is identical; the only
+difference is that the pair now fires where the apostrophe rule used to refuse
+it, which is exactly the intent. The rows whose closer *differs* (`"""`, `'''`,
+`r#"`, `/*`) all need at least one non-word character in their prefix, so they
+cannot be reached by ordinary identifier text.
+
+### 10.4 Skip-over — the part the manifests do not specify
+
+⚠️ This is S-3's B-5: the data declares the delimiters and says nothing about
+what typing them again should do.
+
+**The existing single-character rule already does the right thing for `"""`.**
+`"""abc|"""` typing `"` steps over one quote, three times, and the string
+closes. Making a multi-character closer skip *as a whole* would break that:
+the first `"` would jump all three and the user's next two keystrokes would
+open a new pair. Muscle memory types three quotes.
+
+**But it is wrong for Rust's `"#`.** `r#"abc|"#` typing `"` steps over the
+quote, then typing `#` inserts a second one — `r#"abc"#|#`. The `#` is not a
+single-character closer, so nothing steps over it.
+
+The rule that fixes the second without touching the first is a
+**generalisation of the existing one, not a second rule beside it**:
+
+> Typing `c` steps over the character at the caret when `c` equals that
+> character **and** the text before the caret, plus `c`, ends a closer this
+> language declares.
+
+A single-character closer satisfies this with an empty prefix, so today's
+behaviour is unchanged by construction. `"#` satisfies it in two steps: `"`
+alone is a declared closer in Rust, then `"` + `#` is `"#`. And a bare `#`
+typed anywhere else — before a `#[derive]`, say — does not, because the
+character before the caret is not a `"`.
+
+⚠️ **What this does not fix, stated rather than discovered later**: `" */"`
+cannot be stepped over from the caret position the insertion leaves. `/*| */`
+typing `*` finds a space at the caret, not a `*`. Reaching the `*` means typing
+the space first, which nobody does. The case is left alone because a user does
+not type a closer the editor already wrote; it is recorded so the next reader
+knows it was considered.
+
+### 10.5 Where the data lives
+
+`PairRules` is `Copy` and built once per keystroke, so it cannot own a `Vec` of
+borrowed pairs. It gains **`Option<&'static Manifest>`** instead —
+`Language::manifest` already returns `&'static`, so this is one pointer, and it
+keeps `iridium_lang` the owner of the rules rather than copying them into a
+second shape. The multi-character walk then happens only when it can matter:
+the openers' final characters become triggers, and the walk is skipped
+entirely for a language declaring no multi-character rows, which is thirteen
+of the twenty-one.
+
+⚠️ **`*` and `#` must become triggers.** `handle_char_input` enters auto-pair
+handling only when `PairRules::is_trigger(c)` says so, and today that is the
+six single characters. `/*` ends in `*`, which is in no pair — so without this,
+the `/*` rows can never fire however correct the matching is. This is the one
+place where S-3 changes a *reachability* condition rather than a decision.
+
+### 10.6 Order inside `auto_pair_edit_for`
+
+The collapsed-caret branch becomes, in order:
+
+1. **Skip-over** (§10.4's generalisation).
+2. **Multi-character opener**, longest match — subject to `autoclose_before`
+   and `not_in`, exactly as the single-character path is.
+3. **The apostrophe rule** — after 2, so Python's prefix rows survive it.
+4. **Single-character opener**, unchanged.
+
+### 10.7 Build order
+
+1. `iridium-lang`: a manifest accessor for the multi-character closing rows,
+   with the same `None`/`Some(empty)` discipline as its three siblings, and the
+   `close = false` filter that keeps bash's `done` out.
+2. `PairRules`: hold the manifest; the trigger set grows to include every
+   opener's final character; longest-match lookup.
+3. `auto_pair_edit_for`: the multi-character insertion branch, in the order
+   above.
+4. The generalised skip-over.
+5. Backspace: an empty multi-character pair around the caret collapses in one
+   keystroke, the way `(|)` already does.
+
+⚠️ Each step needs its own red proof, and §9.3's **Rule L** applies with full
+force here: by the time S-3 lands there are *five* independent reasons a pair
+may not appear, and the apostrophe rule is the one that will silently make a
+Python test pass for the wrong reason.

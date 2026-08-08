@@ -4466,3 +4466,95 @@ eight guarding everything else stay green.** Measured, not asserted.
 
 **#31** · **#58**'s three keys · **#70**'s six colours · **#74**'s pin ·
 **#43**/**#44**/**#45** · Cally's hook · the grammar repos.
+
+---
+
+# TICK — 8 Aug ~19:40 — S-3 started: design written, step 1 landed
+
+## ⚠️ READ THIS FIRST IF YOU ARE COMING BACK COLD
+
+**S-3 is part-built.** The design is complete in
+`docs/design/AUTO-PAIR-MAP.md` **§10** — ground verified, every decision named,
+five-step build order in §10.7. **Step 1 of 5 is done.**
+
+⚠️ **The full nine-gate battery has NOT been run on the step-1 commit.** Only
+`cargo test -p iridium-lang --all-features` (81 passed, up from 73) and
+`cargo clippy -p iridium-lang --all-features --all-targets -- -D warnings`
+(clean) were run. **Run the full battery before building step 2** — the change
+is purely additive to `iridium-lang`, so nothing is expected to break, but that
+is an expectation, not a measurement.
+
+## What S-3 is, in one paragraph
+
+Eight languages declare auto-close pairs whose opener is more than one
+character: Python's twelve string prefixes (`f"`, `rb'`, …) and two triple
+quotes, Rust's three raw-string widths (`r#"`→`"#`) and `/*`→`" */"`, and the
+same `/*` row in six other C-likes. Twenty-four rows, eighteen distinct
+openers. None of them fires today.
+
+## ⭐ The finding that reframes the slice
+
+**Python's twelve prefix rows exist to defeat the apostrophe rule.** `f"` → `"`
+looks like a no-op because the closer is the same quote the single-character
+row inserts. It is not: the editor keeps a quote single when the character
+before the caret is a word character (so `don't` stays `don't`), and `f` is a
+word character. **Probed, not reasoned:** today, Python `x = f` + `"` gives
+`x = f"` — no closing quote.
+
+That makes the ordering non-negotiable: **the multi-character match must run
+before the apostrophe rule**, or twelve of the twenty-four rows stay dead.
+
+Three more probe results, all confirmed against the running editor:
+- Python `""|` + `"` → `""""` today; must become `"""|"""`.
+- Rust `r#|` + `"` → `r#""` today; must become `r#"|"#`.
+- Rust `/|` + `*` → `/*` today (no pair at all, because `*` is not a trigger);
+  must become `/*| */`.
+
+## Step 1 — LANDED (see the commit after this baton entry)
+
+`iridium-lang` gained three things and eight tests:
+
+- **`DelimiterPair<'a>`** — one auto-close row with both delimiters as text and
+  its `not_in` alongside, `Copy`, borrowed from the `LazyLock` manifest so a
+  caller holding `&'static Manifest` needs no allocation.
+- **`Manifest::close_rules`** — every `close = true` row, unfiltered. The one
+  source the two views derive from.
+- **`Manifest::multi_char_close_pairs`** — the rows whose *opener* is longer
+  than one character.
+- ⭐ **`every_closing_row_is_reported_by_one_accessor_or_the_other`** — the
+  ratchet. A row with a one-character opener and a longer closer would be
+  reported by neither accessor and could never fire, invisibly. Checked against
+  `close_rules` so the two views are held to the data, not to each other.
+
+## ▶ Steps 2–5, still to build (AUTO-PAIR-MAP §10.7)
+
+2. **`PairRules` holds `Option<&'static Manifest>`** (`Language::manifest`
+   returns `&'static`, so it stays `Copy`). ⚠️ **`is_trigger` must grow to
+   include every multi-character opener's final character** — `*` and `#` are
+   in no pair today, so the `/*` rows can never fire however correct the
+   matching is. This is the one *reachability* change in the slice.
+3. **The insertion branch** in `auto_pair_edit_for`, in this order:
+   skip-over → **multi-character opener (longest match)** → apostrophe rule →
+   single-character opener. Longest match is load-bearing: at `rb|` typing `"`,
+   both `b"` and `rb"` match and only the longer is right; at `r##|` typing `"`,
+   `r#"` correctly does *not* match, because `"r##"` ends with `"##"`.
+   `autoclose_before` and `not_in` apply exactly as they do to single-char.
+4. **The generalised skip-over** (§10.4): *typing `c` steps over the character
+   at the caret when `c` equals it **and** the text before the caret plus `c`
+   ends a declared closer.* A single-character closer satisfies this with an
+   empty prefix, so today's behaviour is unchanged by construction; `"#` needs
+   two steps. ⚠️ This deliberately preserves `"""` stepping one quote at a
+   time — a whole-closer skip would jump all three and break muscle memory.
+5. **Backspace** collapsing an empty multi-character pair.
+
+⚠️ **Rule L applies with full force.** By the time S-3 lands there are **five**
+independent reasons a pair may not appear, and the apostrophe rule is the one
+that will silently make a Python test pass for the wrong reason. Every test
+must rule the other four out, the way
+`scope_suppression_tests.rs` does for S-4b.
+
+## Everything else unchanged
+
+**S-4 complete** (`f912dc4d`, `6a801cfa`). Awaiting Tom: **#31** · **#58**'s
+three keys · **#70**'s six colours · **#74**'s pin · **#43**/**#44**/**#45** ·
+Cally's hook.

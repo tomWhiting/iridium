@@ -46,15 +46,27 @@
 # not test hygiene. `core.logAllRefUpdates=always` does not close it — it is
 # local, non-travelling, and never load-bearing.
 #
-# ⛔⛔ AND "THE NEXT BATTERY RUN" DESCRIBES A RUN THAT DOES NOT CURRENTLY HAPPEN.
-# MEASURED 2026-08-08, estate-wide: NOTHING INVOKES ANY OF THESE INSTRUMENTS.
-# Every reference to `check_guard_active.sh`, `check_must_be_claimed.sh`,
-# `sweep_guard_active.sh` or `census_claim_predicate.sh` outside this directory
-# is PROSE IN A DOCUMENT, and NO BATTERY CONFIG ANYWHERE CARRIES A GUARD LEG.
-# ⭐ SO THE LATENCY IS NOT PERIODIC — IT IS UNBOUNDED, and the two paragraphs
-# above overstate the protection until a battery calls these. Stated HERE, in the
-# text a reader comes to for reassurance, because a compensating control nobody
-# invokes is indistinguishable from one that was never built. WIRING IS OPEN.
+# ⚠️ CORRECTED 2026-08-08 — "THE NEXT BATTERY RUN" NOW DESCRIBES A RUN THAT
+# HAPPENS. The struck text read *"NOTHING INVOKES ANY OF THESE INSTRUMENTS ... NO
+# BATTERY CONFIG ANYWHERE CARRIES A GUARD LEG."* **True when written, false now**,
+# and corrected at the point of assertion rather than refuted somewhere else.
+#
+# WIRED (Waffles the Terrible, option 2): `check_must_be_claimed.sh` runs as the
+# `estate-guard` leg in FIVE batteries — `stack/aion`, `stack/frame`,
+# `stack/haematite`, `stack/liminal`, `apps/meridian`. It asserts, per listed row,
+# BOTH the claim AND the arming, and it reads its population from the list.
+#
+# ⛔ `stack/beamr` IS DELIBERATELY EXCLUDED, not missed: its CI evals the legs out
+# of `gates.json` in a GitHub Actions checkout where the estate root does not
+# exist. ⭐ The estate check's subject is a particular machine, so it cannot run
+# there BY CONSTRUCTION.
+#
+# ⛔ AND THE LATENCY IS STILL UNBOUNDED ACROSS A QUIET ESTATE. The cadence is
+# event-driven — "until someone lands in one of those five" — so the two
+# paragraphs above are now backed by a real clock rather than by none, but they
+# still overstate the protection for a repository nobody is landing in. Stated
+# HERE, in the text a reader comes to for reassurance, because a compensating
+# control that fires only when unrelated work happens is not a schedule.
 #
 # ⚠️ CORRECTED SAME DAY — the sentence above previously read "the only
 # `.gates.json` files in the estate are five examples". THAT WAS FALSE, and the
@@ -64,7 +76,17 @@
 # what the README's worker flow instructs — so the scan COULD NOT have matched
 # one. RE-MEASURED: SEVEN live battery configs (aion, frame, liminal, haematite,
 # beamr, meridian, meridian-tools-seat), FOUR with committed report.json from
-# 2026-07-28. ⭐⭐ A FALSE DENOMINATOR DOES NOT ONLY MIS-STATE COVERAGE — IT
+# 2026-07-28.
+#   ⚠️ AND THAT COUNT WAS ITSELF A UNIT ERROR, re-measured 2026-08-08: those are
+#   CHECKOUTS, not repositories. NINE checkouts carry a `gates.json` and they
+#   belong to SIX repositories — `apps/meridian` supplies three of them (its root,
+#   `meridian-tools-seat` on `seat/tools`, and `.worktrees/decision-notify`) and
+#   `stack/liminal` two. Proof: editing the file in two of meridian's checkouts
+#   produced IDENTICAL blob hashes — one tracked file, seen three times.
+#   ⭐ WIRING IS A PER-CHECKOUT EDIT; COVERAGE IS A PER-REPOSITORY PROPERTY. Quote
+#   "nine" as repositories or "six" as configs and you are wrong in opposite
+#   directions.
+# ⭐⭐ A FALSE DENOMINATOR DOES NOT ONLY MIS-STATE COVERAGE — IT
 # MISDIRECTS THE REMEDY: "there is no battery to wire into" points at building a
 # cadence, and the truth ("seven exist and four have run") points at adding a leg.
 # The conclusion survived its own broken evidence, which is the more dangerous

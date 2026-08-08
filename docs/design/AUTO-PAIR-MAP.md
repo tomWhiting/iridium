@@ -1111,3 +1111,86 @@ drift the first time the trigger set moves.
 manifests, 8 declare a multi-character closing row, and 14 do not.** Both places
 need the correction; the doc comments in `multi_char_pairs.rs` already use the
 right figures, so the tree currently disagrees with itself.
+
+### 10.9 What the adversarial verifier found — and B-10 is REVERSED
+
+Three agents verified the built slice: a Rule-L auditor, a correctness
+adversary, and a gate runner. **All nine gates pass — 2,644 / 1,111 / 1,230,
+zero failed.** The Rule-L audit came back clean: every fixture column
+re-derived from the raw text rather than the comment, no off-by-one anywhere,
+and no test green for the wrong reason. **The correctness adversary returned
+defects, and the slice is not committable until they are fixed.**
+
+#### 🔴 DEFECT 1 — backspace destroys user-typed characters. B-8 is the fix.
+
+`longest_pair_between` matches a row on `before.ends_with(row.start())` alone,
+then `empty_pair_around` deletes `row.start().chars().count()` characters to the
+left. Nothing checks those characters were ever part of a pair.
+
+```text
+Python:  print(verb"|")   Backspace   →   print(ve)
+```
+
+`before` ends with `rb"`, because the last three characters of `print(verb"` are
+`r`, `b`, `"`. Longest wins, so **`rb` is eaten out of the user's identifier.**
+Same shape at `it'|'` → `i`. And it is reachable in two keystrokes entirely
+inside tested behaviour, because `a_quote_after_an_identifier_ending_in_a_prefix_letter_now_pairs`
+asserts that typing `"` at `print(verb|)` produces exactly that buffer: **type a
+quote, change your mind, press Backspace, lose two characters of your variable
+name.**
+
+⭐ **§10.3's harmlessness argument does not transfer, and that is the whole
+lesson.** On the *insert* path a false prefix match is harmless because the
+contested rows declare the same closer, so both write the same text. On the
+*delete* path the **opener's length alone decides how much is destroyed**. The
+argument was sound where it was made and was carried to a path where its
+premise does not hold.
+
+⚠️ **1b — the two paths disagree about whether a row exists.** B-7 exempts the
+backspace collapse from `not_in`; insertion is *not* exempt. So in Python
+`# verb"|"` inside a comment, `insertion_for` refused the `rb"` row (it declares
+`not_in = ["string", "comment"]`) and the plain `"` row wrote the pair — then
+backspace applies `rb"` anyway and gives `# ve`. **A pair the multi-character
+rule was forbidden to create is destroyed by the multi-character rule.**
+
+**B-8 fixes both by construction**, which is why it is worth landing exactly as
+§10.8 states it: the bounded rule never consults the opener's length at all, so
+there is no over-claim to get wrong and no second opinion about which rows
+exist. That the ruling and the defect arrived independently and have one fix is
+the strongest evidence either of them is right.
+
+#### 🔴 B-10 IS REVERSED — `/` must NOT be a trigger
+
+An hour ago this file accepted the ` */` false positive and asked only that it
+be pinned. **That was wrong, and the adversary's example is what shows it:**
+
+```text
+JavaScript:  const s = "a *|/b";   type /   →   nothing happens
+```
+
+`before` ends with `" *"`, the character at the caret is `/`, so the keystroke
+is discarded. Skip-over is exempt from `not_in`, so being inside a string
+literal does not rescue it.
+
+⭐ **The decisive argument is one this file already contains and I failed to
+apply.** §10.4 records that `" */"` **cannot be stepped over from the caret its
+own insertion leaves** — `/*| */` typing `*` finds a space at the caret, not a
+`*`, and reaching the `*` would mean typing the space first, which nobody does.
+
+So for the block-comment rows, generalised skip-over is **unreachable in the
+case it exists to serve and reachable only in false-positive cases.** It buys
+exactly nothing and costs a swallowed keystroke. Accepting it was trading a real
+harm for a benefit that does not exist.
+
+**The rule: a closer joins the skip-over trigger set only if it is reachable
+from the caret its own insertion leaves.** A closer whose first character is a
+space never is, because stepping proceeds character by character from position
+zero. That drops `/` from the trigger set and leaves `#` in it — `r#"|"#` has
+`"` at the caret, which is the closer's first character, so `"#` is genuinely
+reachable and its false positive stays accepted and pinned, as B-10 originally
+said of it.
+
+⚠️ **Silently discarding a keystroke is a worse failure than writing an
+unwanted character**, because the user's correction for the second is Backspace
+and their correction for the first is to wonder whether the keyboard is broken.
+That asymmetry should govern any future skip-over question.

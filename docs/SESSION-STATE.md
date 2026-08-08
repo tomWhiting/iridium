@@ -6084,3 +6084,68 @@ edit was display-only rather than asserting it.
    self-removes the scoped `#[allow(dead_code)]` on `mod mode;`.
 2. **#31** — re-render the three light variants, send them to Tom.
 3. **#88** steps 1–3 (invisible plumbing), then step 4 under L-3's ruling.
+
+---
+
+# 🚨 COMPACTION BATON — a workflow is MID-WRITE in the tree
+
+## ⛔ FIRST, BEFORE ANY EDIT: `file_tree/` IS BEING WRITTEN BY AN AGENT
+
+Workflow **`wq70ho9b1`**, run id **`wf_d8ebccc0-88e`**, launched on Tom's
+explicit ultracode instruction (*"use an ultracode workflow for it, using Opus
+as the implementing agent, keep the number of agents modest"*). Five Opus
+agents: two surveyors → one implementer → gates + adversary.
+
+Script (editable, resumable):
+`~/.claude/projects/-Users-tom-Developer-ablative-libs-iridium/33ce25a4-8b77-4d27-b58b-a132d9a104af/workflows/scripts/oil-4b-edit-mode-wf_d8ebccc0-88e.js`
+
+⛔ **DO NOT EDIT ANYTHING UNDER `apps/iridium-desktop/src/file_tree/` UNTIL IT
+REPORTS.** At the last check it had 468 insertions across buffer.rs, keys.rs,
+mode.rs, panel.rs, plan.rs, and the tree does **not compile** — that is normal
+mid-edit and is NOT a defect to chase.
+
+⭐ **The agents are forbidden to commit or push. The commit gate is at this
+seat, deliberately, because this panel deletes files.**
+
+## Review checklist for when it lands — two flags already raised
+
+1. ⚠️ **`SourceRow` gained an `open` field and the call sites did not follow.**
+   `mode_tests.rs:21,27,33,39` and `buffer_tests.rs:27` fail with
+   `missing field 'open' in initializer`. Changing a shared struct is fine;
+   leaving its callers broken is not.
+2. ⚠️ **`edit_keys.rs` was NOT created**, yet `keys.rs:54` already calls
+   `handle_edit_key`. If the branch landed inside `keys.rs`, that pushes a
+   316-line file at the 500-line bar — which the brief explicitly argued
+   against. Check where it ended up.
+
+Then: gates green via `./scripts/ci.sh`, adversary found no live destructive
+path, `#[allow(dead_code)]` on `mod mode;` genuinely **deleted** not
+worked around, no `unwrap`/`expect`/`panic` outside `#[cfg(test)]`.
+
+⚠️ **If it lands broken or half-done, the sanctioned restore is
+`git show HEAD:<path> > <path>` per file — NEVER `checkout`/`restore`/`reset`.**
+
+## ⭐ TOM'S METHOD CORRECTION — binding, and I had already drifted once
+
+> *"It looks like nothing's running at the moment. How are you doing
+> implementation?"*
+
+He was right twice in one hour. **12 of 15 commits since S-3 were docs, zero
+code.** Then, having fixed the ratio for exactly one commit (#94), I ended
+three consecutive ticks with *"next up: the file buffer"* — a deferral wearing
+a plan's clothes.
+
+**The rules I gave him, which are now standing:**
+1. **Code first in every tick, messages last.** If the room runs out, the reply
+   is what does not get written — never the feature.
+2. **No "next tick" hand-offs.** Start it and finish it, or leave it in a state
+   written to a file.
+
+## State
+- **#94 CLOSED** `0c8ded76` — `cargo ci` ran **zero** of nine gates, not three;
+  alias deleted, `scripts/ci.sh` replaces it. Verified twice: ten gates,
+  **5,134 tests, 38 suites**, exit 0.
+- **Loop armed 00:49** as fallback; the workflow notification is the real wake.
+- Queue after #58: **#31 re-render** (Tom authorised), **T-1 vocabulary diff**
+  (T-2's "capture everything" depends on it), **#88 steps 1–3**.
+- Owed to Cally: the **H1 caller sweep**, accepted, brief pending from her.

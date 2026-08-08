@@ -3911,3 +3911,37 @@ delete.
 
 **Tom now owes:** the five cleanup decisions, plus the standing **#82**,
 **B-2**, **B-5**.
+
+## 8 Aug ~03:10 — cleanup executed, Tom ruled yes to all five
+
+**Final: one local branch (`main`), one remote ref (`origin/main`), `0 0`.**
+29 locals and 3 remote branches deleted. Nothing was deleted before its tip was
+tagged, and tags were pushed **before** any remote deletion.
+
+⚠️ **Two findings that were not in the plan:**
+
+1. **`vk/c6cf-phase-6-us4-synt` had `target/` committed** — commit `4480e903`,
+   9,725 files, **2.6 GB**. Tagging it and pushing the tag put that on GitHub.
+   The remote tag was deleted immediately; the local tag stands, so nothing is
+   lost here and the objects are unreferenced on the remote. **The lesson is
+   the order:** check what a branch drags along *before* pushing, not by
+   reading the push output. `archive/vk-c6cf-phase-6-us4-syntax` is the only
+   ref keeping those 2.6 GB alive locally — dropping it plus a prune reclaims
+   them, and is the one step that makes that branch unrecoverable. Tom's call.
+2. **The repo's default branch was `001-iridium-editor`** — a January branch.
+   Every fresh clone landed there instead of `main`. Set to `main` with
+   `gh repo edit`, which was also a prerequisite for deleting it (GitHub
+   refuses to delete the default branch).
+
+**Salvaged:** `docs/SEAM-SPIKE-REPORT.md` and `docs/WEB-BUILD-FINDINGS.md`,
+both with dated banners saying what has gone stale. The seam report's banner is
+explicit that every "Built in spike" row is **absent from main**. The
+cherry-picked harness arrived with a banned port (8000 → 14571), a dead
+`CARGO_TARGET_DIR`, and three warnings that no longer exist — all fixed.
+
+⚠️ **Do not go looking for worktrees again.** There are none, and there never
+were; `.git/worktrees` does not exist. Settled.
+
+Archive tags: `archive/seam-spike`, `archive/spike-web-build`,
+`archive/web-tree-sitter-standalone` (all three on origin), plus
+`archive/vk-c6cf-phase-6-us4-syntax` (**local only, deliberately**).

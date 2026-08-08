@@ -112,7 +112,7 @@ merged into main; `spike/web-build` is covered above. Deleting a remote branch
 is the one irreversible step in this whole page, so it is listed separately
 and not bundled into the local cleanup.
 
-## What is waiting on a ruling
+## What was waiting on a ruling
 
 1. Delete the 24 merged locals with `git branch -d`? *(recommend yes)*
 2. Cherry-pick `spike/web-build`'s docs commit onto main? *(recommend yes)*
@@ -120,4 +120,91 @@ and not bundled into the local cleanup.
 4. Delete `feature/web-tree-sitter-standalone` and `vk/c6cf-phase-6-us4-synt`? *(recommend yes)*
 5. Delete the three non-`main` remote branches? *(recommend yes, but it is the irreversible one)*
 
-Nothing in 1–5 has been run.
+**Tom ruled yes to all five on 8 Aug, with "just make sure that we've got what
+we need."** That caveat is what the rest of this page is about.
+
+---
+
+# Executed — 8 Aug 2026
+
+**Final state: one branch locally, one on `origin`, `0 0`, clean tree.**
+
+## Nothing was deleted before it was preserved
+
+Each of the four unmerged tips was tagged **first**, so every deletion stays
+reversible:
+
+| tag | commit |
+|---|---|
+| `archive/seam-spike` | `6cfebde9` |
+| `archive/spike-web-build` | `c74b43ff` |
+| `archive/web-tree-sitter-standalone` | `a3c63d94` |
+| `archive/vk-c6cf-phase-6-us4-syntax` | `68a9a98e` |
+
+Tags were **pushed before** any remote ref was deleted, so no object was ever
+unreachable on the remote at any point. Three of them are on `origin`; the
+fourth was deliberately withdrawn — see below.
+
+## What was salvaged, and the three defects it arrived with
+
+`spike/web-build`'s commit was cherry-picked with `-x` (so the provenance line
+is in the message). It landed three defects, all of which would have failed on
+any box, all fixed in the follow-up commit:
+
+* `run.sh` pinned `CARGO_TARGET_DIR` to `/Users/tom/Developer/ablative/iridium/target`
+  — a path that stopped existing when the repository moved under `libs/`.
+  Removed rather than repointed.
+* `run.sh` served on **port 8000**, one of the four CLAUDE.md bans. Now `14571`,
+  overridable through `PORT`.
+* Its build-gate section listed three compiler warnings. **All three are gone**,
+  checked rather than assumed: `in_line_comment` no longer exists in
+  `syntax_stubs.rs`, `pixel_ratio` is read through `DisplayScale`, and
+  `WebSpanIndex::len` was removed.
+
+`SEAM-SPIKE-REPORT.md` was salvaged from the branch tip. Both documents open
+with a dated banner naming what has gone stale, and the seam report's banner is
+explicit that **every row marked "Built in spike" is absent from `main`** — the
+code was not merged, so the document is a specification plus a pointer at the
+tag, not a description of today.
+
+`docs/web-build-harness/pkg/` is already covered by `.gitignore:34`, so running
+the harness cannot dirty the tree.
+
+## ⚠️ The 2.6 GB mistake, made and undone
+
+`vk/c6cf-phase-6-us4-synt` has a commit — `4480e903` — that **committed the
+entire `target/` directory: 9,725 files, 2,763,024,214 bytes (2.6 GB)**,
+including 60 MB `libnaga` rlibs.
+
+That branch had never been pushed. Tagging it and pushing the tag put all of it
+on GitHub, which announced itself as a large-file warning mid-push. The tag was
+deleted from the remote immediately (`git push origin :refs/tags/...`), so the
+objects are unreferenced there and will go on GitHub's next GC. **It should not
+have been pushed in the first place** — the check for what a branch drags along
+belongs *before* the push, not in reading its output.
+
+The tag still exists **locally**, so nothing is lost on this box. It is also
+the only ref keeping those 2.6 GB alive here. Dropping it plus a prune would
+reclaim that; not taken, because it is the one step that makes the January
+branch genuinely unrecoverable and there is no urgency. `.git` is 1,408,560 KB.
+
+No other ref reaches `4480e903` — checked against all three remaining archive
+tags and every branch.
+
+## ⚠️ The repo's default branch was `001-iridium-editor`
+
+Deleting that remote branch was rejected: GitHub refuses to delete the default
+branch. It had been pointing at a **January** branch this whole time, so a
+fresh clone landed there rather than on `main`, and every PR would have
+defaulted its base to it.
+
+Set to `main` with `gh repo edit --default-branch main`, verified, then the
+branch was deleted. This was a prerequisite for the ruling rather than a
+separate decision, but it is a repo-level setting change and is called out
+here for that reason.
+
+## Stashes
+
+Still **eight**, still untouched, none inspected. Every branch they were taken
+on is an ancestor of `main`, and a stash ref keeps its own base commit
+reachable regardless, so the branch deletions did not put any of them at risk.

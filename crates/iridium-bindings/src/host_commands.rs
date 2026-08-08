@@ -36,7 +36,7 @@
 //! reach it.
 
 use iridium_editor::commands::builtin::{
-    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN,
+    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
 };
 use serde::{Deserialize, Serialize};
 
@@ -59,11 +59,19 @@ pub struct HostCommandIds {
     /// face that cannot name the command cannot tell the user why nothing
     /// happened.
     pub explorer_toggle_panel: String,
+    /// Swap between the light and dark themes — [`VIEW_TOGGLE_THEME`].
+    ///
+    /// The browser *can* implement this one: the web face holds a `Theme` and
+    /// the compositor repaints from it, exactly as the desktop face does. It
+    /// is a host command rather than a kernel one because which theme the
+    /// toggle lands on is the face's to decide — a page may follow
+    /// `prefers-color-scheme` where a window follows the system appearance.
+    pub view_toggle_theme: String,
 }
 
 /// The host command ids, read from the kernel's own constants.
 ///
-/// Allocates three short strings, and is called once per editor rather than
+/// Allocates four short strings, and is called once per editor rather than
 /// per keystroke.
 #[must_use]
 pub fn host_command_ids() -> HostCommandIds {
@@ -71,6 +79,7 @@ pub fn host_command_ids() -> HostCommandIds {
         palette_open: PALETTE_OPEN.as_str().to_owned(),
         history_toggle_panel: HISTORY_TOGGLE_PANEL.as_str().to_owned(),
         explorer_toggle_panel: EXPLORER_TOGGLE_PANEL.as_str().to_owned(),
+        view_toggle_theme: VIEW_TOGGLE_THEME.as_str().to_owned(),
     }
 }
 
@@ -88,6 +97,7 @@ mod tests {
             ids.palette_open.as_str(),
             ids.history_toggle_panel.as_str(),
             ids.explorer_toggle_panel.as_str(),
+            ids.view_toggle_theme.as_str(),
         ])
     }
 
@@ -100,8 +110,8 @@ mod tests {
     /// will ever send).
     ///
     /// It also catches two fields carrying the same id, without a separate
-    /// test: duplicates collapse in the set, so three fields holding two
-    /// distinct ids can never equal a three-element kernel table.
+    /// test: duplicates collapse in the set, so four fields holding three
+    /// distinct ids can never equal a four-element kernel table.
     #[test]
     fn every_host_command_the_kernel_names_is_exported() {
         let ids = host_command_ids();
@@ -118,7 +128,7 @@ mod tests {
     /// The wire names TypeScript destructures, pinned.
     ///
     /// This is also what makes the `{}` fallback in `wasm.rs`'s adapter
-    /// unreachable rather than merely unlikely: a struct of three `String`s
+    /// unreachable rather than merely unlikely: a struct of four `String`s
     /// has no value `serde_json` can refuse.
     #[test]
     fn the_ids_serialize_under_the_names_typescript_reads() {
@@ -126,7 +136,11 @@ mod tests {
 
         assert_eq!(
             json,
-            r#"{"paletteOpen":"palette.open","historyTogglePanel":"history.togglePanel","explorerTogglePanel":"explorer.togglePanel"}"#
+            concat!(
+                r#"{"paletteOpen":"palette.open","historyTogglePanel":"history.togglePanel","#,
+                r#""explorerTogglePanel":"explorer.togglePanel","#,
+                r#""viewToggleTheme":"view.toggleTheme"}"#
+            )
         );
     }
 }

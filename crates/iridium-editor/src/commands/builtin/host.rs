@@ -67,6 +67,28 @@ pub const HISTORY_TOGGLE_PANEL: CommandId = CommandId::from_static("history.togg
 /// business knowing whether the host has one.
 pub const EXPLORER_TOGGLE_PANEL: CommandId = CommandId::from_static("explorer.togglePanel");
 
+/// Swap the editor between its light and dark themes.
+///
+/// Bound to `Ctrl+Alt+T` by the default keymap, and to `⌘⌥T` by the desktop
+/// face's ⌘ layer.
+///
+/// ⭐ **One toggle, not a `view.lightTheme`/`view.darkTheme` pair** (D-3). A
+/// pair reads as more precise and is worse in the hand: the thing anyone
+/// actually wants is "the other one", and a pair makes that two ids to bind,
+/// two palette rows saying almost the same thing, and a question — which of
+/// the two is currently a no-op? — that the face has to answer before it can
+/// grey a row out.
+///
+/// ⚠️ **A host command even though the kernel owns `Theme`.** The kernel can
+/// hold a theme and repaint from it, but *which* theme the toggle lands on is
+/// not the kernel's to decide: the desktop face follows the system appearance
+/// and can be pinned away from it (D-2), the terminal face rebuilds its
+/// palette from whatever the editor holds, and a face may carry themes the
+/// kernel never named. Naming the action here and letting each face do the
+/// swap keeps one id and one key across all three without the kernel
+/// pretending to know what "light" means for a terminal.
+pub const VIEW_TOGGLE_THEME: CommandId = CommandId::from_static("view.toggleTheme");
+
 /// Every host command the kernel names, in declaration order.
 pub static HOST: &[CommandMeta] = &[
     CommandMeta::described(
@@ -90,6 +112,13 @@ pub static HOST: &[CommandMeta] = &[
         CommandCategory::GENERAL,
     )
     .with_aliases(&["files", "file tree", "explorer", "open file"]),
+    CommandMeta::described(
+        VIEW_TOGGLE_THEME,
+        "Toggle Light/Dark Theme",
+        "Swaps between the light and dark themes, repainting every surface.",
+        CommandCategory::GENERAL,
+    )
+    .with_aliases(&["theme", "dark mode", "light mode", "appearance"]),
 ];
 
 /// The number of host commands the kernel names.

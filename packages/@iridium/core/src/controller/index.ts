@@ -229,6 +229,16 @@ export interface HostCommandIds {
    * that cannot name the command cannot explain why nothing happened.
    */
   readonly explorerTogglePanel: string;
+  /**
+   * Swap between the light and dark themes.
+   *
+   * Unlike the explorer, a browser can implement this one — the web face
+   * holds a theme and the compositor repaints from it. It stays a host
+   * command because *which* theme the toggle lands on is the face's call: a
+   * page may follow `prefers-color-scheme` where a window follows the system
+   * appearance, and the kernel should not have to know the difference.
+   */
+  readonly viewToggleTheme: string;
 }
 
 // Types for the low-level WASM editor

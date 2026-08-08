@@ -7,3 +7,4 @@ mod panels;
 mod saving;
 mod support;
 mod tabs;
+mod theme;

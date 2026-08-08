@@ -3621,3 +3621,76 @@ Sweep: **13 sound, 4 wrong, ~7 unchecked** — `iridium-tui/src/input.rs:183` ·
 
 Gates: all nine green, **2,536 passed, 0 failed**. No Meridian send this tick
 — nothing new needing Tom, and the last one went out 25 minutes earlier.
+
+## TICK — 8 Aug ~11:45 — the sweep finished, and the next route opened
+
+### ✅ THE UNIQUENESS SWEEP IS COMPLETE — 23 claims, 19 sound, 4 wrong
+
+Final six checked this tick, all **sound**:
+
+- `expand.rs:197` — `Region::of` really is the single `AstRequest`→region
+  mapping; the `run.rs`/`table.rs` hits are the action→request chain, a
+  different mapping.
+- `app/mod.rs:12` (desktop) — `dispatch_host_command` is the only place a host
+  verb runs. Two callers (`keyboard.rs:222` from a panel, `:289` from a chord)
+  and **both funnel through it**; each reports its own honest message on
+  `None`, so neither is a silent drop.
+- `suffix.rs:21` — "case is load-bearing in exactly one place" is **asserted by
+  a test** (`only_c_is_ambiguous_once_case_is_folded_and_both_spellings_resolve_exactly`).
+  The model for how a uniqueness claim should be written.
+- `compositor/mod.rs:1` — loose ("the one place editor state becomes pixels")
+  but immediately qualified by *"what a face keeps"*; overlays are face chrome.
+- `iridium-tui/src/input.rs:183` and `apps/iridium/src/app/mod.rs:292` — the
+  same sentence, "the kernel is the only place a new key code may be added". A
+  **policy**, not a claim about today's code. Sound as policy.
+
+**Wrong (4):** `wasm.rs:1164` → #81 · `windowed.rs:120` → `dc72b23c` ·
+`actions/mod.rs:10` → #84 · `file_tree/panel.rs:346` → `24d6f266`.
+
+### The hedge sweep came back nearly empty
+
+Grepped for hedging and impossibility language across `crates` and `apps`.
+Three hedges total, all benign. Every "unreachable" claim spot-checked
+(`search/paint.rs:311`, `folding/cache.rs:230`) turned out to be a *model* of
+how to do it — the arm is enumerated and still answers, rather than being
+assumed away. **This route is exhausted here; the comments are honest.**
+
+### ⭐ Rule E paid again — `d0f8a989`
+
+Asked of a choke point: *what can the arriving type express that the receiving
+one cannot?* `KeyResult::HostCommand` carries **`args`** — a count prefix and
+captured characters. `dispatch_host_command` takes an id and nothing else.
+
+**The browser forwards them** (`wasm.rs:636` → `count`, `captures`). **The
+desktop and terminal both write `HostCommand { command, .. }`** and drop them.
+
+**Latent, and said so:** nothing calls `with_count_prefix`, no stroke
+captures, and `KeyBinding::parse` cannot express either — so a config file
+cannot create one. `CommandArgs` is a designed mechanism with no live
+producer. The day it gets one, the browser acts on the count and two faces out
+of three silently do not.
+
+**Guarded rather than threaded.** An argument no branch can read is ceremony
+and its own kind of lie. Three tests refuse the situation instead, each saying
+in as many words that **on failure the fix is to thread `args`, not to relax
+the assertion**. Proven red in all three by giving the keymap builder a count
+prefix: kernel fails on `history.togglePanel`, each face on `file.save`.
+
+### Where to look next, now both routes are spent
+
+The two highest-yield routes are exhausted. Remaining, in expected-yield order:
+
+1. **Rule E on other choke points** — the one that just paid. Candidates not
+   yet asked: `FrameCompositor::compose` (what can `FrameTarget` +
+   `HighlightSource` not express?), `Workspace::run_command` (also id-only),
+   `Editor::consume_key_result`.
+2. **Cross-face contract diffs** — this tick's find was one face honouring a
+   kernel contract two others drop. Ask it of every `EditorKeyResult` variant,
+   not just `HostCommand`.
+3. **#79's remaining slices**, which need B-2 / B-5 from Tom.
+
+### Gates
+
+All nine green, **2,539 passed, 0 failed** (up three, all new guards).
+Load 10.6 at tick open. No Meridian send — Tom got a full update 20 minutes
+ago and nothing here changes what he owes.

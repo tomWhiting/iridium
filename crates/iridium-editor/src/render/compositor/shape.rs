@@ -28,6 +28,19 @@ use glyphon::Buffer;
 /// remains row 11's other trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ShapeKey {
+    /// *Which* document ([`Document::id`](crate::Document::id)), as opposed to
+    /// how many times it has changed.
+    ///
+    /// ⭐ A member because `document_revision` cannot do this job and never
+    /// could: every document starts its counter at zero, so equal revisions
+    /// mean "one document did not change" and say nothing about two different
+    /// documents. One compositor serves every tab a face has open — the
+    /// desktop face composes whichever tab is active into a single
+    /// `FrameCompositor` — so without this, switching between two files edited
+    /// the same number of times was a cache *hit*, and the previous file's
+    /// buffers were re-presented. See
+    /// `docs/IN-FLIGHT-87-document-identity.md`.
+    pub(super) document_id: u64,
     /// Document content (`Document::revision`, moved by every text
     /// mutation and never by cursor motion).
     pub(super) document_revision: u64,
@@ -92,6 +105,7 @@ impl ShapeKey {
         let Self {
             document_revision: _,
             highlight_generation: _,
+            document_id,
             viewport_start,
             viewport_end,
             content_width,
@@ -106,7 +120,12 @@ impl ShapeKey {
             gutter_text_generation,
             tab_width,
         } = *self;
-        viewport_start == previous.viewport_start
+        // Refused rather than diffed, for the same reason as `tab_width`
+        // below: the per-line path reuses the *previous* buffer, so diffing a
+        // different document's text into it would leave every line the diff
+        // did not touch showing the old document's.
+        document_id == previous.document_id
+            && viewport_start == previous.viewport_start
             && viewport_end == previous.viewport_end
             && content_width == previous.content_width
             && font_size == previous.font_size
@@ -172,6 +191,7 @@ mod shape_key_tests {
     /// A key with every input at a fixed value, for tests that vary one.
     fn key() -> ShapeKey {
         ShapeKey {
+            document_id: 1,
             document_revision: 7,
             viewport_start: 0,
             viewport_end: 40,

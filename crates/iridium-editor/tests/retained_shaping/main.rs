@@ -40,6 +40,7 @@ mod support;
 
 mod harness;
 
+mod document_identity;
 mod gutter;
 mod hits;
 mod layout;

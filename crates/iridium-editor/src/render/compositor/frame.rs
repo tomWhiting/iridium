@@ -115,6 +115,7 @@ impl FrameCompositor {
         self.text_renderer.set_tab_width(tab_width);
 
         let key = ShapeKey {
+            document_id: doc.id(),
             document_revision: doc.revision(),
             viewport_start,
             viewport_end,

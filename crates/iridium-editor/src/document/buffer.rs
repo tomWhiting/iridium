@@ -1,5 +1,7 @@
 //! Document buffer backed by a rope data structure.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use ropey::{LineType, Rope};
 use serde::{Deserialize, Serialize};
 
@@ -97,6 +99,26 @@ pub struct Document {
     /// handler's multi-cursor addition stack) compare revisions to detect
     /// that content moved under otherwise-unchanged cursor positions.
     revision: u64,
+    /// Which document this is, as opposed to how many times it has changed.
+    ///
+    /// See [`Document::id`]. Distinct from [`revision`](Self::revision) and
+    /// load-bearing precisely where that one is not: every document starts its
+    /// counter at zero, so a revision tells two *observations of one document*
+    /// apart and says nothing at all about two documents.
+    id: u64,
+}
+
+/// Hands out document identities.
+///
+/// Wraps at `u64::MAX`. At one document per nanosecond that is 584 years, and
+/// the failure at the wrap is one avoidable cache hit, not unsoundness — so
+/// `wrapping_add` rather than a panic or a saturating counter that would hand
+/// every later document the same identity.
+static NEXT_DOCUMENT_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Takes the next identity.
+fn next_document_id() -> u64 {
+    NEXT_DOCUMENT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Default for Document {
@@ -115,6 +137,7 @@ impl Document {
             line_ending,
             language: None,
             revision: 0,
+            id: next_document_id(),
         }
     }
 
@@ -132,6 +155,13 @@ impl Document {
     /// Taking the previous document rather than a bare number is what makes
     /// the counter monotonic by construction: there is no way to spell "go
     /// backwards".
+    ///
+    /// The [`id`](Self::id) is a **fresh** one, not `previous`'s. The content
+    /// is wholly replaced, so anything built for the old text is worthless, and
+    /// a new identity says so directly instead of relying on the revision bump
+    /// to say it indirectly. It costs nothing — the bump already forces every
+    /// revision-keyed cache to miss — and it keeps a future cache that keys on
+    /// the id alone correct.
     #[must_use]
     pub fn continuing_from(content: &str, previous: &Self) -> Self {
         let mut document = Self::new(content);
@@ -149,6 +179,33 @@ impl Document {
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Which document this is — an identity, not a change counter.
+    ///
+    /// Taken from a process-wide counter at construction and never reused, so
+    /// two documents alive at the same time never share one. Deliberately
+    /// **not** derived from the content: two files with identical text are
+    /// still two documents, and anything holding state built for one of them
+    /// must rebuild for the other.
+    ///
+    /// ⭐ **Why this exists, when [`revision`](Self::revision) is right there.**
+    /// A revision counts a document's own changes and every document starts at
+    /// zero, so equal revisions mean "the same document did not change" and
+    /// carry no information whatever about two *different* documents. A cache
+    /// shared across documents — one [`FrameCompositor`] serving several tabs —
+    /// that keys on the revision alone will treat a switch between two files
+    /// edited the same number of times as a hit, and re-present the previous
+    /// file's buffers. That was live until 8 Aug 2026; see
+    /// `docs/IN-FLIGHT-87-document-identity.md`.
+    ///
+    /// A `Clone` keeps the id, because a clone is a copy of *this* document
+    /// made to compute against, not a second document someone will edit.
+    ///
+    /// [`FrameCompositor`]: crate::render::FrameCompositor
+    #[must_use]
+    pub const fn id(&self) -> u64 {
+        self.id
     }
 
     /// Creates an empty document.

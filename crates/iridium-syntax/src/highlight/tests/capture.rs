@@ -64,25 +64,24 @@ const DELIBERATELY_UNSTYLED: &[&str] = &[
     "nested",
 ];
 
-/// Captures that render unstyled today and should not.
-///
-/// This is a real gap, not a convention: markdown headings and link text, every
-/// CSS selector, and JSX tags all reach the screen in the plain foreground.
-/// It predates AWL and was found by the test below rather than by anyone
-/// noticing the colour, which is exactly why the test exists.
-///
-/// Listed rather than fixed here because choosing a colour for each is a
-/// presentation decision, and this stint is the language registry. The list is
-/// a ratchet: the gap cannot grow without a failing test, and the test names
-/// the language.
-const KNOWN_UNSTYLED_GAP: &[&str] = &[
-    "link_text.markup",
-    "link_uri.markup",
-    "title.markup",
-    "selector.class",
-    "selector.id",
-    "selector.pseudo",
-];
+// ⭐ `KNOWN_UNSTYLED_GAP` STOOD HERE AND IS GONE, EMPTIED RATHER THAN KEPT.
+//
+// It listed six captures — markdown headings, link text and link URIs, and all
+// three CSS selector forms — that reached the screen in the plain foreground.
+// They are mapped now (#70), so the list has no members, and an exception list
+// with nothing in it is a rot site: it reads as "these are still broken" to
+// everyone who finds it, and the next person to hit an unmapped capture has an
+// obvious place to hide it.
+//
+// ⚠️ Its doc comment had already gone stale in the way exception lists do — it
+// still claimed JSX tags render unstyled, which stopped being true when #72
+// mapped `tag.jsx` to `Tag`. That is the argument for deleting rather than
+// emptying: a list nobody has to maintain is a list nobody notices is wrong.
+//
+// The ratchet it provided is not lost. `every_vendored_capture_maps_to_a_highlight_type`
+// below now has no exemption to consult, so it fails on *any* unmapped capture
+// rather than on any capture outside a hand-kept list — which is strictly
+// stronger.
 
 #[test]
 fn every_vendored_capture_maps_to_a_highlight_type() {
@@ -106,7 +105,6 @@ fn every_vendored_capture_maps_to_a_highlight_type() {
         for name in query.capture_names() {
             if HighlightType::from_capture_name(name).is_none()
                 && !DELIBERATELY_UNSTYLED.contains(name)
-                && !KNOWN_UNSTYLED_GAP.contains(name)
             {
                 unmapped.entry(name).or_default().push(language.id());
             }
@@ -125,12 +123,53 @@ fn every_vendored_capture_maps_to_a_highlight_type() {
     );
 }
 
+/// The six colours #70 ruled, pinned to the ruling rather than to a comment.
+///
+/// `every_vendored_capture_maps_to_a_highlight_type` only insists these six map
+/// to *something* — it would stay green if `title.markup` silently became
+/// `Comment` and markdown headings started rendering grey and recessive. This
+/// says which, so a later refactor that collapses arms has to disagree with the
+/// decision out loud instead of by accident.
+///
+/// ⚠️ `selector.class` and `selector.id` differ deliberately. Unifying them
+/// reads as tidier and hides the specificity distinction a stylesheet author is
+/// actively reasoning about, so if a future change makes these two equal, this
+/// test is the thing that should stop it.
+#[test]
+fn the_six_ruled_capture_colours_are_the_ones_that_were_ruled() {
+    for (name, expected) in [
+        ("title.markup", HighlightType::Keyword),
+        ("link_uri.markup", HighlightType::String),
+        ("link_text.markup", HighlightType::Function),
+        ("selector.class", HighlightType::Type),
+        ("selector.id", HighlightType::Constant),
+        ("selector.pseudo", HighlightType::Attribute),
+    ] {
+        assert_eq!(
+            HighlightType::from_capture_name(name),
+            Some(expected),
+            "@{name} no longer carries the colour #70 ruled for it"
+        );
+    }
+
+    assert_ne!(
+        HighlightType::from_capture_name("selector.class"),
+        HighlightType::from_capture_name("selector.id"),
+        "a class and an id must not render identically — that is the \
+         specificity distinction the ruling deliberately kept"
+    );
+}
+
 #[test]
 fn the_unstyled_lists_name_only_captures_that_are_still_unstyled_and_still_used() {
-    // Without this, both lists rot in the two ways an exception list can:
+    // Without this, the list rots in the two ways an exception list can:
     // a name that gets mapped stays listed as an exception forever, and a
     // capture dropped by a vendor refresh leaves a row nothing checks. Either
     // way the list stops describing the tree it claims to describe.
+    //
+    // ⭐ This is the test that proved #70's shrink was real rather than
+    // asserted: mapping the six and leaving them listed would fail here, so
+    // the fix and the bookkeeping could not come apart.
     let mut vendored: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for &language in Language::all() {
         if let Some(query) = crate::query::compiled(language, crate::query::QueryKind::Highlights)
@@ -140,7 +179,7 @@ fn the_unstyled_lists_name_only_captures_that_are_still_unstyled_and_still_used(
         }
     }
 
-    for &name in DELIBERATELY_UNSTYLED.iter().chain(KNOWN_UNSTYLED_GAP) {
+    for &name in DELIBERATELY_UNSTYLED {
         assert!(
             vendored.contains(name),
             "@{name} is listed as unstyled but no vendored query captures it"

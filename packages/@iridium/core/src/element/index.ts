@@ -88,6 +88,13 @@ export class IridiumEditorElement extends HTMLElement {
           this.editor.setContent(newValue);
         }
         break;
+      // A boolean attribute: present in any form means read-only, absent
+      // means writable — so the test is presence, not value, and
+      // `readonly=""` (what the parser produces for a bare `readonly`) reads
+      // as true rather than as an empty string meaning false.
+      case "readonly":
+        this.editor.setReadOnly(newValue !== null);
+        break;
     }
   }
 
@@ -265,6 +272,15 @@ export class IridiumEditorElement extends HTMLElement {
         },
         onHostCommand: (request) => this.handleHostCommand(request),
       });
+
+      // Applied after creation rather than passed as an option, because
+      // `IridiumEditorOptions` has no field for it and the kernel's default is
+      // writable. Read at mount as well as on change: an element that arrives
+      // with `readonly` already set never fires
+      // `attributeChangedCallback` for it.
+      if (this.hasAttribute("readonly")) {
+        this.editor.setReadOnly(true);
+      }
 
       // Hide loading indicator
       if (loadingEl) {

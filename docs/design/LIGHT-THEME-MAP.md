@@ -485,6 +485,13 @@ grey-chrome Platinum with saturated dark ink; B is warm paper with earthy
 ink and almost no chrome; C is white-and-black System 6 with colour used
 only where meaning demands it.
 
+> **Where these live now, per D-1.** A is `crates/iridium-editor/src/theme/classic.rs`
+> and *is* `Theme::light()`. B and C are `themes/paper.json` and
+> `themes/monochrome.json` — generated from the tables below, not retyped, and
+> held to them by the tests in that same module. **This section remains the one
+> place that says *why* each row is what it is**; JSON carries no comments, and
+> the commentary was deliberately not paraphrased into a fourth copy.
+
 ---
 
 #### Variant A — **"Platinum"** · faithful Mac OS 8.5

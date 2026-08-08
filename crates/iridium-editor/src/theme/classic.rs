@@ -1,41 +1,40 @@
-//! The classic-Mac light presets — three variants, one of them shipped.
+//! The classic-Mac light preset — Variant A, and where the other two went.
 //!
-//! These are the three light faces designed in `docs/design/LIGHT-THEME-MAP.md`
-//! §2.3, transcribed field by field. **D-1 is ruled: Variant A wins**, so
-//! [`platinum`] is no longer a candidate — it *is*
+//! `docs/design/LIGHT-THEME-MAP.md` §2.3 designed three light faces. **D-1 is
+//! ruled: Variant A wins**, so [`platinum`] is no longer a candidate — it *is*
 //! [`Theme::light`](super::Theme::light), reached through
 //! [`EditorColors::light`] and [`SyntaxColors::light`], which delegate here
-//! rather than carrying a second copy of the table. [`paper`] and
-//! [`monochrome`] remain unshipped, kept in Rust until they move out to JSON
-//! under `themes/`; their consumers are this module's own tests, the desktop
-//! face's screenshot harness (`apps/iridium-desktop/tests/chrome_screenshots.rs`)
-//! and the overlay's derivation tests.
+//! rather than carrying a second copy of the table.
 //!
-//! ⚠️ **One transcription, not two.** The tables are written here, beside each
-//! other, where the sweeps that check all three can reach them. The
-//! alternative — restating Variant A's rows inside
-//! [`EditorColors::light`] — was tried and abandoned: the hand-written float
-//! form put `selection` at `#3354AB` against the table's `#3355AA`, and
-//! nothing would have caught it, because both copies would have been telling
-//! the truth about "the light preset".
+//! # Variants B and C are files, not Rust
 //!
-//! # The three
+//! D-1's tail moved "Paper" and "Monochrome" out to `themes/paper.json` and
+//! `themes/monochrome.json`, which is exactly what the ruling priced: one file
+//! each and nothing in the binary. They are reached the way any theme a user
+//! writes is reached — `iridium --theme ./themes/paper.json` — so shipping
+//! them is also a standing demonstration that the native format can carry a
+//! whole theme, checked by the sweeps below rather than asserted in prose.
 //!
-//! - [`platinum`] — Variant A, faithful Mac OS 8.5: a grey document well,
-//!   canonical Platinum chrome a step below it, near-black frames and
-//!   MPW/CodeWarrior inks.
-//! - [`paper`] — Variant B, System 7 on good stock: warm off-white, minimal
-//!   chrome, earthy ink, every grey warm-shifted.
-//! - [`monochrome`] — Variant C, System 6: pure white and pure black, dither
-//!   greys, one restrained accent, colour kept for the places where it
-//!   carries meaning.
+//! Their design rationale is not restated here. It never belonged here: the
+//! commentary that used to sit beside those tables was itself a paraphrase of
+//! §2.3, which remains the one place that says *why* Paper's greys are
+//! warm-shifted and why Monochrome keeps a real red for `error`.
+//!
+//! ⚠️ **One transcription, not two.** The two files were **generated from the
+//! tables that used to stand in this module**, never retyped from the map, and
+//! the tests below hold the shipped bytes to the map's own hexes. The
+//! alternative was tried and abandoned once already: a hand-written float form
+//! put `selection` at `#3354AB` against the table's `#3355AA`, and nothing
+//! would have caught it, because both copies would have been telling the truth
+//! about "the light preset".
 //!
 //! # What the map states, and what is derived here
 //!
 //! The map's §2.3 tables state all 24 [`EditorColors`] fields and all 14
 //! [`SyntaxColors`] fields for each variant. Four things the tables do not
-//! spell out are derived here by the map's own stated rules, and are named so
-//! a reader never has to guess which is which:
+//! spell out were derived by the map's own stated rules — they are named here
+//! because they are as true of the two files as of the preset below, and a
+//! reader should never have to guess which is which:
 //!
 //! 1. **Alpha where a table row gives a bare hex** is `1.0`. The tables write
 //!    an explicit `@ x.xx` wherever a colour is meant to be translucent, so a
@@ -60,9 +59,8 @@
 //! strings-of-structure"), A and B paint `attribute` as `function`, and C
 //! paints `attribute` as `type_name` and `variable` as `operator`. What §2.3
 //! calls out in bold on every table is the narrower, real rule — `attribute`
-//! must not equal `error`, the defect the current
-//! [`SyntaxColors::light`](super::SyntaxColors::light) carries. This module
-//! transcribes the tables verbatim and pins the narrower rule; the wider
+//! must not equal `error`, the defect the light preset used to carry. The
+//! tables were transcribed verbatim and the narrower rule is pinned; the wider
 //! claim in §2.2 is reported as a map defect rather than improvised around.
 
 use super::{Color, EditorColors, SyntaxColors, Theme, Typography};
@@ -91,47 +89,6 @@ fn rgba8(r: u8, g: u8, b: u8, a: f32) -> Color {
         f32::from(b) / 255.0,
         a,
     )
-}
-
-/// Which candidate light preset: the three variants of the light-theme map's
-/// §2.3, as a value, so a caller can iterate them without naming each
-/// constructor.
-///
-/// This exists for the renderers and the tests that must cover all three; it
-/// is not a runtime selection mechanism and nothing persists it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ClassicVariant {
-    /// Variant A — "Platinum", faithful Mac OS 8.5.
-    Platinum,
-    /// Variant B — "Paper", System 7 on good stock.
-    Paper,
-    /// Variant C — "Monochrome", System 6.
-    Monochrome,
-}
-
-impl ClassicVariant {
-    /// Every variant, in the map's own order.
-    pub const ALL: [Self; 3] = [Self::Platinum, Self::Paper, Self::Monochrome];
-
-    /// A short lowercase identifier, suitable for a file name.
-    #[must_use]
-    pub const fn slug(self) -> &'static str {
-        match self {
-            Self::Platinum => "platinum",
-            Self::Paper => "paper",
-            Self::Monochrome => "monochrome",
-        }
-    }
-
-    /// The variant's theme.
-    #[must_use]
-    pub fn theme(self) -> Theme {
-        match self {
-            Self::Platinum => platinum(),
-            Self::Paper => paper(),
-            Self::Monochrome => monochrome(),
-        }
-    }
 }
 
 // =============================================================================
@@ -252,210 +209,10 @@ pub fn platinum() -> Theme {
     }
 }
 
-// =============================================================================
-// Variant B — "Paper" · System 7 on good stock
-// =============================================================================
-
-/// Variant B's editor chrome — the light-theme map §2.3, table "Variant B ·
-/// Editor colours", transcribed row for row.
-fn paper_editor() -> EditorColors {
-    EditorColors {
-        // Warm paper — off-white, never a light source.
-        background: rgb8(0xFB, 0xF8, 0xF1),
-        // Warm near-black; ink, not grey.
-        foreground: rgb8(0x24, 0x21, 0x1C),
-        // A muted period blue, warm-compatible, and the same halved.
-        selection: rgba8(0x4A, 0x6F, 0xA5, 0.26),
-        selection_inactive: rgba8(0x4A, 0x6F, 0xA5, 0.12),
-        cursor: rgb8(0x24, 0x21, 0x1C),
-        // Warm grey, clearly subordinate.
-        line_number: rgb8(0xA6, 0x9E, 0x90),
-        line_number_active: rgb8(0x24, 0x21, 0x1C),
-        // A warm card one step off the paper — the panel and strip surface.
-        current_line: rgb8(0xF2, 0xEC, 0xE0),
-        // Between paper and card; distinct from `background`.
-        gutter: rgb8(0xF5, 0xF0, 0xE6),
-        minimap_background: rgb8(0xF5, 0xF0, 0xE6),
-        // The warm ink at the same 0.55 as A. Warm rather than black, so the
-        // frame does not turn out to be the one cold thing on the page.
-        panel_border: rgba8(0x24, 0x21, 0x1C, 0.55),
-        // Aged-gold highlighter, and the same gold driven.
-        search_match: rgba8(0xE8, 0xC4, 0x6A, 0.55),
-        search_match_current: rgba8(0xD9, 0x8E, 0x28, 0.85),
-        // Soft on paper.
-        diff_added_bg: rgba8(0x4E, 0x8B, 0x57, 0.14),
-        diff_deleted_bg: rgba8(0xA8, 0x5A, 0x5A, 0.14),
-        diff_added_gutter: rgb8(0x3E, 0x7A, 0x4B),
-        diff_deleted_gutter: rgb8(0x9E, 0x40, 0x40),
-        change_added: rgb8(0x3E, 0x7A, 0x4B),
-        change_modified: rgb8(0xA8, 0x82, 0x32),
-        change_deleted: rgb8(0x9E, 0x40, 0x40),
-        // The gutter grey as ghost text.
-        blame_foreground: rgba8(0xA6, 0x9E, 0x90, 0.85),
-        diagnostic_error: rgb8(0x9E, 0x30, 0x30),
-        diagnostic_warning: rgb8(0xA8, 0x82, 0x32),
-        diagnostic_info: rgb8(0x3E, 0x60, 0x99),
-        // Warm grey, recessive.
-        diagnostic_hint: rgb8(0x8A, 0x83, 0x75),
-    }
-}
-
-/// Variant B's code inks — earthy colours, the map §2.3's "Variant B · Syntax
-/// colours".
-fn paper_syntax() -> SyntaxColors {
-    SyntaxColors {
-        // Warm-shifted navy.
-        keyword: rgb8(0x26, 0x47, 0x8D),
-        // Burnt sienna.
-        string: rgb8(0x8A, 0x33, 0x24),
-        // Deep viridian.
-        number: rgb8(0x1D, 0x6A, 0x5A),
-        // Olive-green — readable, recessive.
-        comment: rgb8(0x4A, 0x7A, 0x3D),
-        // Tobacco brown.
-        function: rgb8(0x7A, 0x4E, 0x1E),
-        // Warm ink.
-        variable: rgb8(0x33, 0x30, 0x2A),
-        // Slate teal.
-        type_name: rgb8(0x2A, 0x60, 0x70),
-        // Warm grey-black.
-        operator: rgb8(0x4A, 0x45, 0x3C),
-        // One step further back — structure recedes.
-        punctuation: rgb8(0x6B, 0x64, 0x59),
-        // Dusty blue.
-        property: rgb8(0x3A, 0x5A, 0x7A),
-        // Amber-brown.
-        constant: rgb8(0x8A, 0x4B, 0x10),
-        // As strings.
-        tag: rgb8(0x8A, 0x33, 0x24),
-        // Distinct from `error`.
-        attribute: rgb8(0x7A, 0x4E, 0x1E),
-        // The single red.
-        error: rgb8(0x9E, 0x30, 0x30),
-    }
-}
-
-/// Variant B — "Paper": the one designed to be lived in eight hours a day.
-///
-/// A candidate preset pending the owner's D-1 ruling; not reachable from any
-/// runtime path and not a replacement for
-/// [`Theme::light`](super::Theme::light).
-#[must_use]
-pub fn paper() -> Theme {
-    Theme {
-        name: "Iridium Paper".to_string(),
-        is_dark: false,
-        editor: paper_editor(),
-        syntax: paper_syntax(),
-        typography: Typography::default(),
-    }
-}
-
-// =============================================================================
-// Variant C — "Monochrome" · System 6, in colour only where it must be
-// =============================================================================
-
-/// Variant C's editor chrome — the light-theme map §2.3, table "Variant C ·
-/// Editor colours", transcribed row for row.
-///
-/// The `diff_*`, `change_*` and `diagnostic_*` families keep full functional
-/// hue on purpose: §2.2's last rule holds that a diff whose additions and
-/// deletions differ only in grey is a defect, not a style.
-fn monochrome_editor() -> EditorColors {
-    EditorColors {
-        // The 1-bit page and the 1-bit ink.
-        background: rgb8(0xFF, 0xFF, 0xFF),
-        foreground: rgb8(0x00, 0x00, 0x00),
-        // The one accent — System 7's pale highlight blue — and the same
-        // halved.
-        selection: rgba8(0x7A, 0x93, 0xB8, 0.36),
-        selection_inactive: rgba8(0x7A, 0x93, 0xB8, 0.16),
-        cursor: rgb8(0x00, 0x00, 0x00),
-        // The 50% dither.
-        line_number: rgb8(0x80, 0x80, 0x80),
-        line_number_active: rgb8(0x00, 0x00, 0x00),
-        // The 90% dither — panel and strip surface, far enough from the page
-        // to survive a terminal, where there is no hairline to help.
-        current_line: rgb8(0xE6, 0xE6, 0xE6),
-        // One dither step below the panel; distinct from `background`.
-        gutter: rgb8(0xE0, 0xE0, 0xE0),
-        // 0.85, not the 0.55 of A and B: this is the variant with no colour
-        // and almost no tonal range to hold a panel off the page, so the
-        // frame does the whole job and is very nearly the solid 1-bit rule a
-        // System 6 window actually had.
-        panel_border: rgba8(0x00, 0x00, 0x00, 0.85),
-        minimap_background: rgb8(0xE0, 0xE0, 0xE0),
-        // A 25% dither wash, against a current match dark enough that black
-        // text on it still reads.
-        search_match: rgba8(0x80, 0x80, 0x80, 0.30),
-        search_match_current: rgba8(0x30, 0x30, 0x30, 0.45),
-        diff_added_bg: rgba8(0x2E, 0x7D, 0x32, 0.13),
-        diff_deleted_bg: rgba8(0xB7, 0x1C, 0x1C, 0.13),
-        diff_added_gutter: rgb8(0x1B, 0x5E, 0x20),
-        diff_deleted_gutter: rgb8(0xB7, 0x1C, 0x1C),
-        change_added: rgb8(0x1B, 0x5E, 0x20),
-        change_modified: rgb8(0x8D, 0x6E, 0x00),
-        change_deleted: rgb8(0xB7, 0x1C, 0x1C),
-        blame_foreground: rgba8(0x80, 0x80, 0x80, 0.85),
-        // Meaning outranks style.
-        diagnostic_error: rgb8(0xB7, 0x1C, 0x1C),
-        diagnostic_warning: rgb8(0x8D, 0x6E, 0x00),
-        diagnostic_info: rgb8(0x1F, 0x3A, 0x6E),
-        diagnostic_hint: rgb8(0x60, 0x60, 0x60),
-    }
-}
-
-/// Variant C's code inks — near-monochrome, hue as a whisper, the map §2.3's
-/// "Variant C · Syntax colours".
-fn monochrome_syntax() -> SyntaxColors {
-    SyntaxColors {
-        // Near-black navy — reads as *weight*, not colour.
-        keyword: rgb8(0x10, 0x10, 0x70),
-        // Near-black maroon.
-        string: rgb8(0x6A, 0x1B, 0x1B),
-        // Near-black teal.
-        number: rgb8(0x1B, 0x4D, 0x4D),
-        // The era's comment: grey, not green.
-        comment: rgb8(0x5A, 0x5A, 0x5A),
-        // Ink, one step lifted.
-        function: rgb8(0x30, 0x30, 0x30),
-        variable: rgb8(0x00, 0x00, 0x00),
-        // Near-black steel.
-        type_name: rgb8(0x1B, 0x3A, 0x5A),
-        operator: rgb8(0x00, 0x00, 0x00),
-        // Recedes.
-        punctuation: rgb8(0x4A, 0x4A, 0x4A),
-        property: rgb8(0x20, 0x20, 0x20),
-        // Near-black umber.
-        constant: rgb8(0x4A, 0x2A, 0x00),
-        // As strings.
-        tag: rgb8(0x6A, 0x1B, 0x1B),
-        // Distinct from `error`.
-        attribute: rgb8(0x1B, 0x3A, 0x5A),
-        // The one place C permits a real red — an error must shout.
-        error: rgb8(0xB7, 0x1C, 0x1C),
-    }
-}
-
-/// Variant C — "Monochrome": the 1-bit machine, with colour kept for meaning.
-///
-/// A candidate preset pending the owner's D-1 ruling; not reachable from any
-/// runtime path and not a replacement for
-/// [`Theme::light`](super::Theme::light).
-#[must_use]
-pub fn monochrome() -> Theme {
-    Theme {
-        name: "Iridium Monochrome".to_string(),
-        is_dark: false,
-        editor: monochrome_editor(),
-        syntax: monochrome_syntax(),
-        typography: Typography::default(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ClassicVariant, monochrome, paper, platinum, platinum_editor, platinum_syntax};
+    use super::{platinum, platinum_editor, platinum_syntax};
+    use crate::theme::wcag::{channel_distance, contrast};
     use crate::theme::{Color, EditorColors, SyntaxColors, Theme};
 
     /// The colour a hex string from the map's tables denotes, parsed by the
@@ -465,7 +222,73 @@ mod tests {
         Color::from_hex(hex).expect("the map's tables are six-digit hex")
     }
 
-    use crate::theme::wcag::{channel_distance, contrast};
+    /// Where the shipped theme files live, relative to this crate.
+    ///
+    /// A path rather than an `include_str!`, deliberately: embedding them
+    /// would put the bytes back in the binary, which is the cost D-1 ruled
+    /// against, and would make these tests pass against a copy rather than
+    /// against what a `--theme` path actually opens.
+    const THEMES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../themes");
+
+    /// The text of one shipped theme file.
+    fn theme_text(slug: &str) -> String {
+        let path = format!("{THEMES}/{slug}.json");
+        std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!("`{path}` is a shipped asset and must be readable: {error}")
+        })
+    }
+
+    /// One shipped theme file, parsed the way `--theme <path>` parses it.
+    fn shipped(slug: &str) -> Theme {
+        Theme::from_json(&theme_text(slug))
+            .unwrap_or_else(|error| panic!("`{slug}.json` must parse as a native theme: {error}"))
+    }
+
+    /// Every theme file under `themes/`, by slug, in a stable order.
+    ///
+    /// ⚠️ The directory is *listed*, not enumerated by name. A third theme
+    /// dropped in beside these two joins every sweep below without anyone
+    /// remembering to add it — which is the whole point of the rules being
+    /// sweeps rather than assertions about two known files. The flip side is
+    /// that an empty directory would make every sweep pass while checking
+    /// nothing, so the two the ruling named are required back by name.
+    fn shipped_slugs() -> Vec<String> {
+        let mut slugs: Vec<String> = std::fs::read_dir(THEMES)
+            .unwrap_or_else(|error| panic!("`{THEMES}` must be readable: {error}"))
+            .map(|entry| entry.expect("a readable directory entry").path())
+            .filter(|path| path.extension().is_some_and(|it| it == "json"))
+            .filter_map(|path| {
+                path.file_stem()
+                    .and_then(|it| it.to_str())
+                    .map(str::to_owned)
+            })
+            .collect();
+        slugs.sort();
+
+        for required in ["paper", "monochrome"] {
+            assert!(
+                slugs.iter().any(|slug| slug == required),
+                "`themes/{required}.json` is D-1's own deliverable and must be shipped; \
+                 `themes/` holds {slugs:?}"
+            );
+        }
+        slugs
+    }
+
+    /// Every light face this change is answerable for: the preset that ships
+    /// in the binary, plus every file under `themes/`.
+    ///
+    /// The rules below are the *map's* rules, and the map wrote them about all
+    /// three variants — so they are asked of all three still, whichever side
+    /// of the binary each now lives on.
+    fn light_faces() -> Vec<(String, Theme)> {
+        let mut faces = vec![("platinum".to_owned(), platinum())];
+        for slug in shipped_slugs() {
+            let theme = shipped(&slug);
+            faces.push((slug, theme));
+        }
+        faces
+    }
 
     /// Every variant's 14 syntax colours, named, for the sweeps below.
     fn syntax_fields(theme: &Theme) -> [(&'static str, Color); 14] {
@@ -489,55 +312,88 @@ mod tests {
     }
 
     /// The pixel-honest check the map asks for, at the cheapest honest level:
-    /// each variant's editor background is the hex its §2.3 table states.
+    /// each face's editor background is the hex its §2.3 table states.
     ///
     /// The compositor takes `theme.editor.background` as its clear colour
-    /// verbatim, so this value *is* the colour the page renders as; a variant
-    /// that silently drifted here would render a colour nobody chose.
+    /// verbatim, so this value *is* the colour the page renders as; a face
+    /// that silently drifted here would render a colour nobody chose. For the
+    /// two files that means the **shipped bytes** are held to the map — not
+    /// the Rust they were generated from, which no longer exists to disagree
+    /// with them.
     #[test]
-    fn each_variant_states_the_background_its_table_states() {
+    fn each_face_states_the_background_its_table_states() {
         assert_eq!(platinum().editor.background, stated("#EFEFEF"));
-        assert_eq!(paper().editor.background, stated("#FBF8F1"));
-        assert_eq!(monochrome().editor.background, stated("#FFFFFF"));
+        assert_eq!(shipped("paper").editor.background, stated("#FBF8F1"));
+        assert_eq!(shipped("monochrome").editor.background, stated("#FFFFFF"));
     }
 
     /// The other colours a shot is judged on, likewise pinned to the tables:
     /// the ink, the gutter, the panel/strip surface and the keyword.
     #[test]
-    fn each_variant_states_the_chrome_its_table_states() {
+    fn each_face_states_the_chrome_its_table_states() {
         let a = platinum();
         assert_eq!(a.editor.foreground, stated("#000000"));
         assert_eq!(a.editor.gutter, stated("#DDDDDD"));
         assert_eq!(a.editor.current_line, stated("#DDDDDD"));
         assert_eq!(a.syntax.keyword, stated("#00007F"));
 
-        let b = paper();
+        let b = shipped("paper");
         assert_eq!(b.editor.foreground, stated("#24211C"));
         assert_eq!(b.editor.gutter, stated("#F5F0E6"));
         assert_eq!(b.editor.current_line, stated("#F2ECE0"));
         assert_eq!(b.syntax.keyword, stated("#26478D"));
 
-        let c = monochrome();
+        let c = shipped("monochrome");
         assert_eq!(c.editor.foreground, stated("#000000"));
         assert_eq!(c.editor.gutter, stated("#E0E0E0"));
         assert_eq!(c.editor.current_line, stated("#E6E6E6"));
         assert_eq!(c.syntax.keyword, stated("#101070"));
     }
 
+    /// ⭐ Each shipped file states **every** field, in the form the serialiser
+    /// produces.
+    ///
+    /// This is the guard none of the sweeps can be. `EditorColors` and
+    /// `SyntaxColors` both carry a container-level `#[serde(default)]`, so a
+    /// field missing from one of these files does not fail to parse — it
+    /// silently takes the **dark** preset's value. Paper with a cold blue
+    /// selection it never asked for, and no error anywhere. The same
+    /// defaulting swallows a misspelt key, which serde discards in silence.
+    ///
+    /// Re-serialising the parsed theme catches both at once: a missing field
+    /// comes back, a misspelt one does not come back, and either way the bytes
+    /// differ from what is on disk. It also pins the files to canonical
+    /// output, so regenerating one is a no-op rather than a diff.
     #[test]
-    fn every_variant_is_a_named_light_theme() {
-        for variant in ClassicVariant::ALL {
-            let theme = variant.theme();
+    fn every_shipped_file_states_every_field() {
+        for slug in shipped_slugs() {
+            let text = theme_text(&slug);
+            let round_tripped = format!(
+                "{}\n",
+                shipped(&slug)
+                    .to_json()
+                    .expect("a parsed theme re-serialises")
+            );
+            assert_eq!(
+                round_tripped, text,
+                "`themes/{slug}.json` is not what the serialiser writes for the theme it \
+                 parses as — a field it omits is silently taking the dark preset's value, or \
+                 a key it misspells is being discarded"
+            );
+        }
+    }
+
+    #[test]
+    fn every_face_is_a_named_light_theme() {
+        for (slug, theme) in light_faces() {
             assert!(
                 !theme.is_dark,
-                "{} must report itself light — the compositor keys its \
-                 fallback bridge on this flag",
-                variant.slug()
+                "{slug} must report itself light — the compositor keys its \
+                 fallback bridge on this flag"
             );
             assert!(
                 theme.name.starts_with("Iridium "),
-                "{} has an off-form name: {}",
-                variant.slug(),
+                "{slug} has an off-form name: {}",
                 theme.name
             );
         }
@@ -546,9 +402,9 @@ mod tests {
     /// The light twin of `the_dark_preset_surfaces_are_opaque`: a transparent
     /// surface presents as black on any face whose swapchain is opaque.
     #[test]
-    fn every_variant_surface_is_opaque() {
-        for variant in ClassicVariant::ALL {
-            let editor = variant.theme().editor;
+    fn every_face_surface_is_opaque() {
+        for (slug, theme) in light_faces() {
+            let editor = theme.editor;
             for (field, color) in [
                 ("background", editor.background),
                 ("gutter", editor.gutter),
@@ -557,8 +413,7 @@ mod tests {
             ] {
                 assert!(
                     (color.a - 1.0).abs() < f32::EPSILON,
-                    "{}'s {field} must be opaque, is alpha {}",
-                    variant.slug(),
+                    "{slug}'s {field} must be opaque, is alpha {}",
                     color.a
                 );
             }
@@ -569,59 +424,48 @@ mod tests {
     /// the gutter cannot be told from the background — the rule is the
     /// theme's, so it is asserted here too.
     #[test]
-    fn every_variant_gutter_is_distinct_from_its_background() {
-        for variant in ClassicVariant::ALL {
-            let editor = variant.theme().editor;
+    fn every_face_gutter_is_distinct_from_its_background() {
+        for (slug, theme) in light_faces() {
             assert_ne!(
-                editor.gutter,
-                editor.background,
-                "{}'s gutter must not equal its background",
-                variant.slug()
+                theme.editor.gutter, theme.editor.background,
+                "{slug}'s gutter must not equal its background"
             );
         }
     }
 
-    /// `current_line` is also the overlay's panel and strip surface. The
-    /// current light preset holds its panel apart from the page by 8/255,
-    /// which no terminal can show; the map requires at least 17.
+    /// `current_line` is also the overlay's panel and strip surface. The light
+    /// preset this replaced held its panel apart from the page by 8/255, which
+    /// no terminal can show; the map requires at least 17.
     #[test]
-    fn every_variant_panel_surface_stands_apart_from_the_page() {
-        for variant in ClassicVariant::ALL {
-            let editor = variant.theme().editor;
-            let distance = channel_distance(editor.current_line, editor.background);
+    fn every_face_panel_surface_stands_apart_from_the_page() {
+        for (slug, theme) in light_faces() {
+            let distance = channel_distance(theme.editor.current_line, theme.editor.background);
             assert!(
                 distance >= 17.0,
-                "{}'s panel surface is only {distance:.0}/255 from the page",
-                variant.slug()
+                "{slug}'s panel surface is only {distance:.0}/255 from the page"
             );
         }
     }
 
     #[test]
-    fn every_variant_distinguishes_the_current_search_match() {
-        for variant in ClassicVariant::ALL {
-            let editor = variant.theme().editor;
+    fn every_face_distinguishes_the_current_search_match() {
+        for (slug, theme) in light_faces() {
             assert_ne!(
-                editor.search_match,
-                editor.search_match_current,
-                "{}: the editor must be able to say which match Enter leaves",
-                variant.slug()
+                theme.editor.search_match, theme.editor.search_match_current,
+                "{slug}: the editor must be able to say which match Enter leaves"
             );
         }
     }
 
-    /// The defect the current light preset carries (`attribute` and `error`
-    /// both `#ff0000`) must not survive into any variant: two token classes
-    /// that cannot be told apart are not a style.
+    /// The defect the old light preset carried (`attribute` and `error` both
+    /// `#ff0000`) must not survive into any face: two token classes that
+    /// cannot be told apart are not a style.
     #[test]
-    fn no_variant_paints_attribute_as_error() {
-        for variant in ClassicVariant::ALL {
-            let syntax = variant.theme().syntax;
+    fn no_face_paints_attribute_as_error() {
+        for (slug, theme) in light_faces() {
             assert_ne!(
-                syntax.attribute,
-                syntax.error,
-                "{}: attribute and error must be distinguishable",
-                variant.slug()
+                theme.syntax.attribute, theme.syntax.error,
+                "{slug}: attribute and error must be distinguishable"
             );
         }
     }
@@ -629,59 +473,54 @@ mod tests {
     /// The era rule made testable: body text is ink, not grey text, and the
     /// caret is a black bar that cannot vanish into the page.
     #[test]
-    fn every_variant_writes_in_ink() {
-        for variant in ClassicVariant::ALL {
-            let editor = variant.theme().editor;
+    fn every_face_writes_in_ink() {
+        for (slug, theme) in light_faces() {
+            let editor = theme.editor;
             let text = contrast(editor.foreground, editor.background);
             assert!(
                 text >= 12.0,
-                "{}: body text is {text:.2}:1 against the page, below the 12:1 the map states",
-                variant.slug()
+                "{slug}: body text is {text:.2}:1 against the page, below the 12:1 the map states"
             );
             let caret = contrast(editor.cursor, editor.background);
             assert!(
                 caret >= 15.0,
-                "{}: the caret is {caret:.2}:1 against the page, below the 15:1 the map states",
-                variant.slug()
+                "{slug}: the caret is {caret:.2}:1 against the page, below the 15:1 the map states"
             );
         }
     }
 
     /// Every one of the 14 syntax colours must clear WCAG AA against its own
-    /// variant's page. A light theme whose comments wash out is not usable
+    /// face's page. A light theme whose comments wash out is not usable
     /// whatever its character.
     #[test]
     fn every_syntax_colour_is_legible_on_its_own_surface() {
-        for variant in ClassicVariant::ALL {
-            let theme = variant.theme();
+        for (slug, theme) in light_faces() {
             let background = theme.editor.background;
             for (field, color) in syntax_fields(&theme) {
                 let ratio = contrast(color, background);
                 assert!(
                     ratio >= 4.5,
-                    "{}: {field} is {ratio:.2}:1 against the page, below 4.5:1",
-                    variant.slug()
+                    "{slug}: {field} is {ratio:.2}:1 against the page, below 4.5:1"
                 );
             }
         }
     }
 
-    /// The three variants must actually be three: identical pages would make
-    /// the rendered choice meaningless.
+    /// The three must actually be three: identical pages would make the choice
+    /// between them meaningless, and would mean one of the files was generated
+    /// from the wrong table.
     #[test]
-    fn the_three_variants_are_genuinely_different() {
-        let themes = [platinum(), paper(), monochrome()];
-        for (index, first) in themes.iter().enumerate() {
-            for second in themes.iter().skip(index + 1) {
+    fn the_three_faces_are_genuinely_different() {
+        let faces = light_faces();
+        for (index, (first_slug, first)) in faces.iter().enumerate() {
+            for (second_slug, second) in faces.iter().skip(index + 1) {
                 assert_ne!(
                     first.editor, second.editor,
-                    "{} and {} share an editor palette",
-                    first.name, second.name
+                    "{first_slug} and {second_slug} share an editor palette"
                 );
                 assert_ne!(
                     first.syntax, second.syntax,
-                    "{} and {} share a syntax palette",
-                    first.name, second.name
+                    "{first_slug} and {second_slug} share a syntax palette"
                 );
             }
         }
@@ -715,20 +554,24 @@ mod tests {
         assert_eq!(SyntaxColors::light(), platinum_syntax());
     }
 
-    /// The two that did not win must stay off the shipped path.
+    /// The two that did not win must stay off the built-in path.
     ///
-    /// Without this, "Variant A is the light preset" would still pass if
-    /// Paper had *also* been wired in somewhere — and the sweeps above, which
-    /// ask each variant only about itself, would not notice.
+    /// Without this, "Variant A is the light preset" would still pass if Paper
+    /// had *also* been wired in somewhere — and the sweeps above, which ask
+    /// each face only about itself, would not notice.
+    ///
+    /// Note what this is now, post-D-1's-tail: not "these are unreachable" but
+    /// "these are reachable only as files". `--theme ./themes/paper.json` is
+    /// meant to work, and does; what must never happen is `--theme light`
+    /// quietly returning one of them.
     #[test]
-    fn the_unshipped_variants_are_unshipped() {
-        let shipped = Theme::light();
-        for variant in [ClassicVariant::Paper, ClassicVariant::Monochrome] {
+    fn the_files_are_not_the_built_in_light_preset() {
+        let built_in = Theme::light();
+        for slug in shipped_slugs() {
             assert_ne!(
-                variant.theme().editor,
-                shipped.editor,
-                "{} is not the ruled preset and must not be reachable as one",
-                variant.slug()
+                shipped(&slug).editor,
+                built_in.editor,
+                "themes/{slug}.json is not the ruled preset and must not be reachable as one"
             );
         }
     }

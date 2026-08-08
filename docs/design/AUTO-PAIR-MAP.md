@@ -1275,3 +1275,97 @@ while `multi_char_backspace_tests.rs` runs on a harness where `CaretScopes::none
 `not_in` unreachable by construction. **The one path where the disagreement can appear is the
 one path with no test on it** — which is why the defect was invisible, and fixing the
 coverage hole is part of the fix, not a follow-up.
+
+### 10.11 §10.10 was wrong twice, both measured. And B-12.
+
+The agent implemented §10.10 literally, measured that it fails the ruling's own required
+positive control, and said so instead of shipping it. Both corrections below are its
+measurements, not my reasoning.
+
+#### ⭐ Correction 1 — "ask at the caret" refuses every legitimate collapse
+
+§10.10 said ask `not_in` **at the caret**. Measured through the same accessor the typing path
+uses:
+
+| buffer | scope at the caret |
+| --- | --- |
+| `return 1 /*\| */ 2;` (C, ordinary code) | `Some(Comment)` |
+| `let s = r#"\|"#;` (Rust, ordinary code) | `Some(String)` |
+| `print("""\|""")` (Python) | `Some(String)` |
+| `/* keep/*\| */` (C, inside a comment) | `Some(Comment)` |
+
+**The scope is `Comment`/`String` for the closer the editor wrote and for the one it did
+not**, so the question cannot separate them. Shipped literally it orphans ` */` in every
+block-comment language and mangles `r##` in Rust — *worse than the defect it fixes*, and
+pinned by two tests that went red: `left: "    return 1 / */ 2;"` against
+`right: "    return 1 / 2;"`.
+
+**The correct probe is the character immediately in front of the matched opener — the nearest
+byte the insertion did not write.** It still carries the scope `insertion_for` weighed, so the
+question becomes exactly *"would `insertion_for` have refused this row here"*. Measured: the
+`p` of `keep` resolves `Comment` and declines; the space before `/*` in ordinary code resolves
+`None` and fires.
+
+⚠️ **I identified this exact contamination one paragraph earlier and failed to carry it
+across.** §10.10 says `autoclose_before` must not be re-checked because *"at collapse time the
+closer's presence has been observed, and it would be judged against a different character than
+it saw at insertion"* — and then asks `not_in` at a position the edit itself created. **The
+same sentence, applied to one gate and not the other, in the same paragraph.**
+
+#### 🔴 Correction 2 — the Rust case §10.10 traces is NOT fixed, and `not_in` cannot fix it
+
+**Rust nests block comments.** So `/* keep/* */` leaves the outer comment unterminated, no
+highlight capture covers any column of that line, and `scope_at` answers `None` at every
+column — under B-6 an unknown scope fails open, so the collapse proceeds and takes four
+characters exactly as before. **C, C++, Go, JavaScript, TypeScript and TSX are fixed. Rust is
+not.** Pinned rather than papered over, by
+`rust_nesting_leaves_the_scope_unresolved_and_b6_fails_open`.
+
+⚠️ **I chose the marquee example, and I chose the one language where the fix cannot work.**
+The working fixture had to be C.
+
+#### ⭐⭐ B-12 — on a destructive path, uncertainty fails CLOSED. B-6 was about insertion.
+
+B-6 ruled that an unknown scope means **fail open**. That was written about *insertion*, where
+failing open costs an unwanted character and the user's remedy is Backspace. **It does not
+extend to the collapse, where failing open costs buffer content the user never asked to
+remove.** Same asymmetry as B-10's: an editor that writes something extra is annoying; an
+editor that eats what you typed is not trusted again.
+
+**So: where the collapse cannot establish that the editor wrote the closer, it declines and
+falls through to the single-character answer.** Under-deleting is recoverable with a second
+Backspace. Over-deleting is not.
+
+⚠️ **The obstacle is that `scope_at` returning `None` conflates two different facts** — *"the
+tree covers this byte and no suppressible scope applies"* (ordinary code: must fire) and
+*"the tree cannot answer here"* (Rust's unterminated comment: must decline). **That conflation
+is the real defect underneath both corrections.** Failing closed on bare `None` would break
+the legitimate C case, whose probe is a space in ordinary code and also answers `None`.
+
+**The fix is to ask the tree, not the scope:** a probe inside a tree-sitter error region is
+*unresolvable*, and unresolvable on a destructive path declines. Distinguish three states, not
+two:
+
+| state | meaning | collapse |
+| --- | --- | --- |
+| resolved, suppressed scope | the editor would have refused this row | decline |
+| resolved, no suppressed scope | the editor would have written it | fire |
+| **inside an error region** | the parser exists and cannot say | **decline** |
+| no tree at all (`can_resolve()` false) | no parser in this build | fire — a build-level fact already accepted, and the web face would otherwise lose the collapse entirely |
+
+⚠️ **S-3 must not ship without this.** The Rust case is *new* data loss that this slice
+introduces — before S-3 there is no multi-character collapse to over-delete. A pinned,
+documented defect is acceptable for something pre-existing; it is not acceptable for something
+we are adding.
+
+#### Two smaller things
+
+**The deviation costs one letter of B-8.** Locating the probe reads the matched row's *opener
+length*, so "the opener's length is never returned and never compared" no longer holds
+literally. B-8's substance is intact — the opener's length still never **sizes the delete** —
+and the doc sentence was corrected rather than left to rot.
+
+**`crates/iridium-lang/build.rs:12` says "21 languages" and is left alone deliberately.** It
+is a claim about the *query tree*, not the manifests, and its correct value is genuinely
+ambiguous: `languages.txt` lists **18** ids while the query tree has **22** directories. That
+discrepancy wants looking at on its own, not a number swapped in passing.

@@ -4952,3 +4952,73 @@ re-read, across a compaction. The recovery was not that either of us verified
 harder — it was that the mistake was **chased immediately after dispatch and
 said out loud**, and the loop closed in about four minutes with nothing landed.
 Protect that property. A wrong instruction chased beats an uncertain one sat on.
+
+---
+
+## How iridium is consumed by another project — asked by Waffles, 8 Aug 2026
+
+Tom has approved a manifold composition restyle whose composer rebuilds with
+iridium as the editing surface. Waffles asked whether iridium needs publishing
+to a registry. **The hard part of consuming iridium is not the TypeScript, it
+is the wasm**, and the facts below were measured, not remembered.
+
+### Four facts, three of which are traps
+
+1. **There is no root `package.json`.** Iridium is not a JS workspace; an
+   install at the repo root does nothing.
+2. **Both packages ship TypeScript *source*, not build output.**
+   `@iridium-editor/core` `0.1.1` and `@iridium-editor/syntax-worker` `0.1.0`
+   have `exports` pointing at `./src/**/*.ts` and `files: ["src/"]`. Every
+   consumer compiles them. Fine behind a bundler, useless to anything expecting
+   JavaScript.
+3. ⚠️ **The package names do not match the directory names.** The folder is
+   `packages/@iridium/core`; the package is **`@iridium-editor/core`**. An
+   import path inferred from the tree fails.
+4. 🔴 **The wasm is not in the repository.** `pkg/` is gitignored
+   (`.gitignore:34`), and `@iridium-editor/core` peer-depends on
+   `iridium-bindings >= 0.1.0` — a package that exists **only as wasm-pack
+   output**. So vendoring iridium means the consumer's build needs a **Rust
+   toolchain**, not merely a TypeScript one.
+
+### ⭐ The finding that governs version discipline either way
+
+`iridium-bindings`' `package.json` is **machine-generated from `Cargo.toml`**,
+whose version is `0.1.0` and is bumped by nothing. **Every build ever produced
+is `0.1.0`.** Pinning `iridium-bindings@0.1.0` therefore pins *nothing* — two
+builds a week apart are the same version string over different bytes.
+
+This is Rule M in package-manager clothing: **a version that cannot vary is
+indistinguishable from an absence of versioning**, and it is worse than no
+version because it *looks* pinned. Fix it — bump the workspace version per
+publish, or stamp the short sha into the wasm package version — **before**
+either vendoring or publishing is relied on.
+
+### The recommendation, and the question it turns on
+
+**Does the consuming build environment have a Rust toolchain?**
+
+- **Yes → vendor for this slice.** Pin iridium by **commit sha**, not version,
+  and commit the wasm build as one scripted step. The toolchain pin (#74)
+  makes that reproducible. Publishing now buys little while the API moves
+  hourly.
+- **No → publishing is mandatory**, and the artefact that matters is
+  **`iridium-bindings`** (the binary), not the TS packages.
+
+**If publishing: GitHub Packages under the `tomWhiting` scope.** The consuming
+project is private so the auth is already GitHub-shaped and needs no new
+secret; it avoids claiming a public npm name while the API changes daily; and
+iridium is MIT over a public repo, so nothing is concealed either way — which
+makes the choice **reversible**, a rename rather than a migration. Stay on
+`0.x`, pin **exact** with no caret, since pre-1.0 minors are breaking by
+convention.
+
+### What was declined
+
+Waffles' record said the tip was *"A1 through A4 plus the colour fix at frame
+main `ea4a414`"*. **`ea4a414` is not a valid object in iridium**
+(`git cat-file -t` → *"Not a valid object name"*), and neither the A-labels nor
+"the colour fix" appears in iridium's history or this file. That is frame-side
+naming for frame-side work. The confirmation was declined and the shas asked
+for instead — **a confirmed-but-unchecked tip is how an integration ends up
+built on something nobody pinned.** Iridium's actual tip at the time of asking
+was `076dc790`.

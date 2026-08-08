@@ -3270,3 +3270,100 @@ prevents.
 
 Load ~49. Disk **121 GB free** (139 last tick, 129 the one before) — it
 oscillates with something else on the box, not this seat. No action.
+
+---
+
+# Tick — 8 Aug ~10:35 — Waffles' manifold read (three rounds), #83 closed
+
+The sweep was interrupted by a real request and this tick went to it.
+
+## What happened
+
+**Iridium is now one of the three organs of manifold's face** (the other two:
+a tree sidebar and GraphMother's interactive graph). Ruling being priced:
+*the editor is a component bound to a resource provider; first provider is
+files in the estate's repos, read-first; the editor never grows its own
+storage* — plus an attention ladder, dot → pill → card → full window.
+
+Waffles asked for a source-verified read with file:line receipts, objections
+welcome. Three rounds. **Everything is in
+`docs/MANIFOLD-EDITOR-READ.md`** — do not re-derive it, read it.
+
+## The headline corrections I made
+
+1. **"Highlighting proven live" splits in two.** Native is real tree-sitter in
+   Rust; the browser has **no parse tree** — the wasm build compiles with
+   `syntax` off and takes spans from a JS worker over a spans-only protocol.
+   Accepted in full; he will never say "highlighting proven" again without
+   naming which.
+2. **`4179` appears nowhere in this tree.** A manifold port worn as an iridium
+   fact. Accepted.
+3. **`onChange` hands out the whole document while the inbound path is
+   incremental.** Adopted as written: the provider seam consumes
+   `takeLastEdit`'s span, string as fallback.
+
+## The correction *he* made to *me*, which was the best moment
+
+I priced G1 (no parse tree in the browser) as two bad options. He asked
+whether the syntax worker's own tree could serve as an oracle. **It can** —
+`packages/@iridium/syntax-worker/src/worker.ts:22` retains a live `Tree`,
+incrementally edited. My inherited framing had rejected "reimplement
+navigation in TypeScript"; his framing was *worker answers about structure,
+Rust keeps the semantics*, which is a different thing and was never
+distinguished.
+
+⭐ **He challenged an absence claim instead of accepting it, and that is what
+turned it up.** An absence claim carries the search that failed — and the
+search that failed is the thing worth challenging.
+
+What I found once I looked: the cost is **not** protocol vocabulary. The
+UTF-16↔UTF-8 boundary is already solved and tested (`encoding.ts` +
+`encoding.test.ts`), which normally *is* the expensive part. The real work is
+a **node abstraction** — `editor/ast/walk.rs:23` and `expand.rs` are already
+pure `Node → Range` functions with zero editor coupling, but bound to
+`tree_sitter::Node` concretely. One trait, two satisfying trees, one
+implementation of semantics. Ruled: G1 reclassified from *decide before build*
+to *widen when structural features arrive*.
+
+## What survived my pushback
+
+He proposed G2 (no tabs in the web face) dissolves because the composition
+*is* the tab strip. **Agreed for tabs, refused for document identity:**
+`workspace/model.rs:177` — two tabs share one buffer, one undo history, one
+cursor set. Two mounted components onto one resource would get two of each,
+divergent, both writing back. Ruled: **one live editor per resource,
+guaranteed by the slot**, with provider-owned convergence pre-ruled for the
+record-native provider **and its undo consequence chosen in writing then,
+not discovered**.
+
+## #83 — CLOSED (`5792a248`)
+
+The custom element listed `readonly` in `observedAttributes` and documented
+it, and read it nowhere. Setting it did nothing. Found while reading for a
+different question entirely. Now applied at mount (`hasAttribute` — an element
+that arrives with it set never fires the change callback) and on change by
+presence, not value.
+
+⚠️ **No red test, for a reason worth carrying:** the TS suite is 104 tests
+over six files, all pure state machines, no DOM; the element needs a document
+and a live WebGPU editor and neither happy-dom nor jsdom is a dependency. So
+**both ends of the web face are outside their own gate battery** — `wasm.rs`
+unreachable by the Rust gates, `element/index.ts` by the TypeScript ones.
+Ceiling on any claim about that layer is "type-checks and the suite still
+passes", and I claimed exactly that and no more. Verified `deno check` clean,
+`bun test src/` 104/104.
+
+⚠️ The TS tests run under **bun**, not deno — `deno test` fails on
+`bun:test` imports. `deno check` is the type-checker, `bun test src/` is the
+suite.
+
+## Left alone deliberately
+
+G4 — `element/index.ts:101` `min-height: 200px` on `:host`, a floor the
+ladder's bottom rungs sit below. A component's minimum size is the host's
+call; Waffles has ruled it falls to the attention states.
+
+## Still Tom's
+
+**B-2**, **B-5**, **#82**, and everything on the old list. Nothing here
+changes those.

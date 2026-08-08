@@ -5750,3 +5750,62 @@ consequence to expect.
 **Our row, re-derived at Cally's hands:** `CLAIMED + ARMED + CURRENT`, hook
 `3c71db65`, predicate `fd5d0b6a`, exit 0. The `gc --prune=never` verification is
 recorded on H1 as what turned that claim from believed to measured.
+
+---
+
+# 📌 TOM RULED ON PUBLISHING — vendoring stays, and the gate is now three named things
+
+Relayed by Waffles, 8 Aug 2026, on the measurements this seat supplied:
+
+> **"We keep vendoring, and the registry becomes right when the package split,
+> the artefact provenance and the version mismatch are done."** No deadline.
+
+⭐ **That converts three loose observations into a named deliverable set.** They
+were findings; they are now the condition on a decision Tom has taken, which is
+a different status and worth recording as such.
+
+| | what | state |
+| --- | --- | --- |
+| **P-1** | **The package split.** `crates/iridium-bindings/package.json` names wasm-pack entry points (`main`/`types`/`files` → `pkg/iridium_bindings*`) while its `scripts.build` is `napi build --platform --release` and it carries a seven-triple `napi` block. **Nothing in it builds the files its own `main` resolves to.** The napi native addon and the wasm-pack web bundle are two packages. | new |
+| **P-2** | **Artefact provenance.** `pkg/` is gitignored (`.gitignore:34`), so the wasm bytes a registry would serve have **no committed provenance** — nothing in the history records what was published. | new |
+| **P-3** | **The version mismatch.** Workspace `Cargo.toml` is `0.1.0`, the npm manifest `0.1.1`, and neither moves. **#93** already. | #93 |
+
+⚠️ **P-2 is why the original vendor-from-a-sha ruling was right**, and it is the
+same class the estate spent this week on: a sha is provenance, a published build
+artefact with no committed source is a value with none. Registry beats vendoring
+**only once the artefact is reproducible from a named commit.**
+
+⛔ **Not started, and deliberately not:** no deadline was given, and none of the
+three is on #88's path. They are recorded so the ruling is not re-derived.
+
+Also confirmed for a consumer pinning us: the compiled tree is **byte-identical
+to the last nine-gate-green tree** —
+`git diff --stat 47e91eb7..HEAD -- crates/ apps/ packages/ Cargo.toml Cargo.lock`
+returns only `rust-toolchain.toml`, added by #74, and the battery measuring
+2,671 / 1,125 / 1,257 at eleven exit-0 gates ran **after** it landed. ⚠️ But
+#43, #44 and #45 are all pending and all move the wasm surface, so any pin
+should be expected to move.
+
+## ⏸ #88 step 1 NOT started this tick — the box, stated as actuals
+
+Step 1 is *enable `tree-sitter`'s `wasm` feature alone and price it on this
+workspace*. Measured before deciding, per the estate's declare-actuals rule:
+
+| | value |
+| --- | --- |
+| filesystem | **95% used**, 53,444,876 KiB (~51 GiB) free |
+| `target/` | **28,002,748 KiB** (~26.7 GiB) |
+| repo total | 29,799,140 KiB (~28.4 GiB) |
+| load (1m) | **104.43** |
+
+The headroom is probably sufficient — the addition is 90 crates' artefacts, not
+a multiplication of the existing 26.7 GiB. **The reason to wait is not disk, it
+is supervision:** the change edits `Cargo.toml` *and* `Cargo.lock`, and starting
+a 20-to-40-minute build at load 104 at the tail of a context window risks
+leaving an uncommitted dependency-graph change in the tree across a compaction.
+⭐ That is precisely the trap the `gutter.rs` experiment needed two separate
+baton flags to survive today, and once is enough.
+
+**Next tick opens with:** re-measure disk, enable the feature, timed background
+build, `du -sk target` after, then either commit with the number or revert via
+`git show HEAD:Cargo.toml > Cargo.toml` and report the number anyway.

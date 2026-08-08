@@ -6235,3 +6235,74 @@ the work passed. Saved as memory `success-only-channels.md`.
 - `clippy::match_same_arms` forbids grouping capture names into tidy blocks
   when bodies repeat, and this crate takes **zero `#[allow]`** — so #70's names
   had to be merged into existing arms. The tidy version does not compile.
+
+---
+
+## #31 — the light theme, built (9 Aug 2026)
+
+D-1..D-8 were ruled at this seat and are **not to be re-raised with Tom**. Four
+commits landed against them.
+
+| commit | ruling | what it did |
+|---|---|---|
+| `ab686153` | D-1 | `Theme::light()` **is** `classic::platinum()`, name included |
+| `6995c3b3` | D-5 | `panel_border` as a 25th `EditorColors` field |
+| `8e4ae670` | D-3 | `view.toggleTheme`, `Ctrl+Alt+T` / `⌘⌥T` |
+| `7d86cef3` | D-4 | the light chrome's shadow, backdrop dim and frame width |
+
+### ⚠️ Correction to `7d86cef3`'s message
+
+It says **5,197 tests**; the run produced **5,196**. The history-rewrite guard
+(#89) refused the amend — correctly — so the number stands wrong in that
+message and is corrected here instead. The gates themselves were green,
+`CI_EXIT=0`, read from `ci-31g.log`.
+
+### D-8 was already done before this stint
+
+`FrameCompositor::set_theme` already maps through
+`SimpleSyntaxColors::from_theme(&theme)` rather than branching on `is_dark`.
+See `docs/IN-FLIGHT-31-fallback-palette.md`. **Do not rebuild it.**
+
+### The one-transcription rule, learned the expensive way
+
+A hand-written float transcription of the map's Variant A table was written
+into `EditorColors::light()` and **discarded**. It put `selection` at `#3354AB`
+against the table's `#3355AA` — a drift nothing would have caught, because both
+copies would have been telling the truth about "the light preset". The tables
+are transcribed **once**, in `theme/classic.rs`, beside their two siblings
+where the three-variant sweeps can reach them; `colors.rs` delegates.
+
+### What is left of #31
+
+5. ~~`view.toggleTheme`~~ — done, `8e4ae670`
+6. ~~overlay ink constants~~ — done, `7d86cef3`
+7. **D-2** — follow the system appearance, allow a manual pin that stops
+   following until the window closes. ⚠️ **Do not call `Window::set_theme`** —
+   it permanently silences `ThemeChanged`.
+8. **D-7** — `--theme` on the desktop face, reusing the TUI's `ThemeChoice`.
+   **No config file** in this change.
+9. **D-1's tail** — B "Paper" and C "Monochrome" out of Rust and into JSON
+   under `themes/`.
+10. **§4.1's shots** — a *verification* artefact now, not a decision gate.
+    Taken after A is built, to prove what was built.
+
+### ⚠️ #69's flake class is wider than its title
+
+`custom_gutter_lines_miss_and_recompose_identically` is not the only one. The
+whole `retained_shaping` suite fails pixel-invariance nondeterministically
+**under machine load**: measured 2 red runs of 3 while three other
+`cargo test --workspace` processes and a `rustc` were live on the box, then 5
+green of 5 on the same tree once it was quiet, and 3 green of 3 at HEAD.
+Failures name *different* tests each run and report a 2×20-pixel stripe. Not a
+theme defect — exonerated by measurement, not by argument.
+
+### Disk, 9 Aug
+
+Tom asked for the build directory cleaned, twice, the second time "post haste".
+`iridium/target/` was **31,766,280 KB** and is gone; free space went
+**14,871,652 KB → 43,211,640 KB** (99% → 96% full). Left alone deliberately:
+`/tmp/verify-lint-debt-sweep` (6.2 GB — a *source checkout*, not a build dir),
+`/tmp/tessera-*-target` (6.0 GB — another project's, and cargo was live), and
+other sessions' `claude-501` scratchpads. **There are no git worktrees** —
+`.git/worktrees` does not exist, so Tom's "merge in all the worktrees" had
+nothing to act on.

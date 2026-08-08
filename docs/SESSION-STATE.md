@@ -5526,6 +5526,15 @@ is safe, that file is committed.
    neighbour's texel into the output. So "sampling picks up a neighbouring
    glyph's texel at an edge" is not an available mechanism, and the doc states
    it as one.
+   ⛔ **CORRECTED 8 Aug 2026 — the finding above OVER-REACHED and must not be
+   quoted as written.** The filters are as stated, so *blending* a neighbour in
+   is genuinely impossible. But `shader.wgsl:110` computes
+   `vert_output.uv = vec2<f32>(uv) / vec2<f32>(dim)` — a float derived from the
+   glyph's atlas position **and the atlas size** — interpolates it, and
+   Nearest-*rounds* it at `:119`/`:122`. **Selecting** the wrong texel is
+   entirely available, and an atlas growth that changes `dim` rescales every UV
+   at once. Not blending, but selection. See
+   `docs/IN-FLIGHT-69-flaky-gutter.md` §3.
 3. **A better-fitting candidate, not yet tested:** 1 pixel / 1 channel /
    magnitude 23 looks like an **antialiasing** difference, i.e. the glyph was
    *rasterised* differently — which points at a **subpixel-position bin**, not
@@ -5547,3 +5556,114 @@ is safe, that file is committed.
 4. Fold the #69 findings into `docs/IN-FLIGHT-69-flaky-gutter.md`.
 5. Then #88 (tier-2 language extensions), #95, #94, #92-proper.
 
+
+---
+
+# 📌 TICK — guard re-synced, #69 folded, gc verified
+
+## ✅ 1. The guard, second round — `f3038dd2`, row `CLAIMED + ARMED + CURRENT`
+
+Cally reported that their previous install step named a **working-tree** path in
+a repo they were mid-edit in, and that Hephaestus Bagel installed uncommitted,
+unreviewed bytes into a live hook that way — caught only by hashing the result.
+
+⭐ **Checked before touching anything, and it came back clean *with provenance*,
+not just value.** The installed hook was `5bc7d3ec73746db05f436538f07a6343b6645050`,
+**byte-identical to the committed blob at `a2fa336:hooks/reference-transaction`**.
+So this seat installed reviewed bytes, and that is now demonstrated by object
+identity rather than inferred from a copy exiting 0.
+
+Re-synced to gates `41ac19a`: hook `3c71db65`, predicate `fd5d0b6a` (unchanged),
+both written with `git show HEAD:`, install first, both verified by hash.
+
+⭐ **Cally called the release "a comment-only correction in the guard". Verified
+rather than accepted — and it is true only of the file this repo runs.**
+`git diff --no-ext-diff a2fa336 41ac19a -- hooks/` shows `reference-transaction`
+differing solely in the block explaining why HEAD is omitted from the
+reachability set (Waffles' three-case correction: the old one-case reason is
+false for a **detached** HEAD, which *is* a genuine independent anchor). The
+**behavioural** fixes in `41ac19a` are in the **checker**, not the hook — a
+dirty-canonical precheck that was structurally unreachable because
+`$canonical_repo` is the hooks *directory* while `git diff` pathspecs are
+cwd-relative and `git cat-file -e HEAD:<path>` is root-relative.
+
+## ⛔ 2. A GREEN ROW WITNESSES THE VALUE, NEVER THE MODE — new, unreported upstream
+
+Found while installing. `claim_predicate.sh` is tracked **100644** upstream; a
+seat who copies "both files" and `chmod 755`s both — as this seat did on the
+first pass — commits a **mode drift** into the tracked canonical. Reverted here
+before the commit, so nothing landed.
+
+⭐ **The checker cannot see it.** `check_must_be_claimed.sh:647-648` compares
+`git rev-parse HEAD:<path>` on both sides — **blob ids**. A blob id encodes
+content only; the mode lives in the tree entry. So the comparison is
+**mode-blind**, and a repo tracking `reference-transaction` as `100644` reads
+`CURRENT` while any install taken from its own tracked copy is **not
+executable — and git silently does not run a non-executable hook.** A green row
+over a guard that cannot fire, which is the exact class `41ac19a` was written
+about, one level along.
+
+⚠️ **Not measured here, and deliberately so:** proving it end-to-end means
+temporarily disarming a live guard. It belongs in gates' own harness
+(`test_must_be_claimed.py`, next to arm 21), in a scratch repo, not in anyone's
+working checkout. Handed to Cally as arm 22.
+
+## ✅ 3. `git gc` VERIFIED — the last open claim from the previous baton
+
+The old hook's entire justification for leaving deletion out of scope was that a
+deletion rule breaks `gc`/`pack-refs`; `a2fa336` claims to separate prunes by
+*survival evidence* instead. **That claim was unverified — the run timed out at
+a 2-minute limit and was reported as unverified rather than assumed.**
+
+Measured now, `git gc --prune=never` with the guard armed:
+
+| | before | after |
+| --- | --- | --- |
+| exit status | — | **0** |
+| refs | 8 | **8** — none lost |
+| loose objects | 810 | 0 |
+| packed objects | 17,253 | 18,063 |
+| packs | 3 | 2 |
+
+It genuinely repacked and ran `pack-refs`, and the guard did not refuse a single
+prune. ⚠️ **Declared, not cleaned:** a `tmp_pack_8Xyzlq` (~36 MB) left by the
+*earlier killed* gc is still in `.git/objects/pack/` and git labels it
+"garbage". Removing it is object-store surgery on someone else's box, so it is
+reported rather than done.
+
+## ✅ 4. #69 — `3194ae0a`, and the finding is about the record, not the renderer
+
+Full detail in `docs/IN-FLIGHT-69-flaky-gutter.md`, rewritten. Headlines:
+
+- ⛔⛔ **The signature this doc reasoned from was never measured.** *"1 pixel of
+  393216, one channel, magnitude 23"* traces to a **hand-written worked example**
+  of the message format, introduced by the words *"On failure it now says:"*.
+  ⭐ **The population proves it:** every readback target in the suite is
+  512 × 384 = **196,608** pixels, so no run of this test can print 393,216. The
+  real capture this sitting opens `40 of 196608`. #69's actual report carries
+  **no signature at all**.
+- ⭐ **An illustration placed in a record is indistinguishable from a
+  measurement once the surrounding prose is gone.** Marked at the source so it
+  cannot be re-harvested. And: **a cited figure carries a population, and a
+  population is checkable** — this was caught by arithmetic.
+- ⛔ The doc's own proposed experiment **cannot discriminate** — it makes the two
+  compositors *more* alike, and the test already passes. Deleted, not marked
+  done.
+- ⚗️ Its inverse **can** fail, and did **once in 90 runs**: 40 pixels, columns
+  61..=62, rows 10..=29, magnitude 149 — a solid glyph-sized block.
+  ⚠️ 1-of-50 vs 0-of-50 is p = 1.0, **one event, not a rate difference.**
+- ✅ **The load caveat is CLOSED.** The previous sitting's 160 runs never
+  exceeded load 5.6; these 100 ran at 1-minute load **48 → 112**. The shipped
+  test failed **0 of 50** there. Not-reproduced now stands at **210 executions**.
+- The temporary test is **reverted**, `gutter.rs` blob-identical to HEAD, its
+  source preserved in the doc §7.
+
+## Next actions, in order
+1. **#88** — tier-2 language extensions (Tom ruled), unblocks #43 → #44 → #45.
+2. **#95** — sweep expiring coverage claims out of shipping comments.
+3. **#94** — the `cargo ci` alias, which runs three of the nine gates.
+4. **#92 properly** — replace `use super::*` in ten files *first*, then split.
+5. Backlog: #87 (needs Tom's T-numbers), #90, #91, #93, #70.
+
+**Still Tom's:** #31's three taste decisions, the oil-buffer key rulings (#58),
+#87's T-numbers.

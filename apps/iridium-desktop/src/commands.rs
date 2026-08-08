@@ -102,7 +102,7 @@ use iridium_editor::commands::builtin::{
     CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT,
     CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
     EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
-    HISTORY_UNDO, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL,
+    HISTORY_UNDO, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME,
 };
 use iridium_editor::{
     CommandCategory, CommandId, CommandMeta, KeyBinding, KeyCode, Keymap, ModifierPattern,
@@ -268,6 +268,13 @@ const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Char('h'), META_ALT),
         HISTORY_TOGGLE_PANEL,
+    ),
+    // `⌘⌥T`, the ⌘ spelling of the kernel's `Ctrl+Alt+T`. Same id, so the
+    // palette shows one row and a `[keys]` line names one thing, whichever
+    // hand the user reaches with.
+    (
+        StrokePattern::new(KeyCode::Char('t'), META_ALT),
+        VIEW_TOGGLE_THEME,
     ),
 ];
 

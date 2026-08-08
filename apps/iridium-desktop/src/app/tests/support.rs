@@ -64,6 +64,18 @@ pub(super) fn ctrl_alt(key: KeyCode) -> KeyEvent {
     )
 }
 
+/// A ⌘⌥ chord — the mac spelling of the face's `Ctrl+Alt` shape.
+pub(super) fn meta_alt(key: KeyCode) -> KeyEvent {
+    chord(
+        key,
+        Modifiers {
+            meta: true,
+            alt: true,
+            ..Modifiers::none()
+        },
+    )
+}
+
 /// A bare ⌘ chord.
 pub(super) fn meta(key: KeyCode) -> KeyEvent {
     chord(

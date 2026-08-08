@@ -33,7 +33,7 @@ mod workspace;
 
 pub use host::{
     EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, HOST, HOST_COMMAND_COUNT, PALETTE_OPEN,
-    host_command_metas, host_commands, register_host_commands,
+    VIEW_TOGGLE_THEME, host_command_metas, host_commands, register_host_commands,
 };
 pub use ids::*;
 pub use table::{BUILTIN, BUILTIN_COMMAND_COUNT};

@@ -52,7 +52,8 @@ use super::builtin::{
     MULTI_CURSOR_ADD_CURSOR_BELOW, MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,
     MULTI_CURSOR_REMOVE_LAST_CURSOR, MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN,
     SEARCH_NEXT_MATCH, SEARCH_OPEN, SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY,
-    SELECTION_SELECT_ALL, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
+    SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB,
+    WORKSPACE_PREVIOUS_TAB,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -62,7 +63,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 66;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 67;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -478,6 +479,20 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         StrokePattern::new(KeyCode::Char('e'), CTRL_ALT),
         CHORD,
         EXPLORER_TOGGLE_PANEL,
+    ),
+    // ----- Theme -----
+    //
+    // `Ctrl+Alt+T`, joining the panel toggles on the same shape. It is not a
+    // panel, but it is the third thing in the editor that a single chord turns
+    // from one state to the other, and `T` is the letter nobody has to be told.
+    //
+    // ⚠️ `CTRL_ALT` forbids `Meta` and ignores `Shift`, so this cannot be
+    // reached by the desktop face's ⌘ layer — that face binds `⌘⌥T` to the
+    // same id separately, which is the point of the id being in the kernel.
+    (
+        StrokePattern::new(KeyCode::Char('t'), CTRL_ALT),
+        CHORD,
+        VIEW_TOGGLE_THEME,
     ),
     // ----- Command palette -----
     //

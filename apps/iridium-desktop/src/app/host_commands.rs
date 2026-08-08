@@ -8,8 +8,10 @@
 
 use iridium_editor::CommandId;
 use iridium_editor::commands::builtin::{
-    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, WORKSPACE_CLOSE_TAB,
+    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
+    WORKSPACE_CLOSE_TAB,
 };
+use iridium_editor::theme::Theme;
 
 use iridium_file::TextFile;
 
@@ -61,6 +63,8 @@ impl DesktopApp {
             Flow::Running
         } else if command == &EXPLORER_TOGGLE_PANEL {
             self.toggle_explorer()
+        } else if command == &VIEW_TOGGLE_THEME {
+            self.toggle_theme()
         } else if command == &commands::COMMANDS_LIST {
             self.show_command_reference()
         } else if self.workspace.handles_command(command) {
@@ -94,6 +98,35 @@ impl DesktopApp {
         let text = config::command_reference(editor.commands(), editor.key_hints());
         self.workspace.open(&text, config::COMMANDS_TAB, None);
         self.after_tab_change();
+        Flow::Running
+    }
+
+    /// Swaps between the light and dark presets, repainting everything.
+    ///
+    /// ⚠️ **Three places hold a theme, and all three have to move together.**
+    /// The workspace's setter reaches every open editor including background
+    /// tabs, so documents opened later inherit the new one; the compositor
+    /// keeps its own copy because the clear colour and the retained shaped
+    /// buffers are built from it; and the overlay reads the theme it is handed
+    /// at paint time, so it needs nothing. Setting only the workspace leaves
+    /// the window's clear colour frozen on the old preset — a dark page behind
+    /// light text — which is the shape of the bug 6e22cbe fixed once already.
+    ///
+    /// Before the window exists there is no compositor to update, and that is
+    /// not a failure: `Shell::open` takes the workspace's theme as its
+    /// argument, so a toggle pressed against a headless session is picked up
+    /// when the window opens.
+    fn toggle_theme(&mut self) -> Flow {
+        let next = if self.workspace.theme().is_dark {
+            Theme::light()
+        } else {
+            Theme::dark()
+        };
+        self.workspace.set_theme(next.clone());
+        if let Some(shell) = self.shell.as_mut() {
+            shell.compositor.set_theme(next);
+        }
+        self.request_redraw();
         Flow::Running
     }
 

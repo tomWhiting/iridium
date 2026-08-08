@@ -1031,3 +1031,83 @@ The collapsed-caret branch becomes, in order:
 force here: by the time S-3 lands there are *five* independent reasons a pair
 may not appear, and the apostrophe rule is the one that will silently make a
 Python test pass for the wrong reason.
+
+### 10.8 Three rulings the build raised, 8 Aug 2026
+
+The agent that built steps 4 and 5 implemented §10.7 as written and then said
+where it thought the spec was wrong, rather than quietly choosing. It was right
+on the first and it is the more interesting of the three.
+
+#### ⭐ B-8 — §10.7 STEP 5 IS WRONG AS WRITTEN. Backspace restores the buffer, it does not collapse the pair.
+
+§10.7 step 5 says *"an empty multi-character pair around the caret collapses in
+one keystroke, the way `(|)` already does."* Implemented literally, that gives:
+
+```text
+print(f"|")   backspace   →   print()
+```
+
+**taking the `f` the user typed before the editor had done anything.** At
+`print(f|)` typing `"` inserts exactly two characters; one backspace then
+removes three. That breaks the identity `(|)` has and that every user relies on
+without naming: **backspace immediately after an auto-pair puts you back where
+you were.**
+
+**The rule is therefore: delete the closer the editor wrote, plus the single
+character the user typed to trigger it — never the prefix that was already in
+the buffer.**
+
+| before the keystroke | after typing | correct backspace | "whole pair" would give |
+| --- | --- | --- | --- |
+| `\|` | `(\|)` | `\|` | `\|` — agrees |
+| `print(f\|)` | `print(f"\|")` | `print(f\|)` | `print(\|)` ❌ eats the `f` |
+| `r#\|` | `r#"\|"#` | `r#\|` | `\|` ❌ eats `r#` |
+| `""\|` | `"""\|"""` | `""\|` | `\|` ❌ eats two quotes |
+
+⭐ **Why this was worth catching, in the terms this file already uses.** "Collapse
+the whole pair" and "undo what the insertion wrote" are **a proxy and its
+target that agree on every single-character opener** — because there the opener
+*is* the trigger character — **and diverge on exactly the case S-3 exists to
+add.** The examined set at the time the spec was written contained nothing that
+could tell them apart. That is the Proxy Law with the divergent case named, and
+the spec is the thing that was wrong, not the implementation of it.
+
+⚠️ The tidiness objection is real and loses: `r#|` is not valid Rust, so a
+whole-pair collapse leaves a cleaner buffer. But `print(f|)` leaves a bare `f`
+and that is *exactly what the user had*, which is the property that matters —
+and tidiness is not even reachable, because nothing can know how much of a
+prefix the user wanted gone. One more backspace is cheap; a re-typed character
+the editor ate is not.
+
+#### B-9 — skip-over reads `multi_char_close_pairs()`, not `close_rules()`. Blessed.
+
+Markdown declares `<` → `>` with `close = true`. §10.4's literal words — *"ends
+a closer this language declares"* — would make `>` a skip-over character there,
+stepping over a `>` **this editor never wrote**, because `mask_of` drops `<`/`>`
+pending S-2. The agent read the rule as *declares **and would insert*** and
+restricted the multi-character half accordingly.
+
+That is right, and the general form is worth stating: **a skip-over may only
+step over a character the editor would itself have written.** Anything else
+silently discards a keystroke. It also keeps step 4 from pre-empting S-2.
+
+#### B-10 — the ` */` false positive is accepted, and must be pinned as accepted
+
+`/` is now a trigger in the seven block-comment languages, so at `a *|/ b`
+typing `/` steps over, because `a *` + `/` ends ` */`. It is the same accepted
+class as the `"#` one at §10.3: narrow, reachable only from text that already
+has the closer's shape.
+
+⚠️ **It must be pinned by a test that names it as accepted**, the way
+`a_hash_after_any_quote_steps_over_one_that_is_already_there` does. Rule F: an
+unpinned known case is a comment claiming something nothing checks, and it will
+drift the first time the trigger set moves.
+
+#### 🔴 A figure this file got wrong, corrected
+
+§10.5 says *"thirteen of the twenty-one"*, and the same figure is repeated in
+`crates/iridium-lang/src/manifest/schema.rs`'s doc comment on
+`multi_char_close_pairs`. **Measured: there are 22 vendored `config.toml`
+manifests, 8 declare a multi-character closing row, and 14 do not.** Both places
+need the correction; the doc comments in `multi_char_pairs.rs` already use the
+right figures, so the tree currently disagrees with itself.

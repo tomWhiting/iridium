@@ -797,3 +797,46 @@ fn the_syntax_chords_win_over_the_motion_they_sit_on_top_of() {
         Some("cursor.wordRightSelect"),
     );
 }
+
+#[test]
+fn no_host_command_is_bound_to_a_sequence_that_carries_arguments() {
+    // `KeyResult::HostCommand` carries `args` — the count prefix a binding
+    // declared and the characters a capturing stroke swallowed — and
+    // `builtin::host` promises the resolver reports "the id **and its
+    // arguments**". Only the browser face keeps that promise: `wasm.rs`
+    // forwards `count` and `captures` to the host, while the desktop and
+    // terminal faces destructure `HostCommand { command, .. }` and drop them.
+    //
+    // Nothing is wrong today because nothing produces arguments — no binding
+    // anywhere calls `with_count_prefix`, no stroke captures, and the text
+    // form a configuration file uses cannot express either. The trap is that
+    // the day one does, the browser acts on the count and the two native
+    // faces silently act as though it were absent. `⌘5` meaning "five tabs
+    // forward" would move one tab, and no test would say so.
+    //
+    // Threading an argument through two faces' dispatch when no branch can
+    // read it would be ceremony; refusing the situation until someone
+    // deliberately creates it is not. **When this test fails, the fix is to
+    // thread `args` through `run_host_command` in both native faces — not to
+    // relax the assertion.**
+    let editor_implements = |id: &str| crate::Editor::implements_command(id);
+
+    for binding in default_non_modal_keymap().bindings() {
+        let Some(command) = binding.command() else {
+            continue;
+        };
+        if editor_implements(command.as_str()) {
+            continue;
+        }
+        assert!(
+            !binding.accepts_count(),
+            "{command} is a host command bound to a count-taking sequence; the \
+             desktop and terminal faces discard the count"
+        );
+        assert!(
+            !binding.has_capture_stroke(),
+            "{command} is a host command bound to a capturing sequence; the \
+             desktop and terminal faces discard the captures"
+        );
+    }
+}

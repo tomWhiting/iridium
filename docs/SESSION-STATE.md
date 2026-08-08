@@ -6031,3 +6031,56 @@ what would be, and nothing short of it should move arm 39.
 for its v1 defect, which convicted the v2 probe unchanged. Worth carrying out of
 this ticket entirely: it is the general form of the #69 invented signature, the
 fixture that collapsed two variables, and the 33-vs-33 field count.
+
+---
+
+# 🔧 #94 CLOSED — `0c8ded76` — and Tom's correction is why
+
+⭐ **Tom, 8 Aug 2026:** *"Noticed that we're just like documenting some things
+rather than fixing them. Can we make sure that things are actually getting
+fixed?"*
+
+**He was right, and the audit is worse than his impression.** Counted before
+replying: since S-3 landed at `47e91eb7`, **15 commits — 12 docs, 2 guard, 1
+toolchain. Zero code.** Recorded here because the ratio is the finding, not the
+excuse: investigating is more comfortable than shipping and it produces
+artefacts that look like progress. A design map reads like work.
+
+## The fix, and what it turned up
+
+⛔ **The ticket understated the defect. `cargo ci` ran NOT three of nine gates
+but ZERO.** `ci = ["fmt-check", "lint", "test --workspace"]` is not a chain —
+cargo's list form is ONE command with arguments — so it expanded to
+`cargo fmt --all -- --check lint test --workspace`, a single rustfmt call with
+three stray arguments.
+
+⭐ **Found only by running the replacement before committing it**, which failed
+with `error: unexpected argument 'ci-test-syntax' found`. Reading it would have
+shipped the same lie in a longer form. **A CLAIM ABOUT WHAT A GATE COVERS IS
+WORTH NOTHING UNTIL SOMEONE WATCHES IT RUN.**
+
+Alias **deleted**, not fixed: an alias cannot express per-gate exit checking, so
+one that appears to is lying by construction. Nine `cargo ci-*` aliases for
+single gates by hand; the sequence is **`scripts/ci.sh`**.
+
+## ⭐ The script's own first version had the same defect class
+
+Measured: `printf '--- %s OK\n'` → `printf: --: invalid option`, rc 2, because
+printf takes a leading dash as an option. **All ten gates passed and not one
+printed its verdict**, while the summary and exit status stayed correct — the
+counter is a variable and the failure branch starts with `!`.
+
+⛔ **A reporting line that silently prints nothing on the SUCCESS path is
+invisible exactly when everything is fine, which is when nobody is looking.**
+Marker now `>>>`, measurement recorded at the line.
+
+**VERIFIED TWICE:** exit 0, ten gates reached, **5,134 tests across 38 suites**
+— identical count before and after the printf change, which is what proves that
+edit was display-only rather than asserting it.
+
+## Next, and it is all code
+1. **#58 4b/5** — wire `mode` into `keys`, draw editable rows. Keys ruled
+   (`Tab`, `Ctrl+D`, `Ctrl+Enter`, `⌘S`); logic finished. Wiring also
+   self-removes the scoped `#[allow(dead_code)]` on `mod mode;`.
+2. **#31** — re-render the three light variants, send them to Tom.
+3. **#88** steps 1–3 (invisible plumbing), then step 4 under L-3's ruling.

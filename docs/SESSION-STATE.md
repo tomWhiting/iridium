@@ -4826,3 +4826,63 @@ sane defaults, let the config move them."
 
 Still genuinely his: **#31's three taste decisions**, **L-3**, and #87's
 T-numbers when they exist.
+
+---
+
+## ⭐ RULE M — a green must state its population, or it is a claim about nothing
+
+Earned twice in one hour, from opposite directions, which is why it is a rule
+and not an anecdote.
+
+**Direction one, in this repo.** `.github/workflows/ci.yml` is committed,
+complete, named `CI`, and carries carefully-reasoned comments about which of
+its gates are toolchain-dependent — while
+`gh api repos/tomWhiting/iridium/actions/permissions` returns
+`{"enabled": false}` and nothing in it has ever executed. Anything asking *"does
+this project have a gate runner?"* by reading the repository got **yes**. Fixed
+at `7c11c5a`-ish: the file now opens by saying it does not run, why it is kept,
+and the nine local commands that are the actual net. Raised by Cally Ray.
+
+**Direction two, in her tree.** Her estate sweep's first real run would have
+printed `ok — every claiming checkout passed` and **exited 0 over a population
+of zero**. She had written an `unclaimed` line as, in her words, rigour
+theatre; it caught her own code on first use. The measured result across the
+estate was **`claiming: 0`, unclaimed 82, unmeasured 7** — #158 landed as a
+*ruling* and the marker was then never placed in a single repository.
+
+> **Committed-but-inert and cited-but-absent produce the identical false green.**
+> A pass is only meaningful beside the size of the set it passed over. If a
+> report cannot say how many things it checked, it has not reported anything.
+
+⭐ The corollary that costs the most to learn: **a ruling and the act it
+authorises look identical in a transcript, and only one of them changes a
+machine.** "#158 ruled" and "#158 armed" read the same in a baton. When
+recording a decision, record separately whether it was *executed*, and prefer a
+measurement over a memory.
+
+⚠️ **Second-order, from the same conversation.** Her detector exits `2` for *"I
+could not measure this"*, and a two-bucket pass/fail shape filed those as
+**failures** — seven rows that would have sent someone to arm a guard in repos
+whose real problem was a dangling gitdir. *Not measured* is a third bucket, not
+a bad measurement. A red that misattributes its own cause spends an afternoon
+and then teaches the reader to distrust the instrument.
+
+### #89's install list is now different — see the task, not this file
+
+Cally corrected it at the code. Two tracked files only: `.shared-tree` at the
+root, and `.githooks/reference-transaction` at **mode 100755** (a `100644` blob
+means git ignores the hook *silently*). ⛔ `core.hooksPath` **cannot be
+committed** — it lives in `.git/config`, which is never cloned, which is the
+whole reason a detector exists; it is a local act per checkout. ⛔ The detector
+is **not** copied in: it already takes a repo argument and runs
+`git -C "$repo"`, so it belongs in an estate-level sweep run from outside.
+
+Measured: a `fetch` after an upstream force-push **cannot** trip the guard
+(`reference-transaction:125-131` filters to `refs/heads/*`). `fetch origin
++main:main` and `pull --rebase` **do**, correctly — both write a local branch
+ref and discard commits.
+
+⚠️ Known limit, recorded rather than assumed away: the marker is a *tracked
+file*, so it is **per-branch by construction**, while the refs it protects are
+**per-repo**. Tracked is still the right choice — it survives a clone and a repo
+move — but a branch cut before the marker lands is outside the guard.

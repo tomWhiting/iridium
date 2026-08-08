@@ -4092,3 +4092,77 @@ soft-wrap one that was already there.
 
 **Gates: all nine green again** — 2,541 / 1,061 / 1,157, 0 failed. Full battery
 because Actions is still billing-blocked.
+
+---
+
+# BATON — 8 Aug ~04:55
+
+## ⛔ Read these four first
+
+1. **GitHub Actions is DISABLED at the repo level** (`gh api repos/tomWhiting/iridium/actions/permissions` → `enabled:false`). Tom's instruction, 8 Aug: *"we don't want to be running any actions on GitHub."* `.github/workflows/ci.yml` was **kept** in the tree deliberately, so the definition survives for a future self-hosted runner. **Do not re-enable it, and do not treat a missing CI run as a problem.** The CI-watch Monitor was stopped (`byjsqprlt`).
+2. **There is no second net, so run the FULL nine-gate battery on every change.** Not "the gates this change can reach" — that reasoning is what CI used to backstop. Last green: **2,545 / 1,061 / 1,157, 0 failed.**
+3. **There are no worktrees and never were.** Settled twice. `.git/worktrees` does not exist.
+4. **One local branch, one remote ref, `0 0`.** Archive tags on origin: `archive/seam-spike`, `archive/spike-web-build`, `archive/web-tree-sitter-standalone`. The fourth (`vk-c6cf`, 2.6 GB of committed `target/`) was **dropped on Tom's approval** — its commit `4480e903` is now unreferenced everywhere.
+
+## Landed this session
+
+`#84` · stranding oracle · host-arg guards + the `d0f8a989` correction · the
+110-commit push · branch cleanup (29 local + 3 remote deleted) · the argument
+guard's mislabelling (it covers 8 ids, not 3 — `workspace.*` too) · row 11's
+second trigger · **`#86` — the configured tab width now reaches the renderer**
+(`71dad433`) · the auto-pair rulings and the syntax-aware design (`70cab256`).
+
+## ▶ NEXT, in order
+
+1. **Delete `#82`** — the web face's second, uncalled word-motion
+   implementation. **Tom approved.** Mechanical; needs the full battery.
+2. **Delete `#64`** — legacy `iridium-bindings/ts`, 21 MB of dead code.
+   **Tom approved.**
+3. **Build S-5** (`autoclose_before`) — **Tom ruled build it**. Only auto-close
+   when the character after the caret is in the language's set. ⚠️ Treat
+   **end-of-line and whitespace as permitting**, and **write that in the code
+   as an assumption, not a fact** — it is inferred from the shape of the
+   declared sets, not read from a specification. See `AUTO-PAIR-MAP.md` §6.
+4. **Then S-4** — scope-aware pairing. **Blocked only on B-6 and B-7.**
+5. **`#69`** — the flaky GPU test, unblocked, mine to chase.
+
+## Awaiting Tom
+
+**B-6** (unknown scope → recommend *fail open*) · **B-7** (`not_in` gates the
+close only?) · **`#31`**, **`#58`**'s three keys, **`#70`**'s six colours,
+**`#74`**'s pin, **`#43`/`#44`/`#45`**, Cally's hook, the grammar repos.
+*(B-8 is informational: AWL declares no brackets, so scope-aware pairing will
+correctly appear to do nothing there.)*
+
+## ⚠️ The S-4 design, so it is not re-derived
+
+`not_in` is **already declared in every manifest and read by nothing**. The
+fork: **node kinds are not portable** (Rust `string_literal`, JSON `string`,
+Python's dozen prefixed forms) and would need a hand-maintained per-grammar
+translation table — the hard-coded barrage this project exists to avoid.
+**Highlight captures are** portable: `highlights.scm` already normalises into
+`string`/`comment`, which is the vocabulary `not_in` speaks. So a language
+shipping `highlights.scm` gets scope-aware pairing free.
+
+Cheap enough because the caret is essentially always in the viewport, whose
+spans are already resolved for rendering — a binary search, not a parse.
+⚠️ **The kernel has no "what scope covers byte N" accessor at all**
+(`SyntaxState` exposes only `tree()` and `sync()`). Building it *in the kernel*
+is the actual work of S-4. **Never call `sync()` from the typing path.**
+
+## Process notes earned this session
+
+- **A red run that finds no test is not a red run.** `--no-default-features`
+  does not compile `render/`; a filtered run reported a contented exit 0.
+  Check the test actually ran.
+- **Check what a branch drags along *before* pushing**, not by reading the push
+  output. That is how 2.6 GB reached GitHub.
+- Clippy enforces `items_after_test_module` — test modules go at file end.
+- BSD `xargs` has no `-a`; redirect instead.
+
+## Box
+
+`.git` 1,409,120 KB · `target/` ~15.3 GB · tree ~17 GB. `cargo clean` would
+reclaim most of `target/` at the cost of cold gates — **not taken
+unilaterally**, and it matters more now that every change runs the full
+battery.

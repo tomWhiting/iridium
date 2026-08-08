@@ -607,6 +607,35 @@ mod tests {
     }
 
     #[test]
+    fn no_host_command_this_face_binds_carries_arguments() {
+        // The face half of the kernel's
+        // `no_host_command_is_bound_to_a_sequence_that_carries_arguments`.
+        // Every verb this face contributes is a host command by construction —
+        // the test above asserts the kernel implements none of them — and it
+        // reaches `dispatch_host_command`, which takes an id and nothing else.
+        //
+        // `EditorKeyResult::HostCommand` carries `args` beside the id, and this
+        // face drops them (`keyboard.rs`, `{ command, .. }`). Harmless while no
+        // binding declares a count prefix or a capturing stroke; a silent
+        // wrong answer the moment one does, since the browser face forwards
+        // both. **When this fails, thread `args` through `run_host_command`
+        // rather than relaxing it.**
+        for binding in keymap().bindings() {
+            let Some(command) = binding.command() else {
+                continue;
+            };
+            if Editor::implements_command(command.as_str()) {
+                continue;
+            }
+            assert!(
+                !binding.accepts_count() && !binding.has_capture_stroke(),
+                "{command} is a host command bound to a sequence that carries \
+                 arguments, and this face discards them"
+            );
+        }
+    }
+
+    #[test]
     fn every_command_this_face_adds_is_one_the_kernel_does_not_implement() {
         // A face command that shadows a kernel one would be the exact mistake
         // this crate is written to avoid: two implementations of one id, and

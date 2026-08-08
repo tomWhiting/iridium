@@ -48,28 +48,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Record the toolchain
-        # ⚠️ THE ONE INPUT TO EVERY GATE BELOW THAT NOTHING RECORDS.
+      - name: Materialise the pinned toolchain
+        # ⭐ THE WORKFLOW NAMES NO VERSION ANYWHERE. That is deliberate.
         #
-        # `@stable` is a moving target and no `rust-toolchain.toml` exists in
-        # this repo, so the compiler a run used is decided by whatever stable
-        # was current that morning. Two of the gates in this workflow — clippy
-        # and fmt — are verdicts rendered by the toolchain rather than by the
-        # code, which means a pull request that is green today can go red
-        # tomorrow with no commit in between, and the failure lands on whatever
-        # happened to be in flight.
+        # `rust-toolchain.toml` at the repo root pins the channel (1.97.1) and
+        # declares the components and targets every job below needs. rustup
+        # reads that file on any invocation inside the checkout and installs
+        # what it names, so `rustup show` is what turns the pin into an
+        # installed toolchain. Nothing here repeats the version, because a
+        # version written in two places is a version that can disagree with
+        # itself — and CI disagreeing with the developer's box is the exact
+        # failure #74 was opened about.
         #
-        # This step does not stop that. It makes it diagnosable: with the
-        # version in the log, "did the toolchain move?" is answered by reading
-        # two runs instead of by guessing. Without it the evidence does not
-        # exist anywhere, because the runner is gone by the time anyone asks.
+        # This replaces `dtolnay/rust-toolchain@stable`, which resolved to
+        # whatever stable was current that morning. Two of the gates in this
+        # workflow — clippy and fmt — are verdicts rendered by the toolchain
+        # rather than by the code, so under `@stable` a pull request that was
+        # green today could go red tomorrow with no commit in between, and the
+        # failure would land on whatever happened to be in flight. With the pin
+        # a toolchain move is a reviewable one-line commit instead of weather.
         #
-        # It is the same discipline the Clippy job's comment already argues for
-        # at length — state a figure with the command that produced it. The
-        # toolchain is a figure that had no command attached.
+        # The version print stays, and is still not redundant: the pin says
+        # what was ASKED for, and this says what was RESOLVED. They come apart
+        # if rustup is too old to honour the file, or if a self-hosted runner
+        # ships an overriding `RUSTUP_TOOLCHAIN`. A pin is a claim; this is the
+        # measurement of it.
         #
         # `--verbose` deliberately: it adds the commit hash, commit date, host
         # triple and LLVM version. The LLVM version is the half that explains
@@ -80,6 +83,7 @@ jobs:
         # cannot fail is a step whose output nobody can trust, and if `rustc`
         # is not on PATH here the job is broken anyway.
         run: |
+          rustup show
           rustc --version --verbose
           cargo --version
       - uses: Swatinem/rust-cache@v2
@@ -103,16 +107,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Record the toolchain
-        # Why, at length, in the Check job. Short form: `@stable` moves, no
-        # `rust-toolchain.toml` pins it, and a run that does not say which
-        # compiler it used cannot be compared with the run before it.
+      - name: Materialise the pinned toolchain
+        # Why, at length, in the Check job. Short form: the version lives in
+        # `rust-toolchain.toml` and nowhere else, `rustup show` installs it,
+        # and the print records what was actually resolved rather than what
+        # was asked for.
         #
         # This job's failures are the code's own far more often than the
         # toolchain's — but "far more often" is not "always", and the reader
         # deciding which one they are looking at is the reader who needs this.
         run: |
+          rustup show
           rustc --version --verbose
           cargo --version
       - uses: Swatinem/rust-cache@v2
@@ -160,22 +165,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: wasm32-unknown-unknown
-      - name: Record the toolchain
-        # ⭐ THE JOB THIS MATTERS MOST IN, together with Format.
+      - name: Materialise the pinned toolchain
+        # ⭐ THE JOB THE PIN MATTERS MOST IN, together with Format.
         #
         # Both steps below deny on warnings, so their verdict is a function of
-        # the lint set clippy shipped that day as much as of the code. A new
-        # stable lands, a nursery lint gains a case, and this job goes red on a
-        # branch nobody touched. `cargo clippy --version` is what turns that
-        # from a mystery into a one-line diff between two runs.
+        # the lint set clippy shipped that day as much as of the code. Under
+        # the old `@stable` that meant a new stable landing, a nursery lint
+        # gaining a case, and this job going red on a branch nobody touched.
+        # `rust-toolchain.toml` is what stops that; the versions printed here
+        # are what let two runs be compared when it happens anyway.
+        #
+        # `components = ["clippy"]` lives in that file, not in this job, so
+        # clippy is present by the same mechanism on every runner and on the
+        # developer's box.
         #
         # Clippy's version is printed as well as rustc's because they are not
         # the same number and the lint set follows clippy's.
         run: |
+          rustup show
           rustc --version --verbose
           cargo --version
           cargo clippy --version
@@ -274,10 +281,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Record the toolchain
+      - name: Materialise the pinned toolchain
         # ⭐ The other gate whose verdict is the toolchain's rather than the
         # code's — and the sharper of the two, because rustfmt's output changes
         # with no diagnostic at all: a new stable reflows something, this job
@@ -287,9 +291,14 @@ jobs:
         # options it used to declare were measured to change nothing, and its
         # own comment says that holds "against THIS toolchain and style
         # edition" — an option that restates a default stops being a no-op the
-        # moment the default moves. That measurement is only re-checkable
-        # against a version, and until this step no run recorded one.
+        # moment the default moves. Before the pin, that measurement had no
+        # toolchain it could be re-checked against and quietly decayed into a
+        # claim about no particular compiler. `rust-toolchain.toml` gives it
+        # one, and this step records the version that was actually resolved.
+        #
+        # `components = ["rustfmt"]` lives in that file, not in this job.
         run: |
+          rustup show
           rustc --version --verbose
           cargo --version
           cargo fmt --version

@@ -1434,3 +1434,225 @@ collapse cannot, which is the whole reason the two now differ. Say so where a re
 
 ⚠️ **The record must cover multi-cursor**, since one keystroke writes one command across every
 caret. Store the set, and require the whole set to match.
+
+### 10.13 B-13 — LANDED, 8 Aug 2026
+
+Built as ruled. The delete path now asks the manifest and the tree **nothing**.
+
+#### What landed
+
+`crates/iridium-editor/src/input/keyboard/auto_pair_record.rs` — new, ~160 lines.
+`AutoPairInsertion` holds the document id, the content revision, the full `CursorState`, and
+the closer written at each caret keyed by that caret's post-insertion head. `KeyboardHandler`
+holds one, `Option`-shaped.
+
+- **`insertion_for` now returns the closer it wrote**, so "what was written" and "what may be
+  taken back" are one value rather than two readings of the manifest that can drift.
+- **`capture` measures rather than predicts.** It applies the command to a throwaway clone and
+  reads the revision and cursor state off it. Deriving them — the state from the trailing
+  `SetSelection`, the revision by counting which sub-commands `Command::apply` bumps for —
+  would put a second, silently-drifting copy of `apply`'s rules in the file. A rope clone is a
+  structural share; the cost is far under the tree-sitter query this replaces.
+- **`editing::build_multi_cursor_command_reporting`** is the one new seam: it reports each
+  cursor's post-edit selection *in the caller's own order*, which the command's
+  `SetSelection` cannot (it is sorted by position with the primary rotated to the front). One
+  caller.
+- **Nothing resets the record**, and that is `preferred_columns`' discipline taken literally.
+  Every intervening path changes the identity, the revision or the cursor state.
+
+#### Deleted
+
+`suppressed_before_opener`, `character_before`, `ranking`, and
+`MultiCharRules::row_of_empty_pair`. `empty_pair_around` became `written_closer_around` and
+takes the recorded closer instead of `PairRules` and `CaretScopes`. The `scopes` parameter is
+gone from `backspace_edits_with_pairs`, `handle_delete_backward` and the `DeleteBackward` arm —
+**checked: nothing else on that path read it**, and `ctx.scopes` is still live for
+`InsertCharacter`.
+
+⚠️ `row_of_empty_pair` and `ranking` are two deletions §10.12 did not name. They became
+unreachable once the closer came from the record rather than from a second match against the
+buffer, and unreachable private code is a build failure under `-D warnings`. Sizing the delete
+from the record is also THE LAW of §10.10 read literally — *sized by what the editor would
+have written, never by what the manifest declares* — so the deletion is the ruling's own
+consequence rather than a liberty taken with it.
+
+⚠️ `suppressed_at` / `names_a_scope` on the **insertion** path are untouched. B-7 stands.
+
+#### One structural move, forced by the module cap
+
+`backspace_edits_with_pairs` and the single-character collapse moved out of `behaviors.rs`
+into `backspace_pairs.rs` (85 lines). The plumbing and the new rule's documentation had pushed
+`behaviors.rs` from **838 to 881**, and that file was already 338 lines over the bar; shaving
+the prose to fit would have been the wrong repair. The split is also the honest one — since
+B-13 the two halves answer to different evidence, so insertion (manifest + tree) and deletion
+(the record, and nothing else) are no longer one subject. `behaviors.rs` ends at **806**, 32
+below where it started. `char_at`, `char_before` and `PairRules::close` became `pub(super)`;
+nothing else changed.
+
+#### The red proof — 8 tests, each measured against the code being replaced
+
+| test | measured `left:` before | `right:` |
+| --- | --- | --- |
+| `b13_regression_1_c_string_before_the_opener` | `    f("a"/ */ x);` | `    f("a"/ x);` |
+| `b13_regression_2_javascript_string_before_the_opener` | `    foo("bar"/ */ note);` | `    foo("bar"/ note);` |
+| `b13_regression_3_c_char_literal_before_the_opener` | `    if (c == 'x'/ */ why ) {}` | `    if (c == 'x'/ why ) {}` |
+| `b13_regression_4_c_block_comment_before_the_opener` | `    /* a *// */ x;` | `    /* a *// x;` |
+| `b13_regression_5_rust_block_comment_before_the_opener` | `    let s = /* c */r##;` | `    let s = /* c */r#;` |
+| `b13_rust_nested_block_comment_takes_one_character` | `/* keep/` | `/* keep/ */` |
+| `b13_c_nested_block_comment_takes_one_character` | `/* keep/` | `/* keep/ */` |
+| `b13_a_pair_the_editor_did_not_write_falls_through` | `let s = r#;` | `let s = r##;` |
+
+All five regressions reproduce §10.12's table exactly. **3 of the 8 are red under
+`--no-default-features` too** — no tree in the build at all — which is the claim that B-13
+reaches the web face and `not_in` never could.
+
+#### ⭐ The verification set was audited by measurement, not by reading
+
+Three rounds failed because a suite could not tell the fix from its absence, so the labels are
+measured against three reversions:
+
+| reversion | tests red |
+| --- | --- |
+| **R-open** — the code B-13 replaces | **8** |
+| **R-stale** — `describes` returns `true`: a record kept but never validated | **3** |
+| **R-closed** — `describes` returns `false`: the collapse never fires | **15** |
+
+R-stale's three are the record-validation discriminators (`b13_an_edit_between_the_keystrokes`,
+`b13_a_cursor_added_after_the_insertion`, `b13_redo_that_restores_the_pair`). R-closed's
+fifteen are the eliminations that stop "one character was deleted" proving nothing. Every test
+green under all three is labelled **control** in its own doc comment, so nobody can read one
+as evidence for the gate.
+
+⚠️ **Every fixture that asserts a collapse now types the pair.** A test that writes `r#""#`
+into a buffer and puts a caret in it exercises the fall-through, not the rule — which is why
+`multi_char_backspace_tests.rs` and the last two sections of `scope_suppression_tests.rs` were
+rewritten rather than adjusted.
+
+#### Two behaviours that changed and are pinned as intended
+
+- **A pair the editor did not write no longer collapses as a pair.** Opened from a file or
+  pasted, `r#"|"#` gets the single-character answer and leaves `r##`. That is the asymmetry
+  §10.12 ruled: over-deleting one character is a nuisance, over-deleting four is data loss.
+- **Undo-then-redo does not re-authorise the collapse.** Redo restores the pair and the exact
+  caret, but bumps the revision, so the record no longer matches. §10.12 names redo among the
+  things that leave no match; pinned by `b13_redo_that_restores_the_pair_does_not_restore_the_record`.
+
+⚠️ A pure motion round trip that restores the exact cursor state *and* the exact revision
+**does** revive the record, and that is sound rather than overlooked: the record's claim is
+*the editor wrote this closer here*, and a document with the same id and revision is the same
+bytes. This is where it differs from `sticky_dirty`, which exists because a sticky column
+claims what the *user meant* and a round trip destroys that. Written down in
+`auto_pair_record.rs`'s module docs.
+
+#### Gates
+
+All nine green: **2,669 / 1,123 / 1,255, 0 failed** — 2,658 / 1,117 / 1,244 before, plus five
+regression tests and six B-13 tests. `cargo test -p iridium-lang --all-features` 81, unchanged.
+
+---
+
+## 11. B-13's adversary pass — two findings pinned, three links fixed
+
+B-13 landed green (2,669 / 1,123 / 1,255, nine gates exit 0) and was then read
+by an adversary briefed to answer one question first: *would this test still
+pass with the gate reverted?* It came back `concerns` — no gate failure, five
+findings. Two were real defects in the verification set and are now closed.
+
+### F1 — a term the examined set agreed with its own absence on
+
+`AutoPairInsertion::describes` validates three keys. The adversary reverted
+**each term individually** rather than trusting the R-stale reversion, which
+disables all three at once and therefore proves only that *some* validation
+exists. Measured:
+
+| term dropped | tests that go red |
+| --- | --- |
+| `self.revision == document.revision()` | 2 |
+| `self.state == *cursor` | 1 |
+| `self.document == document.id()` | **none** |
+
+**Deleting the document-identity term left 2,669 / 1,123 / 1,255 green.** The
+reason is structural, not an oversight in the fixtures: the only document swap a
+handler can see is `EditorState::set_content`, which builds the replacement with
+`Document::continuing_from` — and that bumps the revision. So on every
+*reachable* swap the revision term has already refused, and the identity term is
+never the reason for a `false`.
+
+⭐ **This is the same shape that refuted rounds 2, 3 and 4 of this ruling** — a
+proxy that agrees with its target on the examined set — except this time it was
+inside the fix rather than inside the probe. The module docs stated the term's
+purpose as fact (*"so a record cannot survive a switch to another file whose
+revision counter happens to agree"*), and nothing checked it.
+
+**Ruled: pin it, do not delete it.** A future path that installs a document
+without bumping the revision would revive a record across files, and the term is
+one comparison. But a guard justified by a mechanism nothing exercises is a
+claim, so the claim is now a test —
+`b13_the_document_identity_term_refuses_a_different_file_at_one_revision`,
+asserted directly against the predicate at the only level where the divergent
+case exists: two documents, identical content, identical revision, different
+ids. The doc comment now says what is true, including that the term is belt and
+braces today.
+
+**Red-proved:** dropping the term fails exactly that one test, 12 others green.
+
+### F2 — the revival was argued at length and pinned nowhere
+
+`auto_pair_record`'s docs argue that a pure motion round trip restoring the
+exact `CursorState` and revision **does** revive the record, and that this is
+correct rather than overlooked. Nothing tested it. Every other record test
+asserts a *refusal*.
+
+⭐ **Refusal tests cannot catch a guard that became too eager.** Concretely:
+someone adds a `sticky_dirty`-style reset to the motion path "for safety", and
+`r#"|"#` → Right Right Left Left → Backspace silently changes from `let s = r#;`
+to `let s = r##;` with the entire suite green. That is §10.8's own rule — *an
+unpinned known case is a comment claiming something nothing checks* — applied to
+a deliberate behaviour rather than to a false positive, which is where it is
+easier to forget and at least as load-bearing.
+
+**Red-proved with the feared change itself**: adding `self.auto_pair = None` to
+`reset_vertical_state`, beside the sticky columns it would naturally be grouped
+with, fails `b13_a_motion_round_trip_back_to_the_recorded_state_revives` and
+**nothing else**.
+
+### F3 — three broken intra-doc links, two naming the function B-13 moved
+
+`backspace_edits_with_pairs` left `behaviors.rs` for `backspace_pairs.rs`, and
+two links still pointed at the old home — including the one in the ⚠️ paragraph
+explaining the deliberate single/multi asymmetry, which is exactly the paragraph
+a reader follows the link from. A third used `[`Self::capture`]` inside a
+module-level `//!` doc, where `Self` names nothing, so the module's central
+design argument rendered as inert text. A fourth, pre-existing, linked a private
+`fn`. All four fixed.
+
+⚠️ **None of these fail a gate.** The crate carries ~40 rustdoc warnings and
+there is no `cargo doc` gate, which is why a link can rot for a whole slice
+without anything saying so. Worth a task rather than a shrug.
+
+### F4 and F5 — one mine, one accepted
+
+**F4** was `.github/workflows/ci.yml` pointing four jobs at a
+`rust-toolchain.toml` that did not exist. Correct catch, and it was mine: the
+file was written and deliberately held out of the tree so it could not blow a
+running workflow's incremental cache mid-gate. Landed now, so the reference
+resolves.
+
+**F5** is a perf observation the adversary itself declines to call a defect:
+`capture` clones and re-applies a document the builder already computed in
+`scratch`. Real, bounded to keystrokes that write a multi-character closer, and
+worth doing only as a deliberate change with its own measurement — because the
+"measure, don't predict" law is what makes the current shape correct, and
+returning `scratch`'s revision is measurement too. Left as written; recorded so
+the next reader knows it was seen rather than missed.
+
+### ⚠️ What this slice did to the 500-line bar
+
+`behaviors.rs` **755 → 806** against an explicit do-not-grow instruction, and
+two files newly crossed the bar: `mod.rs` 475 → 509 and `editing/mod.rs`
+479 → 515. `mod.rs` crossing matters twice over, because the standing rule is
+that it carries declarations only. The directory goes from 9 over-bar files to
+13. Three of the four additions are new test files, which is expected mass for a
+feature this contested — but the growth in `behaviors.rs` and the two `mod.rs`
+crossings are not test mass and are tracked on **#92**.
+

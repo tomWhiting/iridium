@@ -104,14 +104,14 @@ impl KeyboardHandler {
             // keystroke to take a character from, there is nothing to insert.
             Action::InsertCharacter => match ctx.event.map(|event| event.key) {
                 Some(KeyCode::Char(c)) => {
-                    Self::handle_char_input(c, document, cursor, ctx.config, ctx.scopes)
+                    self.handle_char_input(c, document, cursor, ctx.config, ctx.scopes)
                 },
                 _ => KeyResult::Ignored,
             },
             Action::InsertNewline => Self::handle_enter(document, cursor, ctx.config),
             Action::Tab => Self::handle_tab(document, cursor, ctx.config),
             Action::Outdent => Self::handle_outdent(document, cursor, ctx.config),
-            Action::DeleteBackward => Self::handle_delete_backward(document, cursor, ctx.config),
+            Action::DeleteBackward => self.handle_delete_backward(document, cursor, ctx.config),
             Action::DeleteWordBackward => Self::handle_delete_word_backward(document, cursor),
             Action::DeleteForward => Self::handle_delete_forward(document, cursor, false),
             Action::DeleteWordForward => Self::handle_delete_forward(document, cursor, true),

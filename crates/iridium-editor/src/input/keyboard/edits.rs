@@ -5,17 +5,19 @@
 //! mutates a [`Document`].
 //!
 //! Behaviours that depend on configuration — tab stops, indent/outdent,
-//! auto-indent on Enter, auto-closing pairs — live in [`super::behaviors`], and
-//! comment syntax resolution lives in [`super::comments`]; these functions
-//! choose between them and package the result.
+//! auto-indent on Enter, auto-pair insertion — live in [`super::behaviors`],
+//! Backspace's half of the auto-pair rules in [`super::backspace_pairs`], and
+//! comment syntax resolution in [`super::comments`]; these functions choose
+//! between them and package the result.
 
 use crate::commands::CommandArgs;
 use crate::document::{CursorState, Document};
 use crate::editor::{CaretScopes, EditorConfig};
 use crate::history::Command;
 
+use super::auto_pair_record::AutoPairInsertion;
 use super::types::{ClipboardOperation, HistoryRequest, KeyResult};
-use super::{KeyboardHandler, behaviors, comments, editing};
+use super::{KeyboardHandler, backspace_pairs, behaviors, comments, editing};
 
 impl KeyboardHandler {
     /// Toggles line comments over every line any cursor touches.
@@ -73,7 +75,22 @@ impl KeyboardHandler {
     /// over an existing closer, or wraps its selection (see
     /// [`behaviors::auto_pair_char_edits`]). All other characters are plain
     /// per-cursor insertions.
+    ///
+    /// ⭐ **What the auto-pair branch writes is remembered here**, in
+    /// [`Self::auto_pair`], because Backspace's multi-character collapse is
+    /// gated on that memory and on nothing the buffer can be asked afterwards
+    /// (ruling B-13, `docs/design/AUTO-PAIR-MAP.md` §10.12). One record per
+    /// keystroke, covering every caret the closer was written at.
+    ///
+    /// ⚠️ **The record is never explicitly cleared, and must not need to be.**
+    /// It is validated by full document-identity, content-revision and
+    /// cursor-state equality, so every other path through this handler — a
+    /// motion, another edit, undo, redo, a click, a host `set_cursor` — leaves
+    /// it unable to match. That is the discipline
+    /// [`Self::preferred_columns`] already documents, and the reason no reset
+    /// call has to be threaded through paths that know nothing about pairs.
     pub(super) fn handle_char_input(
+        &mut self,
         c: char,
         document: &Document,
         cursor: &CursorState,
@@ -86,9 +103,16 @@ impl KeyboardHandler {
             // cursor's.
             let pairs = behaviors::PairRules::for_document(document);
             if pairs.is_trigger(c) {
-                let edits = behaviors::auto_pair_char_edits(document, cursor, c, pairs, scopes);
-                return editing::build_multi_cursor_command_placed(document, cursor, edits)
-                    .map_or(KeyResult::Handled, KeyResult::Command);
+                let (edits, closers) =
+                    behaviors::auto_pair_char_edits(document, cursor, c, pairs, scopes);
+                let Some((command, landed)) =
+                    editing::build_multi_cursor_command_reporting(document, cursor, edits)
+                else {
+                    return KeyResult::Handled;
+                };
+                self.auto_pair =
+                    AutoPairInsertion::capture(document, cursor, &command, &landed, &closers);
+                return KeyResult::Command(command);
             }
         }
 
@@ -151,14 +175,25 @@ impl KeyboardHandler {
     /// Each cursor acts independently: cursors with a selection delete the
     /// selection, collapsed cursors delete the character before the caret. With
     /// `config.auto_pairs`, a collapsed cursor between the two halves of an empty
-    /// pair deletes both halves. Converging cursors are merged.
+    /// pair deletes the closer with the one character that triggered it — both
+    /// halves of `(|)`, and `"` plus `"#` of `r#"|"#`, which gives back the
+    /// buffer the keystroke found. Converging cursors are merged.
+    ///
+    /// ⭐ The multi-character collapse fires only where [`Self::auto_pair`]
+    /// still describes this exact document and cursor state — ruling B-13
+    /// (§10.12): a closer the editor did not write is the buffer's, and taking
+    /// four characters of somebody else's text is data loss. **No syntax scope
+    /// is consulted**, which is why this path takes no `scopes` argument at all
+    /// and why the web face gets the same answer as the desktop. See
+    /// [`backspace_pairs::backspace_edits_with_pairs`].
     pub(super) fn handle_delete_backward(
+        &self,
         document: &Document,
         cursor: &CursorState,
         config: &EditorConfig,
     ) -> KeyResult {
         let edits = if config.auto_pairs {
-            behaviors::backspace_edits_with_pairs(document, cursor)
+            backspace_pairs::backspace_edits_with_pairs(document, cursor, self.auto_pair.as_ref())
         } else {
             editing::backspace_edits(document, cursor, false)
         };

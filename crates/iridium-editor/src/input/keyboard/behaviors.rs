@@ -8,9 +8,9 @@
 //!   ([`tab_insert_edits`], [`indent_edits`], [`outdent_edits`]).
 //! - **Enter**: auto-indent inheritance, bracket-block expansion, and
 //!   code-fence expansion ([`enter_edits`]).
-//! - **Auto-pairs**: pair insertion, closer skip-over, pair backspace, and
-//!   selection wrapping ([`auto_pair_char_edits`],
-//!   [`backspace_edits_with_pairs`]).
+//! - **Auto-pairs**: pair insertion, closer skip-over and selection wrapping
+//!   ([`auto_pair_char_edits`]). Backspace's side of the same rule lives in
+//!   [`super::backspace_pairs`], next to the record it reads.
 //!
 //! Every function returns plain edit intents; the reversible multi-cursor
 //! command is always built by [`super::editing`], so each behavior is a
@@ -26,6 +26,7 @@ use crate::editor::{CaretScopes, EditorConfig};
 
 use super::editing::{CaretPlacement, CursorEdit};
 use super::motions;
+use super::multi_char_pairs::{self, MultiCharRules};
 
 // ========== Character classes and pair tables ==========
 
@@ -33,9 +34,11 @@ use super::motions;
 ///
 /// Six because that is the whole single-character set: three brackets and
 /// three quotes, which close with themselves. Multi-character openers —
-/// Python's `"""`, Rust's `r#"`, the `/* */` six languages declare — need
-/// longest-match against the text before the caret and a different skip-over
-/// rule, and are not here; `docs/design/AUTO-PAIR-MAP.md` slice S-3.
+/// Python's `"""`, Rust's `r#"`, the `/* */` seven languages declare — need
+/// longest-match against the text before the caret and cannot be spelled as a
+/// `(char, char)` at all; they are read straight off the manifest by
+/// [`super::multi_char_pairs`], and `docs/design/AUTO-PAIR-MAP.md` §10 is the
+/// design.
 pub(super) const PAIRS: [(char, char); 6] = [
     ('(', ')'),
     ('[', ']'),
@@ -87,6 +90,15 @@ pub(super) struct PairRules {
     /// [`HighlightType::is_within`] rather than a new field and a new branch in
     /// every reader.
     suppressed: [u8; SUPPRESSIBLE_SCOPES.len()],
+    /// The rows whose opener is more than one character — Python's `"""` and
+    /// its twelve string prefixes, Rust's three raw-string widths, the `/*`
+    /// seven languages share.
+    ///
+    /// Not a mask, because these are not in [`PAIRS`] and could not be: a
+    /// six-slot table of `(char, char)` cannot spell `r#"`→`"#`. A borrowed
+    /// manifest instead, which is one nullable pointer and keeps this type
+    /// `Copy`. See [`super::multi_char_pairs`].
+    multi_char: MultiCharRules,
 }
 
 /// The syntax scopes a manifest may switch a pair off inside, as the manifests
@@ -122,6 +134,9 @@ impl PairRules {
         // "everywhere": the opposite would switch auto-closing off inside every
         // string in every language that has not said.
         suppressed: [0; SUPPRESSIBLE_SCOPES.len()],
+        // And no multi-character rows: those exist only in a manifest, and
+        // this is what a document without one gets.
+        multi_char: MultiCharRules::NONE,
     };
 
     /// The rules for `document`'s language.
@@ -166,7 +181,17 @@ impl PairRules {
             // read wrongly later.
             suppressed: SUPPRESSIBLE_SCOPES
                 .map(|scope| manifest.pairs_suppressed_in(scope).map_or(0, mask_of) & closes),
+            // Read from the manifest independently of `brackets`' single-
+            // character rows, and resolved to `NONE` here when the language
+            // declares none — which is most of them, and is what lets every
+            // later reader skip the walk on one null test.
+            multi_char: MultiCharRules::for_manifest(manifest),
         }
+    }
+
+    /// The language's multi-character rows, for [`super::multi_char_pairs`].
+    pub(super) const fn multi_char(self) -> MultiCharRules {
+        self.multi_char
     }
 
     /// Whether a closer may be inserted with `next` directly after the caret —
@@ -187,7 +212,7 @@ impl PairRules {
     /// If a language ever ships a set where that inference is wrong, this
     /// comment is what should lead someone to it. Ruled by Tom on 8 Aug 2026;
     /// see `docs/design/AUTO-PAIR-MAP.md` S-5 and decision B-5.
-    fn permits_close_before(self, next: Option<char>) -> bool {
+    pub(super) fn permits_close_before(self, next: Option<char>) -> bool {
         let Some(allowed) = self.close_before else {
             // The language has not said. Close in front of anything, exactly as
             // this editor did before manifests were read.
@@ -234,7 +259,7 @@ impl PairRules {
     ///
     /// `None` for every other character, including an opener the language
     /// declines to close.
-    fn close(self, c: char) -> Option<char> {
+    pub(super) fn close(self, c: char) -> Option<char> {
         Self::lookup(self.closes, c)
     }
 
@@ -255,12 +280,19 @@ impl PairRules {
             })
     }
 
-    /// Whether `c` can close a pair this language closes — the skip-over set.
+    /// Whether `c` can close a pair this language closes — the
+    /// single-character half of the skip-over rule.
     ///
     /// Restricted by the same mask as [`Self::close`], and deliberately: a
     /// closer this language never auto-inserts is a character the user typed,
     /// and stepping over it instead of writing it would drop input.
-    fn is_closer(self, c: char) -> bool {
+    ///
+    /// This *is* §10.4's rule for a one-character closer, which ends itself
+    /// with an empty prefix and so needs no text before the caret examined.
+    /// [`multi_char_pairs::steps_over`] asks it first for exactly that reason,
+    /// which is what leaves the behaviour that was already here unchanged by
+    /// construction.
+    pub(super) fn is_closer(self, c: char) -> bool {
         PAIRS
             .iter()
             .enumerate()
@@ -268,8 +300,22 @@ impl PairRules {
     }
 
     /// Whether typing `c` engages auto-pair handling at all.
+    ///
+    /// The six single-character openers and closers this language declares, plus
+    /// the final character of every multi-character opener and of every
+    /// **steppable** multi-character closer. Both are *reachability* conditions
+    /// rather than decisions: `/*` ends in `*` and `"#` ends in `#`, neither of
+    /// which is in any pair, so without them the insertion of §10.3 and the
+    /// skip-over of §10.4 could never fire however correct they are.
+    ///
+    /// ⚠️ Final characters only, and closers only where steppable
+    /// (`multi_char_pairs::is_steppable`, private): `" */"` is not, so `/` triggers
+    /// nowhere; a whole-delimiter rule would put a **space** in seven languages.
     pub(super) fn is_trigger(self, c: char) -> bool {
-        self.close(c).is_some() || self.is_closer(c)
+        self.close(c).is_some()
+            || self.is_closer(c)
+            || self.multi_char.completes_opener(c)
+            || self.multi_char.completes_closer(c)
     }
 }
 
@@ -332,13 +378,13 @@ fn indent_unit(config: &EditorConfig) -> String {
 
 /// Character at `position` on its own line (`None` at or past end of line;
 /// line endings are never returned).
-fn char_at(document: &Document, position: Position) -> Option<char> {
+pub(super) fn char_at(document: &Document, position: Position) -> Option<char> {
     document.line(position.line)?.chars().nth(position.column)
 }
 
 /// Character immediately before `position` on the same line (`None` at
 /// column 0; a preceding line ending is never returned).
-fn char_before(document: &Document, position: Position) -> Option<char> {
+pub(super) fn char_before(document: &Document, position: Position) -> Option<char> {
     if position.column == 0 {
         return None;
     }
@@ -594,8 +640,17 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 ///   (bracket or quote) becomes `open + selection + close`, with the
 ///   selection preserved (same orientation) around the original text. A
 ///   closing bracket over a selection replaces it, as ordinary typing does.
-/// - **Skip-over**: a collapsed cursor typing a closer that already sits
-///   directly after the caret moves over it without inserting.
+/// - **Skip-over**: a collapsed cursor typing a character that already sits
+///   directly after the caret moves over it without inserting, when the text
+///   before the caret plus that character ends a closer the language declares
+///   ([`multi_char_pairs::steps_over`]). A one-character closer satisfies that
+///   with an empty prefix, so `)` and `"` behave exactly as they always have;
+///   `#` closing a Rust raw string satisfies it in two keystrokes.
+/// - **Multi-character pair insertion**: a collapsed cursor typing the final
+///   character of an opener the language declares — `"""`, `f"`, `r#"`, `/*` —
+///   inserts that row's closer, longest match first
+///   ([`multi_char_pairs::insertion_for`]). Tried **before** the apostrophe
+///   rule, which is what makes Python's twelve string-prefix rows reachable.
 /// - **Pair insertion**: a collapsed cursor typing an opener inserts the pair
 ///   with the caret between the halves. Quotes do not pair when the caret is
 ///   directly after a word character (apostrophes inside words), inserting a
@@ -615,43 +670,55 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 /// - **Skip-over** is not gated. It fires on typing a *closer*, and the
 ///   question there is whether the character is already present, not what
 ///   follows it or what surrounds it.
-/// - **Backspace pair deletion** ([`backspace_edits_with_pairs`]) is not
-///   gated, for the same reason: it acts on a pair that already exists. A pair
-///   inside a string got there somehow — pasted, or typed before the string
-///   was one — and one backspace must still collapse it.
+/// - **Backspace's single-character collapse**
+///   ([`super::backspace_pairs::backspace_edits_with_pairs`]) is not gated, for the same reason: it
+///   acts on a pair that already exists. A pair inside a string got there
+///   somehow — pasted, or typed before the string was one — and one backspace
+///   must still collapse it.
 ///
 /// That is ruling B-7: `not_in` suppresses the *close*, not the pairing
 /// machinery. See `docs/design/AUTO-PAIR-MAP.md` §8.
 ///
-/// `pairs` is the document language's set, built once by the caller rather
-/// than per cursor — see [`PairRules::for_document`].
+/// ⚠️ **Backspace's multi-character collapse is not on that list and asks
+/// `not_in` nothing**: it is gated on [`super::AutoPairInsertion`], which this
+/// function's closers feed. Ruling B-13, §10.12.
+///
+/// `pairs` is the document language's set, built once by the caller — see
+/// [`PairRules::for_document`].
 ///
 /// `scopes` answers what each caret is syntactically inside, and is consulted
 /// **per cursor** rather than once. Two carets in one edit routinely sit in
 /// different scopes — one inside a string literal, one in code — and a single
 /// answer for both would suppress a pair the language permits, which is the
 /// fail-closed direction ruling B-6 rejected.
+///
+/// ⭐ The second half of the return is the closer written at each cursor, or
+/// `None` where none was, aligned with the edits in
+/// [`CursorState::all_selections`] order — see [`super::AutoPairInsertion`].
 pub(super) fn auto_pair_char_edits(
     document: &Document,
     cursor: &CursorState,
     c: char,
     pairs: PairRules,
     scopes: &CaretScopes<'_>,
-) -> Vec<(CursorEdit, CaretPlacement)> {
+) -> (Vec<(CursorEdit, CaretPlacement)>, Vec<Option<&'static str>>) {
     cursor
         .all_selections()
-        .map(|sel| auto_pair_edit_for(document, sel, c, pairs, scopes))
-        .collect()
+        .map(|sel| {
+            let (edit, placement, closer) = auto_pair_edit_for(document, sel, c, pairs, scopes);
+            ((edit, placement), closer)
+        })
+        .unzip()
 }
 
-/// Computes a single cursor's edit for typing the auto-pair character `c`.
+/// One cursor's edit for typing `c`, with the closer it writes if it writes one.
 fn auto_pair_edit_for(
     document: &Document,
     sel: &Selection,
     c: char,
     pairs: PairRules,
     scopes: &CaretScopes<'_>,
-) -> (CursorEdit, CaretPlacement) {
+) -> (CursorEdit, CaretPlacement, Option<&'static str>) {
     if !sel.is_collapsed() {
         if let Some(close) = pairs.close(c) {
             // Wrap the selection, preserving the selected text and the
@@ -664,19 +731,37 @@ fn auto_pair_edit_for(
             } else {
                 CaretPlacement::selection(open_len, open_len + inner.len())
             };
-            return (CursorEdit::replace(sel.range(), text), placement);
+            return (CursorEdit::replace(sel.range(), text), placement, None);
         }
         // A bare closer replaces the selection like any typed character.
         return plain_char_edit(sel, c);
     }
 
-    // Skip over an existing closer instead of inserting a duplicate.
-    if pairs.is_closer(c) && char_at(document, sel.head) == Some(c) {
+    // Skip over an existing closer instead of inserting a duplicate — §10.4's
+    // generalisation of the single-character rule, which it contains as the
+    // empty-prefix case. `"#` needs it; `"""` must not be changed by it.
+    if multi_char_pairs::steps_over(pairs, document, sel.head, c) {
         let target = Position::new(sel.head.line, sel.head.column + 1);
         return (
             CursorEdit::replace(Range::new(target, target), String::new()),
             CaretPlacement::collapsed(0),
+            None,
         );
+    }
+
+    // A multi-character opener whose final character is `c`, longest match —
+    // Python's `"""` and `f"`, Rust's `r#"`, the shared `/*`.
+    //
+    // ⚠️ **Ordered here, before the apostrophe rule, and that ordering is the
+    // whole of Python's payload.** `f` is a word character, so the rule that
+    // keeps `don't` single is exactly what has kept the twelve prefix rows
+    // dead; behind it they would stay dead. Subject to `autoclose_before` and
+    // `not_in` all the same, which [`multi_char_pairs::insertion_for`] applies
+    // in the same order for the same reasons. See `AUTO-PAIR-MAP.md` §10.6.
+    if let Some((edit, placement, closer)) =
+        multi_char_pairs::insertion_for(pairs, document, sel, c, scopes)
+    {
+        return (edit, placement, Some(closer));
     }
 
     if let Some(close) = pairs.close(c) {
@@ -705,51 +790,17 @@ fn auto_pair_edit_for(
         }
         let text = format!("{c}{close}");
         let placement = CaretPlacement::collapsed(c.len_utf8());
-        return (CursorEdit::replace(sel.range(), text), placement);
+        // Not recorded: the single-character collapse keeps the buffer-based
+        // rule, where the two answers are byte-identical anyway.
+        return (CursorEdit::replace(sel.range(), text), placement, None);
     }
 
     plain_char_edit(sel, c)
 }
 
 /// The ordinary typing edit: replace the selection with `c`, caret after it.
-fn plain_char_edit(sel: &Selection, c: char) -> (CursorEdit, CaretPlacement) {
+fn plain_char_edit(sel: &Selection, c: char) -> (CursorEdit, CaretPlacement, Option<&'static str>) {
     let text = c.to_string();
     let placement = CaretPlacement::collapsed(text.len());
-    (CursorEdit::replace(sel.range(), text), placement)
-}
-
-/// Builds one backspace edit per cursor, deleting both halves of an empty
-/// auto-pair when the caret sits between them.
-///
-/// Cursors with a selection delete the selection; collapsed cursors delete
-/// the empty pair around the caret (`(|)`, `"|"`, …) or, failing that, the
-/// single character before the caret exactly like
-/// [`super::editing::backspace_edits`].
-pub(super) fn backspace_edits_with_pairs(
-    document: &Document,
-    cursor: &CursorState,
-) -> Vec<CursorEdit> {
-    // The same set the insertion used, so a pair this language never inserts
-    // is never collapsed by one backspace either: in Rust `'a'` is a character
-    // literal the user typed, and eating both quotes would delete input.
-    let pairs = PairRules::for_document(document);
-    cursor
-        .all_selections()
-        .map(|sel| {
-            if !sel.is_collapsed() {
-                return CursorEdit::delete(sel.range());
-            }
-            let between_pair = char_before(document, sel.head)
-                .and_then(|before| pairs.close(before))
-                .is_some_and(|close| char_at(document, sel.head) == Some(close));
-            if between_pair {
-                CursorEdit::delete(Range::new(
-                    Position::new(sel.head.line, sel.head.column - 1),
-                    Position::new(sel.head.line, sel.head.column + 1),
-                ))
-            } else {
-                CursorEdit::delete(Range::new(motions::char_left(document, sel.head), sel.head))
-            }
-        })
-        .collect()
+    (CursorEdit::replace(sel.range(), text), placement, None)
 }

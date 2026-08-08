@@ -266,7 +266,7 @@ impl HighlightType {
     ///
     /// The vocabulary is the manifests', not this enum's: a vendored
     /// `config.toml` writes `not_in = ["string", "comment"]` on a bracket row to
-    /// say the pair must not be auto-closed there. Across all twenty-one
+    /// say the pair must not be auto-closed there. Across all twenty-two
     /// manifests those are the **only** two values that appear (`string` 60
     /// times, `comment` 45), which is what makes highlight captures the right
     /// vocabulary for the question — they already speak it, and no per-grammar

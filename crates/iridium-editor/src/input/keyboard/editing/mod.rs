@@ -189,6 +189,32 @@ pub fn build_multi_cursor_command_placed(
     cursor: &CursorState,
     edits: Vec<(CursorEdit, CaretPlacement)>,
 ) -> Option<Command> {
+    build_multi_cursor_command_reporting(document, cursor, edits).map(|(command, _)| command)
+}
+
+/// [`build_multi_cursor_command_placed`], also reporting where each cursor
+/// lands.
+///
+/// The second half of the pair is one [`Selection`] per input cursor, **in the
+/// caller's own `edits` order** — not the order the command's trailing
+/// `SetSelection` carries, which is sorted by document position with the
+/// primary rotated to the front. A caller that must associate a post-edit
+/// caret with the per-cursor decision that produced it needs the input
+/// correspondence and cannot recover it from the command.
+///
+/// ⚠️ These are the selections *before* convergent cursors are merged, so the
+/// vector can be longer than the command's resulting [`CursorState`]. That is
+/// deliberate: the mapping is per input cursor, and two cursors that merged
+/// both legitimately name the same position.
+///
+/// The one caller is the auto-pair insertion record
+/// ([`AutoPairInsertion`](super::AutoPairInsertion)), which needs to know which
+/// caret the editor wrote a multi-character closer at.
+pub(crate) fn build_multi_cursor_command_reporting(
+    document: &Document,
+    cursor: &CursorState,
+    edits: Vec<(CursorEdit, CaretPlacement)>,
+) -> Option<(Command, Vec<Selection>)> {
     // One edit per cursor is required for the caret bookkeeping below;
     // anything else indicates a caller bug, and doing nothing is the safe
     // response.
@@ -196,27 +222,31 @@ pub fn build_multi_cursor_command_placed(
         return None;
     }
 
-    // Pair each edit with whether it belongs to the primary cursor, then
-    // order by document position so overlap clamping and offset accounting
-    // can run front to back. At equal (start, end), edits that insert
-    // nothing (pure cursor moves such as auto-pair skip-over, and no-op
-    // deletes) sort BEFORE insertions: a caret targeting position P refers
-    // to the document before a same-position insertion pushes text right,
-    // so it must not absorb that insertion's byte delta. Without this
-    // tie-break the outcome would depend on cursor enumeration order
-    // (which cursor happens to be primary).
-    let mut sorted: Vec<(CursorEdit, CaretPlacement, bool)> = edits
+    // Pair each edit with the input cursor it came from, then order by
+    // document position so overlap clamping and offset accounting can run
+    // front to back. At equal (start, end), edits that insert nothing (pure
+    // cursor moves such as auto-pair skip-over, and no-op deletes) sort
+    // BEFORE insertions: a caret targeting position P refers to the document
+    // before a same-position insertion pushes text right, so it must not
+    // absorb that insertion's byte delta. Without this tie-break the outcome
+    // would depend on cursor enumeration order (which cursor happens to be
+    // primary).
+    //
+    // The index carried through is what makes the reported selections
+    // recoverable in the caller's order; index 0 is the primary, exactly as
+    // `CursorState::all_selections` promises.
+    let mut sorted: Vec<(CursorEdit, CaretPlacement, usize)> = edits
         .into_iter()
         .enumerate()
-        .map(|(index, (edit, placement))| (edit, placement, index == 0))
+        .map(|(index, (edit, placement))| (edit, placement, index))
         .collect();
     sorted.sort_by_key(|(edit, _, _)| (edit.range.start, edit.range.end, !edit.text.is_empty()));
 
     let mut ordered: Vec<CursorEdit> = Vec::with_capacity(sorted.len());
-    let mut placements: Vec<(CaretPlacement, bool)> = Vec::with_capacity(sorted.len());
-    for (edit, placement, is_primary) in sorted {
+    let mut placements: Vec<(CaretPlacement, usize)> = Vec::with_capacity(sorted.len());
+    for (edit, placement, source) in sorted {
         ordered.push(edit);
-        placements.push((placement, is_primary));
+        placements.push((placement, source));
     }
     clamp_edit_ranges(document, &mut ordered);
 
@@ -228,9 +258,10 @@ pub fn build_multi_cursor_command_placed(
     // all earlier edits, then convert against the scratch document (which
     // already contains every edit).
     let mut new_selections: Vec<Selection> = Vec::with_capacity(ordered.len());
+    let mut reported: Vec<Option<Selection>> = vec![None; ordered.len()];
     let mut primary_index = 0usize;
     let mut delta: i64 = 0;
-    for (index, ((edit, (placement, is_primary)), (start_off, end_off))) in ordered
+    for (index, ((edit, (placement, source)), (start_off, end_off))) in ordered
         .iter()
         .zip(placements.iter())
         .zip(offsets.iter())
@@ -244,17 +275,22 @@ pub fn build_multi_cursor_command_placed(
         let anchor = resolve(placement.anchor)?;
         let head = resolve(placement.head)?;
 
-        if *is_primary {
+        if *source == 0 {
             primary_index = index;
         }
-        new_selections.push(Selection::new(anchor, head));
+        let selection = Selection::new(anchor, head);
+        new_selections.push(selection);
+        *reported.get_mut(*source)? = Some(selection);
 
         delta += i64::try_from(edit.text.len()).ok()?;
         delta -= i64::try_from(end_off - start_off).ok()?;
     }
 
+    // Every index in `0..len` was written exactly once: `source` ranges over
+    // the enumeration of the input and the sort is a permutation of it.
+    let reported = reported.into_iter().collect::<Option<Vec<_>>>()?;
     let new_state = cursor_state_from(&new_selections, primary_index)?;
-    finalize_command(cursor, new_state, commands)
+    finalize_command(cursor, new_state, commands).map(|command| (command, reported))
 }
 
 /// Builds a single reversible command from line-based block edits (indent and

@@ -1,5 +1,31 @@
 # Publishing the Iridium packages — staging assessment
 
+> ## ✅ PUBLISHED — 8 Aug 2026 21:51 UTC (9 Aug, 07:51 AEST). Nothing here is pending.
+>
+> | package | version | published |
+> |---|---|---|
+> | `iridium-bindings` | **0.2.0** | `2026-08-08T21:51:10Z` |
+> | `@iridium-editor/core` | **0.2.0** | `2026-08-08T21:51:15Z` |
+> | `@iridium-editor/syntax-worker` | **0.1.1** | `2026-08-08T21:51:18Z` |
+>
+> Verified against the registry and against the **live tarballs**, not against
+> this document: `@iridium-editor/core@0.2.0`'s `dist/controller/index.js`
+> contains `await import("iridium-bindings")` — the bare specifier — and
+> `iridium-bindings@0.2.0`'s `pkg/PROVENANCE.txt` reads `commit: 4704baae`,
+> `tree: clean`, rustc 1.97.1, wasm-pack 0.15.0, with all 11 grammars in the
+> tarball. Manifold can pin these three exactly and drop the vendored subtree.
+>
+> ⚠️ **This banner exists because the sections below outlived their truth.**
+> They said "waits on Tom's npm credentials", and an hour after the publish had
+> already happened this seat repeated that to Tom as current — sending him to
+> re-run three commands that then failed with "cannot publish over the
+> previously published version", which reads exactly like a broken release.
+> **A staging document cannot know whether it has been acted on.** The registry
+> can: `npm view <pkg> time --json`. Ask it, not this file.
+>
+> ⚠️ **npm auth here is browser + security key. There is no OTP prompt**, and no
+> OTP is configured. Any instruction that mentions one is wrong.
+
 **Assignment:** Tom, via Waffles the Terrible, 9 Aug 2026 — prepare everything
 publishable in this repo for publication at head so that Manifold (and anyone
 else) never has to vendor again. **Stage only; Tom runs the publish himself.**
@@ -346,26 +372,53 @@ this section lands in.
     `clippy/all`, `clippy/kernel`, `clippy/syntax`, `clippy/wasm`, `fmt`. Zero
     failures anywhere.
 
-## Still to do before Tom can publish
+## ~~Still to do before Tom can publish~~ — done, 21:51 UTC 8 Aug
 
-Nothing on this side. The staging is complete; the only remaining step needs
-Tom's npm credentials.
+All three published. See the banner at the top of this file for versions,
+timestamps and how the live tarballs were verified.
 
-- [ ] Reply to Waffles (`dm:896955e1-86dd-4d6a-9c25-f3f978b189a9`) with the
-      command sequence below.
+## The command sequence — as actually run, for the next release
 
-## The command sequence for Tom
+⚠️ Three things this sequence got wrong the first time, all of them corrected
+by Tom rather than found here:
+
+1. **No `./scripts/build-wasm.sh`.** Hand the literal `wasm-pack` invocation.
+   A wrapper script is one more thing to trust at the moment someone is trying
+   to ship.
+2. **No `(cd … && …)` subshells.** Absolute `cd` per step, so each line stands
+   alone and a failure leaves you somewhere you can see.
+3. **No OTP.** npm auth on this machine is browser-based with a security key.
+   Nothing prompts on stdin.
 
 ```bash
 cd /Users/tom/Developer/ablative/libs/iridium
-npm login                          # Tom runs this; the OTP is his
 
-./scripts/build-wasm.sh            # clean tree; stamps pkg/PROVENANCE.txt
+wasm-pack build crates/iridium-bindings --target web --release \
+  --no-default-features --features web
 
-(cd crates/iridium-bindings        && npm publish --access public)
-(cd packages/@iridium/core         && npm publish --access public)
-(cd packages/@iridium/syntax-worker && npm publish --access public)
+cd /Users/tom/Developer/ablative/libs/iridium/crates/iridium-bindings
+npm publish --access public
+
+cd /Users/tom/Developer/ablative/libs/iridium/packages/@iridium/core
+npm publish --access public
+
+cd /Users/tom/Developer/ablative/libs/iridium/packages/@iridium/syntax-worker
+npm publish --access public
 ```
+
+**Before running any of it, check what is already live:**
+
+```bash
+npm view iridium-bindings time --json
+npm view @iridium-editor/core time --json
+npm view @iridium-editor/syntax-worker time --json
+```
+
+`wasm-pack` does not stamp `pkg/PROVENANCE.txt` — `scripts/build-wasm.sh` does,
+and it also refuses a tree with uncommitted changes under the three source
+crates. Both are worth having; neither is worth blocking a release on. If you
+run `wasm-pack` bare, `PROVENANCE.txt` keeps whatever commit it last had, so
+write it yourself or accept that the tarball's provenance is stale.
 
 ⚠️ **Order matters, and it is the reverse of the dependency arrows.**
 `syntax-worker` peers on core `^0.2.0`; core peers on `iridium-bindings

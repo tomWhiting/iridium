@@ -6435,10 +6435,16 @@ nothing to act on.
 
 ---
 
-## ⚠️ IN FLIGHT AT COMPACTION — #100 implemented, NOT COMMITTED (9 Aug 2026, ~10:1x)
+## ~~⚠️ IN FLIGHT AT COMPACTION~~ — #100, LANDED as `40542d43` (9 Aug 2026)
 
-**The working tree has uncommitted #100 work. Nothing is lost; it is on disk.**
-Run `git status --porcelain` first.
+> ⛔ **THE HEADING BELOW IS HISTORY. #100 WAS COMMITTED.** It landed as
+> `40542d43` and was pushed. Nothing here is pending and nothing is
+> uncommitted. The section is kept for the reasoning, not the status.
+>
+> This correction is itself the point. A staging document cannot know whether
+> it has been acted on — the same failure `docs/RELEASE-STAGING.md` produced
+> twice on 8 Aug, where a banner reading "PUBLISHED" was six commits stale
+> within the hour. **Ask git, not a document.**
 
 ### What #100 was, and the fix
 
@@ -6512,3 +6518,90 @@ are the `✅ all 10 gates passed` / `⛔ N of 10 gates FAILED` line.
 `0.2.1 / 0.2.1 / 0.1.2` are **published and verified live** (23:28Z 8 Aug).
 `iridium-bindings@0.2.1` PROVENANCE = `b4d4426a`, clean, wasm `cc142177…`.
 Waffles has moved Manifold's pins. Nothing outstanding on the release.
+
+---
+
+## #101 — a directory opens as a project (9 Aug 2026), LANDED `02bfa67e`
+
+Tom, over Meridian, 00:18Z: *"I'm sort of wanting somewhere where I can sort of
+open up a directory or something like that, open up a project… We have like a
+file sort of sidebar and we have the oil in bin thing, but I still haven't
+really seen that properly. Also, where can I go and change the key bindings for
+stuff? And will that load up? Can reload that config mid session."*
+
+Four questions. One was a missing feature and is now built; two were features
+that exist and nothing on screen says so; one is a real gap, now #102.
+
+### What was actually wrong
+
+`iridium-desktop .` **refused to start.** `Options.path` went straight to
+`TextFile::open`, which read the directory as text and failed with the OS's
+`Is a directory`. There was no way to open a project at all — the explorer was
+reachable only by opening a *file* first and letting `project::explorer_root`
+guess upwards from it. That is why Tom could not find one: there was nothing
+to find.
+
+### The shape of the fix
+
+- `DesktopApp::new` branches on `Path::is_dir`. A directory reads no text,
+  keeps the untitled buffer, and opens `FileExplorer` rooted there.
+- **Through `project::chosen_root`, not around it.** That function already
+  draws the distinction between a root a person picked and a root this code
+  guessed, and the crawl rule stays in one place.
+- New field `DesktopApp::project`, and `explorer_root()` prefers it. ⭐ This is
+  the load-bearing part: closing the panel *drops* it (reader thread + arena),
+  so re-opening builds a new one from whatever root is chosen at that moment.
+  Without the field that is the guess from the active file — an untitled
+  buffer — so the panel would come back somewhere else entirely.
+- `FileExplorer::root_path` moved `compose.rs` → `panel.rs` and made public.
+- New `StartupError::Explorer`, fatal on `--theme`'s reasoning.
+
+### Three edges, each with a test (5 new, all green)
+
+1. **A path that does not exist is a file** — the one nobody has written yet.
+   `is_dir` is false for it, so `iridium-desktop notes.md` keeps its
+   empty-buffer-that-knows-its-name behaviour. A branch reading "not a file"
+   rather than "is a directory" would have rooted a project at a folder that
+   is not there. ⚠️ My first draft of this test asserted the opposite and
+   **failed** — `TextFile::open` maps `NotFound` to a new buffer deliberately
+   (`iridium-file/src/lib.rs:201`). The test was wrong, not the code.
+2. A directory that cannot be read is fatal.
+3. A file still opens a file and still opens no panel.
+
+### Ground truth gathered while answering Tom — verified, not recalled
+
+- **Explorer toggle:** `Ctrl+Alt+E` / `⌘⌥E` (`default_keymap.rs:473`), same
+  chord shape as `⌃⌥H` undo tree and `⌃⌥T` theme.
+- **Oil buffer is LIVE**, not pending: `Tab` in the panel starts editing
+  (`file_tree/keys.rs:75`), `⌘S` applies, `esc` stops, `⌃D` strikes a row,
+  `⌃Enter` types one, then `y`/`n` confirms (`edit_keys.rs:117-174`).
+- **Re-rooting inside the panel:** `⌘↓`/`⌃↓` roots at the selection,
+  `⌘↑`/`⌃↑` goes up (`keys.rs:90-91`).
+- **Config file:** `$XDG_CONFIG_HOME/iridium/config.toml`, else
+  `~/.config/iridium/config.toml` (`location.rs`). `[editor]` = 17 settings,
+  `[keys]` = bindings, `""` unbinds. Documented in `docs/CONFIG.md`.
+- **No app menu bar and no file-open dialog exist.** `app/menu.rs` is the
+  *right-click context* menu. There is no `rfd` dependency — verified against
+  `apps/iridium-desktop/Cargo.toml`.
+- ⛔ **No config reload of any kind.** `UserConfig::read()` is called exactly
+  once (`startup.rs:208`); there is no watcher (no `notify` dep) and no
+  `config.reload` command anywhere in `commands/builtin/host.rs`. → **#102.**
+- **Nothing on screen mentions the oil buffer.** `EDIT_HINT` in `compose.rs:34`
+  is drawn only once you are *already* editing. → **#103.**
+
+### #102's design decision, priced but not taken
+
+Reload cannot just re-push the user layer: `Workspace` has `push_keymap` and
+**no** pop, and `KeymapStack` (`commands/stack.rs`) exposes `push`/`pop`/`clear`
+but no remove-by-name. Pushing a second `user` layer would leave every deleted
+binding still firing from the layer beneath. So #102 needs a kernel addition —
+replace-by-name, not pop-the-top, because pop-the-top breaks silently the day a
+face pushes a third layer. Not started; nothing half-built on disk.
+
+### Verification
+
+`✅ all 10 gates passed`, `exit=0`, read from the runner's own file
+(`scratchpad/ci-101b.log:5558`). ⚠️ **Eighth success-only channel this
+session:** the first run's completion notification said "exit code 0" while its
+log said `⛔ 1 of 10 gates FAILED` (fmt). Committed `02bfa67e`, pushed.
+Working tree clean except untracked `.claude/skills/`.

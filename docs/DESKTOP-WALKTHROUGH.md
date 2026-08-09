@@ -15,10 +15,14 @@ Command** from the palette and you get every command by the id to write in
 > `iridium-desktop` command on the PATH, and `⌘⌥E` for the file explorer. The
 > `⌘` half of the second was inferred from the panel's *close* handler instead
 > of read from the desktop face's binding table, which is the mistake this page
-> claimed in its first line not to make. Both are marked below with the task
-> that fixes them. #104 also adds a test that enumerates every chord rather
-> than trusting a reading of the table, because a table read by eye is exactly
-> what failed here.
+> claimed in its first line not to make.
+>
+> `⌘⌥E` now works, along with thirteen other ⌘ chords that were also missing
+> and that nobody had noticed: `⌘/`, `⌘⌥Z`, `⌘⌥Y`, `⌘⇧K`, `⌘J`, `⌘D`, `⌘U`,
+> `⌘⇧L`, `⌘⌥↑`, `⌘⌥↓`, `⌘⇧]`, `⌘⇧[` and `⌘W`. They were found by a test that
+> **enumerates** every verb the kernel binds under `Ctrl` and fails unless
+> something reaches it without `Ctrl` held — because a table read by eye is
+> exactly what failed here. The PATH problem is #106 and still open.
 
 ---
 
@@ -56,7 +60,7 @@ keys go to the panel, not the document.
 
 | | Key | |
 |---|---|---|
-| File explorer | `⌃⌥E` **only** | any file in the project |
+| File explorer | `⌃⌥E` / `⌘⌥E` | any file in the project |
 | Undo tree | `⌃⌥H` / `⌘⌥H` | every branch of the history |
 | Command palette | `⌃K` / `⌘K`, or `⌃P` / `⌃⇧P` | every command by name |
 
@@ -141,7 +145,7 @@ still there on a branch.
 In the document:
 
 - `⌘Z` / `⌃Z` — undo, `⌘⇧Z` / `⌃⇧Z` / `⌃Y` — redo
-- `⌃⌥Z` — previous branch, `⌃⌥Y` — next branch
+- `⌃⌥Z` / `⌘⌥Z` — previous branch, `⌃⌥Y` / `⌘⌥Y` — next branch
 
 In the panel:
 
@@ -167,7 +171,8 @@ works mid-search.
 
 ## Tabs
 
-- `⌃⇧]` — next tab, `⌃⇧[` — previous tab
+- `⌘⇧]` — next tab, `⌘⇧[` — previous tab, `⌘W` — close tab
+  (the `⌃` spellings work too)
 - `⌘S` / `⌃S` — save. Refuses if the file changed on disk underneath you.
 - `⌘⌥S` / `⌃⌥S` — save anyway.
 
@@ -180,18 +185,18 @@ Everything below is the kernel's, so it is identical in every face.
 **Motion** — `⌥←` / `⌥→` by word, `⌘←` / `⌘→` line start/end, `⌘↑` / `⌘↓`
 document start/end. Add `⇧` to any of them to select.
 
-**Lines** — `⌥↑` / `⌥↓` move the line, `⇧⌥↑` / `⇧⌥↓` duplicate it, `⌃⇧K` delete
-it, `⌃J` join.
+**Lines** — `⌥↑` / `⌥↓` move the line, `⇧⌥↑` / `⇧⌥↓` duplicate it, `⌘⇧K` delete
+it, `⌘J` join. (`⌃⇧K` and `⌃J` also work.)
 
-**Multi-cursor** — `⌃⌥↑` / `⌃⌥↓` add a cursor above/below, `⌃D` add the next
-occurrence of the selection, `⌃⇧L` select every occurrence, `⌃U` drop the last
-cursor. `Esc` collapses back to one.
+**Multi-cursor** — `⌘⌥↑` / `⌘⌥↓` add a cursor above/below, `⌘D` add the next
+occurrence of the selection, `⌘⇧L` select every occurrence, `⌘U` drop the last
+cursor. `Esc` collapses back to one. (Every one also has a `⌃` spelling.)
 
 **Structure** — `⇧⌥→` expand the selection by syntax node, `⇧⌥←` shrink it.
 `⌃⇧⌘→` / `⌃⇧⌘←` do the same (the mac spelling). Start on a token and press it
 repeatedly to reach the enclosing object, then the whole document.
 
-**Comments** — `⌃/` toggles a line comment, `⇧⌥A` a block comment.
+**Comments** — `⌘/` (or `⌃/`) toggles a line comment, `⇧⌥A` a block comment.
 
 **Delete** — `⌥⌫` / `⌥⌦` by word, `⌘⌫` / `⌘⌦` to line start/end.
 

@@ -69,6 +69,27 @@ pub fn main() -> ExitStatus {
         Err(error) => return fail(&format!("iridium-desktop: {error}\n\n{USAGE}")),
     };
 
+    // The first-run configuration file, written before the session reads one.
+    //
+    // An absent file is not a problem for the editor — every setting has a
+    // default — but it is a problem for the person: "edit
+    // `~/.config/iridium/config.toml`" is useless advice when no such
+    // directory exists, which is what Tom found on 9 Aug 2026 having been
+    // told exactly that. An existing file is never touched.
+    //
+    // ⚠️ **Here and not in [`DesktopApp::new`].** That constructor is what the
+    // test suite builds sessions with, so writing from it means `cargo test`
+    // creating files in the home directory of whoever ran it.
+    //
+    // The result is deliberately dropped. Written, already there, or
+    // impossible on a read-only home all leave the session identical, because
+    // the loader has always handled a missing file — so failing at a courtesy
+    // must not become the thing that stops a session, and reporting it would
+    // be reporting on a courtesy.
+    let created =
+        iridium_config::user_config_path().map(|path| iridium_config::create_if_absent(&path));
+    drop(created);
+
     let mut app = match DesktopApp::new(options) {
         Ok(app) => app,
         Err(error) => return fail(&format!("iridium-desktop: {error}\n")),

@@ -18,8 +18,6 @@
 //! confirmation applies the plan, and `y` is a plain character. A query field
 //! left on screen there would be an invitation to type one.
 
-use std::path::PathBuf;
-
 use iridium_editor::theme::Theme;
 
 use super::buffer::Buffer;
@@ -193,18 +191,6 @@ impl FileExplorer {
         line.push("  ", theme.editor.line_number);
         line.push(EDIT_HINT, theme.editor.line_number);
         PanelRow::new(line.finish())
-    }
-
-    /// The folder the panel is showing, which paths are read against.
-    ///
-    /// An empty path when the arena has no record of its own root, which
-    /// cannot happen — the root is interned before the panel exists. It makes
-    /// [`super::confirm`] print whole paths rather than fragments of them,
-    /// which is the right way to be wrong about a destructive operation.
-    fn root_path(&self) -> PathBuf {
-        self.files
-            .info(self.files.root())
-            .map_or_else(PathBuf::new, |info| info.path.to_path_buf())
     }
 
     /// The query row, then the visible slice of whichever list is showing.

@@ -12,6 +12,7 @@
 //! `search` and `workspace` are disjoint fields.
 
 use std::io::{self, Write as _};
+use std::path::PathBuf;
 
 #[cfg(test)]
 use iridium_editor::Editor;
@@ -80,6 +81,19 @@ pub struct DesktopApp {
     /// being *provable*: every read still handles the empty case by
     /// returning early rather than by asserting it away.
     pub(super) workspace: Workspace<DesktopDocument>,
+    /// The directory this session was opened on, when it was opened on one.
+    ///
+    /// ⚠️ **The session remembers it because the panel cannot.** Closing the
+    /// explorer drops it outright — it owns a reader thread and an arena of
+    /// every directory ever expanded — so re-opening builds a new one from
+    /// whatever root is chosen at that moment. Without this field that choice
+    /// falls back to [`crate::project::explorer_root`]'s guess from the active
+    /// file, and a project session's active file is an untitled buffer: the
+    /// panel would come back somewhere else entirely.
+    ///
+    /// `None` for a session opened on a file or on nothing, where the guess is
+    /// exactly right and is the whole of the answer.
+    pub(super) project: Option<PathBuf>,
     /// The window-bound state, absent until the event loop resumes.
     pub(super) shell: Option<Shell>,
     /// The modifier state winit last reported, applied to every key press

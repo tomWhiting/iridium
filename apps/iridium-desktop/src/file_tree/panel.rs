@@ -173,6 +173,23 @@ impl FileExplorer {
         })
     }
 
+    /// The folder the panel is showing, which paths are read against.
+    ///
+    /// An empty path when the arena has no record of its own root, which
+    /// cannot happen — the root is interned before the panel exists. It makes
+    /// [`super::confirm`] print whole paths rather than fragments of them,
+    /// which is the right way to be wrong about a destructive operation.
+    ///
+    /// Public because the panel is not the only thing that needs to know where
+    /// it is: the panel is dropped when it closes, so the *session* is what
+    /// remembers a project across a toggle, and it has to be able to ask.
+    #[must_use]
+    pub fn root_path(&self) -> PathBuf {
+        self.files
+            .info(self.files.root())
+            .map_or_else(PathBuf::new, |info| info.path.to_path_buf())
+    }
+
     /// Whether the panel is holding edits that have not been applied.
     ///
     /// ⚠️ **The host asks before it drops the panel.** [`Mode::leave`] is the

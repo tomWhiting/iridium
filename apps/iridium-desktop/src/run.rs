@@ -30,12 +30,16 @@ use crate::app::{DesktopApp, Options};
 
 /// What an invocation looks like, shown for a command line that is not one.
 pub const USAGE: &str = "\
-usage: iridium-desktop [--theme <name|path>] [--] [file]
+usage: iridium-desktop [--theme <name|path>] [--] [file|directory]
 
       --theme <name|path>  `dark`, `light`, or a path to an Iridium or VS Code
                            theme file. Without it the window follows the
                            system appearance.
-      --                   Stop reading options; the next argument is the file.
+      --                   Stop reading options; the next argument is the path.
+
+A directory opens as a project: the file explorer comes up rooted there, and
+stays rooted there for the session. A file opens as a file. A path that does
+not exist yet is a file to be written.
 ";
 
 /// How the process ended.
@@ -149,14 +153,19 @@ fn parse(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Options, 
     Ok(options)
 }
 
-/// Records the file to edit, refusing a second one.
+/// Records the path to open, refusing a second one.
+///
+/// Whether it names a file or a directory is deliberately *not* asked here.
+/// This function is pure — it is what makes the command line testable without
+/// a filesystem to arrange — and the answer would be stale by the time it was
+/// used anyway. [`crate::app::DesktopApp::new`] asks, at the moment it opens.
 fn set_path(options: &mut Options, argument: std::ffi::OsString) -> Result<(), String> {
     if argument.is_empty() {
-        return Err("the file name is empty".to_owned());
+        return Err("the path is empty".to_owned());
     }
     if let Some(first) = options.path.as_ref() {
         return Err(format!(
-            "`{}` is a second file: iridium-desktop opens one at a time (the first was `{}`)",
+            "`{}` is a second path: iridium-desktop opens one at a time (the first was `{}`)",
             argument.to_string_lossy(),
             first.display()
         ));

@@ -29,6 +29,73 @@ written. Check the code before repeating any claim from one, especially a
 claim that something is broken.
 
 
+## 🔥 9 AUG — TOM COULD NOT USE IT, AND HE WAS RIGHT ABOUT EVERY REASON
+
+He wrote at 01:32 UTC, angry, with four complaints. I checked each against the
+code before answering. **All four were true**, and three of them were things I
+had asserted the opposite of in `docs/DESKTOP-WALKTHROUGH.md` the day before.
+
+| What he said | What was actually true |
+|---|---|
+| "the iridium desktop command is not found" | `which iridium-desktop` → not found. The binary only ever existed inside `/Applications/iridium.app`. My walkthrough told him to run it. |
+| "the hotkeys you gave me… they're all control" | The kernel binds `Ctrl+Alt+E` for the explorer and the desktop ⌘ layer had **no E row at all**. I had claimed `⌘⌥E` worked, having read the panel's *close* handler instead of the binding table. |
+| "the config file is not there" | `~/.config/iridium/` did not exist. Nothing had ever written one. I told him to edit a file that had never been created. |
+| "there's no open button, no open directory, no set project" | True. The right-click menu is the only menu; the command line was the only way to point it at a project. |
+
+### What landed, `3afa9d4d` → `469d3978`
+
+- **#103** — the explorer's query row now says `tab to edit these rows`, drawn
+  only when `Tab` would actually work.
+- **#104** — `⌘⌥E` and **thirteen** other missing ⌘ chords. The rows are not the
+  fix; `every_ctrl_chord_a_mac_hand_reaches_for_has_a_meta_spelling` is. It
+  enumerates every verb the kernel binds under `Ctrl` and fails unless
+  something reaches it with no `Ctrl` held. **It found fourteen, not the one
+  Tom noticed.**
+- **#105** — a first run writes a fully commented `config.toml`, generated from
+  `EditorConfig::default()` so it cannot drift. Plus `config.edit` ("Edit
+  Configuration") in the palette.
+- **#106** — `iridium` is now on the PATH and opens the GUI. The terminal face
+  was **preserved**, not overwritten: `install.sh` moves it to `iridium-tui`.
+- **#107** — Open File / Open Folder / Set Project. **STILL OPEN.**
+
+### ⚠️ THE LESSON, AND IT IS NOT "READ MORE CAREFULLY"
+
+Two of the four were wrong *claims in a document*, and the document's own first
+line was "every key here was read out of the binding tables, not remembered."
+It was not enough. **The predicate took two attempts and that is the real
+finding:**
+
+- "has a ⌘ chord" is wrong — word motion is `⌥←` on macOS and that is correct.
+- "has a ⌘ or ⌥ chord" is wrong — `⌃⌥E` holds `Alt` and is the exact chord that
+  started this.
+- What a mac hand objects to is **`Ctrl`**. So `Ctrl` is what is asked about.
+
+A claim about a key is worth nothing until something enumerates it. The same
+now applies to the config file: `every_setting_appears_in_the_template` holds
+the written file against `field_names`.
+
+### A defect I introduced and caught inside the hour
+
+Putting `create_if_absent` in `DesktopApp::new` meant **`cargo test` writing to
+`$HOME`** — my own CI run created `/Users/tom/.config/iridium/config.toml` at
+11:50 before the app had ever launched with that build. Moved to `run::main`;
+proven by deleting the file, re-running the whole desktop suite, and confirming
+the directory stayed absent. `469d3978`.
+
+### Installed and verified, 11:56
+
+Tom quit at ~11:55 (a `Monitor` was armed on the process so the install did not
+have to wait for a person). `install.sh` output, read from its own log:
+`installed /Applications/iridium.app`, `preserved the previous
+/Users/tom/.local/bin/iridium as /Users/tom/.local/bin/iridium-tui`,
+`installed /Users/tom/.local/bin/iridium`. Then `cd <scratch>/demo && iridium .`
+— `ps` showed `iridium-desktop .`, so the relative path survived and the cwd was
+inherited; `~/.config/iridium/config.toml` appeared at 11:56 written by the app
+itself. **Not visually confirmed:** that the explorer rooted on that folder. The
+argument reached the process and #101's tests cover the rest.
+
+---
+
 ## 🚦 CURRENT DIRECTION — Tom, 7 Aug: LANGUAGES MUST BE EXTENSIBLE
 
 *"Can we make sure that our language support is extensible? I don't want to be

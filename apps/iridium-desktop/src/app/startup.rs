@@ -27,11 +27,13 @@ use super::theme::ThemeSource;
 use super::title::TITLE;
 use crate::command_palette::CommandPalette;
 use crate::commands;
+use crate::file_tree::FileExplorer;
 use crate::highlight::HighlightCache;
 use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
 use crate::mouse::Pointer;
 use crate::overlay::OverlayPainter;
+use crate::project;
 use crate::prompt::Message;
 use crate::search::SearchOverlay;
 use crate::surface::NativeSurface;
@@ -69,6 +71,23 @@ pub enum StartupError {
     /// window in the wrong colours with no explanation.
     #[error(transparent)]
     Theme(#[from] ThemeError),
+    /// A directory was named on the command line and could not be shown.
+    ///
+    /// Fatal, on the same reasoning as `--theme`: the directory was typed by
+    /// whoever ran the command, and it is the *whole* of what they asked for —
+    /// a session opened on a folder has no file to fall back to, so carrying on
+    /// would leave an empty untitled buffer and no hint that anything failed.
+    ///
+    /// Note that a path which does not exist never reaches here: `is_dir` is
+    /// false for it, so it is read as a file that has not been written yet,
+    /// which is what it is.
+    #[error("cannot show `{}`: {message}", path.display())]
+    Explorer {
+        /// The directory that could not be shown.
+        path: PathBuf,
+        /// What the directory reader said.
+        message: String,
+    },
     /// The session could not open its first tab.
     ///
     /// Unreachable through this code path — the only refusal is a parent
@@ -82,7 +101,11 @@ pub enum StartupError {
 /// What the command line asked for.
 #[derive(Debug, Default)]
 pub struct Options {
-    /// The file to edit, if the invocation named one.
+    /// The path the invocation named, if it named one.
+    ///
+    /// A file to edit, or a directory to open as a project — which of the two
+    /// is not decided here. [`DesktopApp::new`] asks the filesystem at the
+    /// moment it opens, so the command line stays parseable without one.
     pub path: Option<PathBuf>,
     /// The theme `--theme` asked for. `None` leaves the session on the
     /// kernel's default, which is what the system-appearance default then
@@ -232,12 +255,17 @@ impl DesktopApp {
         let mut problems = user.problems;
         problems.extend(config::install_user_bindings(&mut workspace, user.bindings));
 
-        let (content, file) = match options.path {
+        // A directory is a *project*, not a file: nothing is read as text and
+        // the explorer is what the session shows. `is_dir` follows symlinks,
+        // so a link to a project behaves as the project — which is what a link
+        // to a project is for.
+        let (content, file, project) = match options.path {
+            Some(path) if path.is_dir() => (String::new(), None, Some(path)),
             Some(path) => {
                 let (file, text) = TextFile::open(&path)?;
-                (text, Some(file))
+                (text, Some(file), None)
             },
-            None => (String::new(), None),
+            None => (String::new(), None, None),
         };
         let title = file
             .as_ref()
@@ -285,7 +313,30 @@ impl DesktopApp {
             Message::error(config::summary(&problems))
         });
 
+        // The panel a project session exists to show, built here rather than
+        // on the first frame so a directory that cannot be read says so before
+        // a window opens — the same moment a file that cannot be read does.
+        let explorer = match project.clone() {
+            Some(path) => {
+                // Through `chosen_root`, not around it: a directory named on
+                // the command line was picked by hand, and that is exactly the
+                // distinction that function draws — so the crawl rule stays in
+                // one place rather than being restated here.
+                let root = project::chosen_root(path);
+                Some(
+                    FileExplorer::open(root.path.clone(), root.crawl).map_err(|message| {
+                        StartupError::Explorer {
+                            path: root.path,
+                            message,
+                        }
+                    })?,
+                )
+            },
+            None => None,
+        };
+
         Ok(Self {
+            project,
             workspace,
             shell: None,
             modifiers: ModifiersState::empty(),
@@ -297,7 +348,7 @@ impl DesktopApp {
             palette_open: false,
             mru: CommandMru::default(),
             menu: None,
-            explorer: None,
+            explorer,
             history: HistoryPanel::new(),
             history_open: false,
             prompt: None,

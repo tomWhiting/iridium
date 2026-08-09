@@ -4,6 +4,7 @@
 //! a failure names the surface it belongs to before you open the file.
 
 mod panels;
+mod project;
 mod saving;
 mod support;
 mod tabs;

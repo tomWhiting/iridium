@@ -166,6 +166,12 @@ impl DesktopApp {
     /// tell "a file with a real directory above it" from a bare name, and
     /// `Path::parent` of a bare name is `Some("")`, which is neither.
     fn explorer_root(&self) -> ExplorerRoot {
+        // A directory named on the command line outranks every guess below it,
+        // for the whole session. It is the one root nobody has to infer: the
+        // person who started the process said it out loud.
+        if let Some(project) = self.project.clone() {
+            return project::chosen_root(project);
+        }
         let active: Option<&Path> = self
             .workspace
             .active_payload()

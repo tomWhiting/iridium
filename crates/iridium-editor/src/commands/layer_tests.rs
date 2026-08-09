@@ -285,3 +285,119 @@ fn a_suppression_in_a_lower_layer_does_not_silence_a_higher_one() {
         "comment.toggleLine"
     );
 }
+
+// ===== Replacing a layer in place — the configuration-reload primitive =====
+
+/// A layer of `name` binding `Ctrl+<key>` to `command`.
+fn named_layer(name: &'static str, key: KeyCode, command: &'static str) -> Keymap {
+    let mut keymap = Keymap::new(name);
+    keymap.push(KeyBinding::new(
+        ctrl_pattern(key),
+        &[],
+        CommandId::from_static(command),
+    ));
+    keymap
+}
+
+/// The command a stack resolves `Ctrl+<key>` to, if any.
+fn resolves(stack: &KeymapStack, key: KeyCode) -> Option<String> {
+    stack
+        .exact_match(&press(key, mods(false, true, false, false, false)), None)
+        .and_then(|binding| binding.command().map(|id| id.as_str().to_owned()))
+}
+
+#[test]
+fn a_replaced_layer_keeps_its_position_in_the_stack() {
+    // Three layers, and the one replaced is the *middle* one — the case that
+    // separates a real replacement from pop-and-push, which would move it to
+    // the top and hand it precedence it never had.
+    let mut stack = KeymapStack::new();
+    stack.push(named_layer("default", KeyCode::Char('a'), "kernel.a"));
+    stack.push(named_layer("face", KeyCode::Char('b'), "face.b"));
+    stack.push(named_layer("user", KeyCode::Char('b'), "user.b"));
+
+    let previous = stack
+        .replace_named(named_layer("face", KeyCode::Char('b'), "face.edited"))
+        .expect("there is a layer called `face`");
+
+    assert_eq!(previous.name(), "face", "the old layer came back");
+    assert_eq!(stack.len(), 3, "replacing must not add a layer");
+    assert_eq!(
+        stack.layers()[1].name(),
+        "face",
+        "and it is still in the middle"
+    );
+    assert_eq!(
+        resolves(&stack, KeyCode::Char('b')).as_deref(),
+        Some("user.b"),
+        "the user layer still outranks the face layer it sits above"
+    );
+}
+
+/// ⭐ The behaviour a reload exists for: a binding deleted from the file goes.
+#[test]
+fn a_binding_missing_from_the_replacement_stops_resolving() {
+    let mut stack = KeymapStack::new();
+    stack.push(named_layer("user", KeyCode::Char('s'), "user.save"));
+    assert_eq!(
+        resolves(&stack, KeyCode::Char('s')).as_deref(),
+        Some("user.save")
+    );
+
+    stack.replace_named(named_layer("user", KeyCode::Char('q'), "user.quit"));
+
+    assert_eq!(
+        resolves(&stack, KeyCode::Char('q')).as_deref(),
+        Some("user.quit")
+    );
+    assert_eq!(
+        resolves(&stack, KeyCode::Char('s')),
+        None,
+        "a push would have left the old version of the layer underneath"
+    );
+}
+
+#[test]
+fn replacing_a_name_no_layer_bears_changes_nothing() {
+    let mut stack = KeymapStack::new();
+    stack.push(named_layer("default", KeyCode::Char('a'), "kernel.a"));
+
+    assert!(
+        stack
+            .replace_named(named_layer("user", KeyCode::Char('b'), "user.b"))
+            .is_none(),
+        "there is no layer called `user` to replace"
+    );
+    assert_eq!(stack.len(), 1, "and nothing was installed in its place");
+    assert_eq!(resolves(&stack, KeyCode::Char('b')), None);
+}
+
+/// Duplicate names are a caller's bug; the behaviour under one is still
+/// defined rather than incidental. The **highest-precedence** match is the one
+/// replaced, because that is the layer deciding what those chords do today.
+#[test]
+fn the_highest_precedence_match_is_the_one_replaced() {
+    let mut stack = KeymapStack::new();
+    stack.push(named_layer("user", KeyCode::Char('a'), "lower.a"));
+    stack.push(named_layer("user", KeyCode::Char('b'), "upper.b"));
+
+    let previous = stack
+        .replace_named(named_layer("user", KeyCode::Char('c'), "fresh.c"))
+        .expect("a layer called `user` is there twice");
+
+    assert_eq!(
+        resolves(&stack, KeyCode::Char('b')),
+        None,
+        "the top layer is the one that went"
+    );
+    assert_eq!(
+        resolves(&stack, KeyCode::Char('a')).as_deref(),
+        Some("lower.a"),
+        "and the one beneath it is untouched"
+    );
+    assert_eq!(
+        previous.bindings().len(),
+        1,
+        "the layer handed back is the one that was replaced"
+    );
+}

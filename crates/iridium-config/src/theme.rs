@@ -25,11 +25,18 @@
 //! The order matters and is not arbitrary. The two formats are distinguishable
 //! — a VS Code theme has `tokenColors` and string colours like `"#1e1e1e"`,
 //! a native one has structured `{"r":…,"g":…,"b":…,"a":…}` — but only the
-//! native parser is strict enough to reject the other outright. The VS Code
-//! parser accepts a great deal, including a document with none of its fields,
-//! because every one of them is optional in VS Code itself. Offering the
+//! native parser is strict about *shape*. The VS Code parser accepts a great
+//! deal, because every field is optional in VS Code itself. Offering the
 //! permissive parser first would turn a native theme with one typo into a
 //! silently empty VS Code theme, which is a blank editor and no error message.
+//!
+//! ⭐ That failure was reachable even in this order until #100 was fixed: a
+//! document with *none* of the VS Code fields also parsed, so the native
+//! parser's complaint was correct and unreachable. The kernel now refuses a
+//! VS Code document that states neither `colors` nor `tokenColors` — see
+//! [`VsCodeTheme::states_any_colour`](iridium_editor::theme::VsCodeTheme::states_any_colour).
+//! The ordering above still matters for every other typo; the floor is what
+//! stops the second parser swallowing the first one's answer entirely.
 //!
 //! When **both** parsers refuse the file, both complaints are reported. A
 //! theme file is written by hand, and being told only that "it is not a VS Code

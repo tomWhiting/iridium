@@ -209,29 +209,37 @@ fn a_theme_file_in_neither_format_reports_both_parsers() {
     );
 }
 
-/// ⚠️ **A known gap, pinned here rather than left to be discovered.**
+/// ⭐ **#100, fixed — and this test is the inverted one it asked for.**
 ///
-/// Well-formed JSON that is nobody's theme loads *successfully* as an empty
-/// VS Code theme, because every field of that format is optional in VS Code
-/// itself — see `iridium_config::theme`'s note on parser ordering. So a native
-/// theme with a typo in its structure does not report the typo; it opens a
-/// window in default colours and says nothing.
+/// It used to assert the opposite: that well-formed JSON which is nobody's
+/// theme loaded *successfully* as an empty VS Code theme, because every field
+/// of that format is optional in VS Code itself. A native theme with a
+/// structural typo therefore opened a window in default colours and said
+/// nothing — the native parser's complaint was real, and unreachable, because
+/// the permissive second parser always caught the file first.
 ///
-/// This test asserts the behaviour that exists, not the behaviour that should.
-/// Recorded as #100; fixing it means deciding what "empty enough to refuse"
-/// means in the kernel's VS Code parser, which both faces share and which is
-/// not this change's to move.
+/// `VsCodeTheme::states_any_colour` now draws the line at "states at least one
+/// of `colors` or `tokenColors`", so both parsers refuse this document and
+/// both complaints reach the user. Inverting the test rather than deleting it
+/// is the point: the same line that recorded the gap now guards the fix, and
+/// neither direction can happen silently.
 #[test]
-fn a_json_document_with_no_theme_fields_is_accepted_today() {
+fn a_json_document_with_no_theme_fields_reports_the_file() {
     let directory = TempDir::new("desktop-theme-empty");
     let path = fixture(
         &directory,
         "nonsense.json",
         "{ \"this\": \"is not a theme\" }",
     );
+    let error = opened_with(ThemeChoice::File(path))
+        .expect_err("a document that themes nothing is not a theme")
+        .to_string();
     assert!(
-        opened_with(ThemeChoice::File(path)).is_ok(),
-        "if this now fails, #100 was fixed and this test should become the \
-         assertion that it reports the file"
+        error.contains("nonsense.json"),
+        "the file that could not be used is named: {error}"
+    );
+    assert!(
+        error.contains("Iridium theme") && error.contains("VS Code"),
+        "and both parsers say why, since either one is what the author meant: {error}"
     );
 }

@@ -43,6 +43,30 @@ pub struct VsCodeTheme {
     pub token_colors: Vec<VsCodeTokenColor>,
 }
 
+impl VsCodeTheme {
+    /// Whether this document states anything an editor could wear.
+    ///
+    /// ⭐ **The line that makes the two-parser order work.** Every field above
+    /// is `#[serde(default)]`, faithfully, because every field is optional in
+    /// VS Code itself — which means *any* JSON object deserializes into this
+    /// struct. That is harmless on its own and a defect in context:
+    /// `iridium_config::theme` offers a file to the strict native parser first
+    /// and this one second, precisely so a native theme with a typo is
+    /// reported rather than swallowed. A second parser that accepts everything
+    /// makes the first one's complaint unreachable.
+    ///
+    /// So the narrowest possible test: at least one of `colors` or
+    /// `tokenColors`. Both kinds of real theme pass — UI-only themes carry
+    /// `colors` and no `tokenColors`, `TextMate` conversions carry the reverse —
+    /// while a document with neither cannot change a single pixel, so
+    /// accepting it could only ever produce silence. `name` and `type` are
+    /// deliberately not enough: they describe a theme without being one.
+    #[must_use]
+    pub fn states_any_colour(&self) -> bool {
+        !self.colors.is_empty() || !self.token_colors.is_empty()
+    }
+}
+
 /// A syntax highlighting rule in VS Code themes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VsCodeTokenColor {

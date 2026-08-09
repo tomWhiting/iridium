@@ -244,10 +244,20 @@ impl Theme {
     ///
     /// # Errors
     ///
-    /// Returns `ThemeError::ParseError` if the JSON is invalid.
+    /// `ThemeError::ParseError` if the JSON is invalid, and
+    /// `ThemeError::MissingField` if it parses but states neither `colors` nor
+    /// `tokenColors` — see [`VsCodeTheme::states_any_colour`] for why that is
+    /// refused rather than accepted as an empty theme.
     pub fn from_vscode_json(json: &str) -> Result<Self, ThemeError> {
         let vscode_theme: VsCodeTheme =
             serde_json::from_str(json).map_err(|e| ThemeError::ParseError(e.to_string()))?;
+        if !vscode_theme.states_any_colour() {
+            return Err(ThemeError::MissingField(
+                "colors or tokenColors — the document is valid JSON but states \
+                 neither, so there is nothing in it to wear"
+                    .to_owned(),
+            ));
+        }
         Ok(Self::from_vscode(&vscode_theme))
     }
 
@@ -404,6 +414,70 @@ impl Default for ThemeBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⭐ #100. A document that themes nothing is refused, so the native
+    /// parser's complaint survives to reach the user.
+    ///
+    /// Every field of a VS Code theme is optional in VS Code itself, and this
+    /// crate faithfully mirrors that with `#[serde(default)]` throughout — so
+    /// before this, *any* JSON object parsed as a VS Code theme. That is a
+    /// defect only because of where this parser sits: `iridium_config::theme`
+    /// tries the strict native parser first and this one second, precisely so
+    /// a native theme with a typo is reported rather than swallowed. A
+    /// second parser that accepts everything makes the first one's error
+    /// unreachable, and `--theme broken.json` opens a window in default
+    /// colours saying nothing.
+    ///
+    /// The line drawn is the narrowest one that fixes it: a theme must state
+    /// at least one of `colors` or `tokenColors`. Both kinds of real theme
+    /// survive — UI-only themes have `colors` and no `tokenColors`, and
+    /// `TextMate` conversions have the reverse — while a document with neither
+    /// cannot change a single pixel, so accepting it can only ever be silence.
+    #[test]
+    fn a_vscode_document_that_themes_nothing_is_refused() {
+        for json in [
+            r#"{ "this": "is not a theme" }"#,
+            "{}",
+            // Named and typed, but carrying no colours: still nothing to wear.
+            r#"{ "name": "Ghost", "type": "dark" }"#,
+            // Present but empty is the same as absent.
+            r#"{ "colors": {}, "tokenColors": [] }"#,
+        ] {
+            let error = match Theme::from_vscode_json(json) {
+                Ok(theme) => panic!("`{json}` must not load; it produced {}", theme.name),
+                Err(error) => error.to_string(),
+            };
+            assert!(
+                error.contains("colors") && error.contains("tokenColors"),
+                "the message must name what was missing, so a hand-written \
+                 theme can be fixed from it: {error}"
+            );
+        }
+    }
+
+    /// And the two shapes that *are* themes still load — the check must not
+    /// cost a real theme, which is the only way to get this wrong.
+    #[test]
+    fn a_vscode_theme_with_either_half_still_loads() {
+        let ui_only = r##"{ "name": "UI", "colors": { "editor.background": "#101010" } }"##;
+        assert_eq!(
+            Theme::from_vscode_json(ui_only)
+                .expect("a colours-only theme is a real theme")
+                .name,
+            "UI"
+        );
+
+        let syntax_only = r##"{
+            "name": "Syntax",
+            "tokenColors": [{ "scope": "keyword", "settings": { "foreground": "#569cd6" } }]
+        }"##;
+        assert_eq!(
+            Theme::from_vscode_json(syntax_only)
+                .expect("a tokenColors-only theme is a real theme")
+                .name,
+            "Syntax"
+        );
+    }
 
     #[test]
     fn theme_from_json_basic() {

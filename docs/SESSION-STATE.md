@@ -6432,3 +6432,83 @@ Tom asked for the build directory cleaned, twice, the second time "post haste".
 other sessions' `claude-501` scratchpads. **There are no git worktrees** —
 `.git/worktrees` does not exist, so Tom's "merge in all the worktrees" had
 nothing to act on.
+
+---
+
+## ⚠️ IN FLIGHT AT COMPACTION — #100 implemented, NOT COMMITTED (9 Aug 2026, ~10:1x)
+
+**The working tree has uncommitted #100 work. Nothing is lost; it is on disk.**
+Run `git status --porcelain` first.
+
+### What #100 was, and the fix
+
+`Theme::from_vscode_json` accepted **any** JSON object, because every
+`VsCodeTheme` field is `#[serde(default)]` (faithfully — every field really is
+optional in VS Code). That made the *native* parser's complaint unreachable:
+`iridium_config::theme` tries native first and VS Code second precisely so a
+native theme with a typo is reported, and a second parser that accepts
+everything swallows the first one's answer. `--theme broken.json` opened a
+window in default colours saying nothing.
+
+**The line drawn** (my call, recorded): a VS Code document must state at least
+one of `colors` or `tokenColors`. Both kinds of real theme survive — UI-only
+themes have `colors` and no `tokenColors`, TextMate conversions the reverse —
+while a document with neither cannot change a pixel, so accepting it can only
+produce silence. `name` and `type` are deliberately *not* enough: they describe
+a theme without being one.
+
+### Files changed (all uncommitted at compaction)
+
+1. `crates/iridium-editor/src/theme/vscode.rs` — new
+   `impl VsCodeTheme { pub fn states_any_colour(&self) -> bool }`, returns
+   `!self.colors.is_empty() || !self.token_colors.is_empty()`, with the full
+   rationale in its doc.
+2. `crates/iridium-editor/src/theme/mod.rs` — `from_vscode_json` returns
+   `ThemeError::MissingField("colors or tokenColors — the document is valid
+   JSON but states neither, so there is nothing in it to wear")` when the
+   predicate is false; `# Errors` doc updated. Plus two new tests in
+   `mod tests`: `a_vscode_document_that_themes_nothing_is_refused` (four
+   documents: `{"this":"is not a theme"}`, `{}`, name+type only, and
+   `{"colors":{},"tokenColors":[]}`) and
+   `a_vscode_theme_with_either_half_still_loads`.
+3. `apps/iridium-desktop/src/app/tests/theme.rs` — inverted
+   `a_json_document_with_no_theme_fields_is_accepted_today` into
+   `a_json_document_with_no_theme_fields_reports_the_file`, exactly as its own
+   doc instructed.
+4. `crates/iridium-config/src/theme.rs` — module doc no longer claims the VS
+   Code parser accepts a document with none of its fields; it now records the
+   floor and points at `states_any_colour`.
+
+### Verification state
+
+- **Red proven first.** `a_vscode_document_that_themes_nothing_is_refused`
+  failed against the unfixed parser with `` `{ "this": "is not a theme" }` must
+  not load; it produced Imported VS Code Theme``. The companion
+  "real themes still load" test passed *before* the fix, proving the check
+  costs no real theme.
+- `cargo test -p iridium-editor --lib theme::` → 39 passed, 0 failed.
+- `cargo clippy -p iridium-editor --all-features --all-targets -D warnings` →
+  clean, after fixing two `clippy::doc_markdown` hits (`TextMate` needed
+  backticks in both files).
+- **A full `scripts/ci.sh` run was IN FLIGHT at compaction**, writing to
+  `<scratchpad>/ci-100b.log`. ⚠️ **Read that file's own last two lines** — the
+  runner prints `✅ all 10 gates passed` or `⛔ N of 10 gates FAILED`, then my
+  appended `exit=`. If the file is gone, just re-run `bash scripts/ci.sh`.
+
+### Next step after compaction
+
+Confirm the gate result **from the log file, not from a notification**, then
+commit and push, then `TaskUpdate #100 → completed`. Nothing else is pending.
+
+### ⚠️ Seventh success-only channel this session
+
+Background-task completion notifications said "exit code 0" for the run that
+reported `⛔ 4 of 10 gates FAILED`. Also note: `scripts/ci.sh` does **not**
+print `CI_EXIT` — an earlier note in this file said it did. The real markers
+are the `✅ all 10 gates passed` / `⛔ N of 10 gates FAILED` line.
+
+### Release state, for the record
+
+`0.2.1 / 0.2.1 / 0.1.2` are **published and verified live** (23:28Z 8 Aug).
+`iridium-bindings@0.2.1` PROVENANCE = `b4d4426a`, clean, wasm `cc142177…`.
+Waffles has moved Manifold's pins. Nothing outstanding on the release.

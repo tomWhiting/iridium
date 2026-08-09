@@ -6715,3 +6715,34 @@ completion notification while their logs said `⛔ 1 of 10 gates FAILED`.
 (`compose.rs:34`) is drawn only once you are *already* editing; browse mode
 draws a query row and nothing else, so `Tab` is reachable only by knowing.
 Needs somewhere honest to put a hint — the query row is taken.
+
+---
+
+## Desktop app installed from HEAD, and the walkthrough (9 Aug 2026, 11:25)
+
+Tom asked for the latest build installed plus a walkthrough.
+
+**Installed**, via the only sanctioned path `apps/iridium-desktop/bundle/install.sh`:
+release build 1m10s, `installed /Applications/iridium.app`, `exit=0`, read from
+the runner's own log (`scratchpad/install.log`). `codesign --verify --strict`
+passes. Binary 20,456,080 bytes at 11:25. Built from **`c6cb75b8`** — the tree
+carried no code changes at build time, only untracked docs. Nothing was running
+first (`pgrep -x iridium-desktop` empty), so the script's own refusal never
+fired. Disk before: 120 GiB free, `target` 16,546,108 KB.
+
+⚠️ **This binary therefore has #101 (open a directory) and #102 (⌃⌥R reload)
+in it.** It is the first installed copy that does.
+
+**`docs/DESKTOP-WALKTHROUGH.md`** is new and is the deliverable. Every key in it
+was read out of the binding tables this session, not recalled:
+
+- kernel `default_keymap.rs` (68 bindings) and the desktop ⌘ layer in
+  `apps/iridium-desktop/src/commands.rs` (`BINDINGS` + `MAC_CHORDS`)
+- `file_tree/keys.rs` (browse) and `file_tree/edit_keys.rs` (oil buffer, confirm)
+- `command_palette.rs`, `history_overlay.rs`, `search.rs`
+- `context_menu.rs` — the five entries are Cut, Copy, Paste, Select All,
+  Command Palette…
+
+The doc says outright what is missing: no menu bar, no Open… dialog, no oil-buffer
+hint (#103), no soft wrap. It also points at **List Every Command** as the live
+authority, so the doc drifting is recoverable rather than silent.

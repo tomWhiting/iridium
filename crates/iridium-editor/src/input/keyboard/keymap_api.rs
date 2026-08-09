@@ -109,6 +109,42 @@ impl KeyboardHandler {
         Ok(())
     }
 
+    /// Canonicalizes and validates `keymap`, then swaps it for the layer of the
+    /// same name — or pushes it when the stack has no such layer yet.
+    ///
+    /// ⭐ **The reload path.** [`Self::push_validated_keymap`] is what a face
+    /// calls once, at startup; this is what it calls every time the user's
+    /// configuration file is read again. Pushing a second time would leave the
+    /// previous version of the layer underneath, so every binding deleted from
+    /// the file would go on firing — see [`KeymapStack::replace_named`].
+    ///
+    /// Falling back to a push rather than refusing is deliberate: a face whose
+    /// user layer was abandoned whole at startup — every binding in it refused —
+    /// has no layer of that name to replace, and a reload that fixed the file
+    /// must still be able to install it. "Make the stack hold this version of
+    /// this layer" is the operation, and it is the same operation either way.
+    ///
+    /// The stack is left untouched when validation fails, so a rejected keymap
+    /// cannot half-apply and cannot cost the version already installed.
+    ///
+    /// # Errors
+    ///
+    /// The first [`KeymapError`] canonicalization or validation reports.
+    pub fn replace_validated_keymap(
+        &mut self,
+        mut keymap: Keymap,
+        registry: &CommandRegistry,
+    ) -> Result<(), KeymapError> {
+        keymap.canonicalize(registry)?;
+        let mut candidate = self.keymap.clone();
+        if candidate.replace_named(keymap.clone()).is_none() {
+            candidate.push(keymap);
+        }
+        candidate.validate(registry)?;
+        self.install_keymap(candidate);
+        Ok(())
+    }
+
     /// Removes and returns the highest-precedence layer, discarding any pending
     /// key sequence.
     pub fn pop_keymap(&mut self) -> Option<Keymap> {

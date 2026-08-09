@@ -692,6 +692,27 @@ impl Editor {
             .push_validated_keymap(keymap, &self.commands)
     }
 
+    /// Swaps the layer named `keymap.name()` for `keymap`, or pushes it when
+    /// there is no such layer yet.
+    ///
+    /// What a host calls when it re-reads the user's configuration file.
+    /// Pushing again instead would leave the previous version of that layer
+    /// underneath the new one, so every binding deleted from the file would go
+    /// on firing from below — see
+    /// [`KeymapStack::replace_named`](crate::commands::KeymapStack::replace_named).
+    ///
+    /// Validated exactly as [`Self::push_keymap`] is, against the stack the
+    /// replacement would produce rather than the one in force, and the stack is
+    /// unchanged when validation fails.
+    ///
+    /// # Errors
+    ///
+    /// The first [`KeymapError`] canonicalization or validation reports.
+    pub fn replace_keymap(&mut self, keymap: Keymap) -> Result<(), KeymapError> {
+        self.keyboard_handler
+            .replace_validated_keymap(keymap, &self.commands)
+    }
+
     /// Removes and returns the highest-precedence keymap layer.
     ///
     /// Returns `None` when no layer is left. Popping the base default keymap is

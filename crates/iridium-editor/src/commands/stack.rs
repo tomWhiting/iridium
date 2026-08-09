@@ -111,6 +111,40 @@ impl KeymapStack {
         self.layers.pop()
     }
 
+    /// Swaps the layer named `keymap.name()` for `keymap`, returning the old
+    /// one, or `None` when no layer bears that name.
+    ///
+    /// ⭐ **The operation a configuration reload needs, and the reason
+    /// [`push`](Self::push) is not it.** Re-reading a file and pushing the
+    /// result would leave the previous version of that layer underneath the new
+    /// one: every binding the user *deleted* from the file would go on firing
+    /// from the layer below, and the editor would disagree with its own
+    /// configuration in a way nothing on screen could explain.
+    ///
+    /// [`pop`](Self::pop) followed by `push` is not it either. That is only
+    /// correct while the layer being replaced happens to be the top one, which
+    /// is a fact about the face's startup order rather than anything this stack
+    /// guarantees — so it would keep working right up until a face pushed a
+    /// third layer, and then quietly pop the wrong one.
+    ///
+    /// The name comes from the incoming keymap rather than a separate argument,
+    /// so replacing the layer called `user` with a keymap called something else
+    /// is not expressible.
+    ///
+    /// Precedence is preserved exactly: the replacement sits at the index the
+    /// old layer held, not at the top.
+    ///
+    /// Layer names are expected to be unique within a stack. When they are not,
+    /// the **highest-precedence** match is the one replaced, because that is the
+    /// layer deciding what those chords do today.
+    pub fn replace_named(&mut self, keymap: Keymap) -> Option<Keymap> {
+        let index = self
+            .layers
+            .iter()
+            .rposition(|layer| layer.name() == keymap.name())?;
+        Some(core::mem::replace(&mut self.layers[index], keymap))
+    }
+
     /// The layers, in increasing precedence order.
     #[must_use]
     pub fn layers(&self) -> &[Keymap] {

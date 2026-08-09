@@ -204,6 +204,68 @@ impl<T> Workspace<T> {
         Ok(())
     }
 
+    /// Swaps the layer named `keymap.name()` on every open tab and every future
+    /// one, or pushes it when there is no layer of that name yet.
+    ///
+    /// ⭐ **What a face calls when it re-reads the user's configuration.**
+    /// Calling [`push_keymap`](Self::push_keymap) again would leave the previous
+    /// version of that layer underneath the new one, and every binding the user
+    /// deleted from the file would go on firing from below — an editor
+    /// disagreeing with its own configuration, with nothing on screen able to
+    /// explain why. See
+    /// [`KeymapStack::replace_named`](crate::commands::KeymapStack::replace_named)
+    /// for why popping the top is not the fix either.
+    ///
+    /// The replacement keeps the old layer's position, so precedence against
+    /// every other layer is exactly what it was.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`Editor::replace_keymap`] reports — most often a binding naming
+    /// a command that is not registered. A refused replacement leaves the layer
+    /// that was already installed in force, on every tab: reload cannot cost
+    /// the bindings that were working.
+    pub fn replace_keymap(&mut self, keymap: Keymap) -> Result<(), FaceSetupError> {
+        let existing = self
+            .face_keymaps
+            .iter()
+            .rposition(|layer| layer.name() == keymap.name());
+        // Where the layer ends up either way, so the restore below and the
+        // replay onto open tabs both have one index to talk about rather than
+        // two branches each.
+        let index = existing.unwrap_or(self.face_keymaps.len());
+        let previous = if let Some(index) = existing {
+            Some(core::mem::replace(&mut self.face_keymaps[index], keymap))
+        } else {
+            self.face_keymaps.push(keymap);
+            None
+        };
+
+        // Validated the same way a push is: by building an editor exactly as
+        // every open tab's was built. One construction path is the point — a
+        // validator that built editors differently would agree with the real
+        // thing right up until it mattered.
+        if let Err(error) = self.build_editor("") {
+            if let Some(previous) = previous {
+                self.face_keymaps[index] = previous;
+            } else {
+                self.face_keymaps.pop();
+            }
+            return Err(error);
+        }
+
+        // Cannot fail: the build above proved this exact stack is accepted by an
+        // editor built the same way, and every open editor was built that way.
+        // Dropped rather than unwrapped for that reason, exactly as
+        // `push_keymap` and `register_command` do.
+        if let Some(keymap) = self.face_keymaps.get(index).cloned() {
+            for open in self.documents.values_mut() {
+                drop(open.editor.replace_keymap(keymap.clone()));
+            }
+        }
+        Ok(())
+    }
+
     /// Builds an editor exactly as every open tab's was built.
     ///
     /// The single construction path, used both to open a document and to

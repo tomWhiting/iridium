@@ -11,10 +11,11 @@ use iridium_editor::theme::Theme;
 use iridium_editor::{KeyCode, Modifiers};
 use iridium_file::test_support::TempDir;
 
-use super::support::{all_lines, chord, lines, meta, opened, press, select_row, settle};
-use crate::file_tree::ExplorerOutcome;
+use super::support::{FIT, chord, lines, meta, opened, press, query_field, select_row, settle};
+use crate::file_tree::compose::BROWSE_HINT;
 use crate::file_tree::rows::truncate;
-use crate::overlay::PanelFit;
+use crate::file_tree::{ExplorerOutcome, FileExplorer};
+use crate::overlay::{PanelCaret, PanelFit};
 
 #[test]
 fn the_panel_opens_with_the_root_expanded_and_its_children_indented() {
@@ -160,11 +161,10 @@ fn a_key_the_panel_does_not_bind_is_swallowed_rather_than_typed() {
         explorer.handle_key(&press(KeyCode::Char('x'))),
         ExplorerOutcome::Handled
     );
-    let rows = all_lines(&mut explorer);
     assert_eq!(
-        rows.first().map(String::as_str),
-        Some("> x"),
-        "the character landed in the query row: {rows:?}"
+        query_field(&mut explorer),
+        "x",
+        "the character landed in the query field"
     );
 }
 
@@ -317,8 +317,142 @@ fn re_rooting_drops_the_query_with_the_tree_it_was_narrowing() {
     settle(&mut explorer);
 
     assert_eq!(
-        all_lines(&mut explorer).first().map(String::as_str),
-        Some("> "),
-        "an empty query row"
+        query_field(&mut explorer),
+        "",
+        "an empty query field — the row itself also carries the browse hint"
+    );
+}
+
+// ------------------------------------------------------ the oil-buffer hint
+//
+// The panel drew a query row and nothing else, so nothing on screen ever said
+// `Tab` turns the rows into an editable buffer — the feature was reachable
+// only by already knowing it was there, which is no way to ship a feature.
+
+/// The query row as plain text.
+fn query_row(explorer: &mut FileExplorer, fit: PanelFit) -> String {
+    explorer
+        .content(&Theme::dark(), fit)
+        .rows
+        .first()
+        .map(|row| {
+            row.spans
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<String>()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn the_query_row_says_the_rows_can_be_edited() {
+    let directory = TempDir::new("panel-hint");
+    std::fs::write(directory.path().join("a.txt"), "a").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    let row = query_row(&mut explorer, FIT);
+
+    assert!(
+        row.ends_with(BROWSE_HINT),
+        "the hint sits on the right edge of the query row: {row:?}"
+    );
+    assert!(
+        row.starts_with("> "),
+        "and the field it shares the row with is still there: {row:?}"
+    );
+    assert_eq!(
+        query_field(&mut explorer),
+        "",
+        "the hint is not text in the field"
+    );
+}
+
+#[test]
+fn the_hint_goes_while_a_query_is_being_typed_and_comes_back_after_it() {
+    // The field owns everything right of the prompt and scrolls through it, so
+    // the hint cannot stay: it would be a zone the typed text runs under. It
+    // has done its job by then — whoever typed that character read it first.
+    let directory = TempDir::new("panel-hint-typing");
+    std::fs::write(directory.path().join("a.txt"), "a").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    explorer.handle_key(&press(KeyCode::Char('a')));
+    let typed = query_row(&mut explorer, FIT);
+    assert!(
+        !typed.contains(BROWSE_HINT),
+        "a query in the field takes the row back: {typed:?}"
+    );
+
+    explorer.handle_key(&press(KeyCode::Backspace));
+    let cleared = query_row(&mut explorer, FIT);
+    assert!(
+        cleared.ends_with(BROWSE_HINT),
+        "and an emptied field gives it back, so the hint is not a one-shot: {cleared:?}"
+    );
+}
+
+#[test]
+fn a_panel_too_narrow_for_both_keeps_the_field_and_drops_the_hint() {
+    // Narrow beats informative. A hint truncated to "tab to edi" reads as
+    // damage, and one sitting against the caret reads as text in the field.
+    let directory = TempDir::new("panel-hint-narrow");
+    std::fs::write(directory.path().join("a.txt"), "a").expect("the fixture was written");
+
+    let mut explorer = opened(&directory);
+    let narrow = PanelFit {
+        content_columns: BROWSE_HINT.chars().count() + 2,
+        max_interior_rows: 20,
+    };
+
+    let row = query_row(&mut explorer, narrow);
+    assert!(
+        !row.contains(BROWSE_HINT),
+        "no room for the hint clear of the caret: {row:?}"
+    );
+    assert_eq!(
+        explorer.content(&Theme::dark(), narrow).caret,
+        Some(PanelCaret { row: 0, column: 2 }),
+        "and the field still reports its caret, which is the half that does something"
+    );
+}
+
+#[test]
+fn the_hint_is_not_offered_while_the_folder_is_still_being_read() {
+    // ⚠️ The honest half. `Tab` refuses until the listing lands — a buffer
+    // snapshotted from half a directory would leave the rest out of the diff
+    // with no way to tell which half you got — so a hint on that screen would
+    // be advertising a refusal, and a key that answers "not yet" the first
+    // time it is pressed is a key nobody presses twice.
+    let directory = TempDir::new("panel-hint-loading");
+    std::fs::write(directory.path().join("a.txt"), "a").expect("the fixture was written");
+
+    // Deliberately not `opened`, which polls until the root has listed.
+    let mut explorer =
+        FileExplorer::open(directory.path().to_path_buf(), true).expect("the reader thread ran");
+
+    let row = query_row(&mut explorer, FIT);
+    assert!(
+        !row.contains(BROWSE_HINT),
+        "nothing to edit yet, so nothing said about editing: {row:?}"
+    );
+    assert!(
+        matches!(
+            explorer.handle_key(&press(KeyCode::Tab)),
+            ExplorerOutcome::Failed(_)
+        ),
+        "the premise: the key this hint advertises refuses in this state"
+    );
+
+    // And once the listing lands, both change together.
+    settle(&mut explorer);
+    let row = query_row(&mut explorer, FIT);
+    assert!(
+        row.ends_with(BROWSE_HINT),
+        "the rows are there and the hint says so: {row:?}"
+    );
+    assert_eq!(
+        explorer.handle_key(&press(KeyCode::Tab)),
+        ExplorerOutcome::Handled,
+        "and the key it advertises now works"
     );
 }

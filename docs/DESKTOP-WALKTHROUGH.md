@@ -10,16 +10,31 @@ If any of this drifts, the editor itself is the authority: run **List Every
 Command** from the palette and you get every command by the id to write in
 `config.toml`, with the key that runs it *today*, rendered from the live keymap.
 
+> ⚠️ **Corrections, 9 Aug 2026.** The first revision of this page asserted two
+> things that were not true, both found by Tom rather than by me: an
+> `iridium-desktop` command on the PATH, and `⌘⌥E` for the file explorer. The
+> `⌘` half of the second was inferred from the panel's *close* handler instead
+> of read from the desktop face's binding table, which is the mistake this page
+> claimed in its first line not to make. Both are marked below with the task
+> that fixes them. #104 also adds a test that enumerates every chord rather
+> than trusting a reading of the table, because a table read by eye is exactly
+> what failed here.
+
 ---
 
 ## Starting it
 
+⚠️ **There is no `iridium-desktop` command on your PATH.** An earlier revision
+of this page said there was; there is not, and never was — the binary lives
+inside `/Applications/iridium.app` and nothing puts it anywhere a shell looks.
+Until #106 lands, the command line is reachable only through the bundle:
+
 ```bash
-open -a iridium                              # empty session
-iridium-desktop ~/some/project               # a project — explorer opens, rooted there
-iridium-desktop notes.md                     # a file
-iridium-desktop --theme light notes.md       # pinned light, ignores the system
+open -a iridium                                     # empty session
+/Applications/iridium.app/Contents/MacOS/iridium-desktop ~/some/project
 ```
+
+#106 makes `iridium <dir>` the one command, placed on PATH by the installer.
 
 A **directory** opens as a project: nothing is read as text, the file explorer
 comes up rooted where you pointed, and it stays rooted there for the session —
@@ -41,7 +56,7 @@ keys go to the panel, not the document.
 
 | | Key | |
 |---|---|---|
-| File explorer | `⌃⌥E` / `⌘⌥E` | any file in the project |
+| File explorer | `⌃⌥E` **only** | any file in the project |
 | Undo tree | `⌃⌥H` / `⌘⌥H` | every branch of the history |
 | Command palette | `⌃K` / `⌘K`, or `⌃P` / `⌃⇧P` | every command by name |
 
@@ -88,8 +103,9 @@ project root, not to wherever you had wandered.
 
 ### The oil buffer — press `Tab`
 
-⚠️ **Nothing on screen tells you this exists yet.** That is a known gap (#103);
-the hint only appears once you are already editing.
+The right-hand end of the query row says `tab to edit these rows`. It is there
+whenever `Tab` would actually work, and goes while you are typing a filter —
+the field needs the width.
 
 `Tab` turns the rows into **editable text**. You then rename, move, create and
 delete files by editing lines, exactly as you would edit a document:
@@ -243,7 +259,6 @@ iridium-desktop --theme themes/monochrome.json
 Said plainly so you are not looking for them:
 
 - **No menu bar and no Open… dialog.** The right-click menu is the only menu.
-  Opening a project is the command line.
-- **No hint that the oil buffer exists** (#103).
+  Opening a project is the command line. (#107)
 - **No soft wrap** yet.
 - **`ast.*` navigation beyond expand/shrink** is kernel-side but not all bound.

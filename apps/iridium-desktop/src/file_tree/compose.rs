@@ -13,6 +13,12 @@
 //! rows, and typing into it while they are being edited would rebuild the list
 //! the buffer is a snapshot of.
 //!
+//! **That one row therefore carries both halves of the panel**, and it is why
+//! [`BROWSE_HINT`] is drawn where it is: the line that says what the keys mean
+//! while editing is the line that says the editing screen is there at all. The
+//! feature was otherwise reachable only by already knowing about it — there is
+//! no menu to find `Tab` in and nothing else on the browse screen said a word.
+//!
 //! A refusal and a confirmation replace the body outright, field and all.
 //! ⚠️ That is a safety property, not a layout preference: `y` on the
 //! confirmation applies the plan, and `y` is a plain character. A query field
@@ -32,6 +38,23 @@ use crate::overlay::{
 
 /// What the label at the top of an editing session says after its verb.
 const EDIT_HINT: &str = "⌘S to apply    esc to stop";
+
+/// What the query row says, on its right edge, about the screen next door.
+///
+/// "these rows", not "this file": the key edits the *listing* — rename, move,
+/// create, delete — and a hint in a file panel reading "tab to edit" would be
+/// read as opening the selected file, which is what `Enter` already does.
+///
+/// `pub(super)` so the tests assert against this string rather than a copy of
+/// it. A hint the tests spell out themselves is a hint that can be reworded
+/// here and still pass.
+pub(super) const BROWSE_HINT: &str = "tab to edit these rows";
+
+/// The blank columns kept between the query caret and [`BROWSE_HINT`].
+///
+/// Two, which is the gap the editing label puts after its verb. One would
+/// leave the caret touching the hint on a panel exactly wide enough for both.
+const HINT_GAP: usize = 2;
 
 impl FileExplorer {
     /// Composes the panel for painting.
@@ -255,6 +278,16 @@ impl FileExplorer {
     }
 
     /// Composes the query row and reports where its caret landed.
+    ///
+    /// # [`BROWSE_HINT`] shares this row, and only while the field is empty
+    ///
+    /// There is no second line to put it on and no column to spare once
+    /// something is being typed: the field owns everything right of the prompt
+    /// and scrolls through it, so a reserved zone on the right edge would be a
+    /// zone the text runs under. The hint is therefore drawn against an
+    /// *empty* field and goes the moment a character arrives — which is the
+    /// moment it has finished its job, because whoever typed that character
+    /// has already read it.
     fn input_row(&self, theme: &Theme, width: usize) -> (PanelRow, Option<usize>) {
         let mut line = LineBuilder::new(width);
         line.push(PROMPT, theme.editor.line_number);
@@ -270,10 +303,46 @@ impl FileExplorer {
             .take(field_width)
             .collect();
         line.push(&shown, theme.editor.foreground);
-        (
-            PanelRow::new(line.finish()),
-            Some(prompt_chars + caret - scroll),
-        )
+        let caret_column = prompt_chars + caret - scroll;
+        if self.query.text().is_empty() && self.tab_would_edit() {
+            Self::push_browse_hint(&mut line, theme, width, caret_column);
+        }
+        (PanelRow::new(line.finish()), Some(caret_column))
+    }
+
+    /// Right-aligns [`BROWSE_HINT`], or draws nothing at all.
+    ///
+    /// Narrow wins over informative: a hint that had to be truncated, or that
+    /// sat against the caret, reads as damage rather than as help. A panel
+    /// that cannot hold both keeps the field, which is the half that does
+    /// something.
+    fn push_browse_hint(line: &mut LineBuilder, theme: &Theme, width: usize, caret_column: usize) {
+        let Some(start) = width.checked_sub(BROWSE_HINT.chars().count()) else {
+            return;
+        };
+        if start < caret_column + HINT_GAP {
+            return;
+        }
+        line.pad_to(start, theme.editor.line_number);
+        line.push(BROWSE_HINT, theme.editor.line_number);
+    }
+
+    /// Whether `Tab` would open an editing session on the rows showing now.
+    ///
+    /// ⚠️ **The two conditions [`super::keys`]'s `begin_editing` refuses on**,
+    /// asked of the rows the panel is drawing rather than of the snapshot it
+    /// would build from them: a listing still on its way, and no rows to
+    /// snapshot at all. A hint offered over a panel that says "Reading…" is a
+    /// hint offered over a refusal, and a key that answers "not yet" the first
+    /// time it is pressed is a key nobody presses twice.
+    ///
+    /// Not `source_rows` itself, which allocates a vector of every drawn row
+    /// and would do it once per frame on a hint's behalf. The two answers
+    /// differ only for a row the arena has no record of, which
+    /// [`super::buffer`] documents as unreachable — and where the cost of
+    /// being wrong is a hint over a refusal that says exactly why.
+    fn tab_would_edit(&self) -> bool {
+        self.wanted.is_none() && self.row_count() > 0
     }
 
     /// What an empty result list says.

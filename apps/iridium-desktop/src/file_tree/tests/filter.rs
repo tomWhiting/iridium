@@ -9,8 +9,8 @@ use iridium_editor::theme::Theme;
 use iridium_file::test_support::TempDir;
 
 use super::support::{
-    FIT, all_lines, lines, open_directory, opened, press, project, select_row, selected_row,
-    selected_text, settle, type_query,
+    FIT, all_lines, lines, open_directory, opened, press, project, query_field, select_row,
+    selected_row, selected_text, settle, type_query,
 };
 use crate::file_tree::{ExplorerOutcome, FileExplorer};
 
@@ -180,11 +180,11 @@ fn enter_on_a_filtered_folder_drops_the_query_and_opens_the_tree_to_it() {
         "a folder is not a tab"
     );
 
-    let rows = all_lines(&mut explorer);
     assert_eq!(
-        rows.first().map(String::as_str),
-        Some("> "),
-        "the query is gone: {rows:?}"
+        query_field(&mut explorer),
+        "",
+        "the query is gone: {:?}",
+        all_lines(&mut explorer)
     );
     let selected = selected_text(&mut explorer).expect("the revealed folder is selected");
     assert!(
@@ -225,10 +225,7 @@ fn escape_takes_back_the_query_before_it_takes_back_the_panel() {
         ExplorerOutcome::Handled,
         "the first Escape clears the query"
     );
-    assert_eq!(
-        all_lines(&mut explorer).first().map(String::as_str),
-        Some("> ")
-    );
+    assert_eq!(query_field(&mut explorer), "");
     assert_eq!(
         explorer.handle_key(&press(KeyCode::Escape)),
         ExplorerOutcome::Closed,

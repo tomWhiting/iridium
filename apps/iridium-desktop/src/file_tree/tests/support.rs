@@ -155,6 +155,29 @@ pub(in crate::file_tree) fn all_lines(explorer: &mut FileExplorer) -> Vec<String
         .collect()
 }
 
+/// What the user has typed into the query field.
+///
+/// ⚠️ **Read by colour, not by position.** The prompt, the padding and
+/// [`BROWSE_HINT`](crate::file_tree::compose::BROWSE_HINT) are all drawn in
+/// the quiet colour and the typed text is the only run in the foreground one,
+/// so this is the one reading that stays true whether or not the hint is
+/// sharing the row. Asserting on the flat text of row zero would make every
+/// "the query is empty" test an assertion about the hint instead.
+pub(in crate::file_tree) fn query_field(explorer: &mut FileExplorer) -> String {
+    let theme = Theme::dark();
+    explorer
+        .content(&theme, FIT)
+        .rows
+        .first()
+        .map_or_else(String::new, |row| {
+            row.spans
+                .iter()
+                .filter(|span| span.color == theme.editor.foreground)
+                .map(|span| span.text.clone())
+                .collect()
+        })
+}
+
 /// The list rows as plain text, without the query row that always precedes
 /// them.
 pub(in crate::file_tree) fn lines(explorer: &mut FileExplorer) -> Vec<String> {

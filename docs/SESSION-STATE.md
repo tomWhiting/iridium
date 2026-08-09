@@ -6605,3 +6605,113 @@ face pushes a third layer. Not started; nothing half-built on disk.
 session:** the first run's completion notification said "exit code 0" while its
 log said `⛔ 1 of 10 gates FAILED` (fmt). Committed `02bfa67e`, pushed.
 Working tree clean except untracked `.claude/skills/`.
+
+---
+
+## #102 — config reload, LANDED `3a49b86b` + `15e7f458` (9 Aug 2026)
+
+The last of Tom's four questions, and the only one that was a real gap.
+`⌃⌥R` / `⌘⌥R`, or **Reload Configuration** in the palette.
+
+### Two commits, deliberately
+
+`3a49b86b` is the kernel primitive with no caller; `15e7f458` is the face.
+Splitting them was worth it — the primitive is nine tests of pure stack
+behaviour and lands clean, and it is the half a second face will want.
+
+### ⭐ The one idea worth carrying forward
+
+**Reload is `replace`, not `push`, and not `pop`+`push`.**
+
+- `push` leaves the previous version of the `user` layer *underneath*, so every
+  binding deleted from the file goes on firing from below. The editor then
+  disagrees with its own configuration and nothing on screen can explain it.
+- `pop`+`push` is correct only while the layer happens to be on top — a fact
+  about one face's startup order, not anything the stack guarantees. It would
+  keep working right up until a face pushed a third layer.
+
+So `KeymapStack::replace_named(keymap)` swaps by the incoming keymap's **own**
+name, in place, at the index it held. The name comes from the keymap rather
+than a separate argument, so "replace `user` with a keymap called something
+else" is not expressible. Duplicate names → highest-precedence match goes, with
+a test pinning it.
+
+Chain: `KeymapStack::replace_named` → `KeyboardHandler::replace_validated_keymap`
+→ `Editor::replace_keymap` → `Workspace::replace_keymap`.
+
+Replacing a layer that is **not there** installs it. Real case: a face whose
+user layer was abandoned whole at startup has no layer of that name, and a
+reload that fixed the file must still install it.
+
+### ⚠️ The defect a test found, which no amount of care would have
+
+With no `[keys]` section at all, `iridium_config::install`'s
+`while !remaining.is_empty()` loop **never ran**, so the closure was never
+called and the previous user layer survived a reload that should have cleared
+it. The exact failure replace-not-push exists to prevent, arriving by another
+door entirely.
+
+`install` now uses `loop` and offers the layer even when empty. An empty layer
+cannot be refused, so it costs one validation. The existing test
+`nothing_to_install_pushes_nothing` asserted the *opposite* and was inverted
+with its reason: **"an empty layer is not worth pushing" is true of a push and
+false of a replacement.** The invariant is now simply *the layer always exists
+and is exactly what the file says*.
+
+A second existing test (`a_refusal_that_names_every_binding_terminates…`) now
+sees 3 problems rather than 2 — its stub refuses *unconditionally*, including
+the empty layer, which no real face does. Asserted rather than engineered away,
+with the reason written down.
+
+### Discrimination, proven not assumed
+
+Three of the nine kernel tests were run against a `Workspace::replace_keymap`
+rewritten to call `push_keymap`, and **failed** — deleted binding still fired,
+layer count grew, background tab kept old bindings — while the nine
+pre-existing tests in that file passed throughout. The floor costs nothing that
+already worked. (Method: `cp` the file to scratchpad, patch, run, restore.)
+
+### Rulings taken this tick, all mine, all recorded
+
+- **`Ctrl+Alt+R`.** Free; joins `E`/`H`/`T` on the shape that already means
+  "change what the editor is, not what the document says".
+- **The report tab is rewritten in place**, never reopened, and now says
+  something when nothing was refused (`clean_report`). Two tabs of one name
+  disagreeing about one file is no better than one stale tab; closing a tab
+  under someone reading it is worse.
+- **No watcher.** A file being edited passes through states its author never
+  meant to apply. On-demand only.
+- **The theme is not touched** — it is not in the file; `--theme` and the
+  system appearance are the only two things that choose one.
+- **`apply_config(user, path)` is split from `reload_config()`** on
+  `crate::project`'s stated discipline: environment at the edge, decision in a
+  testable function. Without it the tests would fight over `$XDG_CONFIG_HOME`.
+
+### ⭐ #84's guard earned its keep
+
+Adding a host command without exporting it across the wasm boundary failed
+`every_host_command_the_kernel_names_is_exported` on gate 1, naming the missing
+id in the assertion message. `HostCommandIds` and its TypeScript interface both
+gained `configReload` — a command the web face can **never** implement (no file
+in a browser), exported anyway so it can say why the chord did nothing. The web
+component already falls through to a `iridium-host-command` event for anything
+it does not claim, so nothing else needed changing there.
+
+⚠️ **`packages/@iridium/core/dist/` is gitignored** — no stale committed
+artefact to regenerate. But the *published* `@iridium/core@0.2.1` now lacks
+`configReload` on its `HostCommandIds`. Additive and non-breaking; it corrects
+itself on Tom's next publish. **Not published from this seat.**
+
+### Verification
+
+`✅ all 10 gates passed`, `exit=0`, read from the runner's own file
+(`scratchpad/ci-102b.log:5592`). ⚠️ **Ninth and tenth success-only channels
+this session:** both failing runs this tick reported "exit code 0" in their
+completion notification while their logs said `⛔ 1 of 10 gates FAILED`.
+
+### Still open from Tom's message
+
+**#103** — nothing on screen says the oil buffer exists. `EDIT_HINT`
+(`compose.rs:34`) is drawn only once you are *already* editing; browse mode
+draws a query row and nothing else, so `Tab` is reachable only by knowing.
+Needs somewhere honest to put a hint — the query row is taken.

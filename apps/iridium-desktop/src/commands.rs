@@ -151,6 +151,8 @@ pub const FILE_SAVE: CommandId = CommandId::from_static("file.save");
 pub const FILE_SAVE_FORCE: CommandId = CommandId::from_static("file.saveForce");
 /// Open a tab listing every command by the id a configuration file names it by.
 pub const COMMANDS_LIST: CommandId = CommandId::from_static("commands.list");
+/// Open the user's `config.toml` as an ordinary, savable tab.
+pub const CONFIG_EDIT: CommandId = CommandId::from_static("config.edit");
 
 /// Every command this face contributes, in declaration order.
 pub static COMMANDS: &[CommandMeta] = &[
@@ -179,6 +181,24 @@ pub static COMMANDS: &[CommandMeta] = &[
         CommandCategory::from_static("Help"),
     )
     .with_aliases(&["keybindings", "shortcuts", "command ids", "config"]),
+    // Deliberately unbound, and on the palette-only list with `commands.list`
+    // for the same reason: it is the door into a file edited once and then not
+    // for months. The point of it is that "where do I change my keys" has an
+    // answer you can *search for* — Tom asked that question on 9 Aug 2026 and
+    // the honest answer at the time was a path he had to be told.
+    CommandMeta::described(
+        CONFIG_EDIT,
+        "Edit Configuration",
+        "Opens ~/.config/iridium/config.toml in a tab, writing the default file if none exists.",
+        CommandCategory::from_static("Help"),
+    )
+    .with_aliases(&[
+        "settings",
+        "preferences",
+        "keybindings",
+        "keymap",
+        "config.toml",
+    ]),
 ];
 
 /// The number of commands this face contributes.
@@ -965,7 +985,12 @@ mod tests {
     ///   configuration file and then not again for months. Every chord spent
     ///   is one the user cannot have, and the palette is exactly the right
     ///   surface for something wanted by name and rarely.
-    const PALETTE_ONLY: &[&str] = &["commands.list"];
+    /// - `config.edit` opens that same configuration file, at the same
+    ///   cadence, and is found the same way. `⌘,` is the mac chord for it and
+    ///   is deliberately **not** taken: this face has no preferences window,
+    ///   and claiming the key that everyone's hand expects one from — to open
+    ///   a text file instead — is a promise it cannot keep.
+    const PALETTE_ONLY: &[&str] = &["commands.list", "config.edit"];
 
     #[test]
     fn every_command_this_face_adds_is_bound_or_deliberately_is_not() {

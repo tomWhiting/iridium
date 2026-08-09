@@ -96,4 +96,57 @@ mv "$tmp" "$dest"
 codesign --verify --strict "$dest"
 
 echo "installed $dest"
-echo "launch it from Spotlight, or: open -a iridium"
+
+# ---------------------------------------------------------------------------
+# The `iridium` command.
+#
+# ⚠️ THE INSTALL IS NOT FINISHED UNTIL THIS EXISTS. An app in /Applications
+# and nothing on the PATH is how a walkthrough came to tell Tom to run
+# `iridium-desktop ~/project` on 9 Aug 2026 — a command that had never
+# existed anywhere a shell would look for it.
+#
+# NOTHING IS DELETED HERE. A pre-existing `iridium` that is not this shim is
+# the terminal face's binary, and it is MOVED to `iridium-tui` beside the
+# shim — which is where the shim's own `--tui` looks for it — rather than
+# overwritten. The two faces then share one command and neither is lost.
+# ---------------------------------------------------------------------------
+bin_dir="${BINDIR:-$HOME/.local/bin}"
+shim="$here/iridium"
+
+if [[ ! -f "$shim" ]]; then
+  echo "install: $shim is missing; the app is installed but no command was" >&2
+  exit 1
+fi
+
+mkdir -p "$bin_dir"
+target="$bin_dir/iridium"
+
+# `cmp -s` rather than a marker string: the question is whether the file
+# already IS this shim, and comparing the bytes answers it without asking
+# the file to describe itself.
+if [[ -e "$target" ]] && ! cmp -s "$shim" "$target"; then
+  preserved="$bin_dir/iridium-tui"
+  if [[ -e "$preserved" ]] && ! cmp -s "$target" "$preserved"; then
+    echo "install: $preserved already exists and differs from $target." >&2
+    echo "         Refusing to overwrite it — move it aside and run again." >&2
+    exit 1
+  fi
+  mv -f "$target" "$preserved"
+  echo "preserved the previous $target as $preserved (reachable as: iridium --tui)"
+fi
+
+install -m 755 "$shim" "$target"
+echo "installed $target"
+
+case ":${PATH}:" in
+  *":$bin_dir:"*) ;;
+  *)
+    echo "install: ⚠️  $bin_dir is not on your PATH, so \`iridium\` will not be found." >&2
+    echo "         Add it: export PATH=\"$bin_dir:\$PATH\"" >&2
+    ;;
+esac
+
+echo
+echo "  iridium ~/some/project     open a project"
+echo "  iridium notes.md           open a file"
+echo "  iridium --help             everything else"

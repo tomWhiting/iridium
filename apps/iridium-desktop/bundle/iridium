@@ -1,0 +1,82 @@
+#!/bin/sh
+# `iridium` — the one command.
+#
+# WHY THIS EXISTS: the app bundle's executable lives at
+# /Applications/iridium.app/Contents/MacOS/iridium-desktop, which is nowhere a
+# shell looks. Before this, installing the app gave you a Spotlight entry and
+# nothing on the PATH — so a walkthrough could tell someone to run
+# `iridium-desktop ~/project` and be wrong, which is exactly what happened on
+# 9 Aug 2026.
+#
+# WHY THE GUI AND NOT THE TERMINAL FACE: `iridium` names the editor, and the
+# editor someone types `iridium .` to get is the one with a window — the same
+# call `code`, `zed` and `subl` all make. The terminal face keeps a command of
+# its own and is also reachable here as `iridium --tui`, so nothing that used
+# to work stops working.
+set -eu
+
+app="/Applications/iridium.app"
+gui="$app/Contents/MacOS/iridium-desktop"
+here="$(dirname "$0")"
+tui="$here/iridium-tui"
+
+usage() {
+	cat <<'USAGE'
+iridium — a GPU-accelerated text editor
+
+    iridium                 an empty session
+    iridium <directory>     open it as a project; the file explorer roots there
+    iridium <file>          open one file
+    iridium <new-file>      a path that does not exist yet is a file to write
+
+    --tui [args...]         the terminal face instead of the window
+    --theme <name|path>     `light`, `dark`, or an Iridium or VS Code theme file
+    --help                  this
+
+Configuration is ~/.config/iridium/config.toml. Press ⌃⌥R or ⌘⌥R to reload it
+without restarting, and run "List Every Command" from the palette (⌘K) for
+every command id and the key that runs it.
+USAGE
+}
+
+case "${1-}" in
+--tui | -t)
+	shift
+	if [ ! -x "$tui" ]; then
+		echo "iridium: no terminal face at $tui" >&2
+		echo "         it is installed beside this command as iridium-tui." >&2
+		exit 1
+	fi
+	# Handed the terminal outright: it is a terminal program, so it must
+	# keep this process's stdin, stdout and exit status.
+	exec "$tui" "$@"
+	;;
+--help | -h)
+	usage
+	exit 0
+	;;
+esac
+
+if [ ! -x "$gui" ]; then
+	echo "iridium: $app is not installed, or holds no executable" >&2
+	echo "         build and install it with apps/iridium-desktop/bundle/install.sh" >&2
+	exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Run the bundle's binary DIRECTLY, in the background, with nohup.
+#
+# Directly rather than through `open`, because `open` starts the app with `/`
+# as its working directory: `iridium .` and `iridium notes.md` would then mean
+# the root of the disk and a file in it. Inheriting this shell's directory is
+# the whole point of a command line, and it is not something to paper over by
+# rewriting arguments here — a rewrite cannot tell `--theme light` (a name)
+# from `--theme paper.json` (a path) without knowing the flag table, and a
+# second copy of that table is a second thing to keep true.
+#
+# In the background with `nohup`, because closing the terminal that launched
+# an editor must not take the editor's unsaved work with it. That leaves the
+# process detached from this shell, which is why the exit status below is this
+# script's and not the editor's — the editor outlives it by design.
+# ---------------------------------------------------------------------------
+nohup "$gui" "$@" >/dev/null 2>&1 &

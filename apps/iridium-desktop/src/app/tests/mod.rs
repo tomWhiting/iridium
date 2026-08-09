@@ -3,6 +3,7 @@
 //! The helpers live in `support`; everything else is a test, grouped so that
 //! a failure names the surface it belongs to before you open the file.
 
+mod config;
 mod panels;
 mod project;
 mod saving;

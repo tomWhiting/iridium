@@ -271,6 +271,15 @@ export interface HostCommandIds {
    * appearance, and the kernel should not have to know the difference.
    */
   readonly viewToggleTheme: string;
+  /**
+   * Re-read the user's configuration file.
+   *
+   * The starkest case of the rule above: a browser has no configuration file
+   * at all, so this is one the web face can never implement. The kernel still
+   * binds the chord, so the key is still consumed — and a face that cannot
+   * name the command cannot say why nothing happened.
+   */
+  readonly configReload: string;
 }
 
 // Types for the low-level WASM editor

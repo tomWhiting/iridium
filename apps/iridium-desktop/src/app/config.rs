@@ -55,6 +55,35 @@ pub(super) fn install_user_bindings(
     })
 }
 
+/// Replaces the user's key bindings with a freshly-read set.
+///
+/// ⭐ **Replace, never push.** The obvious implementation of a reload is to
+/// call [`install_user_bindings`] again, and it is wrong in a way nothing on
+/// screen could explain: pushing leaves the *previous* version of the `user`
+/// layer underneath the new one, so every binding deleted from the file goes on
+/// firing from below. See
+/// [`KeymapStack::replace_named`](iridium_editor::commands::KeymapStack::replace_named).
+///
+/// Identical to [`install_user_bindings`] in every other respect, including the
+/// drop-one-and-retry loop — [`iridium_config::install`] requires only that its
+/// closure leave the stack untouched when it refuses, and
+/// [`Workspace::replace_keymap`] does, restoring the layer that was already
+/// installed. That is what makes a reload safe to attempt: a file with a typo in
+/// it costs the typo's binding, not the ones that were working.
+pub(super) fn replace_user_bindings(
+    workspace: &mut Workspace<DesktopDocument>,
+    bindings: Vec<KeyBinding>,
+) -> Vec<Problem> {
+    iridium_config::install(bindings, |layer| {
+        workspace
+            .replace_keymap(layer)
+            .map_err(|error| match error {
+                FaceSetupError::Keymap(error) => Refusal::Keymap(error),
+                FaceSetupError::Registry(error) => Refusal::Face(error.to_string()),
+            })
+    })
+}
+
 /// The one line the message strip shows.
 ///
 /// Says how many there are and where the rest of them are, because a count
@@ -71,6 +100,9 @@ pub(super) fn summary(problems: &[Problem]) -> String {
 /// this actually has: an editor that opened a tab about their configuration
 /// looks, for a moment, like an editor that refused to start.
 pub(super) fn report(path: Option<&Path>, problems: &[Problem]) -> String {
+    if problems.is_empty() {
+        return clean_report(path);
+    }
     let mut text = String::from("Some of your configuration could not be used.\n\n");
     if let Some(path) = path {
         // Writing into a `String` cannot fail, so the result is dropped rather
@@ -85,6 +117,32 @@ pub(super) fn report(path: Option<&Path>, problems: &[Problem]) -> String {
         let _ = writeln!(text, "  {problem}");
     }
     text
+}
+
+/// The report for a configuration that was applied whole.
+///
+/// ⚠️ **A reload has to be able to say "nothing is wrong".** Startup only ever
+/// opens this tab when there *are* problems, so the question never arose; a
+/// reload is different, because the tab from the previous read is already on
+/// screen and describes a file that has since been fixed. Leaving that text in
+/// place would make a working configuration look broken, and closing the tab
+/// under someone reading it is worse. So it says what is true now.
+fn clean_report(path: Option<&Path>) -> String {
+    let mut text = String::from("Your configuration was applied in full.\n\n");
+    if let Some(path) = path {
+        // Writing into a `String` cannot fail; see `report`.
+        let _ = writeln!(text, "  {}\n", path.display());
+    }
+    text.push_str(
+        "Nothing in it was refused. This tab is here because a reload was\n\
+         asked for; it can be closed.\n",
+    );
+    text
+}
+
+/// The one line the strip shows after a reload that refused nothing.
+pub(super) fn reloaded() -> String {
+    format!("configuration reloaded — see the {PROBLEMS_TAB} tab")
 }
 
 /// Every command, by the id a `[keys]` line has to name it by.

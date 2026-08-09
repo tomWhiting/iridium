@@ -41,6 +41,8 @@
 //! | `⌘F` | `search.open` | kernel verb, mac chord |
 //! | `⌘K` | `palette.open` | kernel-named host command, mac chord |
 //! | `⌘⌥H` | `history.togglePanel` | kernel-named host command, mac chord |
+//! | `⌘⌥T` | `view.toggleTheme` | kernel-named host command, mac chord |
+//! | `⌘⌥R` | `config.reload` | kernel-named host command, mac chord |
 //!
 //! The `Ctrl` spellings stay bound by the default keymap underneath this
 //! layer — `Ctrl+F`, `Ctrl+K`, `Ctrl+P` and `Ctrl+Alt+H` included; both
@@ -97,7 +99,7 @@
 
 use iridium_editor::commands::builtin::{
     AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE,
-    CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START,
+    CONFIG_RELOAD, CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START,
     CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START,
     CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT,
     CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
@@ -275,6 +277,13 @@ const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Char('t'), META_ALT),
         VIEW_TOGGLE_THEME,
+    ),
+    // `⌘⌥R`, the ⌘ spelling of the kernel's `Ctrl+Alt+R`. Same id, for the same
+    // reason `⌘⌥T` is: one palette row, and one thing for a `[keys]` line to
+    // name, whichever hand the user reaches with.
+    (
+        StrokePattern::new(KeyCode::Char('r'), META_ALT),
+        CONFIG_RELOAD,
     ),
 ];
 

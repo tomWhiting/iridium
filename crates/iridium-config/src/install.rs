@@ -83,6 +83,15 @@ impl From<KeymapError> for Refusal {
 ///
 /// Returns one [`Problem`] per refused binding. An empty result means every
 /// binding is installed.
+///
+/// ⭐ **An empty set is installed rather than skipped**, and the layer is
+/// offered even when there is nothing in it. That reads like a wasted call and
+/// is load-bearing for a *reload*: `push` there is a replacement, and "the file
+/// no longer binds anything" has to reach it, or the previous version of the
+/// layer stays in force and every binding the user deleted goes on firing. An
+/// empty layer cannot be refused, so the extra call costs one validation and
+/// leaves the invariant simple — **the layer always exists and is exactly what
+/// the file says.**
 pub fn install(
     bindings: Vec<KeyBinding>,
     mut push: impl FnMut(Keymap) -> Result<(), Refusal>,
@@ -90,7 +99,7 @@ pub fn install(
     let mut remaining = bindings;
     let mut problems = Vec::new();
 
-    while !remaining.is_empty() {
+    loop {
         let Err(refused) = push(keymap(remaining.clone())) else {
             return problems;
         };
@@ -117,8 +126,10 @@ pub fn install(
         let dropped = remaining.remove(index);
         problems.push(refusal(&dropped, error));
     }
-
-    problems
+    // No fall-through: every path out of the loop returns. Each pass either
+    // succeeds or removes one binding, and the empty set that remains at worst
+    // is a layer nothing can refuse — so it terminates in at most one pass per
+    // binding, plus the one that installs what is left.
 }
 
 /// The report for one refused binding, with the line that would fix it.
@@ -219,15 +230,31 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
     }
 
+    /// ⭐ **This test used to assert the opposite**, and the reason it was
+    /// inverted is the whole of why an empty layer is now installed.
+    ///
+    /// "An empty layer is not worth pushing" is true of a *push* and false of a
+    /// *replacement*. A face reloading its configuration passes a `push` that
+    /// swaps the `user` layer for the one handed to it; if a file that no
+    /// longer binds anything never reaches that closure, the previous version
+    /// of the layer stays in force and every binding the user deleted goes on
+    /// firing — the editor disagreeing with its own file, with nothing on
+    /// screen able to explain why.
+    ///
+    /// An empty layer cannot be refused, so the call costs one validation.
     #[test]
-    fn nothing_to_install_pushes_nothing() {
-        let mut pushes = 0;
-        let problems = install(Vec::new(), |_| {
-            pushes += 1;
+    fn nothing_to_install_still_installs_the_empty_layer() {
+        let mut pushed: Vec<usize> = Vec::new();
+        let problems = install(Vec::new(), |layer| {
+            pushed.push(layer.bindings().len());
             Ok(())
         });
         assert!(problems.is_empty());
-        assert_eq!(pushes, 0, "an empty layer is not worth pushing");
+        assert_eq!(
+            pushed,
+            vec![0],
+            "the empty layer is offered exactly once, so a reload can clear one"
+        );
     }
 
     /// **The rule this module exists for.** One unknown command id costs one
@@ -382,8 +409,9 @@ mod tests {
     #[test]
     fn a_refusal_that_names_every_binding_terminates_rather_than_looping() {
         // The guarantee that makes this a loop at all: each pass removes one
-        // binding, so the worst case is one pass per binding and then an empty
-        // set, which is not pushed.
+        // binding, so the worst case is one pass per binding, and then the
+        // empty set — which is offered once and cannot be dropped from, so the
+        // loop ends there whatever the answer is.
         let bindings = vec![bind("ctrl+alt+j", "a.one"), bind("ctrl+alt+k", "a.two")];
         let problems = install(bindings, |layer| {
             let id = layer
@@ -396,6 +424,19 @@ mod tests {
                 id,
             })
         });
-        assert_eq!(problems.len(), 2, "{problems:?}");
+
+        // Three, not two: one per dropped binding, then the abandoned-whole
+        // report for the empty layer this stub also refuses. ⚠️ That third
+        // problem is an artefact of a `push` that refuses *unconditionally*,
+        // which no real face does — the kernel validates an empty layer without
+        // complaint. It is asserted rather than engineered away because the
+        // honest behaviour under a closure that refuses everything is to say
+        // so, and a loop that silently swallowed the last refusal would be
+        // hiding the one case where the user's keys are all gone.
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(
+            problems[2].detail.contains("none of the bindings"),
+            "the last word is that nothing was applied: {problems:?}"
+        );
     }
 }

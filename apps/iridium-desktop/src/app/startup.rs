@@ -223,6 +223,23 @@ impl DesktopApp {
     /// registry, and are reported rather than ignored so they cannot become
     /// silent if those tables change.
     pub fn new(options: Options) -> Result<Self, StartupError> {
+        // ⚠️ **Written before it is read, and only when there is nothing
+        // there.** An absent file is not a problem for the editor — every
+        // setting has a default — but it is a problem for the person, and on
+        // 9 Aug 2026 it was: Tom was told to edit
+        // `~/.config/iridium/config.toml`, went looking, and found no such
+        // directory, because nothing had ever written one.
+        //
+        // The result is deliberately DROPPED. Whether a template was written,
+        // was already there, or could not be written at all changes nothing
+        // about the session that follows: the read below handles a missing
+        // file exactly as it always did, so a read-only home costs the
+        // convenience and nothing else. Reporting it would be reporting on a
+        // courtesy.
+        let created =
+            iridium_config::user_config_path().map(|path| iridium_config::create_if_absent(&path));
+        drop(created);
+
         // Read before the workspace exists, because the settings are what it
         // is constructed with. A file that is missing, unreadable or wrong
         // never fails here: it yields defaults and a list of problems, and the

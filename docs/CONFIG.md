@@ -10,6 +10,24 @@ Iridium reads one file:
 absolute path). **You do not need one.** Everything below has a default, and an
 absent file is not a problem — the editor never mentions it.
 
+**A first run writes one anyway.** Not because the editor needs it, but
+because "edit `~/.config/iridium/config.toml`" is useless advice when no such
+directory exists — which is what Tom found on 9 Aug 2026, having been told
+exactly that. The file it writes has every setting in it at its real default
+and **every line commented out**, so it means precisely what no file means:
+you change something by deleting a `# `.
+
+An existing file is never touched, and a home directory that cannot be written
+to costs the courtesy and nothing else — the session opens as it always did.
+
+Run **Edit Configuration** from the command palette to open it, whether or not
+it exists yet. That tab is a real file: `⌘S` saves it, and `⌃⌥R` applies it.
+
+The `[editor]` block in that file is generated from the settings struct
+itself, so it cannot name a setting that does not exist or show a default that
+has since changed. The table further down this page can be wrong; that file
+cannot.
+
 The file is only read by the native faces. A browser has no configuration file,
 so nothing here applies to the web demo.
 

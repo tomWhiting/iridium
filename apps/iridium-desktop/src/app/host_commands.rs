@@ -67,6 +67,8 @@ impl DesktopApp {
             self.toggle_theme()
         } else if command == &commands::COMMANDS_LIST {
             self.show_command_reference()
+        } else if command == &commands::CONFIG_EDIT {
+            self.edit_config()
         } else if command == &CONFIG_RELOAD {
             self.reload_config()
         } else if self.workspace.handles_command(command) {
@@ -164,6 +166,42 @@ impl DesktopApp {
         // somewhere, and stealing focus away from it would lose the place of
         // whoever pressed the key.
         self.workspace.open(text, config::PROBLEMS_TAB, None);
+    }
+
+    /// Opens the user's `config.toml` as an ordinary tab.
+    ///
+    /// An **ordinary** tab, deliberately: it goes through [`Self::open_file`],
+    /// so it has a real [`TextFile`](iridium_file::TextFile) behind it, `⌘S`
+    /// writes it, and the file-changed-on-disk refusal applies exactly as it
+    /// would to any other file. The `config.toml` *report* tab beside it is a
+    /// different thing entirely — that one is generated text describing the
+    /// last read, and saving it would write a list of complaints over the file
+    /// they are about.
+    ///
+    /// The file is created first if it is not there. That is the same
+    /// courtesy startup does, repeated here because this is the other way in
+    /// and a command called "Edit Configuration" that opened an empty untitled
+    /// buffer would be a command that lied about what it edits.
+    fn edit_config(&mut self) -> Flow {
+        let Some(path) = iridium_config::user_config_path() else {
+            // No `$HOME` and no `$XDG_CONFIG_HOME`: there is nowhere for the
+            // file to be, so there is nothing to open and nothing to create.
+            self.message = Some(Message::error(
+                "no home directory, so there is nowhere for a configuration file",
+            ));
+            return Flow::Running;
+        };
+        if let Err(error) = iridium_config::create_if_absent(&path) {
+            // Reported, unlike at startup. There it is a courtesy nobody
+            // asked for; here somebody pressed a key and is owed an answer.
+            self.message = Some(Message::error(format!(
+                "cannot create {}: {error}",
+                path.display()
+            )));
+            return Flow::Running;
+        }
+        self.open_file(&path);
+        Flow::Running
     }
 
     /// Opens a tab listing every command by the id a `[keys]` line names it by.

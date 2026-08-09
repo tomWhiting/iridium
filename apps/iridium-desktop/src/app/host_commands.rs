@@ -6,11 +6,13 @@
 //! nothing here claims is named on the prompt strip — the key was consumed,
 //! and silence would look like a dead key.
 
+use iridium_config::UserConfig;
 use iridium_editor::CommandId;
 use iridium_editor::commands::builtin::{
-    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
+    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
     WORKSPACE_CLOSE_TAB,
 };
+use iridium_editor::workspace::Node;
 use iridium_file::TextFile;
 
 use std::path::Path;
@@ -65,12 +67,103 @@ impl DesktopApp {
             self.toggle_theme()
         } else if command == &commands::COMMANDS_LIST {
             self.show_command_reference()
+        } else if command == &CONFIG_RELOAD {
+            self.reload_config()
         } else if self.workspace.handles_command(command) {
             self.run_workspace_command(command)
         } else {
             return None;
         };
         Some(flow)
+    }
+
+    /// Re-reads the user's configuration file and applies it to this session.
+    ///
+    /// The whole of what the file can say, in the order it has to be applied:
+    /// the `[editor]` settings onto every open tab, then the `[keys]` bindings
+    /// as a *replacement* for the `user` layer rather than a second copy of it,
+    /// then the report of anything refused.
+    ///
+    /// ⚠️ **Nothing here can fail the session.** A file that has been deleted,
+    /// made unreadable, or filled with nonsense since startup yields defaults
+    /// and a list of problems, exactly as it does at startup — the same rule,
+    /// for the same reason: this file is *found* by the editor, and a reload
+    /// that could leave the session unusable would be a worse thing to have
+    /// bound to a key than no reload at all.
+    ///
+    /// The theme is deliberately not touched. It is not in the file — `--theme`
+    /// and the system appearance are the only two things that choose one — so
+    /// re-applying anything here would be inventing a value the user never
+    /// wrote. See [`super::theme::ThemeSource`].
+    fn reload_config(&mut self) -> Flow {
+        let path = iridium_config::user_config_path();
+        self.apply_config(&UserConfig::load(path.as_deref()), path.as_deref())
+    }
+
+    /// Applies an already-read configuration to this session.
+    ///
+    /// Split from [`reload_config`](Self::reload_config) on the discipline
+    /// [`crate::project`] states and for the same reason: the environment is
+    /// read at the edge and the decision is made here, so what the reload
+    /// *does* is testable without a process whose `$XDG_CONFIG_HOME` points at
+    /// a fixture — and without two tests running at once fighting over one
+    /// environment variable.
+    ///
+    /// `path` is only ever named in the report, so a session that has nowhere
+    /// to look still reloads: it reads nothing, applies the defaults, and says
+    /// so.
+    pub(super) fn apply_config(&mut self, user: &UserConfig, path: Option<&Path>) -> Flow {
+        self.workspace.set_config(user.editor.clone());
+
+        let mut problems = user.problems.clone();
+        problems.extend(config::replace_user_bindings(
+            &mut self.workspace,
+            user.bindings.clone(),
+        ));
+
+        // Built before the tab is touched, for the reason `show_command_reference`
+        // builds first: the report describes the file as it was *read*, and
+        // borrowing the workspace mutably to show it must not come first.
+        let text = config::report(path, &problems);
+        self.show_config_report(&text);
+        self.message = Some(if problems.is_empty() {
+            Message::notice(config::reloaded())
+        } else {
+            Message::error(config::summary(&problems))
+        });
+        Flow::Running
+    }
+
+    /// Puts `text` in the configuration tab, reusing the one already open.
+    ///
+    /// ⭐ **Reused rather than reopened, and this is the whole reason the
+    /// method exists.** A reload is normally the *second* time this tab has
+    /// been written, and opening another would leave the first one on the strip
+    /// still describing a file that has since been fixed — two tabs with the
+    /// same name disagreeing about the same file, and no way to tell which is
+    /// current. One tab, always describing the last read.
+    fn show_config_report(&mut self, text: &str) {
+        let existing = self
+            .workspace
+            .tabs()
+            .into_iter()
+            .find(|id| {
+                self.workspace
+                    .node(*id)
+                    .is_some_and(|node| node.label() == config::PROBLEMS_TAB)
+            })
+            .and_then(|id| self.workspace.node(id).and_then(Node::document));
+
+        if let Some(document) = existing {
+            if let Some(editor) = self.workspace.editor_mut(document) {
+                editor.set_content(text);
+            }
+            return;
+        }
+        // Opened behind whatever is in front: a reload is asked for from
+        // somewhere, and stealing focus away from it would lose the place of
+        // whoever pressed the key.
+        self.workspace.open(text, config::PROBLEMS_TAB, None);
     }
 
     /// Opens a tab listing every command by the id a `[keys]` line names it by.

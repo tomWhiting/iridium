@@ -36,7 +36,7 @@
 //! reach it.
 
 use iridium_editor::commands::builtin::{
-    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
+    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
 };
 use serde::{Deserialize, Serialize};
 
@@ -67,12 +67,21 @@ pub struct HostCommandIds {
     /// toggle lands on is the face's to decide — a page may follow
     /// `prefers-color-scheme` where a window follows the system appearance.
     pub view_toggle_theme: String,
+    /// Re-read the user's configuration file — [`CONFIG_RELOAD`].
+    ///
+    /// Exported for the same reason `explorer_toggle_panel` is, and it is the
+    /// starker case of the two: a browser has no configuration file *at all*,
+    /// so this is one the web face can never implement. The kernel's default
+    /// keymap still binds `Ctrl+Alt+R`, so the chord is still consumed — and a
+    /// face that cannot name the command cannot tell the user why nothing
+    /// happened, which is exactly the dead key this module exists to prevent.
+    pub config_reload: String,
 }
 
 /// The host command ids, read from the kernel's own constants.
 ///
-/// Allocates four short strings, and is called once per editor rather than
-/// per keystroke.
+/// Allocates one short string per host command, and is called once per editor
+/// rather than per keystroke.
 #[must_use]
 pub fn host_command_ids() -> HostCommandIds {
     HostCommandIds {
@@ -80,6 +89,7 @@ pub fn host_command_ids() -> HostCommandIds {
         history_toggle_panel: HISTORY_TOGGLE_PANEL.as_str().to_owned(),
         explorer_toggle_panel: EXPLORER_TOGGLE_PANEL.as_str().to_owned(),
         view_toggle_theme: VIEW_TOGGLE_THEME.as_str().to_owned(),
+        config_reload: CONFIG_RELOAD.as_str().to_owned(),
     }
 }
 
@@ -98,6 +108,7 @@ mod tests {
             ids.history_toggle_panel.as_str(),
             ids.explorer_toggle_panel.as_str(),
             ids.view_toggle_theme.as_str(),
+            ids.config_reload.as_str(),
         ])
     }
 
@@ -110,8 +121,8 @@ mod tests {
     /// will ever send).
     ///
     /// It also catches two fields carrying the same id, without a separate
-    /// test: duplicates collapse in the set, so four fields holding three
-    /// distinct ids can never equal a four-element kernel table.
+    /// test: duplicates collapse in the set, so N fields holding fewer than N
+    /// distinct ids can never equal an N-element kernel table.
     #[test]
     fn every_host_command_the_kernel_names_is_exported() {
         let ids = host_command_ids();
@@ -128,18 +139,18 @@ mod tests {
     /// The wire names TypeScript destructures, pinned.
     ///
     /// This is also what makes the `{}` fallback in `wasm.rs`'s adapter
-    /// unreachable rather than merely unlikely: a struct of four `String`s
-    /// has no value `serde_json` can refuse.
+    /// unreachable rather than merely unlikely: a struct of `String`s has no
+    /// value `serde_json` can refuse.
     #[test]
     fn the_ids_serialize_under_the_names_typescript_reads() {
-        let json = serde_json::to_string(&host_command_ids()).expect("three strings");
+        let json = serde_json::to_string(&host_command_ids()).expect("a struct of strings");
 
         assert_eq!(
             json,
             concat!(
                 r#"{"paletteOpen":"palette.open","historyTogglePanel":"history.togglePanel","#,
                 r#""explorerTogglePanel":"explorer.togglePanel","#,
-                r#""viewToggleTheme":"view.toggleTheme"}"#
+                r#""viewToggleTheme":"view.toggleTheme","configReload":"config.reload"}"#
             )
         );
     }

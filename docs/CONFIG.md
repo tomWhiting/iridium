@@ -15,6 +15,28 @@ so nothing here applies to the web demo.
 
 ---
 
+## Applying a change without restarting
+
+Press **`⌃⌥R`** (or **`⌘⌥R`**), or run **Reload Configuration** from the command
+palette. The file is read again and applied to the session you are in: the
+`[editor]` settings reach every open tab, and your `[keys]` bindings *replace*
+the ones already in force rather than stacking on top of them — so a binding you
+**delete** from the file stops working, which is the half that is easy to get
+wrong and the reason there is a command rather than a suggestion to restart.
+
+A reload can never leave the editor unusable. A file with a mistake in it costs
+that line and nothing else, exactly as at startup, and the bindings that were
+working keep working. The `config.toml` tab is rewritten in place each time, so
+there is always exactly one of it and it always describes the last read —
+including saying so when nothing was refused.
+
+Two things a reload does **not** touch. The theme is not in this file, so
+`--theme` and the system appearance still decide it. And the file is read when
+you ask, not when it changes: there is no watcher, deliberately, because a file
+being edited passes through states its author never meant to apply.
+
+---
+
 ## What happens when you get something wrong
 
 Nothing stops the editor. That is deliberate, and the reason is circular: the

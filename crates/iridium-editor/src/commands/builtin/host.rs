@@ -89,6 +89,27 @@ pub const EXPLORER_TOGGLE_PANEL: CommandId = CommandId::from_static("explorer.to
 /// pretending to know what "light" means for a terminal.
 pub const VIEW_TOGGLE_THEME: CommandId = CommandId::from_static("view.toggleTheme");
 
+/// Re-read the user's configuration file and apply it to this session.
+///
+/// Bound to `Ctrl+Alt+R` by the default keymap, joining the panel toggles and
+/// the theme swap on the `Ctrl+Alt` shape, and to `⌘⌥R` by the desktop face's
+/// ⌘ layer.
+///
+/// ⚠️ **A host command because the kernel has no configuration file.** It has
+/// an [`EditorConfig`](crate::editor::EditorConfig) and a keymap stack, and it
+/// can be handed new ones — [`Workspace::set_config`](crate::workspace::Workspace::set_config)
+/// and [`Workspace::replace_keymap`](crate::workspace::Workspace::replace_keymap)
+/// are exactly that — but *where the file lives, what it is called and what
+/// dialect it is written in* are the face's, and the browser face has no file
+/// at all. Naming the action here is what keeps one id and one key across the
+/// faces that do.
+///
+/// **Replace, never push.** A face implementing this by pushing the re-read
+/// bindings would leave the previous version of that layer underneath, so
+/// every binding the user *deleted* from the file would go on firing — see
+/// [`KeymapStack::replace_named`](crate::commands::KeymapStack::replace_named).
+pub const CONFIG_RELOAD: CommandId = CommandId::from_static("config.reload");
+
 /// Every host command the kernel names, in declaration order.
 pub static HOST: &[CommandMeta] = &[
     CommandMeta::described(
@@ -119,6 +140,13 @@ pub static HOST: &[CommandMeta] = &[
         CommandCategory::GENERAL,
     )
     .with_aliases(&["theme", "dark mode", "light mode", "appearance"]),
+    CommandMeta::described(
+        CONFIG_RELOAD,
+        "Reload Configuration",
+        "Re-reads your configuration file and applies it, without restarting.",
+        CommandCategory::GENERAL,
+    )
+    .with_aliases(&["config", "settings", "keybindings", "reload", "keymap"]),
 ];
 
 /// The number of host commands the kernel names.

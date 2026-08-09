@@ -43,10 +43,37 @@
 //! | `⌘⌥H` | `history.togglePanel` | kernel-named host command, mac chord |
 //! | `⌘⌥T` | `view.toggleTheme` | kernel-named host command, mac chord |
 //! | `⌘⌥R` | `config.reload` | kernel-named host command, mac chord |
+//! | `⌘⌥E` | `explorer.togglePanel` | kernel-named host command, mac chord |
+//! | `⌘/` | `comment.toggleLine` | kernel verb, mac chord |
+//! | `⌘⌥Z` / `⌘⌥Y` | `history.previousBranch` / `nextBranch` | kernel verbs |
+//! | `⌘⇧K` | `lines.delete` | kernel verb, mac chord |
+//! | `⌘J` | `lines.join` | kernel verb, mac chord |
+//! | `⌘D` | `multiCursor.addSelectionToNextMatch` | kernel verb, mac chord |
+//! | `⌘U` | `multiCursor.removeLastCursor` | kernel verb, mac chord |
+//! | `⌘⇧L` | `multiCursor.selectAllOccurrences` | kernel verb, mac chord |
+//! | `⌘⇧]` / `⌘⇧[` | `workspace.nextTab` / `previousTab` | workspace verbs |
+//! | `⌘W` | `workspace.closeTab` | workspace verb, mac chord |
 //!
 //! The `Ctrl` spellings stay bound by the default keymap underneath this
 //! layer — `Ctrl+F`, `Ctrl+K`, `Ctrl+P` and `Ctrl+Alt+H` included; both
 //! spellings work.
+//!
+//! # ⚠️ The bottom half of that table was missing, and a person found it
+//!
+//! Every row from `⌘⌥E` down landed on **9 Aug 2026**, after Tom pressed
+//! `⌘⌥E` — documented as working — and nothing happened. The file explorer,
+//! the panel he most wanted, had no ⌘ chord at all while the three panels
+//! beside it did, and a page asserting otherwise had been written by reading
+//! this table by eye.
+//!
+//! So the fix is not the rows. It is
+//! `every_ctrl_chord_a_mac_hand_reaches_for_has_a_meta_spelling`, which
+//! **enumerates** every verb the kernel binds under `Ctrl` and fails unless
+//! some key reaches it without `Ctrl` held. Note the predicate: not "has a ⌘
+//! chord". Word motion is `⌥←` on macOS and that is right; `⌃⌥E` holds `Alt`
+//! and is still wrong. What a mac hand objects to is `Ctrl`, so `Ctrl` is what
+//! is asked about. A verb that genuinely should stay `Ctrl`-only goes on
+//! `CTRL_ONLY` with its reason, and that list is empty.
 //!
 //! # The ⌥ and ⌘ chords on the arrows and the delete keys
 //!
@@ -99,12 +126,17 @@
 
 use iridium_editor::commands::builtin::{
     AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE,
-    CONFIG_RELOAD, CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT, CURSOR_DOCUMENT_START,
-    CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_END, CURSOR_LINE_END_SELECT, CURSOR_LINE_START,
-    CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT,
-    CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
-    EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, HISTORY_REDO, HISTORY_TOGGLE_PANEL,
-    HISTORY_UNDO, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME,
+    COMMENT_TOGGLE_LINE, CONFIG_RELOAD, CURSOR_DOCUMENT_END, CURSOR_DOCUMENT_END_SELECT,
+    CURSOR_DOCUMENT_START, CURSOR_DOCUMENT_START_SELECT, CURSOR_LINE_END, CURSOR_LINE_END_SELECT,
+    CURSOR_LINE_START, CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT,
+    CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_TO_LINE_END,
+    EDIT_DELETE_TO_LINE_START, EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD,
+    EXPLORER_TOGGLE_PANEL, HISTORY_NEXT_BRANCH, HISTORY_PREVIOUS_BRANCH, HISTORY_REDO,
+    HISTORY_TOGGLE_PANEL, HISTORY_UNDO, LINES_DELETE, LINES_JOIN, MULTI_CURSOR_ADD_CURSOR_ABOVE,
+    MULTI_CURSOR_ADD_CURSOR_BELOW, MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,
+    MULTI_CURSOR_REMOVE_LAST_CURSOR, MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN,
+    SEARCH_OPEN, SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB,
+    WORKSPACE_PREVIOUS_TAB,
 };
 use iridium_editor::{
     CommandCategory, CommandId, CommandMeta, KeyBinding, KeyCode, Keymap, ModifierPattern,
@@ -217,6 +249,15 @@ const META_NAV: ModifierPattern = pattern(Forbidden, Forbidden, Forbidden, Requi
 const META_SHIFT_NAV: ModifierPattern =
     pattern(Required, Forbidden, Forbidden, Required, Forbidden);
 
+/// A `⌘⌥` chord on a navigation key — the mac spelling of the kernel's
+/// `Ctrl+Alt`+arrow add-cursor pair.
+///
+/// `Shift` is [`Forbidden`], as the kernel's `ADD_CURSOR` forbids it: growing
+/// a selection and spawning a cursor are different verbs and must not share a
+/// chord. `AltGraph` is forbidden for the reason `ADD_CURSOR` forbids it,
+/// though a mac keyboard has no `AltGr` to report.
+const META_ALT_NAV: ModifierPattern = pattern(Forbidden, Forbidden, Required, Required, Forbidden);
+
 /// A bare `⌥` chord on a delete key, `Shift` ignored.
 ///
 /// `Shift` is [`Any`] here for the reason the default keymap's `Backspace`
@@ -284,6 +325,80 @@ const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Char('r'), META_ALT),
         CONFIG_RELOAD,
+    ),
+    // ----- The rows the enumerating test found, 9 Aug 2026 -----
+    //
+    // ⚠️ **Every one of these was missing while the table above looked
+    // complete.** `⌘⌥E` is the one that was noticed, and it was noticed by Tom
+    // pressing it — the panel he most wanted had no ⌘ chord at all while the
+    // three panels beside it did. The rest came out of
+    // `every_ctrl_chord_a_mac_hand_reaches_for_has_a_meta_spelling`, which
+    // enumerates rather than reads, and which is the actual fix here: the rows
+    // are what was missing, the test is what stops the next one going missing.
+    //
+    // The spellings are not invented. Each is what VS Code and Zed bind on
+    // macOS, so a hand that has used either arrives knowing them.
+    (
+        StrokePattern::new(KeyCode::Char('e'), META_ALT),
+        EXPLORER_TOGGLE_PANEL,
+    ),
+    // `⌘/`, the mac spelling of `Ctrl+/`. `Shift` ignored, matching the
+    // kernel's `CTRL_ANY_SHIFT`: on several layouts `/` is a shifted key.
+    (
+        StrokePattern::new(KeyCode::Char('/'), META),
+        COMMENT_TOGGLE_LINE,
+    ),
+    // The undo-tree branch pair, keeping the kernel's reasoning: `⌥` reads as
+    // "the sideways version of", so these sit where `⌘Z` and `⌘⇧Z` already are
+    // in the hand. `META_NO_SHIFT` forbids `Alt` on `⌘Z`, so nothing collides.
+    (
+        StrokePattern::new(KeyCode::Char('z'), META_ALT),
+        HISTORY_PREVIOUS_BRANCH,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('y'), META_ALT),
+        HISTORY_NEXT_BRANCH,
+    ),
+    // `⌘⇧K` deletes a line and `⌘K` opens the palette — the same split the
+    // kernel makes between `Ctrl+Shift+K` and `Ctrl+K`, and it works here for
+    // the same reason: the palette row forbids `Shift`.
+    (
+        StrokePattern::new(KeyCode::Char('k'), META_SHIFT),
+        LINES_DELETE,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('j'), META_NO_SHIFT),
+        LINES_JOIN,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('d'), META),
+        MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('u'), META_NO_SHIFT),
+        MULTI_CURSOR_REMOVE_LAST_CURSOR,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('l'), META_SHIFT),
+        MULTI_CURSOR_SELECT_ALL_OCCURRENCES,
+    ),
+    // The tab strip. The kernel's own comment says `Ctrl+Shift+]` exists
+    // *because* the web face receives it from macOS's `⌘⇧]`; on this face the
+    // ⌘ chord arrives as itself and needs a row of its own.
+    (
+        StrokePattern::new(KeyCode::Char(']'), META_SHIFT),
+        WORKSPACE_NEXT_TAB,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('['), META_SHIFT),
+        WORKSPACE_PREVIOUS_TAB,
+    ),
+    // `⌘W`, `Shift` forbidden — leaving `⌘⇧W` free for a close-window rather
+    // than silently claiming it, which is the kernel's reasoning for
+    // `Ctrl+W`, unchanged.
+    (
+        StrokePattern::new(KeyCode::Char('w'), META_NO_SHIFT),
+        WORKSPACE_CLOSE_TAB,
     ),
 ];
 
@@ -373,6 +488,19 @@ const MAC_CHORDS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Delete, META_DELETE),
         EDIT_DELETE_TO_LINE_END,
+    ),
+    // `⌘⌥↑` / `⌘⌥↓`, the mac spelling of the kernel's `Ctrl+Alt`+arrow. These
+    // belong in *this* table rather than beside the letter rows above: the
+    // default keymap's `Up` and `Down` patterns read only `Shift`, so a chord
+    // on those keys overrides plain caret motion by construction — which is
+    // exactly what this table is for.
+    (
+        StrokePattern::new(KeyCode::Up, META_ALT_NAV),
+        MULTI_CURSOR_ADD_CURSOR_ABOVE,
+    ),
+    (
+        StrokePattern::new(KeyCode::Down, META_ALT_NAV),
+        MULTI_CURSOR_ADD_CURSOR_BELOW,
     ),
 ];
 
@@ -577,6 +705,98 @@ mod tests {
         );
     }
 
+    /// Verbs the kernel binds under `Ctrl` that deliberately have no
+    /// Ctrl-free chord on this face.
+    ///
+    /// A list with a reason against each, so "Ctrl only" is a decision written
+    /// down rather than a row nobody got to. Empty is the goal.
+    const CTRL_ONLY: &[(&str, &str)] = &[];
+
+    /// Whether any key that reaches `id` needs no `Ctrl` held.
+    ///
+    /// ⚠️ **Not "has a ⌘ chord", and the difference is the whole test.** The
+    /// mac spelling of a `Ctrl` chord is sometimes ⌘ and sometimes ⌥ — word
+    /// motion is `⌥←` on every mac editor, not `⌘←`, and `⌥⌫` deletes a word
+    /// — so demanding ⌘ specifically would fail on four verbs this face binds
+    /// correctly. And demanding "⌘ *or* ⌥" would *pass* `⌃⌥E`, which holds
+    /// `Alt` and is exactly the chord that sent Tom looking for a ⌘ one.
+    ///
+    /// What a mac hand actually objects to is `Ctrl`. So that is what is
+    /// asked.
+    fn reachable_without_ctrl(hints: &KeyHintIndex, id: &str) -> bool {
+        hints.hints_for(id).iter().any(|hint| {
+            hint.sequence()
+                .first()
+                .is_some_and(|stroke| !stroke.modifiers.required_modifiers().ctrl)
+        })
+    }
+
+    #[test]
+    fn every_ctrl_chord_a_mac_hand_reaches_for_has_a_meta_spelling() {
+        // ⚠️ **This test exists because reading the table by eye failed.**
+        // The walkthrough written on 9 Aug 2026 asserted `⌘⌥E` opened the file
+        // explorer. It did not — the kernel binds `Ctrl+Alt+E` and this face's
+        // table had `⌘⌥` rows for H, T and R and no E — and Tom found that by
+        // pressing the key, which is the worst possible place to find it.
+        //
+        // The question is asked **per verb, not per stroke**, and that
+        // distinction is the whole reason this passes for the arrows.
+        // `cursor.documentStart` is bound to `Ctrl+Home`, and there is no
+        // `⌘Home` row; a stroke-level check would demand one. But a mac hand
+        // does not reach for `⌘Home`, it reaches for `⌘↑`, and that IS bound —
+        // so the verb has a ⌘ spelling and the stroke never needs one.
+        //
+        // Scoped to the non-modal defaults, which is the surface this face's
+        // layer can reach, and to bindings that *require* `Ctrl`: a plain
+        // arrow needs no mac spelling because it already is one.
+        let hints = KeyHintIndex::build(&session_stack());
+        let excused: BTreeSet<&str> = CTRL_ONLY.iter().map(|(id, _)| *id).collect();
+
+        let mut stranded: Vec<String> = Vec::new();
+        for binding in default_non_modal_keymap().bindings() {
+            let Some(command) = binding.command() else {
+                continue;
+            };
+            let requires_ctrl = binding
+                .sequence()
+                .first()
+                .is_some_and(|stroke| stroke.modifiers.required_modifiers().ctrl);
+            if !requires_ctrl || excused.contains(command.as_str()) {
+                continue;
+            }
+            if !reachable_without_ctrl(&hints, command.as_str()) {
+                stranded.push(command.to_string());
+            }
+        }
+
+        stranded.sort_unstable();
+        stranded.dedup();
+        assert!(
+            stranded.is_empty(),
+            "these verbs answer only to a chord holding Ctrl, on a face whose users \
+             reach for ⌘ and ⌥: {stranded:?} — add the row, or put the id on \
+             CTRL_ONLY with the reason"
+        );
+    }
+
+    #[test]
+    fn nothing_on_the_ctrl_only_list_has_a_meta_spelling_after_all() {
+        // The same staleness guard `nothing_on_the_palette_only_list_is_also_bound`
+        // applies to its list: an excuse that outlived its reason is worse than
+        // no excuse, because the next verb added inherits it.
+        let hints = KeyHintIndex::build(&session_stack());
+        for (id, reason) in CTRL_ONLY {
+            assert!(
+                !reason.is_empty(),
+                "{id} is excused from a Ctrl-free chord with no reason given"
+            );
+            assert!(
+                !reachable_without_ctrl(&hints, id),
+                "{id} has a Ctrl-free chord after all — take it off CTRL_ONLY"
+            );
+        }
+    }
+
     #[test]
     fn no_verb_the_kernel_could_reach_is_stranded_by_this_layer() {
         // The general form of the test above it. That one names the two verbs
@@ -645,13 +865,19 @@ mod tests {
         // **When this fails, thread `args` through `run_host_command` rather
         // than relaxing it.**
         //
-        // ⚠️ `implements_command` is wider than "host command": it also admits
-        // the five `workspace.*` ids, which the kernel does not implement
-        // either and which reach `Workspace::run_command` — an id and nothing
-        // else, so it discards arguments for the same reason this face does.
-        // The message says so, because a failure naming `workspace.closeTab`
-        // would otherwise send the reader looking through `builtin::host` for
-        // an id that is not in it.
+        // ⚠️ **This note used to say `implements_command` admits the five
+        // `workspace.*` ids. It does not** — it is
+        // `actions::action_for(id).is_some()`, the keyboard action table, and
+        // no `workspace.*` id is in it. Proven on 9 Aug 2026 by binding `⌘⇧]`
+        // to `workspace.nextTab`, which made
+        // `every_borrowed_kernel_verb_is_still_a_kernel_verb` fail with
+        // "the kernel neither implements nor names it".
+        //
+        // The consequence for *this* test is that a `workspace.*` id falls
+        // through the `continue` above and gets asserted about, which is
+        // correct and was correct before: those ids reach
+        // `Workspace::run_command`, which takes an id and nothing else, so
+        // they discard arguments exactly as host commands do.
         for binding in keymap().bindings() {
             let Some(command) = binding.command() else {
                 continue;
@@ -683,13 +909,20 @@ mod tests {
 
     #[test]
     fn every_borrowed_kernel_verb_is_still_a_kernel_verb() {
-        // The ⌘ layer binds only verbs the kernel implements or host commands
-        // the kernel *names* (which this face dispatches); a row here for an
-        // id the kernel dropped would be a mac chord that consumes the key
-        // and does nothing.
+        // The ⌘ layer binds only verbs the kernel implements or ids the kernel
+        // *names* for someone else to run; a row here for an id the kernel
+        // dropped would be a mac chord that consumes the key and does nothing.
+        //
+        // **Three families, not two.** `host_command_metas` was the only one
+        // this test knew about until `⌘⇧]` was bound to `workspace.nextTab` on
+        // 9 Aug 2026 and it failed — the `workspace.*` ids are named by
+        // `workspace_command_metas` and dispatched by `Workspace::run_command`,
+        // which is a third destination and was always a legitimate one for this
+        // face to bind. The test was narrower than the code it guarded.
         let ours: BTreeSet<&str> = COMMANDS.iter().map(|meta| meta.id().as_str()).collect();
         let named: BTreeSet<&str> = iridium_editor::commands::builtin::host_command_metas()
             .iter()
+            .chain(iridium_editor::commands::builtin::workspace_command_metas())
             .map(|meta| meta.id().as_str())
             .collect();
         for (_, command) in BINDINGS.iter().chain(MAC_CHORDS) {
@@ -698,7 +931,8 @@ mod tests {
             }
             assert!(
                 Editor::implements_command(command.as_str()) || named.contains(command.as_str()),
-                "{command} is bound here but the kernel neither implements nor names it"
+                "{command} is bound here but the kernel neither implements it, nor names \
+                 it as a host command, nor names it as a workspace command"
             );
         }
     }

@@ -11,7 +11,7 @@
 //! # The grammar
 //!
 //! ```text
-//! iridium [OPTIONS] [FILE]
+//! iridium [OPTIONS] [PATH]
 //!
 //!   -l, --line <N>     put the caret on line N, counting from one
 //!   +N                 the same, in the form every terminal editor accepts
@@ -19,12 +19,26 @@
 //!       --read-only    open the file without allowing edits
 //!   -h, --help         print this and exit
 //!   -V, --version      print the version and exit
-//!       --             stop reading options; everything after is the file
+//!       --             stop reading options; everything after is the path
 //! ```
 //!
-//! With no file, an empty unnamed buffer is opened. Saving one asks for a name
+//! With no path, an empty unnamed buffer is opened. Saving one asks for a name
 //! rather than failing, so the no-path case is a complete path through the
 //! program rather than a dead end.
+//!
+//! # ⭐ A file or a directory, decided where the filesystem is
+//!
+//! `iridium ~/project` opens the folder as a project, with the file tree
+//! already up; `iridium notes.md` opens a file. **Which one it is, is not
+//! decided here.** Telling them apart means asking the filesystem, and this
+//! module is a pure function over its arguments — that is what lets every rule
+//! above be tested with no fixture on disk, including the non-UTF-8 one that
+//! cannot be written portably.
+//!
+//! So the path is carried whole and [`App::new`](crate::app::App::new) does the
+//! one `is_dir` that decides. A path that does not exist is a **file** — a name
+//! to write to — which is the existing promise and the reason a typo does not
+//! silently become an empty project.
 //!
 //! # What is rejected
 //!
@@ -44,13 +58,16 @@ const PROGRAM: &str = "iridium";
 
 /// The usage text, printed by `--help` and after a parse error.
 pub const USAGE: &str = "\
-Usage: iridium [OPTIONS] [FILE]
+Usage: iridium [OPTIONS] [PATH]
 
 A GPU-class editing kernel behind a terminal face.
 
 Arguments:
-  [FILE]              The file to open. Created on save if it does not exist.
-                      With no file, an empty unnamed buffer is opened.
+  [PATH]              A file to open, or a directory to open as a project —
+                      a directory comes up with the file tree already on
+                      screen. A path that does not exist is a file, created
+                      on save. With no path, an empty unnamed buffer is
+                      opened.
 
 Options:
   -l, --line <N>      Put the caret on line N, counting from one.
@@ -60,7 +77,7 @@ Options:
       --read-only     Open the file without allowing edits.
   -h, --help          Print this help and exit.
   -V, --version       Print the version and exit.
-      --              Stop reading options; the next argument is the file.
+      --              Stop reading options; the next argument is the path.
 ";
 
 /// What the command line asked for.

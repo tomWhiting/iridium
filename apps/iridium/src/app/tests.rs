@@ -140,19 +140,92 @@ fn a_path_with_nothing_at_it_is_a_new_empty_buffer() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_file_that_cannot_be_read_is_reported_before_the_terminal_opens() {
+    // ⚠️ **This used to pass a directory**, on the reasoning that reading one
+    // fails everywhere. #112d step 6 made a directory a project, so that path
+    // now succeeds and the test would have gone on passing for the wrong
+    // reason — it asserts an error, and one would still have come from
+    // somewhere. A file with its read bit off is the unreadable thing now, and
+    // it is unix-only because permissions are.
+    //
+    // `expect_err` is not available: `App` is not `Debug`, because the kernel's
+    // `Editor` is not.
+    use std::os::unix::fs::PermissionsExt as _;
+
     let directory = TempDir::new("app-unreadable");
-    // A directory is not a file, and reading one fails on every platform this
-    // runs on. `expect_err` is not available: `App` is not `Debug`, because the
-    // kernel's `Editor` is not.
+    let path = directory.path().join("secret.txt");
+    fs::write(&path, "unreadable").expect("the fixture could be written");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
+        .expect("the fixture's permissions could be set");
+
     let outcome = App::new(Options {
-        path: Some(directory.path().to_path_buf()),
+        path: Some(path),
         ..Options::default()
     });
     let Err(error) = outcome else {
-        panic!("a directory is not a document");
+        panic!("a file that cannot be read is not a document");
     };
     assert!(!error.to_string().is_empty());
+}
+
+#[test]
+fn a_directory_argument_opens_it_as_a_project_with_the_tree_already_up() {
+    // ⭐ R5, and the case Tom named: `iridium ~/project` comes up with the tree
+    // on screen, not with an empty buffer and a chord to discover.
+    let directory = TempDir::new("app-project");
+    fs::write(directory.path().join("alpha.txt"), "a").expect("the fixture could be written");
+
+    let mut app = App::new(Options {
+        path: Some(directory.path().to_path_buf()),
+        ..Options::default()
+    })
+    .expect("a directory opens as a project");
+
+    assert!(
+        app.is_explorer_open(),
+        "the tree was not up when the editor was"
+    );
+    assert!(
+        app.file().is_none(),
+        "a directory names no file, so the buffer is unnamed"
+    );
+    assert_eq!(app.editor().content(), "");
+
+    // The panel reads on a worker thread, so the listing lands some frames
+    // later; the render is what polls it.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let screen = frame(&mut app, 80, 24).join("\n");
+        if screen.contains("alpha.txt") {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the project's files never reached the screen:\n{screen}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn a_path_that_does_not_exist_is_a_file_and_never_an_empty_project() {
+    // The trap the `is_dir` decision could have introduced: a mistyped
+    // directory name silently becoming a project would throw away the name the
+    // user typed, and `iridium notes.md` in a fresh directory is the promise
+    // the usage text makes.
+    let directory = TempDir::new("app-typo");
+    let app = App::new(Options {
+        path: Some(directory.path().join("projekt")),
+        ..Options::default()
+    })
+    .expect("a path with nothing at it still opens");
+
+    assert!(!app.is_explorer_open(), "a typo became a project");
+    assert!(
+        app.file().is_some(),
+        "the name the user typed was not kept as a file to write to"
+    );
 }
 
 #[test]

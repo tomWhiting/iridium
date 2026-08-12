@@ -63,6 +63,7 @@
 //! plus one `mod`.
 
 mod explorer;
+mod history;
 mod palette;
 #[cfg(test)]
 mod tests;
@@ -77,6 +78,10 @@ pub use explorer::{
     EXPLORER_MOVE_DOWN, EXPLORER_MOVE_TO_FIRST, EXPLORER_MOVE_TO_LAST, EXPLORER_MOVE_UP,
     EXPLORER_QUERY_BACKSPACE, EXPLORER_REFUSED_DISMISS, EXPLORER_REFUSED_MODE, EXPLORER_ROOT_ABOVE,
     EXPLORER_ROOT_AT_SELECTION, EXPLORER_TOGGLE_HIDDEN,
+};
+pub use history::{
+    HISTORY_DISMISS, HISTORY_JUMP, HISTORY_MODE, HISTORY_SELECT_FIRST, HISTORY_SELECT_LAST,
+    HISTORY_SELECT_NEXT, HISTORY_SELECT_PAGE_DOWN, HISTORY_SELECT_PAGE_UP, HISTORY_SELECT_PREVIOUS,
 };
 pub use palette::{
     PALETTE_ACCEPT, PALETTE_CARET_END, PALETTE_CARET_HOME, PALETTE_CARET_LEFT, PALETTE_CARET_RIGHT,
@@ -94,7 +99,7 @@ use crate::commands::{CommandMeta, CommandRegistry, RegistryError};
 /// enumeration order, so it is kept in the order the panels were converted
 /// rather than sorted — a reader tracing a command back to its file is helped
 /// more by "which panel" than by alphabetical.
-pub const TABLES: &[&[CommandMeta]] = &[explorer::EXPLORER, palette::PALETTE];
+pub const TABLES: &[&[CommandMeta]] = &[explorer::EXPLORER, palette::PALETTE, history::HISTORY];
 
 /// The number of panel commands the kernel names.
 ///

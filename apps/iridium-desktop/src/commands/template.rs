@@ -45,6 +45,14 @@ const PALETTE_NOTE: &str = "\
 The keys the palette answers while it is open. They apply there and nowhere
 else, so binding one of these takes nothing away from the document.";
 
+/// The heading the undo tree's own bindings appear under.
+const HISTORY_TITLE: &str = "The undo tree";
+
+/// What is said under that heading.
+const HISTORY_NOTE: &str = "\
+The keys the undo-tree panel answers while it is open. They apply there and
+nowhere else, so binding one of these takes nothing away from the document.";
+
 /// Writes the default configuration file at `path` if nothing is there,
 /// including this face's own bindings and commands in the list.
 ///
@@ -66,6 +74,7 @@ pub fn create_config_if_absent(path: &Path) -> io::Result<Created> {
     // No commands are contributed alongside it: the palette's verbs are the
     // *kernel's*, and the generator already reads those from the registry.
     let palette_keymap = crate::command_palette::default_keymap();
+    let history_keymap = crate::history_overlay::default_keymap();
     iridium_config::create_if_absent(
         path,
         &[
@@ -79,6 +88,12 @@ pub fn create_config_if_absent(path: &Path) -> io::Result<Created> {
                 title: PALETTE_TITLE,
                 note: PALETTE_NOTE,
                 keymap: &palette_keymap,
+                commands: &[],
+            },
+            FaceKeys {
+                title: HISTORY_TITLE,
+                note: HISTORY_NOTE,
+                keymap: &history_keymap,
                 commands: &[],
             },
         ],
@@ -123,31 +138,46 @@ mod tests {
         );
     }
 
-    /// ⭐ **#117's half of the same rule.** The palette's keys are a layer only
-    /// this face can hand over, so a file that omitted them would claim to list
-    /// every binding while leaving out sixteen.
+    /// ⭐ **#117's half of the same rule.** A panel's keys are a layer only this
+    /// face can hand over, so a file that omitted one would claim to list every
+    /// binding while leaving out a whole panel's worth.
+    ///
+    /// ⚠️ **Written over every panel this face contributes, not over one.** The
+    /// palette was the first; the undo tree was the second, and a test naming
+    /// only the palette would have gone on passing while the undo tree's ten
+    /// chords were absent. A panel added to `create_config_if_absent` and missed
+    /// here is the exact drift this shape prevents.
     ///
     /// Asserted on the chord *and* the command together on one line, because
     /// the command alone would also appear in the unbound reference section —
     /// which is exactly the failure this is written to catch.
     #[test]
-    fn the_written_file_lists_the_palettes_own_keys() {
-        let directory = TempDir::new("desktop-config-palette");
+    fn the_written_file_lists_every_panels_own_keys() {
+        let directory = TempDir::new("desktop-config-panels");
         let path = directory.path().join("config.toml");
         create_config_if_absent(&path).expect("the file was written");
         let text = fs::read_to_string(&path).expect("it is readable");
 
-        for binding in crate::command_palette::default_keymap().bindings() {
-            let id = binding
-                .command()
-                .expect("no default palette binding is a suppression");
-            let sequence = binding.display_sequence();
-            assert!(
-                text.lines()
-                    .any(|line| line.contains(&sequence) && line.contains(id.as_str())),
-                "`{sequence}` = `{id}` is a palette binding the written file does \
-                 not carry"
-            );
+        let panels = [
+            (
+                "the command palette",
+                crate::command_palette::default_keymap(),
+            ),
+            ("the undo tree", crate::history_overlay::default_keymap()),
+        ];
+        for (panel, keymap) in &panels {
+            for binding in keymap.bindings() {
+                let id = binding
+                    .command()
+                    .expect("no default panel binding is a suppression");
+                let sequence = binding.display_sequence();
+                assert!(
+                    text.lines()
+                        .any(|line| line.contains(&sequence) && line.contains(id.as_str())),
+                    "`{sequence}` = `{id}` is a binding of {panel} that the \
+                     written file does not carry"
+                );
+            }
         }
     }
 

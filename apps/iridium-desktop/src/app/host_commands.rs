@@ -144,6 +144,7 @@ impl DesktopApp {
         // would leave the panel on the bindings the session started with while
         // every other layer had reloaded.
         self.palette.set_user_keymap(&self.user_keys);
+        self.history.set_user_keymap(&self.user_keys);
         problems.extend(config::replace_user_bindings(
             &mut self.workspace,
             user.bindings.clone(),

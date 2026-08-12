@@ -30,6 +30,7 @@ use crate::highlight::HighlightCache;
 use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
 use crate::mouse::Pointer;
+use crate::overlay::{PaintedFrame, PanelKind};
 use crate::prompt::{Message, Prompt};
 use crate::search::SearchOverlay;
 
@@ -135,6 +136,24 @@ pub struct DesktopApp {
     /// The kernel's mouse machinery plus the pointer state winit reports
     /// piecemeal. See [`crate::mouse`].
     pub(super) pointer: Pointer,
+    /// Where everything the last frame drew landed.
+    ///
+    /// ⭐ **Every question about *where* the pointer is is answered against
+    /// this, and never against geometry recomputed from state that may have
+    /// moved since.** The frame on screen is the frame the user aimed at; a
+    /// placement recomputed now would answer for a panel that has since been
+    /// filtered, scrolled or closed.
+    ///
+    /// Owned here rather than by the painter, which cannot be built without a
+    /// GPU device — and a hit test reachable only through a device is a hit
+    /// test no test can reach. See [`crate::overlay::PaintedFrame`].
+    pub(super) painted: PaintedFrame,
+    /// Which panel row the pointer is resting on, if any.
+    ///
+    /// The *kind* as well as the row, because a bare row index would follow
+    /// the pointer from one panel onto another and highlight the same-numbered
+    /// row of whatever it landed on.
+    pub(super) hover: Option<(PanelKind, usize)>,
     /// The system clipboard, opened lazily so a pasteboard that cannot be
     /// reached fails on the keystroke that needed it — visibly — rather than
     /// at startup.

@@ -32,7 +32,7 @@ use crate::highlight::HighlightCache;
 use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
 use crate::mouse::Pointer;
-use crate::overlay::OverlayPainter;
+use crate::overlay::{OverlayPainter, PaintedFrame};
 use crate::project;
 use crate::prompt::Message;
 use crate::search::SearchOverlay;
@@ -351,6 +351,8 @@ impl DesktopApp {
             shell: None,
             modifiers: ModifiersState::empty(),
             pointer: Pointer::new(),
+            painted: PaintedFrame::default(),
+            hover: None,
             clipboard: None,
             search: SearchOverlay::new(),
             search_open: false,

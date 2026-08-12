@@ -5,10 +5,13 @@ use iridium_panel::{
     EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,
 };
 
-use super::content::{PanelAnchor, PanelContent};
+use super::content::{PanelAnchor, PanelContent, PanelKind};
+use super::frame::{PaintedFrame, PaintedPanel};
 use super::geometry::{GridMetrics, fit_for, panel_geometry, sidebar_fit_for};
 use super::metrics::{PAD_X, PAD_Y, SIDEBAR_MAX_FRACTION, TOP_ANCHOR_FRACTION};
-use super::paint::{hairline_color, panel_background, panel_spans, scroll_for, strip_background};
+use super::paint::{
+    hairline_color, hover_color, panel_background, panel_spans, scroll_for, strip_background,
+};
 use crate::tab_strip::tab_strip_height;
 use crate::units::index_to_f32;
 use iridium_editor::theme::Color;
@@ -434,6 +437,7 @@ fn a_row_wider_than_the_panel_is_truncated_on_a_character_boundary() {
         content_columns: 4,
         rows: vec![PanelRow::new(vec![Span::new("héllo!", white)])],
         caret: None,
+        hovered: None,
     };
     let text: String = panel_spans(&panel, white)
         .iter()
@@ -660,6 +664,128 @@ fn every_light_preset_frames_its_panels_harder_than_the_dark_one_does() {
             "{}: its frame is no crisper than the dark preset's, so the \
              0.55/0.85 the ruling asked for did not reach the screen",
             theme.name
+        );
+    }
+}
+
+/// A painted record of `panels` at the given placements.
+fn record(panels: &[(PanelKind, Option<super::PanelGeometry>, usize)]) -> PaintedFrame {
+    PaintedFrame {
+        panels: panels
+            .iter()
+            .map(|&(kind, geometry, rows)| PaintedPanel {
+                kind,
+                geometry,
+                rows,
+            })
+            .collect(),
+        tabs: None,
+    }
+}
+
+/// ⭐ **Later panels are drawn over earlier ones, so a pixel two of them share
+/// belongs to the one on top.** Reading the record forwards would hand a press
+/// on a context menu to the sidebar it was opened over — the panel underneath,
+/// which is the one the user demonstrably cannot see there.
+#[test]
+fn the_topmost_painted_panel_owns_a_shared_pixel() {
+    let under = placed(PanelAnchor::Top, 6, 40, 0.0);
+    let over = placed(PanelAnchor::Top, 4, 40, 0.0);
+    let frame = record(&[
+        (PanelKind::Explorer, Some(under), 6),
+        (PanelKind::Menu, Some(over), 4),
+    ]);
+    let hit = frame
+        .hit(over.content_x + 1.0, over.content_y + 1.0)
+        .expect("the pixel is on both panels");
+    assert_eq!(hit.kind, PanelKind::Menu);
+}
+
+/// A panel the window could not hold swallows nothing: it is on the record so
+/// the entry order is stable, and it is `None` so no pixel resolves to it.
+#[test]
+fn a_panel_that_could_not_be_drawn_takes_no_press() {
+    let drawn = placed(PanelAnchor::Top, 6, 40, 0.0);
+    let frame = record(&[
+        (PanelKind::Explorer, Some(drawn), 6),
+        (PanelKind::Palette, None, 12),
+    ]);
+    let hit = frame
+        .hit(drawn.content_x + 1.0, drawn.content_y + 1.0)
+        .expect("the drawn panel takes it");
+    assert_eq!(hit.kind, PanelKind::Explorer);
+}
+
+/// The padding is part of the panel and is not a row — one hit with two honest
+/// halves, so a press there is kept from the document and runs nothing.
+#[test]
+fn the_padding_is_on_the_panel_and_on_no_row() {
+    let geometry = placed(PanelAnchor::Top, 4, 40, 0.0);
+    let frame = record(&[(PanelKind::Palette, Some(geometry), 4)]);
+    let bottom = geometry.exterior.y + geometry.exterior.height - 1.0;
+    let hit = frame
+        .hit(geometry.content_x + 1.0, bottom)
+        .expect("the padding is on the panel");
+    assert_eq!(hit.row, None, "and it is on no row");
+    assert_eq!(hit.rows, 4, "the record carries what was drawn");
+}
+
+/// ⚠️ The row count comes from the record rather than from the panel as it is
+/// *now*: a listing that landed between the frame and the click would otherwise
+/// move the boundary between the last row and the padding under the pointer.
+#[test]
+fn the_last_row_is_the_last_row_the_frame_actually_drew() {
+    let geometry = placed(PanelAnchor::Top, 6, 40, 0.0);
+    // Six rows of room, two of them drawn: rows two upwards are padding.
+    let frame = record(&[(PanelKind::Explorer, Some(geometry), 2)]);
+    let third = 2.5_f32.mul_add(geometry.line_height, geometry.content_y);
+    let hit = frame
+        .hit(geometry.content_x + 1.0, third)
+        .expect("still on the panel");
+    assert_eq!(hit.row, None);
+}
+
+/// Nothing under the pointer is the answer that lets a press reach the
+/// document.
+#[test]
+fn a_pixel_off_every_panel_is_on_none_of_them() {
+    let geometry = placed(PanelAnchor::Top, 4, 40, 0.0);
+    let frame = record(&[(PanelKind::Palette, Some(geometry), 4)]);
+    assert!(
+        frame
+            .hit(geometry.exterior.x - 1.0, geometry.exterior.y)
+            .is_none()
+    );
+    assert!(!frame.is_on_a_panel(0.0, 0.0));
+    assert!(PaintedFrame::default().hit(10.0, 10.0).is_none());
+}
+
+/// The hover band has to be visible against the panel it sits on and
+/// distinguishable from the selection beside it — in both presets, since the
+/// colour is derived from whatever the theme nominates rather than chosen.
+#[test]
+fn the_hover_band_is_visible_and_is_not_the_selection() {
+    for theme in [Theme::dark(), Theme::light()] {
+        let hover = hover_color(&theme);
+        let background = panel_background(&theme);
+        let selection = theme.editor.selection;
+        assert!(
+            (hover.a - 1.0).abs() < f32::EPSILON,
+            "every quad in the chrome is opaque"
+        );
+        let from_background = (hover.r - background.r).abs()
+            + (hover.g - background.g).abs()
+            + (hover.b - background.b).abs();
+        assert!(
+            from_background > 0.02,
+            "a hover nobody can see is a panel that reads as dead: {hover:?} on {background:?}"
+        );
+        let from_selection = (hover.r - selection.r).abs()
+            + (hover.g - selection.g).abs()
+            + (hover.b - selection.b).abs();
+        assert!(
+            from_selection > 0.02,
+            "the row the mouse is over must not read as the row Enter would act on"
         );
     }
 }

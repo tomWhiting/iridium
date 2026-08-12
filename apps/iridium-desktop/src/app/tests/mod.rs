@@ -4,6 +4,7 @@
 //! a failure names the surface it belongs to before you open the file.
 
 mod config;
+mod panel_mouse;
 mod panels;
 mod project;
 mod saving;

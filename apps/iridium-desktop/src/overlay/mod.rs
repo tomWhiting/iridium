@@ -81,16 +81,20 @@
 //! - [`metrics`] — the design values, and the two theme-dependent choices.
 //! - [`content`] — the vocabulary a panel is composed in. No pixels.
 //! - [`geometry`] — where a composed panel lands. A pure function, no device.
+//! - [`frame`] — what the last frame actually put on screen, and the hit test
+//!   that reads it back. No device, which is what makes the pointer testable.
 //! - [`paint`] — the render passes. Everything that touches the GPU.
 
 mod content;
+mod frame;
 mod geometry;
 mod metrics;
 mod paint;
 #[cfg(test)]
 mod tests;
 
-pub use content::{PanelAnchor, PanelContent, StripContent};
+pub use content::{PanelAnchor, PanelContent, PanelKind, StripContent};
+pub use frame::{PaintedFrame, PaintedPanel, PanelHit};
 // Re-exported rather than re-declared: the vocabulary left this face for
 // `iridium-panel` so the file explorer could reach the terminal one, and every
 // builder here still composes against `crate::overlay::Span` as it always did.

@@ -102,7 +102,18 @@ impl DesktopApp {
         let Some(editor) = self.workspace.active_editor() else {
             return Flow::Running;
         };
-        match self.palette.handle_key(event, editor, &self.mru) {
+        let outcome = self.palette.handle_key(event, editor, &self.mru);
+        self.apply_palette_outcome(outcome)
+    }
+
+    /// Acts on what the palette decided, whichever input asked it.
+    ///
+    /// ⭐ **One handler, two callers.** A key and a press both resolve to a
+    /// [`PaletteOutcome`], and they have to mean the same thing afterwards —
+    /// a second copy of these three arms would be a second definition of what
+    /// running a command from the palette costs.
+    pub(super) fn apply_palette_outcome(&mut self, outcome: PaletteOutcome) -> Flow {
+        match outcome {
             PaletteOutcome::Handled => Flow::Running,
             PaletteOutcome::Closed => {
                 self.palette_open = false;
@@ -145,7 +156,18 @@ impl DesktopApp {
         let Some(explorer) = self.explorer.as_mut() else {
             return Flow::Running;
         };
-        match explorer.handle_key(event) {
+        let outcome = explorer.handle_key(event);
+        self.apply_explorer_outcome(outcome)
+    }
+
+    /// Acts on what the explorer decided, whichever input asked it.
+    ///
+    /// ⭐ **One handler, two callers** — a key and a press. Opening a file is
+    /// the arm that matters most: it goes through
+    /// [`open_file`](Self::open_file), the same path a drop takes, so no input
+    /// can grow its own idea of what opening means.
+    pub(super) fn apply_explorer_outcome(&mut self, outcome: ExplorerOutcome) -> Flow {
+        match outcome {
             ExplorerOutcome::Handled => Flow::Running,
             // ⭐ **What `Escape` means depends on the placement, and this is
             // the only place that difference is spelled.** A popover is a
@@ -188,7 +210,13 @@ impl DesktopApp {
         let Some(editor) = self.workspace.active_editor() else {
             return Flow::Running;
         };
-        match self.history.handle_key(event, editor) {
+        let outcome = self.history.handle_key(event, editor);
+        self.apply_history_outcome(outcome)
+    }
+
+    /// Acts on what the undo-tree panel decided, whichever input asked it.
+    pub(super) fn apply_history_outcome(&mut self, outcome: HistoryOutcome) -> Flow {
+        match outcome {
             HistoryOutcome::Handled => Flow::Running,
             HistoryOutcome::Closed => {
                 self.history_open = false;

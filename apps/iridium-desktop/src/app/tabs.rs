@@ -124,10 +124,7 @@ impl DesktopApp {
     /// recomputed from a workspace that may have changed since.
     pub(super) fn tab_strip_press(&mut self) -> bool {
         let (x, y) = self.pointer.position();
-        let Some(shell) = &self.shell else {
-            return false;
-        };
-        let Some(layout) = shell.overlay.painted_tab_strip() else {
+        let Some(layout) = self.painted.tabs.as_ref() else {
             return false;
         };
         if !layout.contains(x, y) {

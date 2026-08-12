@@ -111,6 +111,19 @@ pub struct TreeViewSelection {
     scroll: usize,
     /// How many rows the window last showed — the page the page keys hop.
     window: usize,
+    /// The selected row the window last followed.
+    ///
+    /// ⭐ **What separates "the selection moved" from "a frame happened".**
+    /// [`Self::scroll_rows`] moves the window and deliberately leaves the
+    /// selection alone; without this, the next [`Self::follow`] — which runs
+    /// once per frame — would drag the window straight back to the selection
+    /// and the list would spring back under the pointer.
+    ///
+    /// A *row*, not a node id, unlike [`Self::selected`]: what the window has
+    /// to chase is where the selection sits in the rows now, and a re-linearize
+    /// that moved the same node to a different row is exactly the case where
+    /// the window should follow it there.
+    followed: Option<usize>,
 }
 
 impl TreeViewSelection {
@@ -125,6 +138,7 @@ impl TreeViewSelection {
             selected: None,
             scroll: 0,
             window,
+            followed: None,
         }
     }
 
@@ -132,6 +146,7 @@ impl TreeViewSelection {
     pub const fn reset(&mut self) {
         self.selected = None;
         self.scroll = 0;
+        self.followed = None;
     }
 
     /// The first visible row.
@@ -186,22 +201,61 @@ impl TreeViewSelection {
         }
     }
 
+    /// Selects the node on row `index`, reporting whether there was one.
+    ///
+    /// The pointer's way in: a press resolves to a row, and a row is what this
+    /// takes. Everything downstream — the jump, the highlight, the window —
+    /// then behaves exactly as it does after an arrow key, because the state
+    /// it all reads is the same state.
+    pub fn select_row(&mut self, rows: &[TreeViewRow<'_>], index: usize) -> bool {
+        let Some(row) = rows.get(index) else {
+            return false;
+        };
+        let Ok(id) = row.node.id.parse::<u64>() else {
+            return false;
+        };
+        self.selected = Some(id);
+        true
+    }
+
+    /// Moves the window `delta` rows without touching the selection.
+    ///
+    /// Clamped at the top only; the bottom is clamped by [`Self::follow`] on
+    /// the next composition, which is the one place that knows both how many
+    /// rows there are and how many the window is showing.
+    pub const fn scroll_rows(&mut self, delta: isize) {
+        self.scroll = if delta < 0 {
+            self.scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.scroll.saturating_add(delta.unsigned_abs())
+        };
+    }
+
     /// Slides the scroll window so the selection is inside `visible` rows,
     /// and remembers `visible` as the page size.
     ///
     /// Called from a face's paint pass, because painting is where the real
     /// window height is known.
+    ///
+    /// ⭐ **The window follows the selection when the selection *moves*, and
+    /// not otherwise.** See [`Self::followed`] — a wheel moves the window and
+    /// nothing else, and a rule that re-centred every frame would undo it
+    /// before the frame reached the screen.
     pub fn follow(&mut self, rows: &[TreeViewRow<'_>], visible: usize) {
         self.window = visible.max(1);
         if visible == 0 || rows.is_empty() {
             self.scroll = 0;
+            self.followed = None;
             return;
         }
         let selected = self.selected_row(rows).unwrap_or(0);
-        if selected < self.scroll {
-            self.scroll = selected;
-        } else if selected >= self.scroll + visible {
-            self.scroll = selected + 1 - visible;
+        if self.followed != Some(selected) {
+            self.followed = Some(selected);
+            if selected < self.scroll {
+                self.scroll = selected;
+            } else if selected >= self.scroll + visible {
+                self.scroll = selected + 1 - visible;
+            }
         }
         self.scroll = self.scroll.min(rows.len().saturating_sub(visible));
     }

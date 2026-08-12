@@ -622,14 +622,28 @@ Each step is checkable on its own, and the first two are strictly refactor.
 
 ---
 
-## Where this leaves #112
+## ✅ Where this leaves #112 — CLOSED 13 Aug 2026
 
-Parts A, B and C are landed and installed. Part D is the last of Tom's
-sentence, and **steps 1, 2a, 2b, 2c, 3 and 4 are landed** — the file explorer
-is face-independent, whole, in `iridium-panel`, and `Ctrl+Alt+E` puts it on
-screen in the terminal. What is left is **step 5** (the left band in
-`FrameLayout`, so the panel can be a sidebar rather than a popover) and
-**step 6** (`iridium <dir>`).
+Parts A, B, C **and D** are landed and installed. **All six steps of part D are
+done.** The file explorer is face-independent and whole in `iridium-panel`;
+`Ctrl+Alt+E` puts it on screen in the terminal; `Ctrl+Alt+B` makes it a band
+that takes columns from the document; and `iridium <dir>` comes up with the
+tree already there.
+
+**What #112 deliberately did not do,** each already owned by a task so nothing
+is silently dropped:
+
+- **The panel mouse in the terminal.** R6. `geometry.rs` still says hit testing
+  "will need" the text area. Additive on a working keyboard-driven panel — and
+  note the band now moves `TextArea::origin`, so a click-to-position that
+  assumed column zero would be wrong from its first line.
+- **Sidebar persistence across restart.** R6, and still #59/#102/#105's.
+- **A drag handle for the band's width.** R3. `SIDEBAR_WIDTH` is a constant;
+  making it a config key is the smaller half of that.
+- **#113, the terminal face's modality.** R6 says it is its own task. It is also
+  what decides whether a session opened on a directory comes up as a sidebar
+  rather than a popover — see step 6 for why the popover is right *until* then.
+- **Oil apply on the frame thread** (#99), untouched by any of this.
 
 ⛔ **Not installed.** `bundle/install.sh` refuses while `iridium-desktop` runs,
 by design, and pid 69873 is still up. Nothing here is on Tom's machine yet.

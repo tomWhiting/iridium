@@ -5,11 +5,11 @@
 //! coloured runs the compositor draws.
 
 use iridium_editor::render::{
-    HighlightContext, HighlightSource, SpanRun, flatten_spans, snap_down,
+    HighlightContext, HighlightSource, RunStyle, SpanRun, flatten_spans, snap_down,
 };
 use iridium_editor::span_index::SpanIndex;
 use iridium_editor::syntax::highlight_to_color;
-use iridium_editor::theme::{Color, SyntaxColors};
+use iridium_editor::theme::SyntaxColors;
 
 /// The per-frame [`HighlightSource`]: the cached span index and the theme's
 /// syntax colours, borrowed for exactly one `compose` call.
@@ -34,7 +34,7 @@ pub struct FrameHighlights<'a> {
 }
 
 impl HighlightSource for FrameHighlights<'_> {
-    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         let index = self.index?;
         Some(rich_spans(index, context, self.colors))
     }
@@ -48,14 +48,23 @@ impl HighlightSource for FrameHighlights<'_> {
     }
 }
 
-/// Resolves the indexed spans against one frame's visible content: coloured
+/// Resolves the indexed spans against one frame's visible content: styled
 /// runs in order, gaps filled with the theme foreground, the whole content
 /// covered.
+///
+/// ⚠️ **Every run comes back [`RunStyle::plain`] for now, and that is a
+/// statement about the theme rather than about this function.** A weight or a
+/// slant has to come from somewhere, and the only thing mapping a capture to
+/// an appearance today is `highlight_to_color`, which — as the name says —
+/// answers with a colour. Inventing a rule here ("italicise comments") would
+/// be this face deciding something the theme owns, and the two faces would
+/// then disagree about what a comment looks like. The seam is widened; what
+/// flows through it is the theme's business, and that is the next piece.
 fn rich_spans<'a>(
     index: &SpanIndex,
     context: &HighlightContext<'a>,
     colors: &SyntaxColors,
-) -> Vec<(&'a str, Color)> {
+) -> Vec<(&'a str, RunStyle)> {
     let visible = context.content;
     let start_byte = context.content_start_byte;
     let end_byte = start_byte.saturating_add(visible.len());
@@ -83,7 +92,7 @@ fn rich_spans<'a>(
             let colour = run.payload.map_or(context.foreground, |highlight| {
                 highlight_to_color(highlight, colors)
             });
-            (&visible[run.start..run.end], colour)
+            (&visible[run.start..run.end], RunStyle::plain(colour))
         })
         .collect()
 }

@@ -64,8 +64,9 @@ use std::io::Write as _;
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
-use iridium_editor::theme::Color;
+use iridium_editor::render::{
+    FrameCompositor, FrameTarget, HighlightContext, HighlightSource, RunStyle,
+};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers, Position};
 
 /// Offscreen frame width in physical pixels — a realistic window, not a
@@ -100,7 +101,7 @@ fn die(message: &str) -> ! {
 struct NoHighlights;
 
 impl HighlightSource for NoHighlights {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         None
     }
 

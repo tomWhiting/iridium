@@ -74,7 +74,9 @@
 
 use glyphon::{Buffer, TextBounds};
 use iridium_editor::IridiumError;
-use iridium_editor::render::{FrameTarget, RoundedQuad, RoundedQuadRenderer, TextRenderer};
+use iridium_editor::render::{
+    FrameTarget, RoundedQuad, RoundedQuadRenderer, RunStyle, TextRenderer,
+};
 use iridium_editor::theme::{Color, Theme};
 use wgpu::{
     CommandEncoderDescriptor, Device, LoadOp, Operations, Queue, RenderPassColorAttachment,
@@ -1073,7 +1075,9 @@ impl OverlayPainter {
         let mut buffer = self.text.create_buffer(None);
         self.text.set_rich_text(
             &mut buffer,
-            spans.iter().map(|span| (span.text.as_str(), span.color)),
+            spans
+                .iter()
+                .map(|span| (span.text.as_str(), RunStyle::plain(span.color))),
         );
         self.text.shape_buffer(&mut buffer);
         Some((buffer, layout))
@@ -1266,7 +1270,9 @@ impl OverlayPainter {
         let mut buffer = self.text.create_buffer(None);
         self.text.set_rich_text(
             &mut buffer,
-            spans.iter().map(|span| (span.text.as_str(), span.color)),
+            spans
+                .iter()
+                .map(|span| (span.text.as_str(), RunStyle::plain(span.color))),
         );
         self.text.shape_buffer(&mut buffer);
         Some(ShapedPanel {

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use crate::render::style::RunStyle;
 use crate::render::viewport::ViewportConfig;
 use crate::theme::Color;
 
@@ -40,7 +41,7 @@ pub struct HighlightContext<'a> {
 /// [`FrameCompositor::compose`](super::FrameCompositor::compose) calls this
 /// once per frame, only when syntax highlighting is enabled. Returning `Some`
 /// paints the given spans (slices of [`HighlightContext::content`] paired with
-/// colors, in order, gaps included); returning `None` says "I have nothing
+/// styles, in order, gaps included); returning `None` says "I have nothing
 /// this frame", and what the compositor does next is [`Self::language_active`]'s
 /// answer: with a language set the built-in keyword highlighter bridges the
 /// span-less frame, with none the content renders plain — the same decision
@@ -51,7 +52,7 @@ pub trait HighlightSource {
     /// Resolves this frame's highlight spans against the visible content, or
     /// `None` when it has nothing this frame — see [`Self::language_active`]
     /// for what a `None` renders as.
-    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>>;
+    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>>;
 
     /// Whether a language is set for the document this source highlights.
     ///

@@ -34,7 +34,7 @@ fn rust_source_resolves_to_keyword_and_string_coloured_runs() {
     let colour_of = |needle: &str| {
         runs.iter()
             .find(|(text, _)| text.contains(needle))
-            .map(|(_, colour)| *colour)
+            .map(|(_, style)| style.color)
     };
     assert_eq!(
         colour_of("fn"),
@@ -47,7 +47,7 @@ fn rust_source_resolves_to_keyword_and_string_coloured_runs() {
         "the literal paints as a string"
     );
     assert!(
-        runs.iter().any(|(_, colour)| *colour == foreground),
+        runs.iter().any(|(_, style)| style.color == foreground),
         "gaps between captures take the foreground"
     );
 }
@@ -91,7 +91,7 @@ fn an_interpolation_inside_a_template_literal_keeps_its_own_colours() {
     let interpolated = runs
         .iter()
         .find(|(text, _)| *text == "y")
-        .map(|(_, colour)| *colour);
+        .map(|(_, style)| style.color);
     assert_eq!(
         interpolated,
         Some(theme.syntax.variable),
@@ -99,7 +99,7 @@ fn an_interpolation_inside_a_template_literal_keeps_its_own_colours() {
     );
     assert!(
         runs.iter()
-            .any(|(text, colour)| text.contains('x') && *colour == theme.syntax.string),
+            .any(|(text, style)| text.contains('x') && style.color == theme.syntax.string),
         "and the literal's own text must still paint as a string"
     );
 }

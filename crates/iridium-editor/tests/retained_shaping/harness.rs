@@ -8,7 +8,7 @@
 
 use std::fmt::Write as _;
 
-use iridium_editor::render::{FrameCompositor, HighlightContext, HighlightSource};
+use iridium_editor::render::{FrameCompositor, HighlightContext, HighlightSource, RunStyle};
 use iridium_editor::theme::Color;
 use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers, Position};
 
@@ -33,7 +33,7 @@ pub const WIDE_WIDTH: u32 = 768;
 pub struct ActiveLanguageNoSpans;
 
 impl HighlightSource for ActiveLanguageNoSpans {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         None
     }
 
@@ -58,8 +58,9 @@ pub struct TintHighlights {
 }
 
 impl HighlightSource for TintHighlights {
-    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
-        self.tint.map(|color| vec![(context.content, color)])
+    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
+        self.tint
+            .map(|color| vec![(context.content, RunStyle::plain(color))])
     }
 
     fn language_active(&self) -> bool {
@@ -82,7 +83,7 @@ pub struct ToggleLanguage {
 }
 
 impl HighlightSource for ToggleLanguage {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         None
     }
 

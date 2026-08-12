@@ -7,6 +7,7 @@ use super::highlight::{HighlightContext, HighlightSource};
 use super::shape::{RebuildGeometry, RetainedShape, ShapeKey};
 use super::state::FrameCompositor;
 use crate::editor::{Editor, FoldState};
+use crate::render::style::RunStyle;
 use crate::render::text::TextRenderer;
 
 impl FrameCompositor {
@@ -238,7 +239,9 @@ impl FrameCompositor {
                 let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
                 self.text_renderer.set_rich_text(
                     buffer,
-                    spans.iter().map(|span| (span.text.as_str(), span.color)),
+                    spans
+                        .iter()
+                        .map(|span| (span.text.as_str(), RunStyle::plain(span.color))),
                 );
             } else {
                 // No language set: nothing to bridge to, plain foreground.
@@ -281,7 +284,9 @@ impl FrameCompositor {
                 let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
                 TextRenderer::set_rich_text_diffed(
                     buffer,
-                    spans.iter().map(|span| (span.text.as_str(), span.color)),
+                    spans
+                        .iter()
+                        .map(|span| (span.text.as_str(), RunStyle::plain(span.color))),
                 )
             } else {
                 TextRenderer::set_text_diffed(buffer, &self.cpu_visible_content, foreground)

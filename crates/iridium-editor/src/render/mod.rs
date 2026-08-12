@@ -23,6 +23,14 @@ mod highlight;
 mod minimap;
 mod runs;
 mod simple_highlight;
+/// Always compiled, GPU feature or not.
+///
+/// A [`RunStyle`] is pure data — a colour, a weight, a slant — with no
+/// graphics API anywhere in its graph, so it belongs on the pure-layout side
+/// of this module's seam. A terminal face has weight and slant to spend as
+/// surely as a GPU one does, and gating the vocabulary on `render` would have
+/// meant it could not say so.
+mod style;
 /// Public, and it took two restatements to earn that.
 ///
 /// This was `pub(crate)` until 2026-08-06, on the reasoning that the
@@ -79,6 +87,7 @@ pub use minimap::{
 };
 pub use runs::{FlatRun, SpanRun, flatten_spans, snap_down};
 pub use simple_highlight::{HighlightSpan, SimpleHighlighter, SyntaxColors, TokenType};
+pub use style::{RunSlant, RunStyle, RunWeight};
 pub use viewport::{Viewport, ViewportConfig};
 
 #[cfg(feature = "render")]

@@ -247,3 +247,67 @@ saying so is the lie `ignores.rs` warns about; "6 hidden (⌘.)" is not.
    registry-driven so both new verbs are searchable today; the **context menu
    is not**, it resolves a ruled verb set (`context_menu::verbs`), so file
    verbs appear there only if that ruling adds them.
+
+---
+
+## #112b LANDED — `5a2e2321`, pushed, ten gates green
+
+`show_hidden` lives on `FileTree`, off by default, filtered inside
+`TreeSource::children` and inside `visible_children` (the new accessor the
+filter walk uses). `listed_children` stays **unfiltered** on purpose: the
+reload walk in `edit_keys::reload_touched` must reach a hidden directory or a
+row nobody can see stays stale and a later session acts on it.
+
+Toggle: `⌘.` / `Ctrl+.` in the browse table. Query row draws `N hidden (⌘.)`.
+
+### Two things the plan got wrong, found by running it
+
+1. ⚠️ **The count must exclude collapsed folders.** The plan said "the count
+   of dropped entries". Summed over all drawn rows, a folder the *crawl* read
+   but nobody opened contributes hidden children that pressing the key does
+   not reveal — and the number would move as background reads landed under a
+   panel nobody had touched. `hidden_on_screen` filters on `row.expanded`.
+2. ⚠️ **The narrow-panel case needed a ruling.** `BROWSE_HINT` and the count
+   compete for one right-aligned slot. Ruled: **the count keeps the space**.
+   Losing the tab hint costs a feature another session of being undiscovered;
+   losing the count makes the panel quietly show less than the disk holds with
+   nothing on screen admitting it. At 40 columns only the count fits, and
+   there is a test that says so.
+
+### ⭐ The mutation proof that failed first time — worth keeping as a law
+
+`a_folder_nobody_has_opened_is_not_counted` **passed against the defect it
+named.** The fixture's `src/` was never listed, so it had no children to
+withhold and both the correct count and the wrong one said "1". The test now
+drives the crawl with a query, clears it, and asserts the precondition —
+`is_listed(src) && !is_expanded(src)` — *before* the claim.
+
+> **A test whose fixture never reaches the state it is about is a test that
+> passes for the wrong reason. Assert the precondition, not just the result.**
+
+The other two mutations discriminated first time: unfiltered `children` took
+down three tests across both crates; walking `listed_children` in the filter
+took down exactly the search test.
+
+## The eight stashes — measured 12 Aug 2026, on Tom's question
+
+⛔ **Nothing was touched.** `git stash list` and `git stash show --stat
+--no-ext-diff` only; the standing rule is that these are not dealt with
+without an instruction naming them, and a question is not an instruction.
+
+All eight are from **11–12 January 2026** — seven months old, all auto-named
+`WIP on ...`, all from the old `001-iridium-editor` / `vk/*-phase-N` spec-kit
+branches.
+
+| stash | contents |
+| --- | --- |
+| `{0}` `{1}` `{3}` `{4}` `{5}` `{6}` `{7}` | `.claude/current-session.json` + `.claude/sessions.jsonl` only. Session bookkeeping from an old Claude Code setup. Nothing else. |
+| `{2}` | 26 files, 619 insertions — and it is **a rustfmt run**, verified by reading the diff: struct literals exploded onto separate lines, long fn signatures wrapped. Nothing semantic. |
+
+`{2}` cannot be applied anyway: its two largest files —
+`input/keyboard.rs` (333 lines of the diff) and `history/undo_tree.rs` — no
+longer exist, both having been split into directories since. And the `fmt`
+gate is green today, so its result is already true of the tree.
+
+**Recommendation: drop all eight.** Nothing in them is recoverable work.
+Awaiting Tom naming them.

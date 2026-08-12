@@ -132,6 +132,107 @@ nothing may bypass the command registry — no private back door for a bundled
 participant, however convenient. If that holds, everything above is additive.
 If it breaks once, the deferral becomes a trap.
 
+#### Two riders — Waffles, 12 Aug, and the first closes a real hole
+
+**Rider 1 — the participants must be buildable out-of-tree, or the vocabulary
+discovered is the wrong one.** Discovery-from-bundled-cases only works if the
+bundled participants are built under **external** constraints. In-tree
+consumers written by the same hands can quietly lean on shared types, direct
+imports and compile-time knowledge — ⚠️ **the no-bypass rule above covers the
+registry door and does *not* cover those side channels.** Lean on them and what
+gets discovered is *the in-tree dialect*, not the extension language, and the
+whole design-pressure argument evaporates without ever tripping a check.
+
+> **The test: each of the three must be buildable out-of-tree in principle,
+> compiling against nothing but the published surface.**
+
+That is the deleted-default test applied to participants, and it is the same
+law liminal holds as *foreign-participant-specimen-first*.
+
+**Rider 2 — a poll is an event hook with worse manners.** The falsifier fires
+not only when a participant cannot be expressed without an event hook, but when
+it can be expressed *only* by **polling or a timer**. ⚠️ If one of the three
+ships a clock to simulate a subscription, **the deferral has already failed,
+quietly** — and quietly is the dangerous part, because a timer looks like
+working code rather than like a missing mechanism.
+
+⚠️ Live relevance rather than a hypothetical: #99 records that the oil buffer's
+apply runs on the frame thread, and the oil surface is one of the three
+participants. That is the exact place a clock would get reached for.
+
+### 0f. Liminal's ground — Hermes, 12 Aug, from `main c3c7c7f`
+
+Asked because the surface vocabulary is the irreversible decision and I would
+rather inherit one than mint a second. The answer resolves it, and not the way
+I expected.
+
+⭐ **Liminal has NO surface vocabulary, and that is deliberate — record payloads
+are opaque to the bus.** The in-flight attachment work at the record layer is
+media-shaped (content-addressed blobs), not UI semantics. **Nothing to inherit,
+nothing to reconcile later: mint ours.** Three pieces of his ground to build it
+on, and the first is a gift:
+
+- ⭐ **(a) "The typing path is never asked a question; it only announces" maps
+  exactly onto liminal's hard split between one-way record admission and
+  request/response verbs.** If declarative contributions travel as admitted
+  records, an extension gets durability, replay and resume for free — and **the
+  protocol structurally cannot express an extension blocking a face.** That
+  turns Tom's standing instruction from a discipline into a mechanism, which is
+  the strongest form it could take.
+- **(b) Version-stamp the vocabulary itself from day one.** Published wire
+  values are immutable in their world and the release law leans on it. His
+  phrasing: *make version a field, not a hope.*
+- **(c) Our version-stamped-edit-or-refuse loop is isomorphic to their
+  admission-with-typed-refusal.** A proposed edit against a document that moved
+  is the same shape as their Precedence refusal family, so proposals travelling
+  over liminal inherit typed, replayable refusals rather than us inventing that
+  failure surface.
+
+⚠️ **(b) weakens my own argument in §0e and I would rather say so than let it
+stand unqualified.** I deferred the event stream partly on the ground that the
+surface vocabulary is the one thing that cannot be changed later. A *versioned*
+vocabulary is materially less irreversible than an unversioned one. The
+deferral still holds — the ordering argument and both riders are untouched —
+but the "cannot be changed later" plank is softer than I wrote it, and the
+honest restatement is **"expensive to change later, and cheaper if versioned
+from the first publication."**
+
+**The in-process question, settled.** Liminal *has* an in-process transport —
+proven byte-identical records against the socket mounts — plus an embeddable
+server. But it is the same asynchronous record semantics with the socket
+removed: ⛔ **nothing in the protocol can express "block the caller until you
+answer", in-process or not.** So Waffles' seam stands unmoved: the wasm ABI on
+the near side is **orthogonal to liminal**, a separate mechanism that shares our
+registry. Use liminal's in-process mount for embedding, testing and
+single-process deployment; **never as the fast path.**
+
+**Latency — an open debt, named rather than rounded up.** He declined to hand
+over a per-record round trip he has not banked, which is the right refusal.
+Structure of the cost so we can reason meanwhile: an admission ack returns
+**after the durable append**, so the floor is the store's fsync policy plus a
+scheduler hop, and loopback or in-process removes the socket, not the
+durability. The figures he does hold are resume-side, not RTT — steady-state
+load of a large conversation **102 ms**, marginal replay slope **0.035
+ms/record** — which bound how fast a participant *catches up*, not how fast one
+echo goes. Median and p99 for loopback and TCP follow when his seat's usage
+park lifts. **Design against this in the meantime:** user-visible verbs like a
+formatter or a rename are comfortably out-of-process; **anything sub-frame is
+not what liminal is for.**
+
+**Shape, for the record.** Four crates with the layering visible:
+`liminal-protocol` (the law — wire codec plus client lifecycle state machines,
+pure data, no runtime), `liminal-server` (the runtime — a conversation-based
+bus on beamr processes, one durable append-only log per conversation via
+haematite), `liminal-sdk` (Rust client), and a TS SDK for the browser over
+WebSocket. A participant **enrols** to mint a credential, then
+**credential-attaches** to a conversation — the binding carries
+`conversation_id`, `participant_id`, `generation` and `attach_secret`, and is
+generation-stamped so a re-attach supersedes cleanly instead of racing. Every
+admission carries a mint-once attempt token: the first commit answers,
+re-sends of the same token are absorbed idempotently, and two distinct intents
+are two tokens and two commits. Refusals are typed wire values, not dropped
+connections.
+
 ---
 
 It builds on **Waffles' seam (30 Jul)**, recorded in `SESSION-STATE.md`, which
@@ -219,9 +320,26 @@ the keystroke path. So the honest shape is:
 | good for | verbs, keymaps, text transforms, decorations | LSP, AI, formatters, anything streaming |
 | authority | sandboxed, bounded | separate process |
 
-Streaming is where liminal genuinely earns its keep, because a participant can
-resume mid-stream — the notebook pill and LSP diagnostics are the motivating
-cases.
+⛔ **CORRECTED 12 Aug 2026 — this paragraph used to say a participant "can
+resume mid-stream", and that overstates it.** Hermes, who owns liminal, gave
+the real shape and the difference bears on design rather than wording:
+
+**Resume is at the RECORD level, not the stream level.** On a tear you
+re-attach; receipt replay settles the binding; `committed_delivery_seq` says
+exactly where you were; and mint-once attempt tokens mean re-driving your
+uncommitted tail cannot double-commit. So a diagnostics participant that dies
+mid-flight reconnects and continues from its committed position with no
+duplicates — that part is built and pinned.
+
+⚠️ **What is deliberately *not* resumable:** a subscription feed the server
+sheds under backpressure arrives as a typed `SubscribeError` and is **terminal
+for that feed**. You re-open; you do not resume. A consumer that assumes
+otherwise will hang waiting for a stream that is never coming back.
+
+**The complete consumer obligation list, in his words:** hold your committed
+seq; treat a shed as a re-open; and **mint attempt tokens once per record at
+staging, never per presentation** — that last one cost a field incident and the
+discipline is documented on the request type.
 
 ## The honest comparison to NeoVim
 

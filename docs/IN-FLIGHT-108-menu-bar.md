@@ -114,8 +114,121 @@ compaction was announced.
 
 ---
 
-## What this tick did not do
+## What the ground tick did not do
 
-No code. No `Cargo.toml` change. The value here is G-1: the task was priced
+No code. No `Cargo.toml` change. The value there was G-1: the task was priced
 against a claim that is false, and the real task is smaller and differently
 shaped than the note said.
+
+---
+
+# ✅ Rulings and step 1 — 13 Aug 2026
+
+Ruled in this seat rather than sent to Tom: these are shape decisions with a
+defensible answer, and the standing instruction is to decide, record the
+reasoning, and name the revert cost.
+
+## G-6 — ⚠️ `app/menu.rs` already exists and is *not* this
+
+Found on the way in. `apps/iridium-desktop/src/app/menu.rs` is the **context**
+menu's host seam — `secondary_pressed`, `drive_menu`, `menu_click`,
+`hover_menu`. The menu bar must not take that name. It is `src/menubar.rs`,
+and its host seam (when it gets one) is `app/menubar.rs`.
+
+## D-1 — ⛔ No key equivalents in the first slice
+
+An `NSMenuItem` displays a chord by **claiming** it: `setKeyEquivalent` makes
+AppKit intercept that chord before the window sees it, and there is no
+supported way to show one without taking it.
+
+Claiming ⌘S, ⌘O and ⌘Z moves this face's most-used keys off the winit path —
+the one the ten gates cover, the latency instrument measures, and the modal
+panel guards sit on — and onto an AppKit path **no test in this repository can
+reach**. Wrong trade for a task whose own title is *"for the hand that does not
+know the chord"*: the hand that knows it keeps the path that is proven.
+
+Rows carry titles and are clicked. The chord is resolved anyway
+(`ResolvedVerb::hint`), so **slice B** — turning it into a real key equivalent
+once the action path has been exercised in a live session — is one call and no
+new decision. **Revert cost: one line per row.**
+
+## M-1 — ✅ Ruled: six menus, as a table
+
+File, Edit, Selection, View, Go, Help — beside the application menu winit
+already installs. Landed as `menubar::ruled()`. Nothing names *Quit*, *About*
+or *Hide*: those are already on screen and a second copy is two doors to one
+room. A test asserts that.
+
+*Selection* is its own menu rather than folded into *Edit* because
+`ast.expandSelection` is the verb hardest to discover and the one most worth
+discovering.
+
+## M-2 — ✅ Ruled: greying is **pushed**, not pulled
+
+`validateMenuItem:` would need app state reachable from an ObjC callback,
+which is the one genuinely fiddly part of this task. Instead:
+`setAutoenablesItems(false)`, and the app pushes the enabled set in
+`about_to_wait` — the single moment per turn when the loop is about to become
+reachable by a mouse and unable to change on its own.
+
+`verbs::Availability` is the shape of what gets pushed, and it is a **struct,
+not a bool**: `read_only` greys only writers, `inert` (a modal panel owns the
+session) greys everything. One flag would make one of the two cases wrong.
+
+## M-3 — ✅ Ruled: `EventLoopProxy`, not a shared queue
+
+The action fires from AppKit while `run_app(&mut app)` holds the app, so the
+callback cannot touch `DesktopApp` at all. `EventLoop::with_user_event()` gives
+an `EventLoopProxy` that both **enqueues and wakes** — `ControlFlow::Wait`
+means the loop is asleep — and delivers on `ApplicationHandler::user_event`,
+which then calls the existing `run_chosen_command`. Same kernel-first,
+undoable path a chord, a palette entry and a context-menu row take.
+
+This costs `impl ApplicationHandler for DesktopApp` becoming
+`ApplicationHandler<MenuCommand>` and one change in `run.rs`.
+
+## M-4 — ✅ Ruled and recorded in the module doc
+
+The terminal face gets no menu bar; its way in is the palette.
+
+## ✅ Step 1 — landed `307b9bc0`
+
+`src/menubar.rs` (the ruled table, 9 tests) and `src/verbs.rs` (the resolution,
+shared with the context menu, 6 tests). Sabotaged two ways before landing — a
+bogus id and a verb repeated across two menus — each caught by its own test.
+
+⭐ **The resolution is now shared.** Both menus answer the same four questions
+about a row and an answer given twice can differ; `verbs::resolve` answers them
+once and each menu keeps only its own ruled set. `context_menu` lost its
+private copy.
+
+## ⚠️ What step 1 turned up: a shipped defect — fixed, `23aecd08`
+
+The desktop face has been showing **every chord with ⌘ and ⌃ swapped**, in the
+context menu and the command palette. `KeyLabelStyle::MacGlyphs` mapped the
+kernel's `ctrl` to ⌘ and `meta` to ⌃, which is right for the web face and
+backwards for this one. The style's own doc predicted the failure — *"a future
+face that maps Command to `meta` would need a third style"* — and the face
+that arrived took the style whose **name did not warn it**. `keys.rs` asserted
+the opposite in prose, untested.
+
+`MacGlyphs` is gone as a name. Two variants now state their assumption:
+`MacGlyphsCommandAsCtrl` (web) and `MacGlyphsCommandAsMeta` (desktop).
+
+📌 **The law:** *a name that does not state its assumption is a trap for the
+next caller, and a doc comment predicting the trap is not a guard.*
+
+---
+
+## What is left
+
+- **Step 2** — Cargo features `NSMenu`/`NSMenuItem`, the `define_class!`
+  target, building the menus from `menubar::menus()`, installing after winit's
+  application menu.
+- **Step 3** — `EventLoopProxy` wiring per M-3.
+- **Step 4** — the enablement push per M-2.
+- **Slice B** — key equivalents, after D-1's condition is met.
+
+Steps 2–4 are the AppKit half and **cannot be covered by the ten gates**. They
+are proven by a live session, which means a build Tom runs. That is the honest
+statement of this task's test boundary, and D-1 exists because of it.

@@ -1022,8 +1022,12 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
 
-`origin/main = aab56e96`, **0 unpushed**, verified from the remote. Ten gates
+`origin/main = 23aecd08`, **0 unpushed**, verified from the remote. Ten gates
 green. Working tree clean apart from untracked `.claude/skills/`.
+
+**#113 steps 4–5 still wait on Tom's grammar ruling; #108 is now the live
+thread** — M-1..M-4 and D-1 ruled, step 1 landed, steps 2–4 are the AppKit
+half. See the #108 section below.
 
 **#113 is open; steps 1, 2 and 3 have landed** — every step that is needed
 whichever way Tom rules the grammar. Everything about it lives in
@@ -1055,7 +1059,7 @@ already landed rather than with nothing.
 and there is no evidence about his hands. If a tick finds this note and no
 answer, work something else rather than guess.
 
-## #108 — ground read, no code, `docs/IN-FLIGHT-108-menu-bar.md`
+## #108 — ✅ ruled and step 1 landed, `docs/IN-FLIGHT-108-menu-bar.md`
 
 Picked up while #113 waits. The task existed as one paragraph marked *"treat
 this paragraph as unchecked"*, and **its central claim is false**: winit
@@ -1065,11 +1069,44 @@ to a menubar already on screen*, not building one — and replacing winit's menu
 would lose Quit and Hide for nothing. `OPEN-DIALOG-GROUND.md` now carries a
 correction at that section rather than the old claim.
 
-Four decisions named and **not** ruled: M-1 which menus and which ids (a ruled
-table, not a registry sweep — fifty commands flat is not a way in); M-2 greying
-out via `validateMenuItem:`; M-3 how an AppKit callback reaches `DesktopApp`
-(almost certainly enqueue an id for the event loop, not reach into state); M-4
-the terminal face gets no menu bar and its way in stays the palette.
+**M-1..M-4 are all ruled** in this seat, plus a new D-1, and all five are
+written up in `docs/IN-FLIGHT-108-menu-bar.md` with their reasoning and revert
+costs. In short: six menus as a ruled table (`File Edit Selection View Go
+Help`); greying **pushed** in `about_to_wait`, not pulled via
+`validateMenuItem:`; the AppKit callback reaches `DesktopApp` through an
+`EventLoopProxy` user event (it both enqueues *and* wakes a `Wait` loop); the
+terminal face gets no menu bar. **⛔ D-1: no key equivalents in the first
+slice** — an `NSMenuItem` displays a chord by *claiming* it, and claiming ⌘S
+moves this face's most-used keys onto an AppKit path no test here can reach.
+
+**Step 1 landed `307b9bc0`** — `src/menubar.rs` (the ruled table) and
+`src/verbs.rs` (the resolution, now shared with the context menu, which lost
+its private copy). Fifteen tests, sabotaged two ways before landing.
+
+⚠️ **Note the name collision:** `apps/iridium-desktop/src/app/menu.rs` is the
+**context** menu's host seam and always was. The menu bar is `src/menubar.rs`.
+
+## ⭐ A shipped defect step 1 turned up, fixed `23aecd08`
+
+The desktop face has been showing **every chord with ⌘ and ⌃ swapped** — in the
+context menu and the command palette both. `KeyLabelStyle::MacGlyphs` mapped
+the kernel's `ctrl` to ⌘ and `meta` to ⌃, correct for the web face (which
+forwards Command as `ctrl`) and backwards for the desktop (which forwards it as
+`meta`). The style's own doc had *predicted* this exact failure; the face that
+arrived took the style whose **name did not warn it**, and `keys.rs` asserted
+the opposite in prose, untested.
+
+`MacGlyphs` no longer exists as a name. `MacGlyphsCommandAsCtrl` and
+`MacGlyphsCommandAsMeta` each state their assumption, so a face cannot pick
+"the mac one" without saying which convention it feeds the kernel.
+
+📌 **The law, worth carrying:** *a name that does not state its assumption is a
+trap for the next caller, and a doc comment predicting the trap is not a
+guard.*
+
+⚠️ Steps 2–4 of #108 are the AppKit half and **cannot be covered by the ten
+gates**. They are proven only by a live session, which means a build Tom runs.
+That is the honest test boundary, and D-1 exists because of it.
 
 ---
 

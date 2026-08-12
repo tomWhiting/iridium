@@ -1,0 +1,355 @@
+//! iridium_loop — a bounded build/review loop over the iridium editor library.
+//!
+//! Shape, identical to `mm_fleet_loop.awl`'s: an OVERSIGHT seat (an ACP Claude
+//! session) plans the pass and judges it; a BUILD seat (a norn Sol session)
+//! executes it; the SERVER runs the gate battery itself as a declared command,
+//! so the exit codes are the machine's and not an agent's account of them. The
+//! judgment seat answers exactly CONTINUE or DONE, and CONTINUE routes
+//! backward to the plan step — a bounded flow loop over the operator's
+//! `max_passes`.
+//!
+//! ⭐ Authored FOR Robo Doug, by Vesper Lynd, 2026-08-12. The SHAPE is copied
+//! from the market-mirror document; the CONTENT deliberately is not. The
+//! briefs there carry market-mirror's own contract (no real money, no wallet
+//! keys, no order placement) which is meaningless here and would have taught
+//! this project's agents rules belonging to another one. Harness values and
+//! project prose do not travel between documents — only the machinery does.
+//!
+//! 🔴 THE ANCHOR STRING MUST BE CHANGED BEFORE THE FIRST RUN. See the comment
+//! on `control_expect` below; this is not cosmetic and it is not optional.
+workflow iridium_loop
+  input repo: String
+  input task: String
+  input max_passes: Int
+  outcome done:         type LoopReport, route success
+  outcome exhausted:    type LoopReport, route failure
+  outcome off_protocol: type Refused,    route failure
+  outcome unmeasured:   type Refused,    route failure
+
+/// 🔴 CHANGE THIS, AND CHANGE THE FIRST LINE OF
+/// `docs/CONTROL-ANCHOR.txt` TO MATCH — the file currently carries
+/// market-mirror's string verbatim, and an IDENTICAL anchor in two projects
+/// DISARMS THE CONTROL IT IS PART OF.
+///
+/// The control asks the seams to read the anchor RELATIVE to their own working
+/// directory, precisely so that an agent standing in the wrong tree is caught.
+/// But if both trees answer with the same string, an agent that lands in
+/// market-mirror instead of iridium reads a DIFFERENT FILE, returns the SAME
+/// LINE, and passes. Right and plausible-wrong coincide, and the guard
+/// distinguishes nothing.
+///
+/// A distinct string per project is the whole fix. It is not a secret and does
+/// not need to be: what it establishes is which tree you are standing in, not
+/// who you are.
+/// ⚠️ MUST be unique to THIS repository, not merely to this workflow. The
+/// anchor is read relatively, so an agent in the wrong tree opens a different
+/// file — but that only catches anything if the two files ANSWER DIFFERENTLY.
+/// This document's first draft carried market-mirror's string verbatim, and
+/// with the same line in both trees a misplaced agent would have read the
+/// wrong file, returned the right string, and passed. (Vesper Lynd, 12 Aug
+/// 2026, before any run.)
+const control_expect = "iridium-control-anchor-dcf26d-2026-08-12"
+
+const control_brief = """
+You are a control leg of a fleet workflow. Read the file at the path given
+below, RELATIVE TO YOUR OWN WORKING DIRECTORY — do not resolve it against
+anything else. Reply with EXACTLY its first line and nothing else: no
+greeting, no punctuation of your own, no commentary.
+
+File: """
+
+/// RELATIVE on purpose. An ABSOLUTE path proves the seam is alive, obedient
+/// and can read that one file — and passes identically whether the agent is
+/// standing in this repository or another one, because an absolute path
+/// resolves the same from anywhere. Relative makes the working directory
+/// load-bearing, so one question tests both facts: the seam can read the tree
+/// AND it is standing in it. (Robo Doug's own finding, 2026-08-12.)
+const control_anchor_path = "docs/CONTROL-ANCHOR.txt"
+
+const ctrl_sep = " /// "
+
+const plan_brief = """
+You are the COORDINATOR of a fleet workflow: the planning seat. Work
+read-only in this step — change no files, commit nothing.
+
+Read, inside the repository root given below: the workspace manifest, every
+crate under the workspace, the tests, and any docs/ present. iridium is a
+Rust editor library: `iridium-editor` (the kernel, which must build with
+--no-default-features), `iridium-lang`, and `iridium-bindings` (which must
+also build for wasm32-unknown-unknown under --features web).
+
+Write THE PLAN FOR THE NEXT PASS ONLY. Rules, all binding:
+- The smallest pass that makes real progress against the task below.
+- Name the concrete gap it closes, the files it touches, and which targeted
+  tests prove it.
+- Feature-gating is load-bearing here: the kernel builds WITHOUT default
+  features and the bindings build for wasm. A change that only compiles under
+  --all-features is not done.
+- Prefer a plan the gate battery can actually settle. `scripts/ci.sh` runs
+  four test legs, two check/clippy wasm legs, three clippy legs and fmt.
+
+Task, and then the record of earlier passes: """
+
+const build_brief = """
+You are the BUILDER of a fleet workflow. Execute the coordinator's plan
+below, and only it. Rules, all binding:
+
+- Touch only the files the plan names. Never run repository-wide formatters
+  or fixers beyond `cargo fmt` on what you changed.
+- The kernel must keep compiling with --no-default-features, and
+  `iridium-bindings` must keep compiling for wasm32-unknown-unknown under
+  --features web. If your change breaks either, it is not finished.
+- Clippy runs with `-D warnings` across four configurations. `#[allow]`,
+  `#[expect]` and `_var` renames are bypasses, not fixes — fix the code.
+- Prove YOUR change with its targeted tests (for example
+  `cargo test -p iridium-lang`). The full battery runs mechanically after you
+  finish, so do not run it and do not claim it.
+- NEVER commit, branch, tag or push. Landing is the operator's hand. Leave
+  the work as clean modified files.
+
+⛔ BANNED COMMANDS. Each is named individually and none is a category you may
+reason your way around. Do not run, in this checkout, for any reason:
+
+    git stash          git checkout       git checkout --
+    git restore        git reset          git clean
+    git worktree       git add -A         git rebase
+
+Every one of them can destroy work that is not yours and that you cannot see.
+There is exactly one sanctioned way to put a file back as it was:
+
+    git show HEAD:<path> > <path>
+
+`git mv` is permitted. If you believe you need one of the banned commands,
+STOP and say so in your report instead — being blocked and saying why is a
+correct outcome, and is infinitely better than being unblocked and wrong.
+
+⚠️ This is a LIVE checkout that a person is working in. Files you did not
+touch may be modified for reasons that have nothing to do with you. Stage
+nothing, revert nothing you did not write, and never operate on "all changes".
+
+Report back: what you changed (every file, with why), the exact commands you
+ran with their outcomes, and anything you could NOT do with the honest
+reason. Do not claim a gate you did not run.
+
+Repository root: """
+
+const review_brief = """
+You are the REVIEWER of a fleet workflow: a rigorous reviewer from a
+different model family than the builder, not a cheerleader. Review the
+CURRENT uncommitted work (git diff and new files) in the repository root
+below, against the plan and against the standard this codebase holds:
+complete implementations, no silent failures, no swallowed Results, no
+arbitrary limits or assumed defaults, errors handled or propagated.
+
+Judge what the diff DOES, not what the builder's report SAYS it does. The
+gate battery's own verdict token travels with this brief; if the builder's
+account and the battery disagree, the battery is the fact.
+
+Name every real defect. There is no such thing as a minor one.
+
+Repository root: """
+
+const decide_brief = """
+You are the JUDGMENT seat. Given the task, the gate battery's verdict token
+and the reviewer's verdict below, answer with EXACTLY ONE WORD:
+
+  CONTINUE  — more passes are needed
+  DONE      — the task is complete and the battery is green
+
+No punctuation, no explanation, no other word. Anything else refuses the run
+as off-protocol, which is correct: a judgment seat that will not answer the
+question asked has not judged.
+
+Task: """
+
+const task_bridge = """
+
+TASK:
+"""
+
+const history_bridge = """
+
+RECORD OF EARLIER PASSES (empty on the first pass):
+"""
+
+const plan_bridge = """
+
+THE PLAN:
+"""
+
+const build_report_bridge = """
+
+THE BUILDER'S OWN REPORT:
+"""
+
+const gate_tail_bridge = """
+
+GATE BATTERY LOG (stderr; the token is separate and authoritative):
+"""
+
+const gate_token_bridge = """
+
+GATE BATTERY VERDICT TOKEN:
+"""
+
+const review_verdict_bridge = """
+
+THE REVIEWER'S VERDICT:
+"""
+
+const pass_open = """
+
+=== PASS ===
+PLAN:
+"""
+
+const pass_review = """
+REVIEW:
+"""
+
+const pass_gates = """
+GATE TOKEN:
+"""
+
+const pass_decision = """
+DECISION:
+"""
+
+/// The canonical agent-outcome record every dispatch of an agent seam
+/// returns: the leg's terminal `text` and the canonical `stop_reason`.
+type Reply { text: String, stop_reason: String }
+
+/// What the server records for a declared command: the real exit status and
+/// both streams. Under `--verdict` the exit status says whether the battery
+/// RAN; the token on stdout says whether it PASSED. Never read one for the
+/// other.
+type GateLeg { exit_code: Int, stdout: String, stderr: String }
+
+/// The state threaded through the pass loop.
+type CycleState { history: String, decision: String, review: String, build_report: String }
+
+/// The terminal account of a finished run.
+type LoopReport { passes: Int, decision: String, last_review: String, history: String }
+
+/// A run that refuses rather than guesses, said out loud.
+type Refused { reason: String, detail: String }
+
+worker iridium_build
+  /// The BUILD seam. Serve with:
+  /// aion worker agent workflows/iridium_loop.awl
+  ///   --task-queue iridium_build --identity <name> --liminal-address <h:p>
+  /// ⚠️ The queue name is deliberately NOT `mm_loop_build`. That queue has
+  /// live workers on this box serving another project's document; a worker
+  /// joining it would take that project's dispatches.
+  harness
+    kind norn
+    /// Robo Doug's value: this loop is strictly sequential, one build per
+    /// pass, so a second slot is capacity the shape can never use.
+    concurrency 1
+    reconnect_initial_backoff 5s
+    reconnect_max_backoff 30s
+    reconnect_max_attempts 6
+    /// The agent subprocess's WHOLE environment: what is not named here is
+    /// ABSENT in the child whatever this worker inherits.
+    /// ⚠️ Robo Doug's list omits USER and LOGNAME. On the market-mirror
+    /// document those two are present because a scrubbed-environment agent
+    /// could not find its login without them and answered "Not logged in"
+    /// instead of failing loudly. Measured there, not assumed — if this seam
+    /// reports itself logged out, this line is the first place to look.
+    env_pass "PATH", "HOME", "TMPDIR", "USER", "LOGNAME"
+    /// `binary` deliberately omitted: norn resolves on PATH here.
+    args "--account", "default"
+  action build(prompt: String) -> Reply
+    agent, timeout 90m, retry 3 backoff 30s..5m
+
+worker iridium_oversight
+  /// The OVERSIGHT seam — plan, review, judgment. Serve with:
+  /// aion worker agent workflows/iridium_loop.awl
+  ///   --task-queue iridium_oversight --identity <name> --liminal-address <h:p>
+  harness
+    kind acp
+    concurrency 1
+    reconnect_initial_backoff 5s
+    reconnect_max_backoff 30s
+    reconnect_max_attempts 6
+    env_pass "PATH", "HOME", "TMPDIR", "USER", "LOGNAME"
+    /// Resolved through fnm's `default` alias rather than the pinned
+    /// node-version directory: measured 2026-08-12, both resolve to the same
+    /// file, but the version-pinned one dies silently on a node upgrade while
+    /// this one follows `fnm default`. Not unconditionally stable — it still
+    /// breaks if a node is installed WITHOUT being made the default. There is
+    /// no stable path here, only a later-breaking one.
+    /// The language REQUIRES an absolute path for this setting and refuses a
+    /// bare name: a worker starts from whatever directory a supervisor or a
+    /// shell happened to be in, so a short name can resolve differently on
+    /// every launch.
+    command "/Users/tom/.local/share/fnm/aliases/default/bin/claude-code-acp"
+    cwd "/Users/tom/Developer/ablative/libs/iridium"
+    /// 🔴 Robo Doug's ruling for run 1: READ-ONLY. This seam plans, reviews
+    /// and judges; with `deny` it cannot write files or run commands, so a
+    /// first run demonstrates the machinery without letting an unattended
+    /// agent act. The BUILD seam above is the one that changes the tree.
+    /// There is no default for this setting by design — it is exactly the
+    /// decision nobody should be able to make by omission.
+    permission "deny"
+    exit_grace 10s
+  action oversee(prompt: String) -> Reply
+    agent, timeout 90m, retry 3 backoff 30s..5m
+
+worker iridium_gates
+  /// The gate battery, run BY THE SERVER as a declared command sealed into
+  /// the package identity at deploy — not by an agent, and not reported by
+  /// one. `--verdict` exits 0 whenever the battery RAN; the token on stdout
+  /// (`pass` / `fail`) is the verdict, and an unmeasured run emits NO TOKEN
+  /// AT ALL rather than the plausible lie `fail`.
+  /// ⚠️ NO RETRY CLAUSE, deliberately: a red battery is a result to work on,
+  /// not an error to absorb. Retrying it would hide the very thing the loop
+  /// exists to fix.
+  action gates(repo: String) -> GateLeg
+    run "zsh $repo/scripts/ci.sh --verdict"
+
+/// Ask a question whose answer is already known, before spending hours on
+/// ones that matter. A broken pipeline and a working one both return
+/// well-formed prose; only a known answer tells them apart. Both seams are
+/// asked, so it also proves they are pointed at the SAME tree.
+step control
+  control_brief + control_anchor_path -> control_prompt
+  build(prompt: control_prompt) -> build_ctrl
+  oversee(prompt: control_prompt) -> oversee_ctrl
+  build_ctrl.text + ctrl_sep + oversee_ctrl.text -> ctrl_pair
+  outcome proven: when build_ctrl.text == control_expect and oversee_ctrl.text == control_expect,
+    route passes
+  outcome broken: otherwise,
+    route unmeasured(
+      reason: "a control delegation did not return the anchor line, so this pipeline cannot be shown to read the tree or follow an exact instruction — no work was attempted (build reply, then oversight reply, in detail)",
+      detail: ctrl_pair)
+
+/// The pass loop: plan → build → gate → review → decide, threading the pass
+/// record. Bounded by the operator's max_passes; the body runs at least once.
+step passes
+  loop state = CycleState(history: "", decision: "CONTINUE", review: "", build_report: "") counting pass_count
+    plan_brief + repo + task_bridge + task + history_bridge + state.history -> plan_prompt
+    oversee(prompt: plan_prompt) -> plan
+    build_brief + repo + task_bridge + task + plan_bridge + plan.text -> build_prompt
+    build(prompt: build_prompt) -> built
+    gates(repo: repo) -> gate_leg
+    review_brief + repo + task_bridge + task + plan_bridge + plan.text + build_report_bridge + built.text + gate_token_bridge + gate_leg.stdout + gate_tail_bridge + gate_leg.stderr -> review_prompt
+    oversee(prompt: review_prompt) -> reviewed
+    decide_brief + task + gate_token_bridge + gate_leg.stdout + review_verdict_bridge + reviewed.text -> decide_prompt
+    oversee(prompt: decide_prompt) -> decision
+    state.history + pass_open + plan.text + pass_review + reviewed.text + pass_gates + gate_leg.stdout + pass_decision + decision.text -> new_history
+    CycleState(history: new_history, decision: decision.text, review: reviewed.text, build_report: built.text) -> state
+    until not state.decision == "CONTINUE"
+    max max_passes
+  on failure
+    route unmeasured(reason: "a leg of the pass could not run to completion — an agent seam died past its retries, or the gate battery could not MEASURE (ci.sh refused with exit 2 or 3, or the leg died outright). No pass outcome exists, so none is reported.", detail: "see the run's history and transcripts for the failed activity")
+  outcome finished: when state.decision == "DONE",
+    route done(passes: pass_count, decision: state.decision, last_review: state.review,
+      history: state.history)
+  outcome spent: when state.decision == "CONTINUE",
+    route exhausted(passes: pass_count, decision: state.decision, last_review: state.review,
+      history: state.history)
+  outcome off: otherwise,
+    route off_protocol(
+      reason: "the judgment seat's decision reply was not exactly CONTINUE or DONE — an off-protocol coordinator is a refusal, never a guess (the reply is in detail)",
+      detail: state.decision)

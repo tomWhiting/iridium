@@ -110,6 +110,40 @@ pub const fn highlight_to_color(highlight: HighlightType, syntax: &SyntaxColors)
         HighlightType::MarkupStrikethrough => syntax.comment,
         HighlightType::MarkupCode => syntax.string,
 
+        // ----- Diff status -----
+        //
+        // ⚠️ **No `SyntaxColors` field means "added" or "removed", so all four
+        // of these are borrows and none of them is a colour ruling.** Said
+        // plainly because the obvious reading of "added is green" is a fact
+        // about a theme, not about a category, and both shipped presets
+        // disagree with it: `string` is `ce9178` here, an orange-tan.
+        //
+        // Added takes `string` and removed takes `keyword` because those are
+        // the two fallbacks **the vendored `diff` query names in its own
+        // text** — `;; TODO: This should eventually be @diff.plus with a
+        // fallback of @string`. Borrowing the upstream author's stated choice
+        // is a weaker claim than inventing one, and a weaker claim is the right
+        // kind here: nothing renders these today.
+        //
+        // Modified and moved take `attribute`, the slot for a token that
+        // annotates the entity beside it — which is exactly what "modified:"
+        // does to the path that follows it in a commit buffer. They share a
+        // colour and keep separate categories, which is what a many-to-one
+        // colour map is for.
+        //
+        // ⛔ **Deliberately not reaching `EditorColors`.** `change_added` and
+        // `change_modified` exist there and are tempting, and they belong to
+        // the change gutter — uncommitted edits measured against the file on
+        // disk — which is a different feature answering a different question.
+        // Widening this function's signature to reach them would let every
+        // syntax category address the editor palette, and would change the TUI
+        // palette's call site too, to serve four names nothing draws yet.
+        // Diff's own theme fields belong with the theme work (#87), exactly as
+        // markup's do.
+        HighlightType::DiffAdded => syntax.string,
+        HighlightType::DiffRemoved => syntax.keyword,
+        HighlightType::DiffModified | HighlightType::DiffMoved => syntax.attribute,
+
         // Errors
         HighlightType::Error => syntax.error,
     }
@@ -215,6 +249,45 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The four diff status categories borrow four slots, and the borrow is
+    /// pinned here rather than described in a comment.
+    ///
+    /// ⚠️ **This is not a colour ruling and must not be read as one.** No
+    /// `SyntaxColors` field means "added" or "removed"; added takes `string`
+    /// and removed takes `keyword` because the vendored `diff` query names
+    /// exactly those two as its own fallbacks, in its own text. Once a theme
+    /// grows diff fields (#87) these arms should change, and this test is what
+    /// makes that change deliberate rather than incidental.
+    ///
+    /// ⭐ Modified and moved *share* a colour on purpose — a many-to-one colour
+    /// map is the design — while keeping separate categories, which is what
+    /// lets a theme part them later. The assertion pair says both halves, so
+    /// collapsing the categories to match the colours fails here.
+    #[test]
+    fn the_diff_slots_borrow_the_colours_they_were_ruled_to_borrow() {
+        for colors in [SyntaxColors::dark(), SyntaxColors::light()] {
+            for (diff, borrowed, slot) in [
+                (HighlightType::DiffAdded, colors.string, "string"),
+                (HighlightType::DiffRemoved, colors.keyword, "keyword"),
+                (HighlightType::DiffModified, colors.attribute, "attribute"),
+                (HighlightType::DiffMoved, colors.attribute, "attribute"),
+            ] {
+                assert_eq!(
+                    highlight_to_color(diff, &colors),
+                    borrowed,
+                    "{diff:?} no longer borrows the {slot} slot"
+                );
+            }
+        }
+
+        assert_ne!(
+            HighlightType::DiffModified,
+            HighlightType::DiffMoved,
+            "a renamed file and an edited one share a colour and must not \
+             share a category, or no theme can ever tell them apart"
+        );
     }
 
     /// ⭐ The identity every face and the retained shaper depend on: a theme

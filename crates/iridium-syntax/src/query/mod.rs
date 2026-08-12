@@ -39,7 +39,7 @@ use crate::{Language, SyntaxError, grammar::grammar};
 // that carry no parser. Re-exported here because compiling a query is what
 // this module is for, and a caller should not have to name two crates to do
 // it.
-pub use iridium_lang::query::{QueryKind, source};
+pub use iridium_lang::query::{QueryKind, capture_names, source, sources};
 pub use textobject::{Direction, TextObject, Variant};
 
 /// Number of languages the cache has a row for.

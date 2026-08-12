@@ -22,10 +22,12 @@
 //! byte-identical `wasm32-unknown-unknown` artifact. The linker discards the
 //! function and its string data together.
 
+mod captures;
 mod embedded;
 mod kind;
 
-pub use embedded::source;
+pub use captures::capture_names;
+pub use embedded::{source, sources};
 pub use kind::QueryKind;
 
 #[cfg(test)]

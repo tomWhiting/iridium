@@ -88,3 +88,30 @@ pub fn source(language: Language, kind: QueryKind) -> Option<&'static str> {
         .find(|(name, _)| *name == kind.file_name())
         .map(|(_, text)| *text)
 }
+
+/// Every vendored query of one kind, as `(directory id, source text)`.
+///
+/// ⚠️ **Keyed by the vendored directory, not by [`Language`], and that is the
+/// whole reason it exists.** Four of the directories here — `jsdoc`, `jsonc`,
+/// `markdown-inline` and `regex` — are deliberately not languages (see
+/// `languages.txt` for each one's reason), so [`source`] cannot be asked for
+/// them: there is no `Language` value to ask with. Another four — `diff`,
+/// `gitcommit`, `gomod`, `gowork` — are languages with no grammar linked, so
+/// their queries never compile and anything reading compiled queries skips
+/// them.
+///
+/// A check written over [`Language::all`] and compiled queries therefore covers
+/// *the subset somebody has linked a grammar for* while reading as though it
+/// covered the tree. This is the iterator that covers the tree.
+///
+/// The order is the generated table's, which is the directory listing sorted —
+/// stable across builds, so a caller reporting a diff of it produces the same
+/// diff twice.
+pub fn sources(kind: QueryKind) -> impl Iterator<Item = (&'static str, &'static str)> {
+    QUERY_SOURCES.iter().filter_map(move |(id, files)| {
+        files
+            .iter()
+            .find(|(name, _)| *name == kind.file_name())
+            .map(|(_, text)| (*id, *text))
+    })
+}

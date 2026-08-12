@@ -27,6 +27,7 @@ use iridium_config::theme::ThemeChoice;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::app::{DesktopApp, Options};
+use crate::commands;
 use crate::menubar::MenuCommand;
 
 /// What an invocation looks like, shown for a command line that is not one.
@@ -88,7 +89,7 @@ pub fn main() -> ExitStatus {
     // must not become the thing that stops a session, and reporting it would
     // be reporting on a courtesy.
     let created =
-        iridium_config::user_config_path().map(|path| iridium_config::create_if_absent(&path));
+        iridium_config::user_config_path().map(|path| commands::create_config_if_absent(&path));
     drop(created);
 
     let mut app = match DesktopApp::new(options) {

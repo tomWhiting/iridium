@@ -302,6 +302,70 @@ mod tests {
         );
     }
 
+    /// ⛔ **The trap the generated `[keys]` menu would have handed out 42 times.**
+    ///
+    /// #91 registered the panel's vocabulary in the kernel, which is what makes
+    /// `"j" = "explorer.moveDown"` validate instead of being reported as a typo.
+    /// But the binding the file produces names no mode, and a mode-free binding
+    /// applies in *every* mode — so before this was fixed, that line installed
+    /// into the editor's own stack and `j` stopped typing in the document, while
+    /// the panel verb it named still never ran there.
+    ///
+    /// Measured before the fix: the letter produced an empty document.
+    ///
+    /// It is asserted here, against a real [`Editor`] taking a real keystroke,
+    /// rather than against the binding's `mode()` — the mode is the mechanism,
+    /// and "the letter still types" is the thing that was actually wrong.
+    #[test]
+    fn a_panel_binding_from_the_file_does_not_stop_a_letter_typing() {
+        use iridium_editor::{Editor, EditorConfig, KeyCode, KeyEvent, Modifiers};
+
+        let (bindings, problems) = read("[keys]\n\"j\" = \"explorer.moveDown\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+
+        let mut editor = Editor::new(EditorConfig::default());
+        editor
+            .push_keymap(keymap(bindings))
+            .expect("a panel command is a registered command");
+        editor.handle_key(&KeyEvent::new(KeyCode::Char('j'), Modifiers::none()));
+        assert_eq!(
+            editor.content(),
+            "j",
+            "a key bound to a command that only exists inside a panel must not \
+             stop typing in the document"
+        );
+    }
+
+    /// The control, and the reason the assertion above means anything: the same
+    /// editor with no user layer at all types the same letter. Without this, the
+    /// test would pass just as well if `handle_key` had stopped inserting text.
+    #[test]
+    fn the_letter_types_with_no_user_bindings_at_all() {
+        use iridium_editor::{Editor, EditorConfig, KeyCode, KeyEvent, Modifiers};
+
+        let mut editor = Editor::new(EditorConfig::default());
+        editor.handle_key(&KeyEvent::new(KeyCode::Char('j'), Modifiers::none()));
+        assert_eq!(editor.content(), "j");
+    }
+
+    /// And the binding is not merely disarmed — it is scoped, so it still runs
+    /// the panel verb on the surface that owns it. A fix that dropped the
+    /// binding would pass the test above and silently lose the user's key.
+    #[test]
+    fn the_scoped_binding_still_names_the_mode_the_panel_resolves_in() {
+        use iridium_editor::commands::builtin::default_registry;
+
+        let (bindings, _) = read("[keys]\n\"j\" = \"explorer.moveDown\"\n");
+        let mut layer = keymap(bindings);
+        layer
+            .canonicalize(&default_registry().expect("the kernel tables are consistent"))
+            .expect("a panel command is a registered command");
+        assert_eq!(
+            layer.bindings()[0].mode().map(ToString::to_string),
+            Some("explorer".to_owned())
+        );
+    }
+
     /// A misspelling is still a misspelling. Registering the vocabulary must not
     /// turn the diagnostic off for everything that looks like a panel verb.
     #[test]

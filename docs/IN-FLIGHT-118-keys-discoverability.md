@@ -118,3 +118,132 @@ Item 2's record fix is small and should land first so nothing else is written
 against a false blocker. Item 1 is the real build.
 
 ⚠️ Neither is started. `origin/main = e8dbf08f` at the time of writing, clean.
+
+---
+
+# BUILD OUTCOME — 13 Aug 2026, ten gates green
+
+Both items landed. Item 2 first, as the order above said.
+
+## Item 2 — the record fix, `920ffbec`
+
+D-1 in `docs/IN-FLIGHT-113-modality.md` is **replaced, not deleted**: the
+finding stands where the ruling was, and the retired table is folded into a
+`<details>` block underneath so the mistake stays readable. The build order's
+step 4 no longer waits on a ruling; the stale "blocked on the grammar ruling"
+line is gone from the handoff's live state and from #108's header, both
+superseded in place rather than edited away.
+
+## Item 1 — the generated list
+
+`crates/iridium-config/src/template_keys.rs` (new) generates the whole `[keys]`
+block. `template.rs` keeps the file-writing; the prose `KEYS` constant is gone.
+
+**What the file now holds**, measured from a run of the real writer:
+
+| section | lines |
+| --- | --- |
+| The editor | 69 |
+| The file explorer | 38 (42 less the 4 the editor already wrote) |
+| The desktop app | 55 |
+| Commands with no default key | 44 |
+
+368 lines, every binding line commented out, each carrying the command id and
+the command's title. `⌘C`, `⌘S`, `⌘K` and the rest are in it.
+
+### Rulings
+
+**D-1 — `iridium-config` gains a dependency on `iridium-panel`.** The panel's 42
+default keys live in the panel; the config crate could not see them. Measured
+before deciding: **both** consumers of `iridium-config` (`apps/iridium`,
+`apps/iridium-desktop`) already depend on `iridium-panel`, so the edge adds no
+crate to any build, and there is no cycle — the panel takes its user layer as a
+`Keymap` argument rather than reading a file. The alternative, having each face
+contribute the panel's layer, was rejected: two callers would each have to
+remember, and one that forgot writes a file that looks complete. That is #116's
+defect class.
+
+**D-2 — a *face's* layer is handed in, because it cannot be looked up.** A face
+depends on `iridium-config`, so the edge cannot run the other way. This is not
+cosmetic: the desktop face's layer is where **every ⌘ chord lives**, so a file
+built only from what the config crate can reach would omit exactly the bindings
+a Mac user reaches for first, while its own header claimed to list them all.
+`FaceKeys { title, note, keymap, commands }` is passed to `default_config` and
+`create_if_absent` as a **slice, not an `Option`** — a face with no layer writes
+`&[]`, which is a statement rather than a silence. `create_config_if_absent` in
+`apps/iridium-desktop/src/commands/template.rs` assembles it once for both
+callers, so neither call site can forget.
+
+**D-3 — commented out, not live.** Unchanged from the instruction above. A live
+block would pin today's defaults into a file written last year.
+
+**D-4 — the round-trippable spelling, `~shift` and all.** `display_sequence()`
+is what `KeyBinding::parse` reads back. A prettified label would produce lines
+that either fail to parse or — far worse — parse into a *stricter* chord than
+the one they replaced, which is silent until somebody holds shift. The header
+block explains `~` instead.
+
+**D-5 — a chord written twice is a defect, so the writer deduplicates.** The
+explorer's table binds `explorer.togglePanel` and `explorer.toggleSidebar` to
+exactly the chords the editor binds them to. Emitting both copies puts the same
+key twice in a table that may hold each key once — so a user uncommenting the
+pair would be told their own file contradicts itself, over two lines this crate
+wrote. Caught by reading the generated output, not by a test.
+
+**D-6 — commands with no default key are listed as a reference, not as
+bindings.** There is no chord to put on the left; a line with an invented one
+would bind a key nobody chose.
+
+## ⛔ A live defect found while grounding this, and fixed
+
+`"j" = "explorer.moveDown"` in `config.toml` **stopped `j` typing in the
+document.** Measured before the fix: `MODE = None`, and the document was empty
+after the keypress.
+
+#91 registered the panel's vocabulary in the kernel, which is what makes that
+line validate instead of being reported as a typo — but the binding it produces
+names no mode, and a mode-free binding applies in *every* mode. So it installed
+into the editor's own stack, took the letter, and never ran the panel verb it
+named, because the editor is never in `explorer` mode.
+
+This template would have handed that trap out 38 times. **Fixed in
+`Keymap::canonicalize`**, which is where a loaded layer meets the registry that
+holds the answer: a binding naming no mode adopts the mode its command declares.
+⚠️ A mode the binding *already* names is never replaced — #113's modal keymaps
+scope mode-free editor commands into `normal` deliberately, and overwriting that
+would let every such binding escape its mode.
+
+Three kernel tests and three config tests, the config ones asserted against a
+real `Editor` taking a real keystroke — with a control proving the same editor
+types the same letter with no user layer at all.
+
+## Mutations
+
+| # | mutation | result |
+| --- | --- | --- |
+| M1 | `write_binding` strips the `~` prefixes — the prettification D-4 forbids | **2 fail**: `every_default_binding_is_written_into_the_file`, `every_binding_line_names_a_binding_that_really_exists` |
+| M2 | `section` skips the face layers | **3 fail**, across two crates: the two above plus `the_written_file_lists_this_faces_own_mac_chords` |
+
+⚠️ **M1 corrected a claim I had written.**
+`every_emitted_line_parses_back_to_the_chord_it_names` **passed** under M1 — a
+prettified chord parses perfectly well and renders back to itself, so the test
+compares the file against its own idea of itself. Its doc comment claimed to be
+the guard against exactly this. It now says what it actually guards (output that
+cannot be parsed, or that parses to a chord other than the text on the line) and
+names the two tests that do catch a re-spelling. **A test that compares an
+artefact against itself agrees with the writer by sharing its mistake.**
+
+## Verification
+
+`bash scripts/ci.sh` → exit 0, `✅ all 10 gates passed`, read from the script's
+own markers.
+
+## Named and not done
+
+- The `apps/iridium` launcher never calls `create_if_absent`, so the terminal
+  face writes no configuration file. Pre-existing, unchanged by this work, and
+  not in scope — but it means only the desktop face's layer is ever listed.
+- The editor's own default keymap has no `meta`-required chords at all; every ⌘
+  binding comes from the desktop face's layer. Visible for the first time now
+  that both are written side by side. Not a defect — that is where #104 put them
+  — but worth knowing before #113 authors a modal keymap.

@@ -27,12 +27,19 @@
 //! [`every_setting_appears_in_the_template`](self::tests) holds the two in
 //! agreement by asking `field_names` for the set and checking each one is in
 //! the text.
+//!
+//! The `[keys]` block is generated the same way and for the same reason, out of
+//! the keymaps that are actually in force — see [`crate::template_keys`], which
+//! also explains why a *face* has to hand its own layer in rather than have it
+//! looked up.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::Path;
 
 use iridium_editor::EditorConfig;
+
+pub use crate::template_keys::FaceKeys;
 
 /// Settings whose default is "unset", with an example of a value.
 ///
@@ -60,8 +67,13 @@ pub enum Created {
 ///
 /// Every line that sets anything is commented out, so the file means exactly
 /// what no file means. Uncommenting a line is the whole interface.
+///
+/// `faces` are the binding layers the calling face pushes on top of the kernel's
+/// — its own chords and its own commands, which this crate cannot reach because
+/// a face depends on it and not the other way round. See [`FaceKeys`]. A face
+/// with no layer passes `&[]`.
 #[must_use]
-pub fn default_config() -> String {
+pub fn default_config(faces: &[FaceKeys<'_>]) -> String {
     let mut text = String::from(HEADER);
 
     text.push_str("[editor]\n");
@@ -96,17 +108,19 @@ pub fn default_config() -> String {
         text.push('\n');
     }
 
-    text.push_str(KEYS);
+    text.push_str(&crate::template_keys::section(faces));
     text
 }
 
 /// Writes [`default_config`] to `path` when nothing is there.
 ///
+/// `faces` is passed straight through; see [`default_config`].
+///
 /// # Errors
 ///
 /// Returns the operating system's error when the directory cannot be made or
 /// the file cannot be written.
-pub fn create_if_absent(path: &Path) -> io::Result<Created> {
+pub fn create_if_absent(path: &Path, faces: &[FaceKeys<'_>]) -> io::Result<Created> {
     if let Some(directory) = path.parent() {
         fs::create_dir_all(directory)?;
     }
@@ -117,7 +131,7 @@ pub fn create_if_absent(path: &Path) -> io::Result<Created> {
     // and does the thing at once, so there is no window between them.
     match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(mut file) => {
-            file.write_all(default_config().as_bytes())?;
+            file.write_all(default_config(faces).as_bytes())?;
             Ok(Created::Wrote)
         },
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(Created::AlreadyThere),
@@ -145,28 +159,6 @@ const HEADER: &str = "\
 
 ";
 
-/// What stands below them.
-const KEYS: &str = "
-# ---------------------------------------------------------------------------
-# Key bindings: the chord on the left, the command id on the right.
-#
-# Run \"List Every Command\" from the command palette (cmd+K or ctrl+K) for
-# every id, its title, and the key that runs it TODAY — that list is rendered
-# from the running editor, so it is never out of date.
-#
-# Modifiers:  ctrl  shift  alt (= option)  meta (= cmd, super, win)
-# Joined with `+`. A space separates the chords of a sequence, so
-# \"cmd+k cmd+c\" means press cmd+K, then cmd+C.
-#
-# An empty command unbinds a chord:  \"ctrl+f\" = \"\"
-# Iridium will never unbind something for you.
-# ---------------------------------------------------------------------------
-
-[keys]
-# \"cmd+shift+p\" = \"palette.open\"
-# \"cmd+k cmd+c\" = \"comment.toggleLine\"
-";
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -186,7 +178,7 @@ mod tests {
         // way that happens — fails here rather than going missing from the one
         // document that claims to list everything.
         let names = field_names::<EditorConfig>().expect("EditorConfig names its fields");
-        let text = default_config();
+        let text = default_config(&[]);
         for name in names {
             assert!(
                 text.contains(name),
@@ -217,7 +209,7 @@ mod tests {
         // line accidentally left uncommented would still parse.
         let directory = TempDir::new("config-template");
         let path = directory.path().join("config.toml");
-        fs::write(&path, default_config()).expect("the template was written");
+        fs::write(&path, default_config(&[])).expect("the template was written");
 
         let loaded = UserConfig::load(Some(&path));
         assert!(
@@ -247,7 +239,7 @@ mod tests {
         fs::write(&path, "[editor]\ntab_width = 2\n").expect("the fixture was written");
 
         assert_eq!(
-            create_if_absent(&path).expect("the check ran"),
+            create_if_absent(&path, &[]).expect("the check ran"),
             Created::AlreadyThere
         );
         assert_eq!(
@@ -265,12 +257,12 @@ mod tests {
         let path = directory.path().join("nested/iridium/config.toml");
 
         assert_eq!(
-            create_if_absent(&path).expect("the first run wrote it"),
+            create_if_absent(&path, &[]).expect("the first run wrote it"),
             Created::Wrote
         );
         assert!(path.exists(), "the directories were made too");
         assert_eq!(
-            create_if_absent(&path).expect("the second run ran"),
+            create_if_absent(&path, &[]).expect("the second run ran"),
             Created::AlreadyThere
         );
     }
@@ -284,7 +276,7 @@ mod tests {
         let blocker = directory.path().join("not-a-directory");
         fs::write(&blocker, "x").expect("the fixture was written");
 
-        let error = create_if_absent(&blocker.join("iridium/config.toml"))
+        let error = create_if_absent(&blocker.join("iridium/config.toml"), &[])
             .expect_err("a file cannot hold a directory");
         assert!(!error.to_string().is_empty(), "and it says what went wrong");
     }

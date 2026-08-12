@@ -354,7 +354,8 @@ impl Keymap {
         Ok(())
     }
 
-    /// Replaces every bound id with the registry's own `'static` instance.
+    /// Replaces every bound id with the registry's own `'static` instance, and
+    /// scopes every binding to the mode its command declares.
     ///
     /// Deserialized keymaps own their command id strings; cloning one on a match
     /// would allocate on the keystroke hot path. Canonicalizing after load swaps
@@ -362,25 +363,54 @@ impl Keymap {
     /// allocation and validates the id, so this is the single call a config
     /// loader needs.
     ///
+    /// # ⭐ The mode a command declares is not optional
+    ///
+    /// [`CommandMeta::mode`](super::CommandMeta::mode) says a command exists
+    /// only inside one mode — `explorer.moveDown` is a thing the file explorer
+    /// does and nothing else can. A binding to it that names **no** mode applies
+    /// in *every* mode, which is not a weaker version of the same intent but the
+    /// opposite of it: the key stops doing whatever it used to do everywhere,
+    /// and the command it names still never runs, because the surface that
+    /// implements it is never the one in front of you.
+    ///
+    /// A configuration file cannot be expected to know this — the mode is a
+    /// property of the *command*, so requiring the file to repeat it would be
+    /// asking the user to restate something the editor already knows and to be
+    /// silently broken for getting it wrong. It is filled in here instead, at
+    /// the one point where a loaded layer meets the registry that holds the
+    /// answer.
+    ///
+    /// ⚠️ **A mode the binding already names is never replaced.** A modal keymap
+    /// scopes mode-free *editor* commands into `normal` or `insert` on purpose;
+    /// overwriting that would let every such binding escape its mode. This fills
+    /// a gap, it does not overrule an author.
+    ///
     /// # Errors
     ///
     /// [`KeymapError::UnknownCommand`] if any bound id is not registered. On
     /// error the keymap is left partially canonicalized but semantically
-    /// unchanged, since canonicalization only ever swaps equal strings.
+    /// unchanged, since canonicalization only ever swaps equal strings and fills
+    /// in modes the registry already declared.
     pub fn canonicalize(&mut self, registry: &CommandRegistry) -> Result<(), KeymapError> {
         let name = self.name.to_string();
         for binding in &mut self.bindings {
             let Some(id) = binding.command().cloned() else {
                 continue;
             };
-            let Some(canonical) = registry.canonical_id(id.as_str()) else {
+            let Some(meta) = registry.get(id.as_str()) else {
                 return Err(KeymapError::UnknownCommand {
                     keymap: name,
                     id: id.as_str().to_owned(),
                 });
             };
-            let canonical = canonical.clone();
+            let canonical = meta.id().clone();
+            let declared = meta.mode().cloned();
             binding.set_command(canonical);
+            if binding.mode().is_none() {
+                if let Some(mode) = declared {
+                    binding.set_mode(mode);
+                }
+            }
         }
         Ok(())
     }

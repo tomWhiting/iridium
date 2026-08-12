@@ -151,6 +151,7 @@
 
 mod ids;
 mod keymap;
+mod template;
 #[cfg(test)]
 mod tests;
 
@@ -159,3 +160,4 @@ pub use ids::{
     FILE_SAVE_AS, FILE_SAVE_FORCE, PROJECT_OPEN, PROJECT_SET, command_metas,
 };
 pub use keymap::{BINDING_COUNT, keymap};
+pub use template::create_config_if_absent;

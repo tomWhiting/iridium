@@ -302,6 +302,17 @@ impl KeyBinding {
         self.command = Some(command);
     }
 
+    /// Scopes this binding to `mode`, used by keymap canonicalization.
+    ///
+    /// Distinct from [`Self::in_mode`] only in taking `&mut self`, because
+    /// canonicalization walks bindings in place. The caller decides whether to
+    /// call it — [`Keymap::canonicalize`](super::Keymap::canonicalize) does so
+    /// only when the binding names no mode of its own, so an author's scoping is
+    /// never overwritten.
+    pub(super) fn set_mode(&mut self, mode: ModeName) {
+        self.mode = Some(mode);
+    }
+
     /// Returns `true` when both bindings name the same sequence and mode scope.
     ///
     /// Sequence *identity* — not overlap — is what a

@@ -117,9 +117,11 @@ impl CommandRegistry {
 
     /// Returns the registry's own [`CommandId`] instance for `id`.
     ///
-    /// Used by [`Keymap::canonicalize`](super::Keymap::canonicalize) to replace a
-    /// deserialized keymap's owned ids with the registry's `'static` ones, which
-    /// makes subsequent resolution allocation free.
+    /// What a host holding a deserialized, heap-owned id calls to swap it for the
+    /// registry's `'static` one, which makes subsequent resolution allocation
+    /// free. [`Keymap::canonicalize`](super::Keymap::canonicalize) does the same
+    /// thing for a whole layer, but reads the [`CommandMeta`] rather than this
+    /// because it needs the command's declared mode as well as its id.
     #[must_use]
     pub fn canonical_id(&self, id: &str) -> Option<&CommandId> {
         self.get(id).map(CommandMeta::id)

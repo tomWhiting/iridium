@@ -220,6 +220,95 @@ fn canonicalize_reports_an_unknown_id() {
     );
 }
 
+/// ⛔ **The trap #91 opened.** Registering the panel's vocabulary in the kernel
+/// made `"j" = "explorer.moveDown"` a *valid* binding — and a binding with no
+/// mode applies in every mode, so a configuration file could bind a plain letter
+/// to a command that can only ever run inside the file explorer. The letter then
+/// stops typing in the document, and the command it names never runs, because
+/// the editor is never in `explorer` mode.
+///
+/// Canonicalization is where a loaded layer is made to mean what it says, so it
+/// is where the command's own declaration of its mode is applied.
+#[test]
+fn canonicalize_scopes_a_binding_to_the_mode_its_command_declares() {
+    let registry = default_registry().unwrap();
+    let mut keymap = Keymap::new("user");
+    keymap.push(KeyBinding::new(
+        StrokePattern::new(KeyCode::Char('j'), ModifierPattern::NONE),
+        &[],
+        CommandId::new(String::from("explorer.moveDown")),
+    ));
+    assert!(
+        keymap.bindings()[0].mode().is_none(),
+        "as the file wrote it"
+    );
+
+    keymap.canonicalize(&registry).unwrap();
+    assert_eq!(
+        keymap.bindings()[0].mode().map(ToString::to_string),
+        Some("explorer".to_owned()),
+        "a command that exists only in a mode may only be bound inside it"
+    );
+}
+
+/// The other direction, and the reason this is not simply "always set a mode":
+/// an editor command belongs to no mode, so a binding to one is left alone and
+/// goes on applying everywhere — including inside a modal keymap that scopes it
+/// deliberately.
+#[test]
+fn canonicalize_leaves_a_mode_free_command_mode_free() {
+    let registry = default_registry().unwrap();
+    let mut keymap = Keymap::new("user");
+    keymap.push(KeyBinding::new(
+        ctrl_pattern(KeyCode::Char('c')),
+        &[],
+        CommandId::new(String::from("clipboard.copy")),
+    ));
+
+    keymap.canonicalize(&registry).unwrap();
+    assert!(keymap.bindings()[0].mode().is_none());
+}
+
+/// ⚠️ **A mode the author wrote is never overwritten.** #113's modal keymaps
+/// scope editor commands — which declare no mode of their own — into `normal`
+/// and `insert`. Adopting the command's declaration must therefore fill a gap,
+/// never replace an answer, or every such binding would silently escape its mode
+/// the moment the layer was canonicalized.
+#[test]
+fn canonicalize_never_overwrites_a_mode_the_binding_already_names() {
+    let registry = default_registry().unwrap();
+    let normal = ModeName::from_static("normal");
+    let mut keymap = Keymap::new("user");
+    keymap.push(
+        KeyBinding::new(
+            StrokePattern::new(KeyCode::Char('d'), ModifierPattern::NONE),
+            &[],
+            CommandId::new(String::from("edit.deleteToLineEnd")),
+        )
+        .in_mode(normal.clone()),
+    );
+    // And a panel command scoped somewhere other than where its meta says, which
+    // is the case where "fill a gap" and "replace an answer" actually differ.
+    keymap.push(
+        KeyBinding::new(
+            StrokePattern::new(KeyCode::Char('k'), ModifierPattern::NONE),
+            &[],
+            CommandId::new(String::from("explorer.moveUp")),
+        )
+        .in_mode(normal.clone()),
+    );
+
+    keymap.canonicalize(&registry).unwrap();
+    for binding in keymap.bindings() {
+        assert_eq!(
+            binding.mode(),
+            Some(&normal),
+            "`{}` was scoped by its author and must stay there",
+            binding.display_sequence()
+        );
+    }
+}
+
 #[test]
 fn canonicalize_skips_suppressions() {
     let registry = default_registry().unwrap();

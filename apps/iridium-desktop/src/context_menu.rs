@@ -413,10 +413,7 @@ mod tests {
     use crate::overlay::{PanelFit, PanelRow};
 
     /// The fit of a comfortable window.
-    const FIT: PanelFit = PanelFit {
-        content_columns: 60,
-        max_interior_rows: 24,
-    };
+    const FIT: PanelFit = PanelFit::popover(60, 24);
 
     /// A key press with no modifiers.
     fn press(key: KeyCode) -> KeyEvent {
@@ -699,13 +696,7 @@ mod tests {
     fn the_rows_never_exceed_the_windows_content_columns() {
         let (menu, _editor) = open_menu();
         for columns in [4_usize, 12, 20, 60] {
-            let content = menu.content(
-                &Theme::dark(),
-                PanelFit {
-                    content_columns: columns,
-                    max_interior_rows: 24,
-                },
-            );
+            let content = menu.content(&Theme::dark(), PanelFit::popover(columns, 24));
             assert!(content.content_columns <= columns);
             for row in &content.rows {
                 assert!(

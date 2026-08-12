@@ -254,6 +254,27 @@ const TAB_CLOSE_ALPHA: f32 = 0.40;
 /// width class.
 const PANEL_MAX_COLUMNS: usize = 64;
 
+/// The widest a sidebar gets in exterior character columns.
+///
+/// Narrower than [`PANEL_MAX_COLUMNS`] on purpose, and for a different reason:
+/// a popover is read and dismissed, so it may take the middle of the window,
+/// while a sidebar is *kept open beside the code* and every column it takes is
+/// a column the document does not get. Thirty-four exterior columns leaves
+/// around thirty for names, which fits all but the longest filename at the
+/// depths a tree is usually browsed at, and the row truncates with an ellipsis
+/// when it does not.
+const SIDEBAR_COLUMNS: usize = 34;
+
+/// The most of a window's width a sidebar may take.
+///
+/// ⚠️ **The guard is against a *narrow* window, not a wide one.** On any
+/// ordinary display [`SIDEBAR_COLUMNS`] is the binding constraint and this
+/// fraction never comes near it; on a half-width window it is what stops the
+/// sidebar from taking the document's half of the screen. Below the fraction
+/// the fit refuses outright rather than drawing a column too thin to read,
+/// and the caller falls back to the popover.
+const SIDEBAR_MAX_FRACTION: f32 = 0.5;
+
 /// The narrowest exterior worth drawing, in the glyph chrome's
 /// exterior-column vocabulary (content plus four border-and-pad columns).
 /// Below this a panel shows nothing honestly — a list a dozen characters
@@ -431,12 +452,79 @@ pub struct PanelContent {
 /// What a window can honestly show of a panel, in grid units.
 ///
 /// Builders lay their rows out against this; the painter places the result.
+///
+/// ⭐ **A fit describes a *placement*, not just a window.** The same window
+/// yields [`PanelFit::popover`] for a floating panel and [`PanelFit::sidebar`]
+/// for a full-height column down the left edge, and the two differ in every
+/// field. That is why the browse ceiling is carried here rather than read from
+/// a module constant by whoever composes the rows: a panel that took its width
+/// from one placement and its row ceiling from another would be too tall for
+/// the box it is drawn in, and nothing downstream could tell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanelFit {
     /// The characters available to each interior row.
     pub content_columns: usize,
     /// The most interior rows a panel may hold on this window.
     pub max_interior_rows: usize,
+    /// The most rows a **browsed** list may fill at this placement, with one
+    /// interior row already given up to the panel's own header.
+    ///
+    /// ⚠️ **Queried panels do not read this.** The command palette and the
+    /// undo tree cap themselves at [`PANEL_MAX_VISIBLE_ROWS`], which is a
+    /// bound on *how much of a search result is worth skimming* — a property
+    /// of the question, not of the window, and so the same twelve wherever the
+    /// panel is drawn. This field is the other kind of ceiling: what a list
+    /// you are *reading down* is allowed to fill, which is exactly what
+    /// changes when a popover becomes a sidebar. See
+    /// [`EXPLORER_MAX_VISIBLE_ROWS`] for the distinction in full.
+    pub max_browse_rows: usize,
+}
+
+impl PanelFit {
+    /// The fit of a floating panel: the browse ceiling is
+    /// [`EXPLORER_MAX_VISIBLE_ROWS`], clamped by what the window affords.
+    ///
+    /// The clamp is the half that protects a small window; the constant is the
+    /// half that keeps a large one a popover with a window around it.
+    #[must_use]
+    pub const fn popover(content_columns: usize, max_interior_rows: usize) -> Self {
+        let rows = Self::list_rows(max_interior_rows);
+        Self {
+            content_columns,
+            max_interior_rows,
+            max_browse_rows: if rows > EXPLORER_MAX_VISIBLE_ROWS {
+                EXPLORER_MAX_VISIBLE_ROWS
+            } else {
+                rows
+            },
+        }
+    }
+
+    /// The fit of a full-height column: the browse ceiling is **everything the
+    /// band holds**, with no taste bound above it.
+    ///
+    /// ⭐ That absence is the whole point of the placement. A sidebar that
+    /// inherited the popover's thirty would stop drawing two thirds of the way
+    /// down a tall window and leave the rest of its own reserved band empty —
+    /// which is the defect the taller popover fixed, reintroduced one layer up.
+    #[must_use]
+    pub const fn sidebar(content_columns: usize, max_interior_rows: usize) -> Self {
+        Self {
+            content_columns,
+            max_interior_rows,
+            max_browse_rows: Self::list_rows(max_interior_rows),
+        }
+    }
+
+    /// The interior rows left for a list once the panel's header has taken
+    /// one, and never zero: a panel with nothing to list still says so on a
+    /// row, and a ceiling of zero would compose an empty box instead.
+    const fn list_rows(max_interior_rows: usize) -> usize {
+        match max_interior_rows.saturating_sub(1) {
+            0 => 1,
+            rows => rows,
+        }
+    }
 }
 
 /// The text grid the chrome is placed against: the renderer's measured cell
@@ -721,10 +809,54 @@ fn fit_for(window_width: f32, window_height: f32, metrics: GridMetrics) -> Optio
     if max_interior_rows == 0 {
         return None;
     }
-    Some(PanelFit {
-        content_columns,
-        max_interior_rows,
-    })
+    Some(PanelFit::popover(content_columns, max_interior_rows))
+}
+
+/// What a `window_width × window_height` window can show of a **sidebar** — a
+/// fixed-width column down the left edge, starting `reserve_top` pixels below
+/// the top so it clears the tab strip — or `None` when the window is too
+/// narrow or too short to hold one honestly.
+///
+/// The counterpart of [`fit_for`], and deliberately a separate function rather
+/// than a flag on it: every one of the three numbers is derived differently.
+/// The width comes from [`SIDEBAR_COLUMNS`] under [`SIDEBAR_MAX_FRACTION`]
+/// instead of [`PANEL_MAX_COLUMNS`] under the whole window; the height is the
+/// band below the strip rather than `1 - TOP_ANCHOR_FRACTION` of the window;
+/// and the browse ceiling is the band rather than a taste bound.
+///
+/// ⚠️ **A `None` here is a fallback, not a failure.** The caller draws the
+/// explorer as a popover instead, which is why the popover fit is the one it
+/// always computes and this one is the override.
+fn sidebar_fit_for(
+    window_width: f32,
+    window_height: f32,
+    reserve_top: f32,
+    metrics: GridMetrics,
+) -> Option<PanelFit> {
+    // ⚠️ A reserve that is not a number is refused rather than treated as
+    // zero. Zero would draw the sidebar over the strip it was meant to clear,
+    // and a column overlapping the tabs looks like a paint bug rather than
+    // like a measurement that failed — which is what it would be.
+    if metrics.is_degenerate() || !reserve_top.is_finite() {
+        return None;
+    }
+    let pad_x = PAD_X * metrics.scale;
+    let pad_y = PAD_Y * metrics.scale;
+    let allowance = (SIDEBAR_MAX_FRACTION * window_width).max(0.0);
+    let exterior = allowance.min(index_to_f32(SIDEBAR_COLUMNS) * metrics.char_width);
+    let content_columns = pixels_to_cells(2.0_f32.mul_add(-pad_x, exterior), metrics.char_width);
+    if content_columns + 4 < PANEL_MIN_COLUMNS {
+        return None;
+    }
+    // A reserve taller than the window leaves nothing rather than wrapping
+    // into a huge band — `pixels_to_cells` floors a negative width at zero,
+    // and the row check below refuses it.
+    let vertical = 2.0_f32.mul_add(-pad_y, window_height - reserve_top.max(0.0));
+    let max_interior_rows = pixels_to_cells(vertical, metrics.line_height);
+    if max_interior_rows == 0 {
+        return None;
+    }
+    Some(PanelFit::sidebar(content_columns, max_interior_rows))
 }
 
 /// Paints the overlays. One instance belongs to one surface, exactly as the
@@ -876,6 +1008,29 @@ impl OverlayPainter {
     pub fn panel_fit(&mut self, width: u32, height: u32) -> Option<PanelFit> {
         let metrics = self.metrics();
         fit_for(u32_to_f32(width), u32_to_f32(height), metrics)
+    }
+
+    /// What a window of this size can show of a full-height sidebar down its
+    /// left edge, or `None` when it cannot hold one.
+    ///
+    /// The band starts below the tab strip, measured here rather than passed
+    /// in — the same call [`crate::app`] makes to reserve the strip's height
+    /// above the document, so the sidebar's top edge and the document's agree
+    /// by construction instead of by two callers remembering the same number.
+    pub fn sidebar_fit(&mut self, width: u32, height: u32) -> Option<PanelFit> {
+        let height = u32_to_f32(height);
+        let reserve_top = self.tab_strip_height(height);
+        let metrics = self.metrics();
+        sidebar_fit_for(u32_to_f32(width), height, reserve_top, metrics)
+    }
+
+    /// The width in pixels a panel with `content_columns` characters to a row
+    /// takes, padding included — the horizontal twin of
+    /// [`Self::panel_height`], and what a face reserves with
+    /// [`iridium_editor::render::FrameCompositor::set_left_inset`].
+    pub fn panel_width(&mut self, content_columns: usize) -> f32 {
+        let metrics = self.metrics();
+        index_to_f32(content_columns).mul_add(metrics.char_width, 2.0 * PAD_X * metrics.scale)
     }
 
     /// Where each panel of the last painted frame landed, in the order it was
@@ -1466,9 +1621,11 @@ mod tests {
     use iridium_editor::theme::Theme;
 
     use super::{
-        Color, GridMetrics, PAD_X, PAD_Y, PANEL_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret,
-        PanelContent, PanelRow, Span, TOP_ANCHOR_FRACTION, fit_for, hairline_color,
-        panel_background, panel_geometry, panel_spans, scroll_for, strip_background,
+        Color, EXPLORER_MAX_VISIBLE_ROWS, GridMetrics, PAD_X, PAD_Y, PANEL_MAX_VISIBLE_ROWS,
+        PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, SIDEBAR_MAX_FRACTION, Span,
+        TOP_ANCHOR_FRACTION, fit_for, hairline_color, index_to_f32, panel_background,
+        panel_geometry, panel_spans, scroll_for, sidebar_fit_for, strip_background,
+        tab_strip_height,
     };
 
     /// The working grid of a 14 px face on a 2× display.
@@ -1785,6 +1942,109 @@ mod tests {
             ..METRICS
         };
         assert!(fit_for(3024.0, 1964.0, unmeasured).is_none());
+    }
+
+    /// The whole point of the placement, stated as the one number that
+    /// separates the two fits: a sidebar fills its band, a popover does not
+    /// fill the window.
+    #[test]
+    fn a_sidebar_browses_further_down_than_a_popover_ever_will() {
+        let (width, height) = WINDOW;
+        let strip = tab_strip_height(height, METRICS);
+        let popover = fit_for(width, height, METRICS).expect("the test window fits a popover");
+        let sidebar =
+            sidebar_fit_for(width, height, strip, METRICS).expect("and it fits a sidebar");
+
+        assert_eq!(
+            popover.max_browse_rows, EXPLORER_MAX_VISIBLE_ROWS,
+            "the popover is capped by taste on this window, which is what makes the \
+             comparison below mean anything"
+        );
+        assert_eq!(
+            sidebar.max_browse_rows,
+            sidebar.max_interior_rows - 1,
+            "a sidebar takes every row of its band but the query row"
+        );
+        assert!(
+            sidebar.max_browse_rows > popover.max_browse_rows,
+            "sidebar {} is no taller than popover {}",
+            sidebar.max_browse_rows,
+            popover.max_browse_rows
+        );
+    }
+
+    /// The other half: it is a *column*, so it gives the document back the
+    /// width a popover takes from the middle of the window.
+    #[test]
+    fn a_sidebar_is_narrower_than_a_popover_and_never_takes_half_the_window() {
+        let (width, height) = WINDOW;
+        let popover = fit_for(width, height, METRICS).expect("a popover fits");
+        let sidebar = sidebar_fit_for(width, height, 0.0, METRICS).expect("a sidebar fits");
+        assert!(sidebar.content_columns < popover.content_columns);
+
+        // Half of a window one third the standard width: the fraction binds
+        // here where `SIDEBAR_COLUMNS` binds above, and the two rules are what
+        // keep a sidebar honest on both ends of the range.
+        let narrow = 1000.0;
+        let squeezed = sidebar_fit_for(narrow, height, 0.0, METRICS).expect("a sidebar still fits");
+        let exterior = index_to_f32(squeezed.content_columns)
+            .mul_add(METRICS.char_width, 2.0 * PAD_X * METRICS.scale);
+        assert!(
+            exterior <= SIDEBAR_MAX_FRACTION * narrow,
+            "{exterior} of {narrow} is more than the sidebar's share"
+        );
+    }
+
+    /// A window that cannot hold a readable column says so, rather than
+    /// drawing a sliver — the caller falls back to the popover.
+    #[test]
+    fn a_window_that_cannot_hold_a_column_refuses_one() {
+        let (width, height) = WINDOW;
+        assert!(sidebar_fit_for(600.0, height, 0.0, METRICS).is_none());
+        assert!(sidebar_fit_for(width, 80.0, 0.0, METRICS).is_none());
+        // ⚠️ **A sidebar survives a shorter window than a popover does, and
+        // that is the rule rather than an oversight.** `fit_for` gives up 12%
+        // of the height to the top anchor before it measures; a column hangs
+        // off the top edge and has no anchor to pay for. On this grid a row
+        // costs 39.2 px over 48 px of padding, so the popover needs 99.1 px of
+        // window and the sidebar 87.2 — and 92 is the gap between them.
+        // MEASURED: the first pair of numbers written here were both above
+        // *both* thresholds and proved nothing.
+        assert!(sidebar_fit_for(width, 92.0, 0.0, METRICS).is_some());
+        assert!(fit_for(width, 92.0, METRICS).is_none());
+        // A reserve taller than the window, and one that never measured.
+        assert!(sidebar_fit_for(width, height, height + 1.0, METRICS).is_none());
+        assert!(sidebar_fit_for(width, height, f32::NAN, METRICS).is_none());
+        let unmeasured = GridMetrics {
+            char_width: 0.0,
+            ..METRICS
+        };
+        assert!(sidebar_fit_for(width, height, 0.0, unmeasured).is_none());
+    }
+
+    /// A sidebar's band clears the strip: its rows plus the strip fit the
+    /// window, which is the arithmetic the reserve exists to make true.
+    #[test]
+    fn a_sidebar_composed_against_its_fit_clears_the_tab_strip() {
+        for (width, height, scale) in [(3024.0, 1964.0, 2.0), (1512.0, 982.0, 1.0)] {
+            let metrics = metrics_at(scale);
+            let strip = tab_strip_height(height, metrics);
+            let fit = sidebar_fit_for(width, height, strip, metrics).expect("a sidebar fits");
+            let tall = index_to_f32(fit.max_interior_rows)
+                .mul_add(metrics.line_height, 2.0 * PAD_Y * metrics.scale);
+            assert!(
+                strip + tall <= height + 0.001,
+                "a {scale}× window's sidebar overlaps its tab strip: {strip} + {tall} > {height}"
+            );
+        }
+    }
+
+    /// One row of band leaves one row of list, never zero — a panel that
+    /// composed no rows at all would be an empty box.
+    #[test]
+    fn the_shortest_honest_band_still_lists_a_row() {
+        assert_eq!(PanelFit::sidebar(30, 1).max_browse_rows, 1);
+        assert_eq!(PanelFit::popover(30, 1).max_browse_rows, 1);
     }
 
     #[test]

@@ -1116,7 +1116,43 @@ It is not. One face is proven; the other has an unexamined indirection in front
 of it. *Committed, pushed and installed are three different places* — and so
 are **two different faces behind one launcher**.
 
-**NEXT SEAT, first three commands:**
+### 5. ⛔ RESOLVED, AND IT IS A REAL DEFECT: the TUI is ten days stale
+
+The three commands below were run before the context ended. The answer:
+
+```
+tui="$here/iridium-tui"
+-rwxr-xr-x  1 tom  staff  14156752  3 Aug 15:23  /Users/tom/.local/bin/iridium-tui
+strings … | grep -c "the sidebar placement is not in the terminal face yet"  ->  0
+```
+
+⛔ **`bundle/install.sh` does not install the terminal face at all.** The
+binary behind the `iridium` launcher is dated **3 Aug 15:23** — ten days old —
+and carries none of this session's work. On Tom's box right now, `Ctrl+Alt+E`
+in the terminal editor does **nothing**, because that binary predates the
+panel by a week and a half.
+
+The desktop half of the install is genuinely fine (§4). The launcher is fine.
+What is missing is any path that rebuilds and replaces `~/.local/bin/iridium-tui`,
+which means **every terminal-face change this project has landed since 3 Aug
+is uninstalled**, and nothing on the box said so.
+
+⭐ **The law: an installer that installs one of two faces reports success for
+both.** The wrapper made this invisible — `iridium` launches, so the install
+looked whole. A receipt has to name the *artefact*, not the *command*.
+
+**What the next seat should do, in order:**
+
+1. Read `apps/iridium-desktop/bundle/install.sh` and `bundle.sh` and confirm
+   they only ever handle the GUI bundle. Do not assume it — the file is short.
+2. Find whatever put `iridium-tui` there on 3 Aug. If nothing in the repo did,
+   this is an installer gap and not a regression.
+3. Fix it so one command installs both faces, or add a second explicit one and
+   name it in the docs. ⚠️ Then re-run and prove the marker count is ≥ 1.
+4. Tell Tom, because it changes what he can try: the desktop face is current,
+   the terminal face on his box is from 3 August.
+
+**The commands, kept for re-running after the fix:**
 
 ```bash
 grep -n 'tui=' ~/.local/bin/iridium        # resolve $tui

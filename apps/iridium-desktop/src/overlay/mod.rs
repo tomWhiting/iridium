@@ -99,8 +99,8 @@ pub use frame::{PaintedFrame, PaintedPanel, PanelHit};
 // `iridium-panel` so the file explorer could reach the terminal one, and every
 // builder here still composes against `crate::overlay::Span` as it always did.
 pub use geometry::{GridMetrics, PanelGeometry, PanelRect, panel_geometry};
+pub use iridium_panel::line::scroll_for;
 pub use iridium_panel::{
     EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,
 };
 pub use paint::OverlayPainter;
-pub(crate) use paint::scroll_for;

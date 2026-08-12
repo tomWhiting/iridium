@@ -35,6 +35,7 @@ use crate::mouse::Pointer;
 use crate::overlay::{PaintedFrame, PanelKind};
 use crate::prompt::{Message, Prompt};
 use crate::search::SearchOverlay;
+use crate::verbs::Availability;
 
 /// The tab label for a buffer that has no file yet.
 pub(super) const UNTITLED: &str = "untitled";
@@ -224,6 +225,14 @@ pub struct DesktopApp {
     /// offers is furniture. `run.rs` attaches one; the test suite builds
     /// sessions without, and those sessions correctly have no menu bar.
     pub(super) menu_proxy: Option<EventLoopProxy<MenuCommand>>,
+    /// What the menu bar was last told about what may run.
+    ///
+    /// ⭐ **The whole cost of the greying push, in one comparison.**
+    /// Enabledness is a pure function of this and whether a command writes,
+    /// and the registry does not change mid-session — so an unchanged value
+    /// means an unchanged bar and nothing crosses into `AppKit`. `None` until
+    /// the first refresh, so the first one always pushes.
+    pub(super) last_menu_availability: Option<Availability>,
     /// Keydown-to-present measurement, armed by `IRIDIUM_LATENCY`; one
     /// branch per event when it is not. See [`crate::latency`].
     pub(super) latency: LatencyMonitor,

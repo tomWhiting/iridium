@@ -117,6 +117,33 @@ pub enum HighlightType {
     /// A fenced code block's delimiter or its info string.
     MarkupFence,
 
+    // ----- Diff status -----
+    //
+    // The four status words a `gitcommit` buffer writes against a path — "new
+    // file", "deleted", "modified", "renamed" — captured as `@diff.plus`,
+    // `@diff.minus`, `@diff.delta` and `@diff.delta.moved`.
+    //
+    // ⭐ **Four names get four categories, and the collapse is what is being
+    // refused.** Modified and renamed share a *colour* below, which is fine and
+    // is what a many-to-one colour map is for; sharing a *category* would mean
+    // no theme could ever part them, which is the "one value standing for two
+    // sentences" defect this codebase has repeatedly paid for.
+    //
+    // ⚠️ **Nothing renders these today**, and that is why they are ruled now
+    // rather than later: no grammar is linked for `diff` or `gitcommit`, so the
+    // decision is free of visual consequence and will stop being free the
+    // moment somebody links one. Leaving them unmapped until then is how an
+    // unstyled-token defect arrives on the same day as a new grammar, blamed on
+    // the grammar.
+    /// A diff status meaning a file was added — `@diff.plus`.
+    DiffAdded,
+    /// A diff status meaning a file was removed — `@diff.minus`.
+    DiffRemoved,
+    /// A diff status meaning a file's contents changed — `@diff.delta`.
+    DiffModified,
+    /// A diff status meaning a file moved or was renamed — `@diff.delta.moved`.
+    DiffMoved,
+
     /// Syntax errors
     Error,
 }
@@ -157,7 +184,23 @@ impl HighlightType {
             "keyword.control" | "keyword.return" | "keyword.control.return" => {
                 Some(Self::KeywordControl)
             },
-            "keyword.operator" | "operator" => Some(Self::Operator),
+            // ⚠️ The two `.regex` spellings are listed here rather than
+            // reached by prefix arms, for the reason the markup block gives at
+            // length: a prefix arm gives every future `operator.<anything>` a
+            // plausible category with nobody ruling on it, which is the silent
+            // mapping the ratchet exists to surface. Listing costs one name per
+            // vendor refresh.
+            //
+            // ⭐ `keyword.operator.regex` is the one that shows why this
+            // matters. It already mapped — through the `keyword` prefix, to
+            // `Keyword`, while its own bare spelling `keyword.operator` maps
+            // here to `Operator`. One concept, two spellings, two colours, and
+            // the ratchet green throughout, because a wrong mapping is still a
+            // mapping. `a_suffixed_spelling_carries_the_same_category_as_the_bare_one`
+            // is what catches that class.
+            "keyword.operator" | "operator" | "keyword.operator.regex" | "operator.regex" => {
+                Some(Self::Operator)
+            },
 
             // Strings
             "string" | "string.literal" | "string.special" => Some(Self::String),
@@ -212,8 +255,25 @@ impl HighlightType {
             "punctuation.special" => Some(Self::PunctuationSpecial),
 
             // Properties/fields
-            "property" | "field" | "property.name" | "label" | "variable.member"
-            | "variable.field" => Some(Self::Property),
+            //
+            // ⚠️ `variable.other.member` is the helix spelling of
+            // `variable.member`, which is already on this arm. It mapped
+            // before this line existed — through the `variable` prefix, to
+            // `Variable` — so a trailer key in a git commit message wore the
+            // variable colour while the same concept in every other grammar
+            // wore the property colour, and nothing reported it.
+            //
+            // `label.regex` joins `label` for the same reason: a regex group
+            // name is a label, spelled with the family suffix the vendored
+            // `regex` queries use throughout.
+            "property"
+            | "field"
+            | "property.name"
+            | "label"
+            | "variable.member"
+            | "variable.field"
+            | "variable.other.member"
+            | "label.regex" => Some(Self::Property),
 
             // Constants
             //
@@ -289,6 +349,23 @@ impl HighlightType {
             "punctuation.list_marker.markup" => Some(Self::MarkupList),
             "punctuation.markup" => Some(Self::MarkupPunctuation),
             "punctuation.embedded.markup" => Some(Self::MarkupFence),
+
+            // ----- Diff status -----
+            //
+            // Only `gitcommit` writes these, on the kind word of a change line
+            // — `(change kind: "new file" @diff.plus)`. `diff/highlights.scm`
+            // names `@diff.plus` and `@diff.minus` too, but only inside two
+            // `;; TODO:` comments proposing them as a future refinement of the
+            // `@string` / `@keyword` it captures today. ⭐ That distinction was
+            // itself the source of a wrong measurement: a scan that read
+            // comment text recorded both names against `diff`, a file that has
+            // never captured either. The scan behind the ratchet skips
+            // comments, and `an_at_sign_inside_a_comment_is_prose_not_a_capture`
+            // uses that exact text as its fixture.
+            "diff.plus" => Some(Self::DiffAdded),
+            "diff.minus" => Some(Self::DiffRemoved),
+            "diff.delta" => Some(Self::DiffModified),
+            "diff.delta.moved" => Some(Self::DiffMoved),
 
             // Error
             "error" => Some(Self::Error),

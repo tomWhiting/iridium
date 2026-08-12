@@ -125,6 +125,36 @@ through.
 
 ## The plan
 
+### ⭐ The finding that reorders L1 (measured 12 Aug, after L1a landed)
+
+**Markup captures ride on code slots today, so no theme can style a heading
+without styling unrelated code.** From `iridium-syntax/src/highlight/capture.rs`:
+
+| capture | maps onto | the comment's own reason |
+|---|---|---|
+| `title.markup` (a heading) | `HighlightType::Keyword` | *"keyword is the most prominent slot in every theme"* |
+| `link_uri.markup` | `HighlightType::String` | *"a URI is a string literal in every other grammar's terms"* |
+| `link_text.markup` | `HighlightType::Function` | *"`Function` is the blue slot in most themes and link-blue is what a reader expects"* |
+
+Those were reasonable rulings when colour was the only thing a capture could
+carry — a heading borrowing the keyword *colour* costs nothing. It stops being
+free the moment a capture can also carry weight: "headings are bold" would
+reach every `fn` and `let` in every language, because they are the same value.
+
+⚠️ **So the order is: taxonomy first, then theme, then markdown.** L1b cannot
+be "the theme gains a weight per capture" until markup has slots of its own.
+`capture.rs`'s own comment already anticipated this — *"`Property` is the
+alternative if it ever reads too strongly"* — it just did not anticipate why.
+
+**The design call, taken here rather than escalated:** the *theme* owns style,
+not the capture. A capture that were inherently bold could not be un-bolded by
+a theme, and "what does a heading look like" is exactly what a theme is for —
+it is also the only arrangement in which the two faces cannot drift, since
+both read one theme. This lines up with **#87** (theme system) rather than
+competing with it: #87 gains style-per-slot instead of colour-per-slot.
+Revert cost if that is wrong: the taxonomy work stands either way; only the
+`SyntaxColors` → `SyntaxStyles` widening would be undone.
+
 ### L1 — style on the run path that already exists
 
 1. A `RunStyle` in `render` — colour, weight, italic. Colour stays mandatory;

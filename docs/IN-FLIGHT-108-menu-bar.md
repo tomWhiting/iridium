@@ -1,7 +1,9 @@
 # #108 — the menu bar
 
-**Status: ground verified, nothing built.** Written 13 Aug 2026, while #113 is
-blocked on Tom's grammar ruling.
+**Status: ground verified, nothing built.** Written 13 Aug 2026. (The header
+originally said "while #113 is blocked on Tom's grammar ruling" — **#113 was
+never blocked**; that fork was retired the same day. Nothing in this file
+depended on it.)
 
 This task existed as one **explicitly unchecked paragraph** at the foot of
 `docs/OPEN-DIALOG-GROUND.md`, which ended *"Nothing verified about it yet —

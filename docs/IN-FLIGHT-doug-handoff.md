@@ -1040,6 +1040,12 @@ build #108 and click one menu item. If a tick finds this and no answer, work
 something else — the backlog is #58, #87, #88, #90, #91, #92, #93, #95, #96,
 #99, #43→#44→#45.
 
+> ⚠️ **SUPERSEDED 13 Aug 2026, later the same day.** The paragraph above is
+> wrong about #113 and is left standing only so the correction is legible.
+> **#113 was never blocked** — the grammar ruling was never put to Tom and
+> there was no fork to put. Only **#108** is blocked on him. See the live-state
+> section at the tail of this file, and `IN-FLIGHT-118` §2.
+
 ### ✅ #110 CLOSED — `eb92c47c`, ten gates green
 
 An imported VS Code theme's `fontStyle` was parsed from day one and read by
@@ -1505,8 +1511,13 @@ Commits this tick: `2c452389` (#91 design map) · `111d72fa` (#91 build).
 - **#108** — menu bar is CODE-COMPLETE. He must build it and click one menu
   item. Slice B (key equivalents) is gated on that confirmation by D-1. **Do
   not turn key equivalents on before he confirms.**
-- **#113** — terminal modality, steps 4 and 5, blocked on the **Vim-vs-Helix
-  grammar ruling**. ⛔ **Do not pick the grammar in this seat.**
+- ~~**#113** — blocked on the Vim-vs-Helix grammar ruling.~~ **NOT BLOCKED, and
+  never was.** Tom corrected this on 13 Aug: the fork was never put to him
+  (nothing went through Meridian), and there is no fork to put — his 12 Aug
+  ruling (`8b1b350d`, `EXTENSIBILITY.md` §0) puts the pending-operator
+  mechanism in the kernel, which makes both grammars data files. D-1 is retired
+  in `docs/IN-FLIGHT-113-modality.md`; steps 4 and 5 proceed. See
+  `docs/IN-FLIGHT-118-keys-discoverability.md` §2.
 - Also outstanding with him: the bold-by-default preset look (Waffles' docket),
   and the older sidebar-flush-at-x=0 question.
 

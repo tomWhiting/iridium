@@ -98,7 +98,50 @@ available" has nowhere to be expressed today.
 
 ## Rulings
 
-### D-1 — The Vim/Helix fork is deferred on purpose, not dodged
+### ⛔ D-1 RETIRED — there was never a fork, and it was never put to him
+
+**Retired 13 Aug 2026, on Tom's correction.** The ruling below is left standing
+rather than deleted, because the mistake is worth being able to read.
+
+Tom, on being told #113 was waiting on his answer:
+
+> "The Vim versus Helix grammar ruling, what the fuck are you talking about
+> there? You've not mentioned that to me. I thought we didn't have to make a
+> decision between those kinds of things."
+
+**He is right twice over.**
+
+1. **It was never asked.** D-1 below says the fork is "put to him". This file
+   was created on 13 Aug (`479555d4`, `git log --diff-filter=A`) and nothing
+   about it ever went through Meridian. Under this seat's own delivery rule —
+   *anything meant for Tom leaves through Meridian or it did not happen* — the
+   question was never put. It was then reported back to him as a wait **he** was
+   holding, which turned a question he had never seen into a reply he owed.
+
+2. **And there is nothing to rule on.** The table below prices Vim as "needs a
+   new kernel mechanism" against Helix as "data only" — the entire case for the
+   fork. But Tom's ruling of **12 Aug** (`8b1b350d`, `docs/EXTENSIBILITY.md` §0)
+   already put the **pending-operator mechanism in the kernel, before any modal
+   keymap is authored**. With that mechanism ruled in, the "new kernel
+   mechanism" row is paid for under both grammars and **both keymaps are data**.
+   D-1 was written as though the question were open when his ruling had closed
+   it the day before.
+
+**Consequences, all live:**
+
+- **#113 is NOT blocked.** Steps 4 and 5 proceed. The build order below is
+  amended: step 4 no longer waits on a ruling.
+- Whichever keymap gets authored first is a **file**, not a fork. Shipping both
+  eventually costs two data files and no kernel change, so this never has to be
+  a choice between muscle memories — it can be a setting.
+- **G-6 is the real remaining gap**, and #91 only half-closed it: mode-scoped
+  *panel* commands now derive their mode from `CommandMeta`, but a modal keymap
+  binding *editor* commands in a `normal` mode still has no spelling in
+  `[keys]`. That is a config-format question (D-3), and it is the thing that
+  actually needs deciding.
+
+<details>
+<summary>The retired ruling, kept for the record</summary>
 
 Two grammars are on the table, and they price very differently against this
 kernel:
@@ -126,6 +169,8 @@ waits on the reply and no work is wasted by it.
 operator mechanism (G-4).** The three steps below are untouched by the choice.
 Revert cost if the *ground* is built for one grammar and he picks the other:
 much larger, which is exactly why it is being built grammar-agnostic.
+
+</details>
 
 ### D-2 — Normal mode stops typing because the *keymap* says so, not the kernel
 
@@ -209,7 +254,9 @@ is known.
 
 ## Build order
 
-Steps 1–3 are needed whichever grammar wins D-1.
+⚠️ **Amended 13 Aug 2026 when D-1 was retired.** No step here waits on a
+ruling; a grammar is a keymap file, and shipping a second one costs a second
+file. Steps 1–3 were written as grammar-agnostic and remain so.
 
 1. **The typing gate (G-5, D-2).** `Keymap` learns whether a mode self-inserts;
    `dispatch` asks. Test: a hand-built two-mode keymap where `q` types in one
@@ -222,7 +269,11 @@ Steps 1–3 are needed whichever grammar wins D-1.
    than a commitment.
 3. **Counts (G-2, D-4).** `with_count_prefix` on the motion bindings, the count
    consumed, `three_of_a_verb_is_one_undo_step` written first.
-4. **The grammar (D-1), once ruled.** The full keymap, and D-7 with it.
+4. **A full keymap, and D-7 with it.** Selection-first is the one to author
+   first — not because it won a fork, but because every `…Select` twin already
+   exists (G-3) so it is the cheapest file to write. An operator-pending keymap
+   is a second file over the mechanism Tom's 12 Aug ruling already puts in the
+   kernel, and costs no kernel change when someone wants it.
 5. **The config format (G-6, D-3)** and **the setting (D-5)**, and the default
    flips in that last commit.
 

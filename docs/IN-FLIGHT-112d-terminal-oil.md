@@ -285,12 +285,43 @@ Each step is checkable on its own, and the first two are strictly refactor.
    changes loudly. Census flat — `filter` carries no tests of its own — which
    is the right proof that nothing was lost on the way.
 
+   **`prompt::Entry` followed, and it is a prerequisite rather than a slice.**
+   Five of the nine remaining modules import it, so nothing coupled could move
+   ahead of it. It is now `iridium-panel::entry`, re-exported from the
+   desktop's `prompt` so `crate::prompt::Entry` still names it. The seven verbs
+   the palette, the search bar and the explorer already called directly went
+   from `pub(crate)` to `pub`; `edit` — the key-named form the prompt drives it
+   with — went from private to `pub` for the same reason.
+
+   ⚠️ **This one is *not* census-preserving, deliberately.** Every existing
+   test of the field went through `Prompt`, which stayed behind — so the move
+   as-such would have put 180 lines of grapheme-cluster caret arithmetic into
+   the shared crate with **no test in that crate able to fail on it**.
+   `cargo test -p iridium-panel` would have passed with `Entry` broken. Eight
+   direct tests were written to close that: the control-character invariant on
+   both ways in, cluster-whole backspace and delete, motion reporting whether
+   it moved, the column counted in `char`s rather than clusters or bytes,
+   insertion at the caret, and `edit` naming the same verbs the panels call by
+   hand. Panel crate **47 → 55**; desktop **510**, unchanged, because nothing
+   left it. Proven discriminating: removing the control-character guard fails
+   exactly two of the eight and nothing else in the workspace.
+
    Still to come in 2c: the coupled set — `panel`, `buffer`, `keys`,
    `edit_keys`, `mode`, `session`, `confirm`, `rows`, `compose` — plus
    `project`'s two root functions. `PanelAnchor`, `PanelContent` and the
    painters stay behind. ⭐ **`panel` goes first of those, not last**: every
    one of the nine is either an `impl FileExplorer` or imports the type, so
    nothing else in the set can move ahead of it.
+
+   ⚠️ **The one open question in 2c is `project::chosen_root`.** R1b named it
+   as the single member of the explorer's foreign surface that the other three
+   panels do *not* share, and `panel.rs` calls it. It is a decision, not a
+   move: either it goes to the shared crate as the explorer's own, or the
+   caller supplies a root and the crate stops asking. The second reads better
+   — a crate that picks a directory out of the environment is a crate that
+   behaves differently depending on how the process was launched, which is the
+   exact shape of the `/`-as-root defect (#57) — but it changes a signature,
+   so it is stated here rather than taken in passing.
 
    **The scope 2c was written against, unchanged:** the whole explorer — the
    tree, filter, keys, oil buffer, edit keys, plan, confirm, apply — plus

@@ -9,27 +9,20 @@
 //! on the GPU ([`crate::overlay`]), so this module ends at strings and a caret
 //! column.
 //!
-//! # This is not a second editing model
+//! # The field itself is not here
 //!
-//! [`Entry`] is a line of text with a caret, not a document: no history, no
-//! selections, no commands, and nothing in it reachable from document text.
-//! The kernel's editing verbs act on a `Document` through reversible
-//! commands, and a file name being typed is a `&str` argument. The terminal
-//! face's prompt makes the same argument at more length.
-//!
-//! The caret is a byte offset that always sits on a grapheme-cluster
-//! boundary. Every motion and deletion moves whole clusters — removing one
-//! `char` of a joined emoji would leave a dangling zero-width joiner in a
-//! file name. The caret's *column*, by contrast, is counted in `char`s,
-//! because that is the grid the GPU face draws in: the compositor places the
-//! document caret at `column × char_width`, and the strip's caret follows the
-//! same convention rather than inventing a second one.
+//! [`Entry`] — one editable line with a caret, and the grapheme-cluster rules
+//! that govern it — lives in [`iridium_panel::entry`], because four surfaces
+//! in this face already type into one and the terminal face is owed a fifth. A
+//! field that behaved differently in one of them would read as "the arrow key
+//! skips half an emoji in the sidebar but not in the palette". It is
+//! re-exported here so `crate::prompt::Entry` still names it.
 
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use iridium_editor::{KeyCode, KeyEvent, Modifiers};
-use unicode_segmentation::UnicodeSegmentation as _;
+
+pub use iridium_panel::Entry;
 
 /// What answering "yes" to a confirmation asks for.
 ///
@@ -246,186 +239,6 @@ impl Message {
     #[must_use]
     pub const fn is_error(&self) -> bool {
         self.is_error
-    }
-}
-
-/// One editable line of text with a caret in it.
-///
-/// The caret is a byte offset on a grapheme-cluster boundary; see the module
-/// documentation for why it is a cluster boundary and why its column is
-/// counted in `char`s.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Entry {
-    /// The text, which never contains a control character.
-    text: String,
-    /// The caret, as a byte offset that is always on a cluster boundary.
-    caret: usize,
-}
-
-impl Entry {
-    /// An empty field.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// A field already holding `text`, with the caret after it.
-    ///
-    /// Built by [`insert`](Self::insert)ing one character at a time rather than
-    /// by assigning the string, so the field's one invariant — **no control
-    /// character ever enters a file name** — holds by construction here as it
-    /// does for typing. A second way in that assigned the string directly would
-    /// be a second way for a newline to reach a path, and the caller's text is
-    /// exactly the kind that could carry one: it comes from an
-    /// [`OsStr`](std::ffi::OsStr), which permits bytes a keyboard cannot send.
-    #[must_use]
-    pub fn with_text(text: &str) -> Self {
-        let mut entry = Self::new();
-        for character in text.chars() {
-            let _ = entry.insert(character);
-        }
-        entry
-    }
-
-    /// The field's text.
-    #[must_use]
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
-    /// Applies a motion or a deletion named by a key.
-    ///
-    /// Keys this does not name leave the field alone; the prompt has already
-    /// consumed them. The overlays call the named operations directly because
-    /// they need to know whether the text changed; the prompt does not.
-    fn edit(&mut self, key: KeyCode) {
-        let _ = match key {
-            KeyCode::Backspace => self.backspace(),
-            KeyCode::Delete => self.delete(),
-            KeyCode::Left => self.move_left(),
-            KeyCode::Right => self.move_right(),
-            KeyCode::Home => self.move_home(),
-            KeyCode::End => self.move_end(),
-            _ => false,
-        };
-    }
-
-    /// Inserts a character at the caret, which then sits after it.
-    ///
-    /// Control characters are refused: nothing in the face can paint one, and
-    /// a newline in a file name would be a character the user could see no
-    /// trace of while it silently changed which file was written.
-    ///
-    /// Returns whether anything was inserted.
-    pub(crate) fn insert(&mut self, character: char) -> bool {
-        if character.is_control() {
-            return false;
-        }
-        // The caret is on a cluster boundary by construction. Recovering
-        // rather than trusting it is what keeps a mistake anywhere else in
-        // this module from becoming a panic mid-frame.
-        if !self.text.is_char_boundary(self.caret) {
-            self.caret = self.text.len();
-        }
-        self.text.insert(self.caret, character);
-        self.caret += character.len_utf8();
-        true
-    }
-
-    /// Removes the whole grapheme cluster before the caret.
-    ///
-    /// Returns whether anything was removed.
-    pub(crate) fn backspace(&mut self) -> bool {
-        let Some(range) = self.cluster_before() else {
-            return false;
-        };
-        self.caret = range.start;
-        self.remove(range)
-    }
-
-    /// Removes the whole grapheme cluster at the caret, leaving it in place.
-    ///
-    /// Returns whether anything was removed.
-    pub(crate) fn delete(&mut self) -> bool {
-        let Some(range) = self.cluster_at() else {
-            return false;
-        };
-        self.remove(range)
-    }
-
-    /// Moves the caret one cluster left. Returns whether it moved.
-    pub(crate) fn move_left(&mut self) -> bool {
-        let Some(range) = self.cluster_before() else {
-            return false;
-        };
-        self.caret = range.start;
-        true
-    }
-
-    /// Moves the caret one cluster right. Returns whether it moved.
-    pub(crate) fn move_right(&mut self) -> bool {
-        let Some(range) = self.cluster_at() else {
-            return false;
-        };
-        self.caret = range.end;
-        true
-    }
-
-    /// Moves the caret to the start. Returns whether it moved.
-    pub(crate) const fn move_home(&mut self) -> bool {
-        let moved = self.caret != 0;
-        self.caret = 0;
-        moved
-    }
-
-    /// Moves the caret past the last cluster. Returns whether it moved.
-    pub(crate) fn move_end(&mut self) -> bool {
-        let moved = self.caret != self.text.len();
-        self.caret = self.text.len();
-        moved
-    }
-
-    /// The caret's column, counted in `char`s from the field's start.
-    ///
-    /// `char`s rather than cells because the GPU face draws on a
-    /// `char × char_width` grid — the same convention the compositor places
-    /// the document caret with.
-    #[must_use]
-    pub fn caret_column(&self) -> usize {
-        self.text.get(..self.caret).map_or_else(
-            || self.text.chars().count(),
-            |prefix| prefix.chars().count(),
-        )
-    }
-
-    /// The byte range of the cluster ending at the caret, if there is one.
-    fn cluster_before(&self) -> Option<Range<usize>> {
-        let prefix = self.text.get(..self.caret)?;
-        let (start, cluster) = prefix.grapheme_indices(true).next_back()?;
-        Some(start..start + cluster.len())
-    }
-
-    /// The byte range of the cluster starting at the caret, if there is one.
-    fn cluster_at(&self) -> Option<Range<usize>> {
-        let suffix = self.text.get(self.caret..)?;
-        let cluster = suffix.graphemes(true).next()?;
-        Some(self.caret..self.caret + cluster.len())
-    }
-
-    /// Removes a byte range, refusing one that is not a valid slice.
-    ///
-    /// Every range this module produces comes from a cluster and is valid.
-    /// The check is here because `String::drain` panics on one that is not.
-    fn remove(&mut self, range: Range<usize>) -> bool {
-        if range.start >= range.end
-            || range.end > self.text.len()
-            || !self.text.is_char_boundary(range.start)
-            || !self.text.is_char_boundary(range.end)
-        {
-            return false;
-        }
-        self.text.drain(range);
-        true
     }
 }
 

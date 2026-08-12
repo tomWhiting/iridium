@@ -24,14 +24,14 @@
 use iridium_editor::KeyCode;
 
 use super::support::{lines, open_directory, opened, press, project, settle, type_query};
-use crate::file_tree::FileExplorer;
-use crate::file_tree::buffer::Buffer;
-use crate::file_tree::plan::Operation;
+use crate::explorer::FileExplorer;
+use crate::explorer::buffer::Buffer;
+use crate::explorer::plan::Operation;
 
 /// The buffer for what the panel is drawing right now.
 ///
 /// A helper rather than a method on the panel: the only caller that builds a
-/// buffer in a shipped build is [`crate::file_tree::mode::Mode::begin_edit`],
+/// buffer in a shipped build is [`crate::explorer::mode::Mode::begin_edit`],
 /// which takes the rows and loads them itself, so a `FileExplorer::buffer`
 /// would exist for these tests alone.
 fn buffer(explorer: &FileExplorer) -> Buffer {

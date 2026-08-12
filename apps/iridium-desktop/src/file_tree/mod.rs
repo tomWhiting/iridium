@@ -1,76 +1,67 @@
-//! The file explorer panel.
+//! The file explorer panel, under the path this face has always used.
 //!
-//! An [`iridium_tree::Tree`] over an [`iridium_explorer::FileTree`], composed
-//! into the same [`PanelContent`](crate::overlay::PanelContent) the palette and
-//! the undo tree use, so it
-//! inherits their chrome, their placement and their focus discipline rather
-//! than growing a third answer to any of it.
+//! ⭐ **The panel itself is [`iridium_panel::explorer`] now, all of it.** What
+//! is left here is the one thing a shared panel structurally cannot say: where
+//! on a window it goes. Everything else — the tree, the keys, the oil buffer,
+//! the filter, the rename pipeline, the composition of every row — is one
+//! implementation that the terminal face compiles from the same source, which
+//! is the whole point of #112d.
 //!
-//! # The one thing this panel does that the others do not
+//! # Why this module still exists at all
 //!
-//! **It polls.** The filesystem source never reads a directory on the thread
-//! that asked for it — see [`iridium_explorer`] — so a listing arrives some
-//! frames after it was wanted. [`FileExplorer::poll`] is where that arrival is
-//! collected, and the host calls it once per frame while the panel is open. A
-//! `true` means rows changed and a repaint is owed.
+//! Two reasons, and both are about the seam rather than about compatibility.
 //!
-//! Skipping the poll does not corrupt anything; it just leaves the panel
-//! showing a directory that is permanently loading, which is the failure this
-//! module's documentation exists to make findable.
+//! **An anchor is a statement about a window.** [`content`] below is the
+//! conversion: it takes the [`PanelBody`](iridium_panel::PanelBody) the shared
+//! panel composed — rows, the width they were laid out against, and where the
+//! caret landed — and wraps it in this face's [`PanelContent`], which adds the
+//! anchor and leaves room for the hover the painter fills in afterwards. That
+//! is the only thing the desktop adds, and it is exactly one struct literal
+//! long, which is the measure of how clean the seam turned out to be.
 //!
-//! # Where the pieces live
+//! **A free function rather than a method**, because Rust's orphan rule will
+//! not let this crate write `impl FileExplorer` for a type another crate
+//! defines. That constraint is worth reading as a feature: it is what stops a
+//! face quietly growing panel behaviour that the other face would never see.
+//! An extension trait could have restored the method syntax and would have
+//! bought nothing but the dot.
 //!
-//! - `panel` — [`FileExplorer`], [`ExplorerOutcome`], and the state both of
-//!   the modules below read.
-//! - `keys` — what a key press does while browsing, and the one key that
-//!   starts editing.
-//! - `edit_keys` — what a key press does once the rows are being edited, a
-//!   refusal is showing, or a confirmation is. Reached *before* `keys`'
-//!   table, because that table gives every printable character to the filter.
-//! - `compose` — what reaches the screen.
-//! - `buffer` — the rows as loaded and as they now read, and the one place a
-//!   row's origin is captured from the node it was drawn from.
-//! - `mode` — whether the panel is browsing, editing or confirming, and the
-//!   rule that unapplied edits are never dropped without being asked about.
-//! - `session` — everything that is true *while* the rows are being edited:
-//!   the cursor, the name field it carries, and the verbs that change either.
-//! - `tests` — the panel's own suite, against real directories and the real
-//!   reader thread.
+//! # Where to look when the panel misbehaves
 //!
-//! # What is no longer here
-//!
-//! `plan`, `order` and `apply` — the rename pipeline — plus `filter`, `rows`
-//! and `confirm` now live in
-//! [`iridium_panel::explorer`], because a rename means the same thing in both
-//! faces and two copies of it could disagree about what one *does*. They are
-//! re-exported below, so the modules that stayed read exactly as they did.
+//! Nothing here. A wrong row, a key that does the wrong thing, a rename that
+//! refuses — all of it is in [`iridium_panel::explorer`], and a defect found
+//! in this face is a defect the terminal face has too.
 
-mod buffer;
-mod compose;
-mod edit_keys;
-mod keys;
-mod mode;
-mod panel;
-mod session;
+use iridium_editor::theme::Theme;
 
-#[cfg(test)]
-mod buffer_tests;
+use crate::overlay::{PanelAnchor, PanelContent, PanelFit};
 
-#[cfg(test)]
-mod edit_keys_tests;
+pub use iridium_panel::explorer::{ExplorerOutcome, FileExplorer};
 
-#[cfg(test)]
-mod mode_tests;
-
-#[cfg(test)]
-mod tests;
-
-// ⭐ **Hoisted to `iridium-panel`, and re-exported here rather than
-// rewritten at every call site.** A rename means the same thing in both
-// faces, so the pipeline that decides what one *is* belongs in the crate both
-// faces depend on. The nine modules that stayed still read `super::plan::…`
-// and `super::apply::…`, which is the point: the hoist moved code, not
-// meaning. See [`iridium_panel::explorer`].
-pub(crate) use iridium_panel::explorer::{apply, confirm, filter, plan, rows};
-
-pub use panel::{ExplorerOutcome, FileExplorer};
+/// Composes `explorer` for painting at `anchor`.
+///
+/// `&mut FileExplorer` because composition is where the scroll window follows
+/// the selection and the page size is learned — see
+/// [`FileExplorer::body`](iridium_panel::explorer::FileExplorer::body), which
+/// is where all of that happens.
+///
+/// `hovered` is left `None` here on purpose. The painter's `apply_hover` sets
+/// it after every panel has composed, for the same reason the anchor is passed
+/// in rather than asked for: a builder has no idea where a pointer is, and one
+/// that had to be told would carry a mouse in its signature into a face that
+/// may not have one.
+pub fn content(
+    explorer: &mut FileExplorer,
+    theme: &Theme,
+    fit: PanelFit,
+    anchor: PanelAnchor,
+) -> PanelContent {
+    let body = explorer.body(theme, fit);
+    PanelContent {
+        anchor,
+        content_columns: body.content_columns,
+        rows: body.rows,
+        caret: body.caret,
+        hovered: None,
+    }
+}

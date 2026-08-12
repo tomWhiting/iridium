@@ -19,9 +19,9 @@ use iridium_file::test_support::TempDir;
 use super::support::{
     FIT, PATIENCE, all_lines, chord, lines, meta, opened, press, select_row, type_query,
 };
-use crate::file_tree::compose::{BROWSE_HINT, HIDDEN_KEY};
-use crate::file_tree::{ExplorerOutcome, FileExplorer};
-use crate::overlay::PanelFit;
+use crate::explorer::compose::{BROWSE_HINT, HIDDEN_KEY};
+use crate::explorer::{ExplorerOutcome, FileExplorer};
+use crate::row::PanelFit;
 
 /// A panel wide enough for the count and the tab hint together.
 ///
@@ -121,7 +121,7 @@ fn the_query_row_says_how_many_it_is_not_showing() {
     // dotfiles are being withheld, and the row says both the number and the
     // key that clears it.
     let row = explorer
-        .content(&Theme::dark(), WIDE)
+        .body(&Theme::dark(), WIDE)
         .rows
         .first()
         .map(|row| {
@@ -142,7 +142,7 @@ fn the_query_row_says_how_many_it_is_not_showing() {
 
     explorer.handle_key(&meta(KeyCode::Char('.')));
     let row = explorer
-        .content(&Theme::dark(), WIDE)
+        .body(&Theme::dark(), WIDE)
         .rows
         .first()
         .map(|row| {
@@ -247,7 +247,7 @@ fn hiding_the_selected_row_leaves_the_selection_where_the_row_was() {
     select_row(&mut explorer, ".env");
 
     let before = explorer
-        .content(&Theme::dark(), FIT)
+        .body(&Theme::dark(), FIT)
         .rows
         .iter()
         .skip(1)
@@ -259,7 +259,7 @@ fn hiding_the_selected_row_leaves_the_selection_where_the_row_was() {
     // leaves the panel with nothing selected unless somebody puts it back.
     explorer.handle_key(&meta(KeyCode::Char('.')));
     let after = explorer
-        .content(&Theme::dark(), FIT)
+        .body(&Theme::dark(), FIT)
         .rows
         .iter()
         .skip(1)

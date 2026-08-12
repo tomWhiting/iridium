@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use super::buffer::Buffer;
 use super::plan::{Plan, Refusal};
-use crate::prompt::Entry;
+use crate::Entry;
 
 /// The state of an editing session.
 #[derive(Debug, Clone, PartialEq, Eq)]

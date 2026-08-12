@@ -1,4 +1,17 @@
-//! Composing the explorer into rows the overlay can paint.
+//! Composing the explorer into rows a face can paint.
+//!
+//! # ⭐ Rows and a caret, and deliberately not a placement
+//!
+//! Everything here returns a [`PanelBody`]: the rows, the width they were laid
+//! out against, and where the caret landed. Nothing here says where on a
+//! window any of it goes, and nothing here *can* — the anchor is the face's,
+//! and the desktop adds it in `file_tree::content` while the terminal face
+//! will add its own. That is the only difference between what this module
+//! produces and what the desktop actually paints.
+//!
+//! The hovered row is the face's too, for the same reason stated differently:
+//! a builder has no idea where a pointer is, and one that had to be told would
+//! carry a mouse in its signature into a face that may not have one.
 //!
 //! Split from `panel` by the question each method answers: nothing here reads
 //! a key or changes what is open. A defect in it presents as "the wrong thing
@@ -30,9 +43,8 @@ use super::buffer::Buffer;
 use super::confirm::{plan_rows, refusal_rows};
 use super::panel::{FileExplorer, PROMPT};
 use super::rows::{RowShape, depths, edited_name_column, edited_row, entry_row};
-use crate::line::{LineBuilder, skip_chars};
-use crate::overlay::scroll_for;
-use crate::overlay::{PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span};
+use crate::line::{LineBuilder, scroll_for, skip_chars};
+use crate::row::{PanelBody, PanelCaret, PanelFit, PanelRow, Span};
 
 /// What the label at the top of an editing session says after its verb.
 const EDIT_HINT: &str = "⌘S to apply    esc to stop";
@@ -74,22 +86,22 @@ impl FileExplorer {
     /// them, in the same order [`super::edit_keys`] asks it — the keys and the
     /// drawing agreeing about which screen is up is not something to leave to
     /// two independently written conditions.
-    pub fn content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
+    pub fn body(&mut self, theme: &Theme, fit: PanelFit) -> PanelBody {
         if self.mode.plan().is_some() {
-            return self.confirmation_content(theme, fit);
+            return self.confirmation_body(theme, fit);
         }
         if !self.mode.refusals().is_empty() {
-            return self.refusal_content(theme, fit);
+            return self.refusal_body(theme, fit);
         }
         if self.mode.cursor().is_some() {
-            return self.edit_content(theme, fit);
+            return self.edit_body(theme, fit);
         }
-        self.browse_content(theme, fit)
+        self.browse_body(theme, fit)
     }
 
     /// The confirmation: what the buffer would do, in the order it would do
     /// it, and nothing else on screen.
-    fn confirmation_content(&self, theme: &Theme, fit: PanelFit) -> PanelContent {
+    fn confirmation_body(&self, theme: &Theme, fit: PanelFit) -> PanelBody {
         let root = self.root_path();
         let rows = self.mode.plan().map_or_else(Vec::new, |plan| {
             plan_rows(
@@ -100,17 +112,15 @@ impl FileExplorer {
                 fit.max_interior_rows,
             )
         });
-        PanelContent {
-            anchor: PanelAnchor::Top,
+        PanelBody {
             content_columns: fit.content_columns,
             rows,
             caret: None,
-            hovered: None,
         }
     }
 
     /// Every reason the buffer cannot be applied, and nothing else on screen.
-    fn refusal_content(&self, theme: &Theme, fit: PanelFit) -> PanelContent {
+    fn refusal_body(&self, theme: &Theme, fit: PanelFit) -> PanelBody {
         let rows = self.mode.buffer().map_or_else(Vec::new, |buffer| {
             refusal_rows(
                 buffer.rows(),
@@ -120,12 +130,10 @@ impl FileExplorer {
                 fit.max_interior_rows,
             )
         });
-        PanelContent {
-            anchor: PanelAnchor::Top,
+        PanelBody {
             content_columns: fit.content_columns,
             rows,
             caret: None,
-            hovered: None,
         }
     }
 
@@ -139,7 +147,7 @@ impl FileExplorer {
     /// [`row_count`]: Self::row_count
     /// [`selected_row`]: Self::selected_row
     /// [`follow_selection`]: Self::follow_selection
-    fn edit_content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
+    fn edit_body(&mut self, theme: &Theme, fit: PanelFit) -> PanelBody {
         let total = self.row_count();
         let visible = total.clamp(1, fit.max_browse_rows);
         self.follow_selection(total, visible);
@@ -172,12 +180,10 @@ impl FileExplorer {
             }
         }
 
-        PanelContent {
-            anchor: PanelAnchor::Top,
+        PanelBody {
             content_columns: fit.content_columns,
             rows,
             caret: self.edit_caret(cursor, &depths, visible, fit.content_columns),
-            hovered: None,
         }
     }
 
@@ -227,7 +233,7 @@ impl FileExplorer {
     }
 
     /// The query row, then the visible slice of whichever list is showing.
-    fn browse_content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
+    fn browse_body(&mut self, theme: &Theme, fit: PanelFit) -> PanelBody {
         let total = self.row_count();
         // At least one row, so a tree whose root has not listed yet still says
         // "Reading…" rather than composing an empty panel; and never more than
@@ -245,12 +251,10 @@ impl FileExplorer {
             rows.push(self.list_row(self.scroll + offset, theme, fit.content_columns));
         }
 
-        PanelContent {
-            anchor: PanelAnchor::Top,
+        PanelBody {
             content_columns: fit.content_columns,
             rows,
             caret: caret_column.map(|column| PanelCaret { row: 0, column }),
-            hovered: None,
         }
     }
 

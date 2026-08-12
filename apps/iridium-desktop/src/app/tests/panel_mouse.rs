@@ -100,7 +100,7 @@ fn compose(app: &mut DesktopApp, fit: PanelFit) {
     app.explorer
         .as_mut()
         .expect("an explorer to compose")
-        .content(&theme, fit);
+        .body(&theme, fit);
 }
 
 /// Polls the open explorer until its root listing has landed.

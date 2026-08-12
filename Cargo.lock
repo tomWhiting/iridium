@@ -1259,6 +1259,7 @@ dependencies = [
  "iridium-editor",
  "iridium-explorer",
  "iridium-file",
+ "iridium-tree",
  "unicode-segmentation",
 ]
 

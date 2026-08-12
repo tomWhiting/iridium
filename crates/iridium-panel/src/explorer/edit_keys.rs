@@ -55,7 +55,7 @@ use super::apply;
 use super::mode::{Confirmation, Leaving};
 use super::panel::{Chord, ExplorerOutcome, FileExplorer, chord};
 use super::plan::{Operation, Plan};
-use crate::prompt::Entry;
+use crate::Entry;
 
 impl FileExplorer {
     /// Handles one key press while an editing session is open.
@@ -185,10 +185,11 @@ impl FileExplorer {
     /// because nothing else can. The first press reports the refusal and arms
     /// the second; the second throws the edits away. Two presses of one key,
     /// with a sentence between them, rather than a prompt — the existing
-    /// [`crate::prompt::Prompt`] is a single line with a `Deed` of two
+    /// desktop face's `Prompt` is a single line with a `Deed` of two
     /// variants, both about the document, and bending it around a panel that
     /// deletes files would make one confirmation mechanism answer for two very
-    /// different questions.
+    /// different questions. It is also a *face's* strip, which this panel now
+    /// deliberately cannot reach.
     ///
     /// A clean buffer needs none of it: `leave` reports `Left` and the panel is
     /// browsing again, which is what `esc` means everywhere else here.

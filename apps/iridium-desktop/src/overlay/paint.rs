@@ -809,4 +809,3 @@ pub(super) fn composite(over: Color, under: Color) -> Color {
         1.0,
     )
 }
-

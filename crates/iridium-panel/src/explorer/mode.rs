@@ -35,7 +35,7 @@
 use super::buffer::{Buffer, SourceRow};
 use super::plan::{Plan, Refusal};
 use super::session::{Confirming, Editing};
-use crate::prompt::Entry;
+use crate::Entry;
 
 /// What the panel is doing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

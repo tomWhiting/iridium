@@ -43,7 +43,7 @@ use iridium_explorer::NodeId;
 
 use super::filter::{FilterRow, FilterView};
 use super::panel::{Chord, ExplorerOutcome, FileExplorer, chord};
-use crate::prompt::Entry;
+use crate::Entry;
 
 impl FileExplorer {
     /// Handles one key press. Every key is consumed; see [`ExplorerOutcome`].

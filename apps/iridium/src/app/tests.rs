@@ -720,3 +720,139 @@ fn the_palette_key_opens_a_palette_rather_than_reporting_a_dead_key() {
         app.message()
     );
 }
+
+#[test]
+fn ctrl_alt_e_opens_the_file_explorer_and_closes_it_again() {
+    // ⭐ The chord and the command id are the kernel's, not this face's, so
+    // this is also the test that the terminal inherited both for free.
+    let directory = TempDir::new("tui-app-explorer-toggle");
+    let (mut app, _) = open(&directory, "notes.md", "a file\n");
+
+    assert_eq!(app.handle_input(&ctrl_alt('e')), Flow::Running);
+    assert!(app.is_explorer_open(), "Ctrl+Alt+E did not open the panel");
+
+    assert_eq!(app.handle_input(&ctrl_alt('e')), Flow::Running);
+    assert!(!app.is_explorer_open(), "the toggle did not put it away");
+}
+
+#[test]
+fn the_explorer_is_modal_so_typing_does_not_reach_the_document() {
+    // The panel gives every printable character to its filter. A key that fell
+    // through would be text typed into a document nobody was looking at.
+    let directory = TempDir::new("tui-app-explorer-modal");
+    let (mut app, _) = open(&directory, "notes.md", "");
+    assert_eq!(app.handle_input(&ctrl_alt('e')), Flow::Running);
+
+    type_text(&mut app, "zzz");
+    assert_eq!(
+        app.editor().content(),
+        "",
+        "the filter query reached the document"
+    );
+
+    // ⭐ **Two presses, and the first one is not a bug.** The shared panel
+    // takes the query back before it takes itself away — closing a panel
+    // somebody has just typed into would throw away the narrowing and the
+    // panel in one press. The terminal inherits that with the panel; nothing
+    // in this face decides it, and this assertion is what would notice if the
+    // rule changed on the other side of the crate boundary.
+    assert_eq!(app.handle_input(&press(KeyCode::Escape)), Flow::Running);
+    assert!(
+        app.is_explorer_open(),
+        "the first escape closed the panel instead of clearing its query"
+    );
+
+    assert_eq!(app.handle_input(&press(KeyCode::Escape)), Flow::Running);
+    assert!(!app.is_explorer_open());
+    type_text(&mut app, "z");
+    assert_eq!(app.editor().content(), "z", "the document never came back");
+}
+
+#[test]
+fn the_explorer_draws_the_directorys_files() {
+    let directory = TempDir::new("tui-app-explorer-draws");
+    let (mut app, _) = open(&directory, "notes.md", "");
+    fs::write(directory.path().join("other.txt"), "x").expect("the fixture was written");
+    assert_eq!(app.handle_input(&ctrl_alt('e')), Flow::Running);
+
+    // The listing lands on a worker thread, and `render` is what collects it.
+    // Several frames rather than one, for the same reason the panel's own
+    // tests wait: a single frame proves nothing about a read that has not
+    // finished, and asserting on one would be a flake by construction.
+    let mut screen = String::new();
+    for _ in 0..200 {
+        screen = frame(&mut app, 80, 24).join("\n");
+        if screen.contains("other.txt") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(
+        screen.contains("other.txt"),
+        "the panel never drew the directory it was opened on:\n{screen}"
+    );
+}
+
+#[test]
+fn opening_a_file_over_unsaved_changes_asks_first() {
+    // ⚠️ **"Open" is a destructive verb on a one-buffer face.** The GPU face
+    // answers the same `ExplorerOutcome::Open` with a new tab and loses
+    // nothing; here the document on screen is replaced. So it is asked about,
+    // exactly as a reload is.
+    let directory = TempDir::new("tui-app-explorer-open-dirty");
+    let (mut app, _) = open(&directory, "first.md", "one\n");
+    let second = directory.path().join("second.md");
+    fs::write(&second, "two\n").expect("the fixture was written");
+
+    type_text(&mut app, "x");
+    assert!(app.is_dirty(), "the fixture never became dirty");
+
+    assert_eq!(app.request_open(second), Flow::Running);
+    assert!(
+        app.prompt.is_some(),
+        "opening over unsaved work did not ask"
+    );
+    assert_eq!(
+        app.editor().content(),
+        "xone\n",
+        "the document was replaced before the question was answered"
+    );
+
+    assert_eq!(app.handle_input(&press(KeyCode::Char('y'))), Flow::Running);
+    assert_eq!(
+        app.editor().content(),
+        "two\n",
+        "answering yes did not open the file"
+    );
+}
+
+#[test]
+fn opening_a_file_with_nothing_unsaved_just_opens_it() {
+    let directory = TempDir::new("tui-app-explorer-open-clean");
+    let (mut app, _) = open(&directory, "first.md", "one\n");
+    let second = directory.path().join("second.md");
+    fs::write(&second, "two\n").expect("the fixture was written");
+
+    assert_eq!(app.request_open(second), Flow::Running);
+    assert!(app.prompt.is_none(), "a clean document was asked about");
+    assert_eq!(app.editor().content(), "two\n");
+}
+
+#[test]
+fn opening_a_file_no_language_claims_stops_highlighting_the_last_one() {
+    // #39's defect, in this face: a session that opened a `.rs` and then a
+    // name nothing claims would keep highlighting the second as Rust, because
+    // nothing had ever said stop.
+    let directory = TempDir::new("tui-app-explorer-open-language");
+    let (mut app, _) = open(&directory, "lib.rs", "fn main() {}\n");
+    assert_eq!(app.editor().language(), Some(Language::Rust));
+
+    let plain = directory.path().join("NOTES");
+    fs::write(&plain, "just words\n").expect("the fixture was written");
+    assert_eq!(app.request_open(plain), Flow::Running);
+    assert_eq!(
+        app.editor().language(),
+        None,
+        "the previous file's language survived the open"
+    );
+}

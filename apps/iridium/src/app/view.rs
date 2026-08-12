@@ -73,6 +73,23 @@ impl App {
                 });
         }
 
+        if let Some(explorer) = self.explorer.as_mut() {
+            // ⚠️ Polled here, on the frame, because the filesystem source
+            // reads on a worker thread and nothing wakes this loop when a
+            // listing lands. Skipping it leaves a panel permanently saying
+            // "Reading…".
+            explorer.poll();
+            let styles = Palette::from_theme(self.editor.get_theme());
+            let theme = self.editor.get_theme().clone();
+            cursor = explorer.paint(surface.back_mut(), &theme, &styles).map_or(
+                CursorState::Hidden,
+                |cell| CursorState::At {
+                    row: cell.row,
+                    column: cell.column,
+                },
+            );
+        }
+
         if self.history_open {
             // The undo-tree panel has no text field, so no cell owns the
             // caret while it is open: a visible cursor would claim typing

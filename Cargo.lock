@@ -1141,6 +1141,7 @@ dependencies = [
  "iridium-config",
  "iridium-editor",
  "iridium-file",
+ "iridium-panel",
  "iridium-tui",
 ]
 

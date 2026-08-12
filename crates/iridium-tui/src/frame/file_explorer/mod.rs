@@ -131,6 +131,17 @@ impl FileExplorerPanel {
         self.explorer.is_waiting()
     }
 
+    /// Whether the panel's rows have been edited without being applied.
+    ///
+    /// ⚠️ **A host that closes the panel outright must ask this first.** The
+    /// shared panel keeps a two-press refusal for its own `Escape`, and a host
+    /// that drops the panel by some other route never gets to hear it — a
+    /// directory's worth of typed renames would go with one chord and nothing
+    /// would say so.
+    pub fn has_unapplied_edits(&self) -> bool {
+        self.explorer.has_unapplied_edits()
+    }
+
     /// Hands one key to the panel.
     pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerAction {
         ExplorerAction::from_outcome(self.explorer.handle_key(event))

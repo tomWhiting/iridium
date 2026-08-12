@@ -71,3 +71,80 @@ duplication R1 exists to prevent.
 His words on the hoist, same message, which settle R1 as ratified rather than
 merely ruled: *"absolutely definitely all need to share the same core, so
 definitely don't want any duplicates."*
+
+---
+
+## What landed — 12 Aug 2026, `e18a63a4` (pushed)
+
+Ten gates green, read from `ci.sh`'s own `✅ all 10 gates passed`.
+
+### The four pieces, all built
+
+| # | Piece | Where |
+| --- | --- | --- |
+| 1 | pointer → **which** panel | `overlay/frame.rs` — `PaintedFrame`/`PaintedPanel`/`PanelHit`, `hit()` reads **topmost first** |
+| 2 | click on a row → the panel's own verb | `app/panel_mouse.rs` + `click_row` on explorer, palette, history, search |
+| 3 | wheel over a panel → that panel's list | `panel_wheel`, converted against the panel's **painted** row pitch |
+| 4 | hover highlight | `PanelContent.hovered` + `hover_color` at `HOVER_STRENGTH` = 0.4 of the theme's selection |
+
+### The load-bearing move
+
+⭐ **The painted record left the GPU painter for the app.** `OverlayPainter`
+cannot be built without a device, so every question a pointer asks of the
+screen could previously only be answered by looking at one. `paint()` now fills
+a `&mut PaintedFrame` — an out-parameter rather than a return value, because the
+record must survive the error path — and the app adopts it **only on `Ok`**,
+since a frame that failed leaves the *previous* one on screen and that is the
+one a press must still resolve against.
+
+The record carries the **drawn row count** per panel. `row_at` cannot tell the
+last row from the padding without it, and a caller supplying its own count would
+answer for the panel as it is *now* — a row off every time a directory listing
+lands between the frame and the click.
+
+### ⭐ Law 9: a window follows the selection when the selection *moves*, not when a frame happens
+
+`follow_selection` re-centred on the selection every composition, in three
+places (explorer, palette, and the kernel's `TreeViewSelection`). Correct for as
+long as the keyboard was the only thing that could move either — and the moment
+the wheel moves the window and leaves the selection alone, the very next frame
+undoes it. The list springs back under the pointer.
+
+Each now keeps `followed` and compares. **The same shape as the scroll bounce:
+a consumer feeding its own answer back in, presenting as motion with no input.**
+Three separate implementations rather than one hoisted type, deliberately: the
+kernel's keys on a *node id* and cannot reach `iridium-panel` without a cycle,
+so they are not the same type wearing two names.
+
+### Ordering ruling that held
+
+`panel_press` runs **before** `dismiss_modal_panel` in `pointer_pressed`. That
+made the dismissal step unconditional — every path through it now answers "the
+user pointed somewhere else" — and let the two `pointer_is_on_a_panel` guards go.
+
+### Discrimination
+
+7 of 11 new app tests failed against the unfixed code before any fix was
+written. ⚠️ **The wheel test uses `PixelDelta`, not `LineDelta`, and that is
+what makes it able to fail**: a line delta is scaled by the compositor's line
+height, and a windowless test session has no compositor — so it would have
+resolved to zero and "the document did not move" would have been true whatever
+the routing did. Proven discriminating by disabling the panel branch and
+watching it fail. `wheel` also stopped early-returning without a shell; it now
+takes `map_or(0.0, …)` for the line height, which is the honest answer to "how
+many rows is that" before a font has measured and leaves pixel deltas working.
+
+### Still owed on #115
+
+- ⛔ **Not installed.** `bundle/install.sh` (with **bash**) refuses while
+  `iridium-desktop` runs, by design. Needs Tom to quit it. Then the `strings`
+  receipt: `panel_mouse` is not a symbol, so grep the binary for
+  `explorer.toggleSidebar` = 2 as the freshness control plus something new —
+  suggest counting the hover band's absence/presence is not greppable, so use
+  `git rev-parse` against the installed build's recorded sha instead.
+- The **hover band has never been looked at**. It is arithmetic-tested (opaque,
+  distinct from the panel background and from the selection, in both presets)
+  and has no screenshot. Worth one in `chrome_screenshots.rs` next tick.
+- The **popover** explorer's click path is covered only by the sidebar tests
+  reaching the same `click_row`; a popover-specific test (click opens a file
+  *and* closes the popover) is not written.

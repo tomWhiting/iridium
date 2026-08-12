@@ -126,24 +126,52 @@ panel keeps the popover one. `content()` already takes the fit, so nothing in
    Measured on 3024×1964 at 2×: **47** interior rows / **46** browsed, against
    the popover's 30. The mutation that inherits the popover rule fails the
    discriminating test with `left: 30, right: 46`.
-2. `paint.rs` passes the sidebar fit to the explorer when the placement is
-   sidebar, the popover fit otherwise.
-3. `sync_left_inset` in `app/viewport.rs`, mirroring `sync_top_inset`: called
-   on open, resize and scale change, and on the placement toggle.
-4. The painter draws the explorer's `PanelContent` in the reserved band —
-   anchored to the window's left edge and full height, rather than centred.
-5. Hit-testing: the band belongs to the panel, so a click in it must not reach
-   the document. `set_left_inset`'s doc says both directions of hit-testing
-   already follow the inset — **verify that by test rather than by reading it**,
-   because it has never had a caller.
-6. A command and a chord to switch placement, **and the focus routing of R5**.
-   Deliberately last: until it lands the placement never leaves `Popover`, so
-   every step above is inert rather than half-wired — a user cannot reach a
-   sidebar that is not finished.
+2. ✅ `paint.rs` passes the sidebar fit to the explorer when the placement is
+   sidebar, the popover fit otherwise. `DesktopApp::explorer_sidebar_fit` is
+   the single answer to "is there a sidebar on screen", so the band that is
+   *reserved* and the panel that is *drawn* cannot disagree.
+3. ✅ `sync_left_inset` in `app/viewport.rs`, mirroring `sync_top_inset`:
+   window open, resize, scale change, the explorer opening or closing, and the
+   placement toggle. **Zero is a value it writes**, not a case it skips — a
+   sidebar that closed while the inset stayed set would leave the document
+   indented past an empty band, with every horizontal measure agreeing.
+4. ✅ `PanelAnchor::Left { top, interior_rows }` — the one anchor whose height
+   is its *band's* rather than its content's, because the reserve is what
+   pushes the text and a short panel over a full-height reserve would leave
+   the document indented past nothing.
+5. ✅ Hit-testing, and it needed no new code. `crates/iridium-editor/tests/
+   left_inset.rs` — written for #50, run under `test/workspace` ever since —
+   already proves the round trip (`a_click_where_a_column_is_drawn_resolves_to
+   _that_column_under_an_inset`), that the inset actually moves the column
+   rather than being stored and ignored, and that nothing the document draws
+   reaches into the band. **Verified by running it, not by reading it.** What
+   had never existed was a *face* that called `set_left_inset`; the mechanism
+   was proven all along. On the panel's side, `dismiss_modal_panel` was the
+   real work — see step 6.
+6. ✅ `explorer.togglePlacement` on `Ctrl+Alt+B` / `⌘B`, **and the focus
+   routing of R5**.
 
-Steps 1–2 are pure composition and testable without a window, which is where
-the discrimination lives: a test that the sidebar fit fills a tall window and
-the popover fit does not.
+   Two defects came out of this step, both found by running rather than
+   reading, and both recorded because they are the same shape:
+
+   ⚠️ **`ExplorerOutcome::Closed` was two intents in one value.** The panel
+   returned it for `Escape` *and* for its own `⌘⌥E` close chord. The moment
+   `Escape` stopped closing a sidebar, `⌘⌥E` stopped closing one too — the
+   toggle chord became a silent no-op on the placement that most needed it.
+   Split into `Dismissed` (give the document back) and `Closed` (the panel
+   goes away), which is what they always meant.
+
+   ⚠️ **`dismiss_modal_panel` would have swallowed every document click**
+   while a sidebar was up, and closed the sidebar on a click outside it. A
+   sidebar is not one of the modal three; a click in the text has to reach the
+   text and take the keys back.
+
+   ⚠️ **The panel consumes every key it is handed**, so `⌘B` never reached the
+   host command until the panel named the chord itself — the same reason it
+   already names its own close chord.
+
+**LANDED `5ae51ba4` (step 1) and `b947f481` (steps 2–6), 12 Aug 2026.**
+Ten gates green. What remains of #112 is the terminal face — see below.
 
 ---
 

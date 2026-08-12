@@ -37,6 +37,14 @@ The chords this window adds on top of everything above — the mac spelling of
 the common verbs, and the things only a windowed app can do (open a file, save
 one, switch tabs).";
 
+/// The heading the command palette's own bindings appear under.
+const PALETTE_TITLE: &str = "The command palette";
+
+/// What is said under that heading.
+const PALETTE_NOTE: &str = "\
+The keys the palette answers while it is open. They apply there and nowhere
+else, so binding one of these takes nothing away from the document.";
+
 /// Writes the default configuration file at `path` if nothing is there,
 /// including this face's own bindings and commands in the list.
 ///
@@ -51,14 +59,29 @@ pub fn create_config_if_absent(path: &Path) -> io::Result<Created> {
     // in a session.
     let keymap = keymap();
     let commands = command_metas();
+    // ⚠️ **The palette is a second layer this face owns, and it needs its own
+    // entry.** Its keys live in the panel (#117), which `iridium_config` cannot
+    // reach for the same reason it cannot reach this face's — so sixteen chords
+    // would otherwise be absent from a file whose header says it lists them all.
+    // No commands are contributed alongside it: the palette's verbs are the
+    // *kernel's*, and the generator already reads those from the registry.
+    let palette_keymap = crate::command_palette::default_keymap();
     iridium_config::create_if_absent(
         path,
-        &[FaceKeys {
-            title: TITLE,
-            note: NOTE,
-            keymap: &keymap,
-            commands: &commands,
-        }],
+        &[
+            FaceKeys {
+                title: TITLE,
+                note: NOTE,
+                keymap: &keymap,
+                commands: &commands,
+            },
+            FaceKeys {
+                title: PALETTE_TITLE,
+                note: PALETTE_NOTE,
+                keymap: &palette_keymap,
+                commands: &[],
+            },
+        ],
     )
 }
 
@@ -98,6 +121,34 @@ mod tests {
             "no line binds Copy to a `meta` chord, so ⌘C is missing from a file \
              whose header says every binding is in it"
         );
+    }
+
+    /// ⭐ **#117's half of the same rule.** The palette's keys are a layer only
+    /// this face can hand over, so a file that omitted them would claim to list
+    /// every binding while leaving out sixteen.
+    ///
+    /// Asserted on the chord *and* the command together on one line, because
+    /// the command alone would also appear in the unbound reference section —
+    /// which is exactly the failure this is written to catch.
+    #[test]
+    fn the_written_file_lists_the_palettes_own_keys() {
+        let directory = TempDir::new("desktop-config-palette");
+        let path = directory.path().join("config.toml");
+        create_config_if_absent(&path).expect("the file was written");
+        let text = fs::read_to_string(&path).expect("it is readable");
+
+        for binding in crate::command_palette::default_keymap().bindings() {
+            let id = binding
+                .command()
+                .expect("no default palette binding is a suppression");
+            let sequence = binding.display_sequence();
+            assert!(
+                text.lines()
+                    .any(|line| line.contains(&sequence) && line.contains(id.as_str())),
+                "`{sequence}` = `{id}` is a palette binding the written file does \
+                 not carry"
+            );
+        }
     }
 
     /// And every command this face registers is findable by name, whether or not

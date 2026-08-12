@@ -116,18 +116,42 @@ fn the_default_bindings_validate_against_the_editors_registry() {
         .expect("every command the explorer binds must be a registered command");
 }
 
-/// Every panel command the kernel names is a verb this panel answers. Catches
-/// the drift where a command is added to the kernel table and forgotten here,
-/// which would be a `[keys]` line that validates and then does nothing.
+/// Every command the kernel scopes to one of *this* panel's modes is a verb it
+/// answers. Catches the drift where a command is added to the kernel table and
+/// forgotten here, which would be a `[keys]` line that validates and then does
+/// nothing.
+///
+/// ⚠️ **Filtered by mode, not taken whole.** `panel_command_metas` enumerates
+/// every panel's vocabulary — the command palette's among them since #117 — and
+/// asking the explorer to answer another panel's verbs would be asking it to be
+/// two panels. The mode is what says which vocabulary a command belongs to, and
+/// it is the kernel's own answer rather than a list restated here.
 #[test]
-fn every_registered_panel_command_is_a_verb_the_panel_answers() {
-    for meta in panel_command_metas() {
+fn every_registered_explorer_command_is_a_verb_the_panel_answers() {
+    let mine = [
+        EXPLORER_MODE,
+        EXPLORER_EDIT_MODE,
+        EXPLORER_CONFIRM_MODE,
+        EXPLORER_REFUSED_MODE,
+    ];
+    let mut seen = 0_usize;
+    for meta in
+        panel_command_metas().filter(|meta| meta.mode().is_some_and(|mode| mine.contains(mode)))
+    {
+        seen += 1;
         assert!(
             Verb::from_id(meta.id()).is_some(),
-            "`{}` is registered as a panel command and the panel does not answer it",
+            "`{}` is registered under one of the explorer's modes and the panel does not answer it",
             meta.id()
         );
     }
+    // ⛔ A filter that matched nothing would make the assertion above vacuous,
+    // and a mode renamed in the kernel is exactly how that happens.
+    assert_eq!(
+        seen,
+        Verb::ALL.len(),
+        "the explorer's modes must account for every verb it answers"
+    );
 }
 
 /// The four modes are the four screens, and each is used.

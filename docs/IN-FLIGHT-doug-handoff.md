@@ -1575,10 +1575,47 @@ tree clean apart from untracked `.claude/skills/`, which must not be committed.
    claimed to list them all. The fix is not a lookup — the dependency cannot run
    that way — it is a parameter that cannot be left unanswered.
 
+## #117 — panel keys, 2 of 7 done (13 Aug, this lane)
+
+`3d491f8e` split `builtin/panel.rs` into a directory, one file per panel.
+`56bd0e2f` converted **the desktop command palette** — twelve kernel verbs under
+a `palette` mode, `command_palette.rs` (811 lines) into a directory of eight,
+`Chord` and `chord()` deleted. Ten gates green on the commit; `origin/main =
+56bd0e2f`, verified by fetch.
+
+Full detail in `docs/IN-FLIGHT-117-panel-keys.md`. **Remaining five, cheapest
+first:** desktop history overlay → TUI command palette → TUI history panel → TUI
+search → desktop context menu. ⛔ **The menubar is seventh and untouchable until
+#108 clears.**
+
+### 📌 A third law, and it is the one that will bite the next five
+
+**A panel converted without its `FaceKeys` entry is a panel whose keys are
+undiscoverable.** The palette's sixteen chords would have landed absent from
+`config.toml` — regressing Tom's #118 ask *the day after it landed* — because the
+panel's layer lives in the face, where `iridium-config` cannot reach it. Caught
+by generating the file and reading it, not by a test. Every remaining conversion
+owes a second `FaceKeys`.
+
+### And a fourth, from the explorer's ratchet
+
+**A completeness test that enumerates "everything" breaks the moment there is a
+second everything.** `every_registered_panel_command_is_a_verb_the_panel_answers`
+walked `panel_command_metas()` whole and would have failed on the palette's
+vocabulary. Narrowed to the explorer's own modes — **with a count guard**, because
+a filter that matches nothing turns a completeness assertion into a vacuous one
+that still passes.
+
+### Two mutations, both measured on this panel
+
+| # | mutation | failed | **passed anyway** |
+| --- | --- | --- | --- |
+| M1 | shift `Any` → `Forbidden` | 3 shift ratchets | **386 tests** |
+| M2 | user layer pushed unfiltered | the D-2 trap test | **388 tests** |
+
+M1 reproduces #91's D-4 finding exactly: nothing but a per-panel shift ratchet
+catches it. Both ratchets are justified by what did *not* fail.
+
 ## Backlog
 
-#58, #87, #88, #90, #92, #93, #95, #96, #99, #117, #43→#44→#45.
-
-**#117** (the other seven panel key tables) is the natural next one: it is the
-same conversion #91 did for the explorer, and every table it converts is another
-group the generated `[keys]` block picks up for free.
+#58, #87, #88, #90, #92, #93, #95, #96, #99, #117 (5 panels left), #43→#44→#45.

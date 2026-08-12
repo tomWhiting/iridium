@@ -139,6 +139,11 @@ impl DesktopApp {
         if let Some(explorer) = self.explorer.as_mut() {
             explorer.set_user_keymap(&self.user_keys);
         }
+        // The palette resolves its own keys too (#117), and unlike the explorer
+        // it always exists — so there is no `if` here, and forgetting this line
+        // would leave the panel on the bindings the session started with while
+        // every other layer had reloaded.
+        self.palette.set_user_keymap(&self.user_keys);
         problems.extend(config::replace_user_bindings(
             &mut self.workspace,
             user.bindings.clone(),

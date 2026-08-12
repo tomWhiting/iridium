@@ -1,6 +1,73 @@
 # #117 — the other seven panel key tables
 
-**Started 13 Aug 2026. HALF-DONE AND UNCOMMITTED — read "Where this stopped".**
+**Started 13 Aug 2026. Two of seven panels done. Read "Where this stands".**
+
+## Where this stands — 13 Aug 2026
+
+| # | panel | state |
+| --- | --- | --- |
+| 1 | desktop command palette | ✅ **DONE** — the split `3d491f8e`, the conversion below |
+| 2 | desktop history overlay | not started |
+| 3 | TUI command palette | not started |
+| 4 | TUI history panel | not started |
+| 5 | TUI search | not started |
+| 6 | desktop context menu | not started |
+| 7 | desktop menubar | ⛔ **do not touch** — #108 waits on Tom clicking a menu item |
+
+The explorer (#91) and the command palette are both on the mechanism. Everything
+below the horizontal rule was written *before* the palette landed and is kept as
+the record of how it was planned; the appendix at the foot has been superseded by
+real files and says so.
+
+### What the palette conversion actually landed
+
+**Kernel** — `commands/builtin/panel/palette.rs`: `PALETTE_MODE` and twelve
+verbs, added to `TABLES` and to `builtin/mod.rs`'s re-export list.
+
+**Desktop face** — `command_palette.rs` (811 lines) became a directory:
+
+| file | lines | holds |
+| --- | --- | --- |
+| `mod.rs` | 93 | the module argument, declarations, re-exports |
+| `panel.rs` | 438 | the state and the composition |
+| `keymap.rs` | 127 | 16 bindings, the three patterns, `EVERY_PATTERN` |
+| `resolve.rs` | 175 | `Resolved`, `resolve_key`, `set_user_keymap`, `types_text` |
+| `verb.rs` | 106 | the twelve verbs, `ALL`, `id()`, `from_id()` |
+| `keys.rs` | 85 | the dispatch and the printable fall-through |
+| `tests.rs` | 317 | the behavioural tests, moved unchanged |
+| `keymap_tests.rs` | 364 | 14 new ratchets |
+
+`Chord` and `chord()` are **deleted**, as #91 deleted the explorer's.
+
+### ⭐ Two mutations, both measured
+
+| # | mutation | what failed | what did not |
+| --- | --- | --- | --- |
+| M1 | `PLAIN`'s shift `Any` → `Forbidden` | the 3 shift ratchets | **386 other tests passed** |
+| M2 | `set_user_keymap` pushes the user layer unfiltered | `a_user_binding_naming_a_document_command_never_reaches_this_panel` | **388 other tests passed** |
+
+M1 reproduces #91's finding on this panel exactly: **nothing but a per-panel
+shift ratchet catches D-4.** M2 is the same measurement for D-2. Both ratchets
+are justified by what did *not* fail, not by what did.
+
+### ⚠️ Two things the conversion had to fix beyond the panel
+
+1. **The explorer's `every_registered_panel_command_is_a_verb_the_panel_answers`
+   would have broken.** It walked `panel_command_metas()` whole, which now
+   carries another panel's twelve verbs. Narrowed to the explorer's four modes,
+   with a `seen == Verb::ALL.len()` guard so a renamed mode cannot make the
+   filter vacuous instead of failing.
+2. **The 16 new chords would have been absent from `config.toml`** — regressing
+   Tom's #118 ask on the day after it landed. The palette's layer lives in the
+   face, unreachable from `iridium-config`, so `commands/template.rs` now hands
+   over a **second `FaceKeys`** entry. Verified by reading the generated file,
+   not only by the test.
+
+📌 **A panel converted without its `FaceKeys` entry is a panel whose keys are
+undiscoverable.** Every remaining conversion owes one.
+
+---
+
 
 #91 converted the file explorer. Seven panels still answer keys from hard-coded
 `match (Chord, KeyCode)` tables and cannot be rebound:
@@ -193,11 +260,13 @@ here is uniformity and the `[keys]` listing, not a complaint being answered.
 
 ---
 
-# Appendix — the command palette's vocabulary, ready to paste back
+# Appendix — ⛔ SUPERSEDED, kept only as the record
 
-Goes at `crates/iridium-editor/src/commands/builtin/panel/palette.rs`. Written,
-compiled and passing the five `panel/tests.rs` assertions before it was parked;
-held back only because nothing resolves it yet.
+**This was the parked vocabulary. It is now real code** at
+`crates/iridium-editor/src/commands/builtin/panel/palette.rs`, and the panel that
+resolves it is at `apps/iridium-desktop/src/command_palette/`. Read the files,
+not this. The table below is left standing because it is the record of what was
+held back and why — nothing resolved it, which is the #110 defect class.
 
 Twelve verbs under one mode `palette`:
 

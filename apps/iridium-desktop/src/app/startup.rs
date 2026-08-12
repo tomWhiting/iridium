@@ -362,7 +362,17 @@ impl DesktopApp {
             clipboard: None,
             search: SearchOverlay::new(),
             search_open: false,
-            palette: CommandPalette::new(),
+            palette: {
+                // The palette resolves its own keys (#117) and does its own
+                // filtering of this layer, exactly as the explorer does. Built
+                // here rather than left to the first open, because a panel that
+                // acquired the user's bindings only once it had been opened
+                // would answer the defaults on the first press and the user's
+                // on every one after.
+                let mut palette = CommandPalette::new();
+                palette.set_user_keymap(&user_keys);
+                palette
+            },
             palette_open: false,
             mru: CommandMru::default(),
             menu: None,

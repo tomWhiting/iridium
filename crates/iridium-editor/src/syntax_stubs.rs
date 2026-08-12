@@ -249,6 +249,26 @@ pub enum HighlightType {
     Tag,
     /// Embedded content
     Embedded,
+    /// Markup heading
+    MarkupHeading,
+    /// Emphasised markup text
+    MarkupEmphasis,
+    /// Strongly emphasised markup text
+    MarkupStrong,
+    /// Struck-through markup text
+    MarkupStrikethrough,
+    /// Literal markup text — an inline code span
+    MarkupCode,
+    /// Markup link label
+    MarkupLink,
+    /// Markup link destination
+    MarkupUrl,
+    /// Markup list marker
+    MarkupList,
+    /// Markup structure punctuation
+    MarkupPunctuation,
+    /// Fenced code block delimiter or info string
+    MarkupFence,
     /// Error
     Error,
 }

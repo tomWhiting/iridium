@@ -71,6 +71,52 @@ pub enum HighlightType {
     Tag,
     /// Embedded content (e.g., code in markdown)
     Embedded,
+
+    // ----- Markup -----
+    //
+    // ⭐ These ten exist because a capture is no longer only a colour.
+    //
+    // Markdown headings, link labels and link destinations used to ride on
+    // `Keyword`, `Function` and `String` — reasonable while colour was all a
+    // capture could carry, since borrowing a colour costs the lender nothing.
+    // It stops being free the moment a capture also carries weight and slant
+    // (see `render::RunStyle`): "headings are bold" would reach every `fn` and
+    // every `let` in every language, because a heading and a keyword were
+    // literally the same value. A theme cannot style one without styling the
+    // other, and no amount of theme work fixes that from above.
+    //
+    // Splitting is therefore a precondition for markup styling rather than a
+    // tidying. `the_markup_captures_have_slots_no_code_capture_shares` is what
+    // holds it: it asserts the *separation*, not the colours, so a later
+    // collapse back onto a code slot fails rather than silently re-arming the
+    // defect.
+    //
+    // ⚠️ The colours are deliberately unchanged by the split — see
+    // `iridium_editor::syntax::highlight_to_color`, where each of these still
+    // resolves to the slot it used to ride on. This is a taxonomy change with
+    // no visual change; giving markup its own theme *fields* is the next step
+    // and belongs with the theme work.
+    /// A markup heading — `# Title`, a setext underline, a thematic break.
+    MarkupHeading,
+    /// Emphasised markup text — `*italic*`.
+    MarkupEmphasis,
+    /// Strongly emphasised markup text — `**bold**`.
+    MarkupStrong,
+    /// Struck-through markup text — `~~withdrawn~~`.
+    MarkupStrikethrough,
+    /// Literal markup text — an inline code span.
+    MarkupCode,
+    /// The visible label of a markup link or image.
+    MarkupLink,
+    /// The destination of a markup link — a URI, an autolink, a reference.
+    MarkupUrl,
+    /// A markup list marker — the bullet, dash or ordinal.
+    MarkupList,
+    /// Markup structure punctuation — a block-quote bar, a table pipe.
+    MarkupPunctuation,
+    /// A fenced code block's delimiter or its info string.
+    MarkupFence,
+
     /// Syntax errors
     Error,
 }
@@ -87,37 +133,34 @@ impl HighlightType {
 
         // Exact matches first, consolidated to fix clippy::match_same_arms.
         //
-        // ⚠️ That consolidation is why the six names #70 ruled are scattered
-        // into the arms they share a colour with rather than grouped together
-        // as "markup" and "selectors". Grouping them read better and does not
-        // compile under `-D warnings`: two arms with identical bodies are a
+        // ⚠️ That consolidation is why the three CSS selector names #70 ruled
+        // are scattered into the arms they share a category with rather than
+        // grouped together as "selectors". Grouping them read better and does
+        // not compile under `-D warnings`: two arms with identical bodies are a
         // lint, and this crate takes no `#[allow]` bypasses. The reasoning for
         // each therefore travels as a note on its arm, and the decisions
         // themselves are pinned by
-        // `the_six_ruled_capture_colours_are_the_ones_that_were_ruled` — which
+        // `the_ruled_selector_categories_are_the_ones_that_were_ruled` — which
         // is the better home for them anyway, because a test fails and a
         // comment does not.
+        //
+        // ⭐ #70's other three rulings — `title.markup`, `link_text.markup`,
+        // `link_uri.markup` on `Keyword`, `Function` and `String` — are gone
+        // from those arms and now sit in the markup block below. See the
+        // markup variants' note on the enum for why sharing a code capture's
+        // *value* stopped being free.
         let result = match name {
             // Keywords
-            //
-            // `title.markup` is a markdown heading, and it rides here: a
-            // heading is the strongest structural signal a document has, and
-            // keyword is the most prominent slot in every theme.
-            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier"
-            | "title.markup" => Some(Self::Keyword),
+            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
+                Some(Self::Keyword)
+            },
             "keyword.control" | "keyword.return" | "keyword.control.return" => {
                 Some(Self::KeywordControl)
             },
             "keyword.operator" | "operator" => Some(Self::Operator),
 
             // Strings
-            //
-            // `link_uri.markup` is a markdown link destination — a URI is a
-            // string literal in every other grammar's terms, so this is the
-            // least surprising place for it.
-            "string" | "string.literal" | "string.special" | "link_uri.markup" => {
-                Some(Self::String)
-            },
+            "string" | "string.literal" | "string.special" => Some(Self::String),
             "string.escape" | "escape_sequence" | "escape" => Some(Self::StringEscape),
 
             // Numbers and booleans
@@ -129,14 +172,7 @@ impl HighlightType {
             "comment.doc" | "comment.documentation" => Some(Self::CommentDoc),
 
             // Functions
-            //
-            // `link_text.markup` is a markdown link label. It rides here
-            // because `Function` is the blue slot in most themes and link-blue
-            // is what a reader expects; `Property` is the alternative if it
-            // ever reads too strongly.
-            "function" | "function.call" | "function.builtin" | "link_text.markup" => {
-                Some(Self::Function)
-            },
+            "function" | "function.call" | "function.builtin" => Some(Self::Function),
             "function.definition" | "function.name" => Some(Self::FunctionDefinition),
             "function.method" | "method" | "method.call" => Some(Self::FunctionMethod),
             "function.special" | "function.macro" | "macro" | "function.special.definition" => {
@@ -187,7 +223,7 @@ impl HighlightType {
             // CSS: an id is unique and outranks a class on specificity, which
             // is precisely what an author is reasoning about while reading a
             // stylesheet. `Constant` is also what the name means — a unique,
-            // fixed handle. `the_six_ruled_capture_colours_are_the_ones_that_were_ruled`
+            // fixed handle. `the_ruled_selector_categories_are_the_ones_that_were_ruled`
             // asserts the two stay different, so the tidying change fails
             // rather than silently landing.
             "constant" | "constant.builtin" | "enum" | "enumerator" | "selector.id" => {
@@ -218,6 +254,41 @@ impl HighlightType {
 
             // Embedded content
             "embedded" => Some(Self::Embedded),
+
+            // ----- Markup -----
+            //
+            // ⚠️ **Two vendored naming conventions mean the same thing.** Zed's
+            // markdown queries suffix the family — `title.markup`,
+            // `link_uri.markup` — while the vendored `gitcommit` query uses the
+            // nvim/helix prefix form, `markup.heading` and `markup.link.url`.
+            // They are listed together on the arm they mean rather than
+            // normalised, because normalising would need a rule that guesses at
+            // names neither convention has written yet.
+            //
+            // Every one of these is an exact arm even where a prefix would
+            // reach it. `punctuation.list_marker.markup` and
+            // `punctuation.embedded.markup` were both landing on
+            // `PunctuationDelimiter` through the `punctuation` prefix check
+            // below — silently correct as a colour and wrong as a category,
+            // since a bullet survives into a rendered view and a fence
+            // delimiter is exactly what a rendered view removes.
+            //
+            // ⚠️ No `markup` prefix arm and no `.markup` suffix arm, on
+            // purpose. A catch-all would give any name a future vendor refresh
+            // introduces a plausible slot without anyone ruling on it, which is
+            // precisely the silent-mapping failure
+            // `every_vendored_capture_maps_to_a_highlight_type` exists to
+            // surface.
+            "title.markup" | "markup.heading" => Some(Self::MarkupHeading),
+            "emphasis.markup" => Some(Self::MarkupEmphasis),
+            "emphasis.strong.markup" => Some(Self::MarkupStrong),
+            "strikethrough.markup" => Some(Self::MarkupStrikethrough),
+            "text.literal.markup" => Some(Self::MarkupCode),
+            "link_text.markup" => Some(Self::MarkupLink),
+            "link_uri.markup" | "markup.link.url" => Some(Self::MarkupUrl),
+            "punctuation.list_marker.markup" => Some(Self::MarkupList),
+            "punctuation.markup" => Some(Self::MarkupPunctuation),
+            "punctuation.embedded.markup" => Some(Self::MarkupFence),
 
             // Error
             "error" => Some(Self::Error),

@@ -163,7 +163,7 @@ pub(super) fn command_reference(registry: &CommandRegistry, hints: &KeyHintIndex
             let id = meta.id().as_str();
             let key = hints
                 .primary_hint(id)
-                .map_or("", |hint| hint.label(KeyLabelStyle::MacGlyphs));
+                .map_or("", |hint| hint.label(KeyLabelStyle::MacGlyphsCommandAsMeta));
             (id, meta.title(), key)
         })
         .collect();

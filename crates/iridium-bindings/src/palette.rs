@@ -110,7 +110,7 @@ fn describe(meta: &CommandMeta, hints: &KeyHintIndex, read_only: bool) -> Palett
         description: meta.description().map(str::to_owned),
         category: meta.category().as_str().to_owned(),
         key_hint: hint.map(|hint| hint.label(KeyLabelStyle::Portable).to_owned()),
-        key_hint_mac: hint.map(|hint| hint.label(KeyLabelStyle::MacGlyphs).to_owned()),
+        key_hint_mac: hint.map(|hint| hint.label(KeyLabelStyle::MacGlyphsCommandAsCtrl).to_owned()),
         mutates_document,
         available: !(mutates_document && read_only),
         implemented: Editor::implements_command(&id),
@@ -175,7 +175,7 @@ pub fn search(
 #[must_use]
 pub fn key_hint(hints: &KeyHintIndex, id: &str, mac_glyphs: bool) -> Option<String> {
     let style = if mac_glyphs {
-        KeyLabelStyle::MacGlyphs
+        KeyLabelStyle::MacGlyphsCommandAsCtrl
     } else {
         KeyLabelStyle::Portable
     };

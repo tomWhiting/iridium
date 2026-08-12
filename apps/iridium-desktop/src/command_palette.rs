@@ -43,7 +43,7 @@
 //! # What a row shows
 //!
 //! The command's title; the key that runs it, right-aligned in the mac glyph
-//! spelling ([`KeyLabelStyle::MacGlyphs`] — this face's chords really are ⌘
+//! spelling ([`KeyLabelStyle::MacGlyphsCommandAsMeta`] — this face's chords really are ⌘
 //! chords) and dropped before it would collide with the title; and, when the
 //! query matched something other than the title, that matched text as a quiet
 //! annotation after it — highlighting match positions inside a string that is
@@ -415,7 +415,7 @@ fn result_row(
     let hint: Option<&str> = editor
         .key_hints()
         .primary_hint(entry.id().as_str())
-        .map(|hint| hint.label(KeyLabelStyle::MacGlyphs));
+        .map(|hint| hint.label(KeyLabelStyle::MacGlyphsCommandAsMeta));
     let hint_chars = hint.map_or(0, |label| label.chars().count());
     let hint_fits = hint_chars > 0 && width >= TITLE_FLOOR + HINT_GAP + hint_chars;
     let text_width = if hint_fits {

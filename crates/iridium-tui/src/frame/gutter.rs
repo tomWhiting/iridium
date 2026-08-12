@@ -46,6 +46,25 @@ pub fn width(total_lines: usize, show_line_numbers: bool) -> usize {
     GutterRenderer::digit_columns(total_lines) + FOLD_COLUMN_WIDTH + SEPARATOR_WIDTH
 }
 
+/// Where a gutter sits on the grid: which column it starts at and how wide.
+///
+/// ⚠️ **The origin is not always zero.** A full-height panel down the left edge
+/// takes its columns from the document, and the gutter begins after it —
+/// [`FrameLayout::sidebar_columns`](crate::frame::FrameLayout::sidebar_columns)
+/// is that number. Passing the width alone, as this module did until the band
+/// existed, is what makes a gutter draw its line numbers underneath a panel.
+///
+/// The two travel together because every write here needs both, and a caller
+/// that passed one frame's origin with another frame's width would paint a
+/// gutter that matches neither.
+#[derive(Debug, Clone, Copy)]
+pub struct GutterArea {
+    /// The buffer column the gutter starts at.
+    pub origin: usize,
+    /// How many columns it occupies. Zero when line numbers are switched off.
+    pub width: usize,
+}
+
 /// Paints one document line's gutter entry on `row`.
 ///
 /// `is_active` marks a line that a cursor is on — any cursor, not only the
@@ -57,25 +76,25 @@ pub fn paint(
     row: usize,
     is_active: bool,
     palette: &Palette,
-    gutter_width: usize,
+    area: GutterArea,
 ) {
-    if gutter_width == 0 {
+    if area.width == 0 {
         return;
     }
     let total_lines = editor.state().document.line_count();
     let style = palette.gutter(is_active);
-    blank_row(buffer, row, gutter_width, style);
+    blank_row(buffer, row, area, style);
 
     let digits = GutterRenderer::digit_columns(total_lines);
     let number = GutterRenderer::format_line_number(line + 1, total_lines);
-    buffer.set_str(0, row, &number, style);
+    buffer.set_str(area.origin, row, &number, style);
 
     if let Some(indicator) = indicator_for(editor, line) {
         let text = match indicator {
             FoldIndicator::Foldable => FOLDABLE,
             FoldIndicator::Folded => FOLDED,
         };
-        buffer.set_str(digits, row, text, style);
+        buffer.set_str(area.origin + digits, row, text, style);
     }
 }
 
@@ -83,8 +102,9 @@ pub fn paint(
 ///
 /// The background matters even where there is no glyph: it is what makes the
 /// gutter a margin rather than a run of stale cells from the previous frame.
-pub fn blank_row(buffer: &mut CellBuffer, row: usize, gutter_width: usize, style: Style) {
-    for column in 0..gutter_width.min(buffer.width()) {
+pub fn blank_row(buffer: &mut CellBuffer, row: usize, area: GutterArea, style: Style) {
+    let end = area.origin.saturating_add(area.width).min(buffer.width());
+    for column in area.origin..end {
         buffer.set_str(column, row, " ", style);
     }
 }

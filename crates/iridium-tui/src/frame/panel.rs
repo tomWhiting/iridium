@@ -120,3 +120,102 @@ impl FloatingBox {
         buffer.set_str(self.left, row, &line, style);
     }
 }
+
+/// The widest a sidebar gets. Wide enough for a nested path, narrow enough
+/// that the document keeps most of the screen.
+const SIDEBAR_WIDTH: usize = 32;
+
+/// A full-height band down the left edge, holding a panel that takes its
+/// columns **from** the document rather than floating over it (R4).
+///
+/// # ⭐ Why this is not a [`FloatingBox`] with different numbers
+///
+/// A floating box is furniture with an outside: four borders, because it sits
+/// *on* something and has to say where it ends. A band has no outside on three
+/// of its four edges — it runs into the screen's own left, top and bottom — so
+/// it is drawn with **one vertical rule on its right**, which is the only edge
+/// that separates it from anything.
+///
+/// That also answers the corner question this face would otherwise inherit: a
+/// panel flush at column zero has no free corners to round, so there is nothing
+/// here for a rounded corner to be right or wrong about. The rule is the same
+/// light box-drawing weight as [`FloatingBox`]'s borders, so the two read as
+/// one furniture set.
+///
+/// # It stops above the statusline
+///
+/// The statusline describes the *document* — its name, whether it is dirty —
+/// and it keeps the full width. A band that covered its first thirty columns
+/// would be a panel reporting on a file it does not contain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::frame) struct SidebarBox {
+    /// The exterior width, the rule included. This is the number the document
+    /// gives up, and the one that reaches `Chrome::sidebar_columns`.
+    pub(in crate::frame) width: usize,
+    /// How many rows it spans, counting from row zero.
+    pub(in crate::frame) rows: usize,
+}
+
+impl SidebarBox {
+    /// Fits a band `rows` tall to a screen, or `None` when it cannot afford one.
+    ///
+    /// ⚠️ **`rows` is what the band may span, not the screen's height** — it is
+    /// [`document_rows`](crate::frame::document_rows), the same number the
+    /// document gets, so the band cannot cover the statusline or a search panel
+    /// that already took its rows from the same place.
+    ///
+    /// Two refusals, both the same rule [`FloatingBox::fitted`] carries: a band
+    /// narrower than [`MIN_WIDTH`] shows no file name honestly, and one with
+    /// fewer than two rows shows a query field and nothing to query.
+    /// ⚠️ **A refusal here is not a failure** — the caller keeps its popover,
+    /// which fits screens a band cannot.
+    ///
+    /// The band never takes more than half the screen, whatever
+    /// [`SIDEBAR_WIDTH`] says: a file tree that leaves the document narrower
+    /// than itself has inverted which one is the point.
+    pub(in crate::frame) const fn fitted(columns: usize, rows: usize) -> Option<Self> {
+        let width = if SIDEBAR_WIDTH < columns / 2 {
+            SIDEBAR_WIDTH
+        } else {
+            columns / 2
+        };
+        if width < MIN_WIDTH || rows < 2 {
+            return None;
+        }
+        Some(Self { width, rows })
+    }
+
+    /// The column content starts at: one pad cell in from the screen's edge.
+    ///
+    /// A constant and not a method, because unlike a floating box a band has
+    /// nowhere else to begin — it is flush at column zero by definition, so
+    /// there is no instance for this to depend on.
+    pub(in crate::frame) const CONTENT_ORIGIN: usize = 1;
+
+    /// The cells available to content, between the pad and the rule.
+    pub(in crate::frame) const fn content_width(self) -> usize {
+        self.width - 2
+    }
+
+    /// Blanks one row of the band and draws its right-hand rule.
+    pub(in crate::frame) fn blank_row(&self, buffer: &mut CellBuffer, row: usize, style: Style) {
+        for column in 0..self.width {
+            buffer.set_str(column, row, " ", style);
+        }
+        buffer.set_str(self.width - 1, row, "│", style);
+    }
+
+    /// Draws a hairline rule across one row, joining the band's own edge.
+    ///
+    /// `├` on the right rather than `┤`: the band's rule is its *right* edge,
+    /// so a separator meets it from the inside. The left end is `─` and not a
+    /// corner, because the screen's edge is not the panel's.
+    pub(in crate::frame) fn rule_row(&self, buffer: &mut CellBuffer, row: usize, style: Style) {
+        let mut line = String::with_capacity(self.width * 3);
+        for _ in 0..self.width.saturating_sub(1) {
+            line.push('─');
+        }
+        line.push('┤');
+        buffer.set_str(0, row, &line, style);
+    }
+}

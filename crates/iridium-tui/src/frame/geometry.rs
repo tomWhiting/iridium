@@ -46,6 +46,18 @@ pub struct Chrome<'a> {
     pub status: Status<'a>,
     /// The search panel, when the host has one open.
     pub search: Option<&'a SearchOverlay>,
+    /// Columns reserved at the left edge for a full-height panel, taken *from*
+    /// the document rather than laid over it.
+    ///
+    /// ⚠️ **Zero is a value the host writes, not a case it skips.** A host that
+    /// only assigns this when a sidebar opens leaves the last non-zero width in
+    /// place after it closes, and the document keeps a band of columns nothing
+    /// draws in. The desktop face carries the same rule for its own left inset.
+    ///
+    /// A width and not the panel, deliberately: the geometry needs to know how
+    /// many columns are gone and nothing else about what took them, exactly as
+    /// it takes `SearchOverlay::rows` and not the overlay's contents.
+    pub sidebar_columns: usize,
 }
 
 /// Where everything went: the geometry one frame was drawn with.
@@ -56,6 +68,13 @@ pub struct Chrome<'a> {
 /// the tree.
 #[derive(Debug, Clone)]
 pub struct FrameLayout {
+    /// The columns the left band took, and therefore the column the gutter
+    /// starts at.
+    ///
+    /// One field rather than a width and an origin that must agree: the band
+    /// begins at the left edge, so its width *is* the gutter's origin, and two
+    /// fields would be two things to keep true.
+    pub sidebar_columns: usize,
     /// The number of columns the gutter occupies. Zero when line numbers are
     /// switched off.
     pub gutter_width: usize,
@@ -92,21 +111,63 @@ impl FrameLayout {
             None => self.primary_caret,
         }
     }
+
+    /// Where the gutter sits on the grid this frame.
+    ///
+    /// Derived rather than stored, so the origin cannot drift from the band
+    /// that decides it: the gutter begins exactly where the left band ends.
+    pub(in crate::frame) const fn gutter_area(&self) -> gutter::GutterArea {
+        gutter::GutterArea {
+            origin: self.sidebar_columns,
+            width: self.gutter_width,
+        }
+    }
+}
+
+/// How many rows document text has on a screen this tall.
+///
+/// ⭐ **Also how many rows a left band may span**, which is why this is a
+/// function rather than three lines inside [`layout`]. The band is a peer of
+/// the document: it takes columns where the search panel takes rows, and it has
+/// no business covering either the statusline — which describes the *document*,
+/// not the panel — or a panel that already took its rows from the same place.
+///
+/// A host that recomputed this to place its own panel would be keeping a second
+/// copy of the frame's row arithmetic true. There is one.
+#[must_use]
+pub const fn document_rows(rows: usize, search_open: bool) -> usize {
+    let below_status = rows.saturating_sub(1);
+    let panel_rows = if search_open {
+        SearchOverlay::rows(below_status)
+    } else {
+        0
+    };
+    below_status - panel_rows
 }
 
 /// The geometry a screen of this size would be drawn with.
 pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) -> FrameLayout {
     let state = editor.state();
     let total_lines = state.document.line_count();
-    let gutter_width = gutter::width(total_lines, state.config.show_line_numbers).min(columns);
-    let text_width = columns - gutter_width;
+    // The band comes off the screen FIRST, and everything on the X axis is
+    // measured against what is left. Sizing the gutter against the full width
+    // and subtracting afterwards would let a wide gutter and a wide band
+    // together claim more columns than the screen has.
+    //
+    // A band wider than the screen leaves zero for everything else, which is
+    // arithmetic that needs no guard of its own: a zero-width text area paints
+    // no cells and places no caret.
+    let sidebar_columns = chrome.sidebar_columns.min(columns);
+    let available = columns - sidebar_columns;
+    let gutter_width = gutter::width(total_lines, state.config.show_line_numbers).min(available);
+    let text_width = available - gutter_width;
     let status_row = rows.checked_sub(1);
     let below_status = rows.saturating_sub(1);
 
     let panel_rows = chrome
         .search
         .map_or(0, |_| SearchOverlay::rows(below_status));
-    let text_rows = below_status - panel_rows;
+    let text_rows = document_rows(rows, chrome.search.is_some());
     let search_rows = if panel_rows == 0 {
         None
     } else {
@@ -125,7 +186,7 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
     };
 
     let text = TextArea {
-        origin: gutter_width,
+        origin: sidebar_columns + gutter_width,
         width: text_width,
         scroll,
     };
@@ -133,6 +194,7 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
     let primary_caret = caret_cell(editor, &viewport, text, state.cursor.primary.head);
 
     FrameLayout {
+        sidebar_columns,
         gutter_width,
         text,
         text_rows,

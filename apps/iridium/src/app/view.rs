@@ -30,12 +30,14 @@ impl App {
 
         let name = self.file.as_ref().map(TextFile::display_name);
         let dirty = self.is_dirty();
+        let band_rows = self.band_rows();
         let chrome = Chrome {
             status: Status {
                 name: name.as_deref(),
                 dirty,
             },
             search: self.search_open.then_some(&self.search),
+            sidebar_columns: self.sidebar_columns(),
         };
         let layout = self.frame.render(&self.editor, chrome, surface.back_mut());
 
@@ -81,13 +83,12 @@ impl App {
             explorer.poll();
             let styles = Palette::from_theme(self.editor.get_theme());
             let theme = self.editor.get_theme().clone();
-            cursor = explorer.paint(surface.back_mut(), &theme, &styles).map_or(
-                CursorState::Hidden,
-                |cell| CursorState::At {
+            cursor = explorer
+                .paint(surface.back_mut(), band_rows, &theme, &styles)
+                .map_or(CursorState::Hidden, |cell| CursorState::At {
                     row: cell.row,
                     column: cell.column,
-                },
-            );
+                });
         }
 
         if self.history_open {
@@ -101,6 +102,33 @@ impl App {
         }
 
         cursor
+    }
+
+    /// Columns the file explorer's band takes from the document this frame.
+    ///
+    /// ⚠️ **Computed every frame and written even when it is zero.** The panel
+    /// refuses a band on a screen too small to hold one honestly, so the same
+    /// panel answers 32 and then 0 across a resize with no key pressed; and a
+    /// closed panel must actively return the columns rather than leave the last
+    /// width in place. This is the terminal's half of the rule
+    /// `sync_left_inset` carries in the desktop.
+    pub(super) fn sidebar_columns(&self) -> usize {
+        let band_rows = self.band_rows();
+        self.explorer.as_ref().map_or(0, |explorer| {
+            explorer.sidebar_columns(self.columns, band_rows)
+        })
+    }
+
+    /// How many rows a left band may span on this screen.
+    ///
+    /// ⭐ **The document's own row count**, from the frame rather than
+    /// recomputed here: the band is a peer of the document, taking columns
+    /// where the search panel takes rows, so it covers neither the statusline
+    /// nor a panel that already took its rows from the same place. A second
+    /// copy of that arithmetic in this file would be a second thing to keep
+    /// true, and it would be wrong the first time the panel's height changed.
+    const fn band_rows(&self) -> usize {
+        iridium_tui::frame::document_rows(self.rows, self.search_open)
     }
 
     /// Moves the caret to a line, counting from one.
@@ -176,6 +204,7 @@ impl App {
                 dirty,
             },
             search: self.search_open.then_some(&self.search),
+            sidebar_columns: self.sidebar_columns(),
         };
         Frame::sync_viewport(&mut self.editor, self.columns, self.rows, chrome);
     }

@@ -78,6 +78,21 @@ impl ApplicationHandler<MenuCommand> for DesktopApp {
         }
     }
 
+    /// Pushes the menu bar's enabled set, once, before the loop sleeps.
+    ///
+    /// ⭐ **This is the right moment and the only one.** With
+    /// `ControlFlow::Wait` the process sleeps here until the OS has something
+    /// to say — which is exactly the window in which a hand can reach the menu
+    /// bar and nothing else can change what it should say. Doing it per event
+    /// would push the same answer many times for one turn; doing it when the
+    /// menu opens is not possible, because `AppKit` opens it without asking.
+    ///
+    /// [`refresh_menubar`](DesktopApp::refresh_menubar) returns immediately
+    /// when the answer has not moved, so an idle loop still costs nothing.
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.refresh_menubar();
+    }
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,

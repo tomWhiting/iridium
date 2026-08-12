@@ -374,6 +374,9 @@ impl DesktopApp {
             // without one — every session `cargo test` builds — has no menu
             // bar at all rather than a dead one.
             menu_proxy: None,
+            // `None` rather than `OPEN`, so the first refresh pushes rather
+            // than assuming the bar already agrees with a value nothing set.
+            last_menu_availability: None,
             latency: LatencyMonitor::from_env(),
             // A `--theme` on the command line is an explicit choice, so it
             // pins from the first frame: the window never reads the system

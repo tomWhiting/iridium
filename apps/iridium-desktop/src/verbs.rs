@@ -118,7 +118,16 @@ impl Availability {
     };
 
     /// Whether a command that does or does not mutate the document can run.
-    const fn allows(self, mutates_document: bool) -> bool {
+    ///
+    /// Public because the menu bar re-asks it without re-resolving a whole
+    /// menu: enabledness is a pure function of this and
+    /// [`CommandMeta::mutates_document`], so the greying push can walk the
+    /// installed items and ask directly rather than rebuilding every label and
+    /// chord it already has.
+    ///
+    /// [`CommandMeta::mutates_document`]: iridium_editor::commands::CommandMeta::mutates_document
+    #[must_use]
+    pub const fn allows(self, mutates_document: bool) -> bool {
         !(self.inert || (mutates_document && self.read_only))
     }
 }

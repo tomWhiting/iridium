@@ -65,6 +65,73 @@ impl DesktopApp {
         platform::install(&menus, proxy);
     }
 
+    /// What the menu bar may offer to run right now.
+    ///
+    /// ⭐ **This is the testable half of the greying push**, and it is split
+    /// out for that reason: what the answer *is* can be proven by `cargo
+    /// test`, while pushing it into `AppKit` cannot be.
+    ///
+    /// `inert` names the four panels that swallow a key outright — read off
+    /// [`press`](DesktopApp::press)'s own branch order rather than guessed at,
+    /// so the menu bar and the keyboard cannot disagree about what modal
+    /// means. While one of them is up, nothing outside it runs.
+    ///
+    /// ⚠️ **Explorer focus is deliberately not modality.** The explorer takes
+    /// keys when it has focus, but it is a focus and not a panel that owns the
+    /// session: the active editor is still well defined, and a menu verb aimed
+    /// at it still means what it says. Greying the whole bar because a side
+    /// panel holds the caret would be greying on a technicality.
+    ///
+    /// A session with no editor at all is inert, because there is nothing for
+    /// any of these verbs to act on.
+    pub(super) fn menu_availability(&self) -> Availability {
+        let Some(editor) = self.workspace.active_editor() else {
+            return Availability {
+                read_only: false,
+                inert: true,
+            };
+        };
+        Availability {
+            read_only: editor.state().read_only,
+            inert: self.prompt.is_some()
+                || self.menu.is_some()
+                || self.palette_open
+                || self.history_open,
+        }
+    }
+
+    /// Pushes the enabled set onto the installed menu items, when it moved.
+    ///
+    /// Called from `about_to_wait`: the one moment per turn when the loop is
+    /// about to go to sleep, and so the one moment when the menu bar can be
+    /// reached by a mouse while nothing else is able to change it.
+    ///
+    /// ⭐ **Nothing is touched when the answer has not moved.** Enabledness is
+    /// a pure function of [`Availability`] and whether a command writes, and
+    /// the registry does not change mid-session — so an unchanged availability
+    /// means an unchanged bar, and the common case costs one comparison of two
+    /// `bool`s. Without the guard this would cross into `AppKit` on every
+    /// keystroke to set values that were already set.
+    pub(super) fn refresh_menubar(&mut self) {
+        let availability = self.menu_availability();
+        if self.last_menu_availability == Some(availability) {
+            return;
+        }
+        self.last_menu_availability = Some(availability);
+        let Some(editor) = self.workspace.active_editor() else {
+            return;
+        };
+        let commands = editor.commands();
+        platform::set_enabled(&|id| {
+            // A command the registry has lost is left as it was rather than
+            // greyed: it cannot happen mid-session, and inventing an answer
+            // for it would be inventing state.
+            commands
+                .get(id.as_str())
+                .is_none_or(|meta| availability.allows(meta.mutates_document()))
+        });
+    }
+
     /// Runs a command the menu bar chose.
     ///
     /// One line, and that is the point: the menu reaches the document by the
@@ -81,6 +148,9 @@ impl DesktopApp {
 
 #[cfg(target_os = "macos")]
 mod platform {
+    use std::cell::RefCell;
+
+    use iridium_editor::CommandId;
     use objc2::rc::Retained;
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_app_kit::{NSApplication, NSMenu, NSMenuItem};
@@ -88,6 +158,21 @@ mod platform {
     use winit::event_loop::EventLoopProxy;
 
     use crate::menubar::{Menu, MenuCommand};
+
+    thread_local! {
+        /// Every item this face put on the bar, with the command it runs.
+        ///
+        /// ⭐ **Thread-local rather than a field on `DesktopApp`**, for two
+        /// reasons that point the same way. There is exactly *one* menu bar
+        /// per process — `NSApp.mainMenu` is global — so a per-session field
+        /// would be modelling a one-to-many that does not exist. And
+        /// `Retained<NSMenuItem>` is main-thread-only; keeping it here means
+        /// a call from any other thread finds an empty list and does nothing,
+        /// which is the correct answer, rather than needing a runtime check
+        /// that could be forgotten.
+        static INSTALLED: RefCell<Vec<(CommandId, Retained<NSMenuItem>)>> =
+            const { RefCell::new(Vec::new()) };
+    }
 
     /// What the target needs to answer a click.
     struct TargetIvars {
@@ -206,6 +291,7 @@ mod platform {
             },
         );
 
+        let mut installed: Vec<(CommandId, Retained<NSMenuItem>)> = Vec::new();
         let mut tag: isize = 0;
         for menu in menus {
             let title = NSString::from_str(menu.title);
@@ -239,6 +325,7 @@ mod platform {
                 };
                 item.setTag(tag);
                 item.setEnabled(row.enabled);
+                installed.push((row.command.clone(), item.clone()));
                 // SAFETY: `target` outlives the menu bar — see the leak at the
                 // foot of this function — and `iridiumMenuAction:` is a
                 // selector the class above actually implements.
@@ -264,12 +351,27 @@ mod platform {
             bar.addItem(&holder);
         }
 
+        INSTALLED.with_borrow_mut(|items| *items = installed);
+
         // ⭐ The target is deliberately leaked. `NSMenuItem`'s target is a
         // **weak** reference — AppKit does not retain it — so a target dropped
         // at the end of this function would leave every item pointing at freed
         // memory, and the first click would be a crash. It lives exactly as
         // long as the menu bar does, which is the whole process.
         std::mem::forget(target);
+    }
+
+    /// Sets every installed item's enabled flag from `is_enabled`.
+    ///
+    /// Does nothing before [`install`] has run, and nothing off the main
+    /// thread — in both cases there are no items to walk, which is the honest
+    /// answer rather than a guard bolted on.
+    pub(super) fn set_enabled(is_enabled: &dyn Fn(&CommandId) -> bool) {
+        INSTALLED.with_borrow(|items| {
+            for (command, item) in items {
+                item.setEnabled(is_enabled(command));
+            }
+        });
     }
 }
 
@@ -278,6 +380,9 @@ mod platform {
     use winit::event_loop::EventLoopProxy;
 
     use crate::menubar::{Menu, MenuCommand};
+
+    /// There are no items to enable, because there is no menu bar.
+    pub(super) fn set_enabled(_is_enabled: &dyn Fn(&iridium_editor::CommandId) -> bool) {}
 
     /// No menu bar is built.
     ///

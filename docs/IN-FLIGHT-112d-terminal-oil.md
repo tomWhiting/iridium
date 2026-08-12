@@ -437,11 +437,76 @@ Each step is checkable on its own, and the first two are strictly refactor.
    in `iridium-panel` is `edit_keys_tests.rs` at 787, then `plan_tests.rs` 768
    and `panel.rs` 573. `apps/iridium-desktop/src/file_tree/mod.rs` is 67 lines
    and holds nothing but the wrapper and the two re-exports.
-3. ⏭️ **NEXT — the TUI paints it** into a `FloatingBox`, at the *queried* ceiling, reached
-   by the same command id the desktop uses. The smallest slice that puts a file
-   tree in a terminal.
-4. **The browsed fit** — R3. Full screen height, and the ceiling rides on the
-   fit rather than on the screen that composes the rows.
+3. ✅ **The TUI paints it — DONE, `ecb44392` + `bb9d1a13` (13 Aug 2026).**
+   `Ctrl+Alt+E` opens a file tree in the terminal. New
+   `iridium_tui::frame::file_explorer`: a poll, a paint, and the translation of
+   one enum. Neither the command id nor the chord is written in that face —
+   both were inherited from the kernel's default keymap.
+
+   ⭐ **Steps 3 and 4 collapsed into one, and that is the hoist paying out.**
+   The plan said step 3 would use the *queried* ceiling and step 4 would fix it
+   to the browsed one. There was nothing to fix: the TUI asks for
+   `PanelFit::popover`, and R3's ruling travels **with the shared crate**. A
+   twelve written into the terminal painter would have been that face quietly
+   disagreeing with the other one about how tall a file tree should be. The
+   remaining part of old step 4 — full *screen* height — was never a fit, it is
+   the left band, and that is step 5.
+
+   ### ⚠️ The units seam, ruled — characters versus cells
+
+   `PanelFit::content_columns` counts `char`s, because the GPU face draws where
+   every character is one character-width and a shared crate has no business
+   knowing what a terminal thinks a column is. A terminal's columns are
+   **display cells**, and a CJK name is two per character.
+
+   **RULED: the builder budgets in characters, the face spends in cells and
+   clips.** Identical for every ASCII path. Where they diverge, `paint_text`
+   advances by display width and refuses to write past the area, so a row too
+   wide in cells is cut at the border rather than overrunning it — the contract
+   `PanelRow` already stated. Teaching the shared crate about display width
+   would apply a *terminal's* width model to the GPU face, where it is false.
+   Cost: a directory of wide-character names loses a character or two off its
+   longest rows, right-aligned hint first. Nothing corrupts, nothing panics.
+
+   ### ⚠️ A test that could only pass, caught by measuring
+
+   The first guard for that seam was "no row overruns the box". Sabotaging the
+   advance to `chars().count()` — **the exact defect it claimed to guard** —
+   passed all six tests, because `paint_text` clips to the content area and so
+   a mis-advanced run damages content and never the border.
+
+   Replaced with one that reads the cells back: `日本` then `END`, and `END`
+   must begin at column four. Sabotaged it fails with `日END`; reverted, 313
+   pass. The weak test is kept for what it does cover and relabelled to stop
+   claiming more.
+
+   ### Two rulings the wiring forced
+
+   - **Where the terminal opens it.** The shared `chosen_root` answers "may a
+     search read past a directory somebody walked into". The *guess* stays
+     per-face, and the two faces genuinely guess differently: the GPU face must
+     distrust its working directory (Finder hands a bundled app `/`), while a
+     terminal's is where a person `cd`-ed to — the most reliable statement of
+     intent either face gets. This **vindicates** the 2b/2c split rather than
+     straining it.
+   - **`Deed` loses `Copy` to carry a path.** ⚠️ Open is a *destructive* verb
+     on a one-buffer face — the GPU face answers the same
+     `ExplorerOutcome::Open` with a new tab and loses nothing. Asked about like
+     a reload. The `Copy`-preserving alternative was a `pending_path` field
+     meaningful only while one prompt is open: two states that must agree, and
+     a stale one opens the wrong file over unsaved work.
+
+   ### ⚠️ One outcome the terminal cannot honour, and it says so
+
+   `ExplorerOutcome::ToggleSidebar` becomes `ExplorerAction::Report` with a
+   sentence for the statusline, not a silent no-op. A key that does nothing is
+   indistinguishable from a key that is broken. **The test asserting this must
+   be deleted, not edited, when step 5 lands.**
+
+   Censuses: iridium-tui **307 → 313**, apps/iridium **86 → 92**.
+
+   *Revert cost: two commits; the panel module is self-contained and the
+   wiring is additive apart from `Deed`.*
 5. **The left band** — R4. `FrameLayout` gives up columns; gutter, `TextArea`
    and `Viewport` follow; zero is written, not skipped.
 6. **`iridium <dir>`** — R5. The CLI learns what a directory is, the session
@@ -452,11 +517,11 @@ Each step is checkable on its own, and the first two are strictly refactor.
 ## Where this leaves #112
 
 Parts A, B and C are landed and installed. Part D is the last of Tom's
-sentence, and **steps 1, 2a, 2b and 2c are landed** — the file explorer is
-face-independent, whole, in `iridium-panel`. What is left is steps 3–6, all of
-which are the terminal face actually drawing it: the `FloatingBox` at the
-queried ceiling, the browsed fit, the left band in `FrameLayout`, and
-`iridium <dir>`.
+sentence, and **steps 1, 2a, 2b, 2c, 3 and 4 are landed** — the file explorer
+is face-independent, whole, in `iridium-panel`, and `Ctrl+Alt+E` puts it on
+screen in the terminal. What is left is **step 5** (the left band in
+`FrameLayout`, so the panel can be a sidebar rather than a popover) and
+**step 6** (`iridium <dir>`).
 
 ⛔ **Not installed.** `bundle/install.sh` refuses while `iridium-desktop` runs,
 by design, and pid 69873 is still up. Nothing here is on Tom's machine yet.

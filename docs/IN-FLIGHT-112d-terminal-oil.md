@@ -322,11 +322,18 @@ Each step is checkable on its own, and the first two are strictly refactor.
    Census: desktop **508 → 495** (−13), panel **57 → 70** (+13) — the whole of
    `confirm_tests`. Sum 565 either way.
 
-   ⭐ **What this means for the remaining set: it is six, not nine.** `panel`,
-   `buffer`, `keys`, `edit_keys`, `mode`, `session` and `compose` are what is
-   left, and only `compose` is genuinely hard — it is the one that must stop
-   returning a `PanelContent` and start returning rows plus a caret, with the
-   desktop adding the anchor.
+   ⭐ **What this means for the remaining set: it is seven, not nine** —
+   `panel`, `buffer`, `keys`, `edit_keys`, `mode`, `session`, `compose`, plus
+   `buffer_tests`, `edit_keys_tests`, `mode_tests` and the `tests/` directory.
+   ⚠️ The commit that landed this slice says "six" in its message; the
+   directory has seven files in it and the directory is right. Counted from
+   `ls`, not from memory, which is how the wrong number got written in the
+   first place.
+
+   Only `compose` is genuinely hard: it is the one that must stop returning a
+   `PanelContent` and start returning rows plus a caret, with the desktop
+   adding the anchor. The other six move together with `FileExplorer`, because
+   every one of them is either an `impl` on it or holds one.
 
    Still to come in 2c: the coupled set — `panel`, `buffer`, `keys`,
    `edit_keys`, `mode`, `session`, `confirm`, `rows`, `compose` — plus

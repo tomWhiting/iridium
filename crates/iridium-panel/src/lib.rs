@@ -30,10 +30,12 @@
 //! - **Any renderer, device, or window.** Nothing in this crate can fail to
 //!   compile for want of a GPU.
 
+pub mod entry;
 pub mod explorer;
 pub mod line;
 pub mod row;
 
+pub use entry::Entry;
 pub use line::{LineBuilder, highlighted_spans, match_color, skip_chars};
 pub use row::{
     EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,

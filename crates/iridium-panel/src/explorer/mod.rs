@@ -31,6 +31,15 @@
 //!   how far a search there may reach. ⚠️ Only the *choice*. Guessing a root
 //!   from the active file, the working directory and the home directory stays
 //!   in each face, because the two faces need not guess alike.
+//! - [`rows`] — composing one row: indent, disclosure, name, error, and the
+//!   truncation that keeps a long name inside the width it was given.
+//! - [`confirm`] — what is shown before anything is applied: the operations by
+//!   name, the refusals, and how much of either did not fit.
+//!
+//! ⚠️ **`rows` and `confirm` stop at [`PanelRow`](crate::row::PanelRow)s.**
+//! They do not build a `PanelContent`, because that carries an anchor, and an
+//! anchor is a statement about a window. Each face wraps these rows in its own
+//! placement — which is the seam this crate exists to keep honest.
 //!
 //! # What is deliberately still in the desktop face
 //!
@@ -41,13 +50,18 @@
 //! mechanics work.
 
 pub mod apply;
+pub mod confirm;
 pub mod filter;
 pub mod order;
 pub mod plan;
 pub mod root;
+pub mod rows;
 
 #[cfg(test)]
 mod apply_tests;
+
+#[cfg(test)]
+mod confirm_tests;
 
 #[cfg(test)]
 mod plan_tests;

@@ -30,37 +30,31 @@
 //! - `compose` — what reaches the screen.
 //! - `buffer` — the rows as loaded and as they now read, and the one place a
 //!   row's origin is captured from the node it was drawn from.
-//! - `confirm` — what is shown before any of it happens.
 //! - `mode` — whether the panel is browsing, editing or confirming, and the
 //!   rule that unapplied edits are never dropped without being asked about.
 //! - `session` — everything that is true *while* the rows are being edited:
 //!   the cursor, the name field it carries, and the verbs that change either.
-//! - `rows` — composing one row: indent, disclosure, name, error.
 //! - `tests` — the panel's own suite, against real directories and the real
 //!   reader thread.
 //!
 //! # What is no longer here
 //!
-//! `plan`, `order` and `apply` — the rename pipeline — and `filter` now live in
+//! `plan`, `order` and `apply` — the rename pipeline — plus `filter`, `rows`
+//! and `confirm` now live in
 //! [`iridium_panel::explorer`], because a rename means the same thing in both
 //! faces and two copies of it could disagree about what one *does*. They are
 //! re-exported below, so the modules that stayed read exactly as they did.
 
 mod buffer;
 mod compose;
-mod confirm;
 mod edit_keys;
 mod keys;
 mod mode;
 mod panel;
-mod rows;
 mod session;
 
 #[cfg(test)]
 mod buffer_tests;
-
-#[cfg(test)]
-mod confirm_tests;
 
 #[cfg(test)]
 mod edit_keys_tests;
@@ -77,6 +71,6 @@ mod tests;
 // faces depend on. The nine modules that stayed still read `super::plan::…`
 // and `super::apply::…`, which is the point: the hoist moved code, not
 // meaning. See [`iridium_panel::explorer`].
-pub(crate) use iridium_panel::explorer::{apply, filter, plan};
+pub(crate) use iridium_panel::explorer::{apply, confirm, filter, plan, rows};
 
 pub use panel::{ExplorerOutcome, FileExplorer};

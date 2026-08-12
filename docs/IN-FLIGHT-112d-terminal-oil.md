@@ -306,6 +306,28 @@ Each step is checkable on its own, and the first two are strictly refactor.
    left it. Proven discriminating: removing the control-character guard fails
    exactly two of the eight and nothing else in the workspace.
 
+   **`rows` and `confirm` moved too, and they were not supposed to be
+   movable.** The map put both in the coupled nine. They are not: neither is an
+   `impl FileExplorer` — they are free functions over `EditedRow`s and
+   `PanelRow`s, and every type they touch had already crossed. Their whole
+   foreign surface was `crate::overlay::{PanelRow, Span}` and `crate::line`,
+   which are the desktop's *re-exports of this crate*, so the move was three
+   import lines. `compose.rs` still reads `super::rows::…` and
+   `super::confirm::…` and did not change at all.
+
+   ⚠️ **They stop at `PanelRow`s, and that is the seam holding.** Neither
+   builds a `PanelContent`, because that carries an anchor and an anchor is a
+   statement about a window. Each face wraps the rows in its own placement.
+
+   Census: desktop **508 → 495** (−13), panel **57 → 70** (+13) — the whole of
+   `confirm_tests`. Sum 565 either way.
+
+   ⭐ **What this means for the remaining set: it is six, not nine.** `panel`,
+   `buffer`, `keys`, `edit_keys`, `mode`, `session` and `compose` are what is
+   left, and only `compose` is genuinely hard — it is the one that must stop
+   returning a `PanelContent` and start returning rows plus a caret, with the
+   desktop adding the anchor.
+
    Still to come in 2c: the coupled set — `panel`, `buffer`, `keys`,
    `edit_keys`, `mode`, `session`, `confirm`, `rows`, `compose` — plus
    `project`'s two root functions. `PanelAnchor`, `PanelContent` and the

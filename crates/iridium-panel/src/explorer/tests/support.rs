@@ -12,8 +12,8 @@ use iridium_editor::theme::Theme;
 use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use iridium_file::test_support::TempDir;
 
-use crate::file_tree::{ExplorerOutcome, FileExplorer};
-use crate::overlay::PanelFit;
+use crate::explorer::{ExplorerOutcome, FileExplorer};
+use crate::row::PanelFit;
 
 /// A project with two directories, each holding a `mod.rs` — the case a flat
 /// ranked list cannot tell apart, and the reason the hierarchy is kept.
@@ -22,7 +22,7 @@ use crate::overlay::PanelFit;
 /// what makes "the rows are drawn where they live" and "the query read a
 /// folder nobody opened" two views of one fixture rather than two fixtures
 /// that could drift.
-pub(in crate::file_tree) fn project() -> TempDir {
+pub(in crate::explorer) fn project() -> TempDir {
     let directory = TempDir::new("explorer-filter");
     let root = directory.path();
     for folder in ["engine", "widgets"] {
@@ -36,7 +36,7 @@ pub(in crate::file_tree) fn project() -> TempDir {
 }
 
 /// A key press with no modifiers.
-pub(in crate::file_tree) fn press(key: KeyCode) -> KeyEvent {
+pub(in crate::explorer) fn press(key: KeyCode) -> KeyEvent {
     KeyEvent {
         key,
         modifiers: Modifiers::none(),
@@ -45,7 +45,7 @@ pub(in crate::file_tree) fn press(key: KeyCode) -> KeyEvent {
 }
 
 /// A key press under the given modifiers.
-pub(in crate::file_tree) fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEvent {
+pub(in crate::explorer) fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEvent {
     KeyEvent {
         key,
         modifiers,
@@ -54,7 +54,7 @@ pub(in crate::file_tree) fn chord(key: KeyCode, modifiers: Modifiers) -> KeyEven
 }
 
 /// The `⌘` spelling of a key — what a mac keyboard actually sends.
-pub(in crate::file_tree) fn meta(key: KeyCode) -> KeyEvent {
+pub(in crate::explorer) fn meta(key: KeyCode) -> KeyEvent {
     chord(
         key,
         Modifiers {
@@ -65,10 +65,10 @@ pub(in crate::file_tree) fn meta(key: KeyCode) -> KeyEvent {
 }
 
 /// A window big enough for everything these tests compose.
-pub(in crate::file_tree) const FIT: PanelFit = PanelFit::popover(40, 20);
+pub(in crate::explorer) const FIT: PanelFit = PanelFit::popover(40, 20);
 
 /// How long a test waits for a directory read before calling it hung.
-pub(in crate::file_tree) const PATIENCE: Duration = Duration::from_secs(10);
+pub(in crate::explorer) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// Opens a panel on `directory`, crawling under a query, and polls until its
 /// root has listed.
@@ -76,7 +76,7 @@ pub(in crate::file_tree) const PATIENCE: Duration = Duration::from_secs(10);
 /// The reads are on a worker thread, so "the rows are there" is something
 /// to wait for rather than assume — which is the whole shape this panel
 /// exists to handle, and pretending otherwise in a test would hide it.
-pub(in crate::file_tree) fn opened(directory: &TempDir) -> FileExplorer {
+pub(in crate::explorer) fn opened(directory: &TempDir) -> FileExplorer {
     opened_with_crawl(directory, true)
 }
 
@@ -85,7 +85,7 @@ pub(in crate::file_tree) fn opened(directory: &TempDir) -> FileExplorer {
 /// `false` is the shape a home directory or a guessed working directory
 /// opens in: the tree is browsable and the filter still narrows what has
 /// been read, but a query posts no reads of its own.
-pub(in crate::file_tree) fn opened_with_crawl(directory: &TempDir, crawl: bool) -> FileExplorer {
+pub(in crate::explorer) fn opened_with_crawl(directory: &TempDir, crawl: bool) -> FileExplorer {
     let mut explorer =
         FileExplorer::open(directory.path().to_path_buf(), crawl).expect("the reader thread ran");
     let deadline = Instant::now() + PATIENCE;
@@ -100,7 +100,7 @@ pub(in crate::file_tree) fn opened_with_crawl(directory: &TempDir, crawl: bool) 
 
 /// Polls until nothing is outstanding, so a just-requested listing is on
 /// screen.
-pub(in crate::file_tree) fn settle(explorer: &mut FileExplorer) {
+pub(in crate::explorer) fn settle(explorer: &mut FileExplorer) {
     let deadline = Instant::now() + PATIENCE;
     while explorer.is_waiting() && Instant::now() < deadline {
         explorer.poll();
@@ -114,7 +114,7 @@ pub(in crate::file_tree) fn settle(explorer: &mut FileExplorer) {
 /// Panics rather than returning a flag: a fixture whose row is missing is a
 /// broken test, and the assertion that follows would fail somewhere less
 /// informative.
-pub(in crate::file_tree) fn select_row(explorer: &mut FileExplorer, needle: &str) {
+pub(in crate::explorer) fn select_row(explorer: &mut FileExplorer, needle: &str) {
     let rows = lines(explorer);
     let index = rows
         .iter()
@@ -131,16 +131,16 @@ pub(in crate::file_tree) fn select_row(explorer: &mut FileExplorer, needle: &str
 /// The filter walks only what has been read, so a test about *matching* opens
 /// what it means to match against — and says so, rather than relying on a
 /// sweep that would quietly stop testing the thing it named.
-pub(in crate::file_tree) fn open_directory(explorer: &mut FileExplorer, needle: &str) {
+pub(in crate::explorer) fn open_directory(explorer: &mut FileExplorer, needle: &str) {
     select_row(explorer, needle);
     explorer.handle_key(&press(KeyCode::Right));
     settle(explorer);
 }
 
 /// Every composed row as plain text, the query row included.
-pub(in crate::file_tree) fn all_lines(explorer: &mut FileExplorer) -> Vec<String> {
+pub(in crate::explorer) fn all_lines(explorer: &mut FileExplorer) -> Vec<String> {
     explorer
-        .content(&Theme::dark(), FIT)
+        .body(&Theme::dark(), FIT)
         .rows
         .iter()
         .map(|row| {
@@ -155,15 +155,15 @@ pub(in crate::file_tree) fn all_lines(explorer: &mut FileExplorer) -> Vec<String
 /// What the user has typed into the query field.
 ///
 /// ⚠️ **Read by colour, not by position.** The prompt, the padding and
-/// [`BROWSE_HINT`](crate::file_tree::compose::BROWSE_HINT) are all drawn in
+/// [`BROWSE_HINT`](crate::explorer::compose::BROWSE_HINT) are all drawn in
 /// the quiet colour and the typed text is the only run in the foreground one,
 /// so this is the one reading that stays true whether or not the hint is
 /// sharing the row. Asserting on the flat text of row zero would make every
 /// "the query is empty" test an assertion about the hint instead.
-pub(in crate::file_tree) fn query_field(explorer: &mut FileExplorer) -> String {
+pub(in crate::explorer) fn query_field(explorer: &mut FileExplorer) -> String {
     let theme = Theme::dark();
     explorer
-        .content(&theme, FIT)
+        .body(&theme, FIT)
         .rows
         .first()
         .map_or_else(String::new, |row| {
@@ -177,7 +177,7 @@ pub(in crate::file_tree) fn query_field(explorer: &mut FileExplorer) -> String {
 
 /// The list rows as plain text, without the query row that always precedes
 /// them.
-pub(in crate::file_tree) fn lines(explorer: &mut FileExplorer) -> Vec<String> {
+pub(in crate::explorer) fn lines(explorer: &mut FileExplorer) -> Vec<String> {
     let mut rows = all_lines(explorer);
     if rows.is_empty() {
         return rows;
@@ -187,7 +187,7 @@ pub(in crate::file_tree) fn lines(explorer: &mut FileExplorer) -> Vec<String> {
 }
 
 /// Types `text` into the panel one character at a time, as a user would.
-pub(in crate::file_tree) fn type_query(explorer: &mut FileExplorer, text: &str) {
+pub(in crate::explorer) fn type_query(explorer: &mut FileExplorer, text: &str) {
     for character in text.chars() {
         assert_eq!(
             explorer.handle_key(&press(KeyCode::Char(character))),
@@ -198,9 +198,9 @@ pub(in crate::file_tree) fn type_query(explorer: &mut FileExplorer, text: &str) 
 }
 
 /// The index of the selected list row, or `None` when nothing is selected.
-pub(in crate::file_tree) fn selected_row(explorer: &mut FileExplorer) -> Option<usize> {
+pub(in crate::explorer) fn selected_row(explorer: &mut FileExplorer) -> Option<usize> {
     explorer
-        .content(&Theme::dark(), FIT)
+        .body(&Theme::dark(), FIT)
         .rows
         .iter()
         .skip(1)
@@ -208,7 +208,7 @@ pub(in crate::file_tree) fn selected_row(explorer: &mut FileExplorer) -> Option<
 }
 
 /// The text of the selected list row.
-pub(in crate::file_tree) fn selected_text(explorer: &mut FileExplorer) -> Option<String> {
+pub(in crate::explorer) fn selected_text(explorer: &mut FileExplorer) -> Option<String> {
     let index = selected_row(explorer)?;
     lines(explorer).get(index).cloned()
 }

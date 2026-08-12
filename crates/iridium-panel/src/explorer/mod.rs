@@ -1,6 +1,8 @@
-//! The file explorer's shared half: the rename pipeline that turns an edited
-//! list of rows into operations, orders them so nothing is destroyed on the
-//! way, and carries them out.
+//! The file explorer, whole.
+//!
+//! The panel, its keys, its oil buffer, its filter, the rename pipeline that
+//! turns an edited list of rows into operations and carries them out, and the
+//! composition that turns any of it into rows a face can paint.
 //!
 //! # Why this is here and not in a face
 //!
@@ -41,13 +43,45 @@
 //! anchor is a statement about a window. Each face wraps these rows in its own
 //! placement — which is the seam this crate exists to keep honest.
 //!
-//! # What is deliberately still in the desktop face
+//! # The panel itself
 //!
-//! The rows as loaded (`buffer`), what a key does to them (`edit_keys`), what
-//! is shown before any of it happens (`confirm`), and the panel itself. Those
-//! follow; this slice is the part that could move without a single import
-//! rewrite, which is what makes it the honest first proof that the hoist's
-//! mechanics work.
+//! - [`panel`] — [`FileExplorer`], [`ExplorerOutcome`], and the state the
+//!   modules around it read.
+//! - [`keys`] — what a key press does while browsing, and the one key that
+//!   starts editing.
+//! - [`edit_keys`] — what a key press does once the rows are being edited, a
+//!   refusal is showing, or a confirmation is. Reached *before* [`keys`]'
+//!   table, because that table gives every printable character to the filter.
+//! - [`buffer`] — the rows as loaded and as they now read, and the one place a
+//!   row's origin is captured from the node it was drawn from.
+//! - [`mode`] — whether the panel is browsing, editing or confirming, and the
+//!   rule that unapplied edits are never dropped without being asked about.
+//! - [`session`] — everything true *while* the rows are being edited: the
+//!   cursor, the name field it carries, and the verbs that change either.
+//! - [`compose`] — what reaches the screen, as far as this side of the line
+//!   can say it.
+//!
+//! # ⭐ What is deliberately still in a face, and it is one word: *where*
+//!
+//! [`compose`] returns a [`PanelBody`](crate::PanelBody) — rows, the width
+//! they were composed against, and the caret. It does **not** return anything
+//! carrying an anchor, because an anchor is a statement about a window and the
+//! two faces' windows cannot be reconciled: the desktop's is a rounded card
+//! at a pixel offset, the terminal face's is a box at a cell.
+//!
+//! So each face wraps a body in its own placement — the desktop in
+//! `file_tree::content`, which is one struct literal long. That thinness is
+//! the result worth recording: the panel that had to cross faces turned out to
+//! need exactly one field's worth of translation, which is what says the seam
+//! was drawn in the right place rather than merely somewhere.
+//!
+//! The polling is likewise the host's to drive. The filesystem source never
+//! reads a directory on the thread that asked for it — see
+//! [`iridium_explorer`] — so a listing arrives some frames after it was
+//! wanted, and [`FileExplorer::poll`] is where that arrival is collected. A
+//! face calls it once per frame while the panel is open; `true` means rows
+//! changed and a repaint is owed. Skipping it corrupts nothing, it just leaves
+//! the panel showing a directory that is permanently loading.
 
 pub mod apply;
 pub mod confirm;
@@ -57,16 +91,37 @@ pub mod plan;
 pub mod root;
 pub mod rows;
 
+mod buffer;
+mod compose;
+mod edit_keys;
+mod keys;
+mod mode;
+mod panel;
+mod session;
+
 #[cfg(test)]
 mod apply_tests;
+
+#[cfg(test)]
+mod buffer_tests;
 
 #[cfg(test)]
 mod confirm_tests;
 
 #[cfg(test)]
+mod edit_keys_tests;
+
+#[cfg(test)]
+mod mode_tests;
+
+#[cfg(test)]
 mod plan_tests;
+
+#[cfg(test)]
+mod tests;
 
 pub use apply::{Failure, apply};
 pub use filter::{FilterRow, FilterView, filter};
+pub use panel::{ExplorerOutcome, FileExplorer};
 pub use plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan};
 pub use root::{ExplorerRoot, chosen_root, is_filesystem_root};

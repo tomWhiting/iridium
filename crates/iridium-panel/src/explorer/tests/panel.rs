@@ -12,10 +12,10 @@ use iridium_editor::{KeyCode, Modifiers};
 use iridium_file::test_support::TempDir;
 
 use super::support::{FIT, chord, lines, meta, opened, press, query_field, select_row, settle};
-use crate::file_tree::compose::BROWSE_HINT;
-use crate::file_tree::rows::truncate;
-use crate::file_tree::{ExplorerOutcome, FileExplorer};
-use crate::overlay::{PanelCaret, PanelFit};
+use crate::explorer::compose::BROWSE_HINT;
+use crate::explorer::rows::truncate;
+use crate::explorer::{ExplorerOutcome, FileExplorer};
+use crate::row::{PanelCaret, PanelFit};
 
 #[test]
 fn the_panel_opens_with_the_root_expanded_and_its_children_indented() {
@@ -57,7 +57,7 @@ fn a_large_directory_fills_the_window_rather_than_stopping_at_the_palettes_cap()
 
     let mut explorer = opened(&directory);
     let tall = PanelFit::popover(40, 26);
-    let rows = explorer.content(&Theme::dark(), tall).rows.len();
+    let rows = explorer.body(&Theme::dark(), tall).rows.len();
 
     // One query row plus twenty-five list rows: the window's own limit, less
     // the query row, because that is smaller than the explorer's ceiling.
@@ -66,7 +66,7 @@ fn a_large_directory_fills_the_window_rather_than_stopping_at_the_palettes_cap()
         "the panel drew {rows} rows into a window that affords 26"
     );
     assert!(
-        rows > crate::overlay::PANEL_MAX_VISIBLE_ROWS + 1,
+        rows > crate::PANEL_MAX_VISIBLE_ROWS + 1,
         "the explorer is still capped at the palette's height"
     );
 }
@@ -87,7 +87,7 @@ fn a_short_window_still_bounds_the_panel_below_its_own_ceiling() {
 
     let mut explorer = opened(&directory);
     let short = PanelFit::popover(40, 6);
-    assert_eq!(explorer.content(&Theme::dark(), short).rows.len(), 6);
+    assert_eq!(explorer.body(&Theme::dark(), short).rows.len(), 6);
 }
 
 /// ⚠️ **They report *different* outcomes, and that is the point of there
@@ -242,7 +242,7 @@ fn the_window_follows_the_selection_past_the_bottom_and_back() {
     for _ in 0..20 {
         explorer.handle_key(&press(KeyCode::Down));
     }
-    let rows = explorer.content(&Theme::dark(), narrow).rows;
+    let rows = explorer.body(&Theme::dark(), narrow).rows;
     // The query row plus the four list rows the fit leaves after it. The
     // query row is never part of the scrolling window: a field that scrolled
     // away would leave the caret pointing at a row that is not there.
@@ -254,7 +254,7 @@ fn the_window_follows_the_selection_past_the_bottom_and_back() {
     );
 
     explorer.handle_key(&press(KeyCode::Home));
-    let rows = explorer.content(&Theme::dark(), narrow).rows;
+    let rows = explorer.body(&Theme::dark(), narrow).rows;
     assert!(
         rows.get(1).is_some_and(|row| row.selected),
         "Home brings the window back to the top with it"
@@ -389,7 +389,7 @@ fn re_rooting_drops_the_query_with_the_tree_it_was_narrowing() {
 /// The query row as plain text.
 fn query_row(explorer: &mut FileExplorer, fit: PanelFit) -> String {
     explorer
-        .content(&Theme::dark(), fit)
+        .body(&Theme::dark(), fit)
         .rows
         .first()
         .map(|row| {
@@ -464,7 +464,7 @@ fn a_panel_too_narrow_for_both_keeps_the_field_and_drops_the_hint() {
         "no room for the hint clear of the caret: {row:?}"
     );
     assert_eq!(
-        explorer.content(&Theme::dark(), narrow).caret,
+        explorer.body(&Theme::dark(), narrow).caret,
         Some(PanelCaret { row: 0, column: 2 }),
         "and the field still reports its caret, which is the half that does something"
     );

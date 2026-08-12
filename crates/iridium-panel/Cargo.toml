@@ -30,6 +30,11 @@ iridium-editor = { workspace = true, default-features = false }
 # silently.
 iridium-explorer.workspace = true
 
+# The selection, expansion and row projection the explorer's hierarchy is
+# shown through. Face-independent by construction — it has no idea anything is
+# drawn — and shared with the terminal face for the same reason this crate is.
+iridium-tree.workspace = true
+
 # Grapheme clusters, for the one place a row is truncated. A row cut between a
 # base character and its combining mark is a row that renders as a different
 # character, which is why this is counted in clusters rather than in `char`s.

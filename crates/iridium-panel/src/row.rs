@@ -128,6 +128,33 @@ pub struct PanelCaret {
     pub column: usize,
 }
 
+/// A panel composed down to what every face agrees on: its rows, the width
+/// they were laid out against, and where the caret went.
+///
+/// ⭐ **This is the whole of the seam between a shared panel and the face that
+/// paints it.** The desktop's `PanelContent` is this plus an *anchor* — which
+/// edge of a window the panel hangs from — and a *hovered* row, and neither is
+/// a statement a shared builder can make: an anchor needs a window, a hover
+/// needs a pointer, and the terminal face has a different answer to the first
+/// and may have none to the second.
+///
+/// So a builder that has to exist in both faces composes one of these, and the
+/// face wraps it. The face-specific builders — the palette, the search bar,
+/// the undo tree, the context menu — keep building the face's own type
+/// directly, because they have no second face to agree with. The asymmetry is
+/// the point rather than an oversight: what crosses is what has to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PanelBody {
+    /// The characters available to each interior row — the
+    /// [`PanelFit::content_columns`] the rows were composed against, carried
+    /// out so the face never has to remember which fit it passed in.
+    pub content_columns: usize,
+    /// The interior rows, top to bottom.
+    pub rows: Vec<PanelRow>,
+    /// The caret, if a field in the panel has focus.
+    pub caret: Option<PanelCaret>,
+}
+
 /// What a window can honestly show of a panel, in grid units.
 ///
 /// Builders lay their rows out against this; the painter places the result.

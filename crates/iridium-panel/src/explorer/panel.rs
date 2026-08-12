@@ -13,10 +13,10 @@ use iridium_explorer::{FileTree, NodeId};
 use iridium_tree::{Tree, TreeSource as _};
 
 use super::buffer::Buffer;
+use super::chosen_root;
 use super::filter::{FilterView, filter};
 use super::mode::Mode;
-use crate::project::chosen_root;
-use crate::prompt::Entry;
+use crate::Entry;
 
 /// The query prompt, drawn before the field. The palette's, so the two panels
 /// read as the same kind of thing.
@@ -159,7 +159,8 @@ pub struct FileExplorer {
     pub(super) filtered: usize,
     /// Whether a query may read directories nobody opened.
     ///
-    /// Decided once, by [`crate::project::explorer_root`], and never here:
+    /// Decided once, by whichever face opened the panel — the desktop's
+    /// `project::explorer_root` — and never here:
     /// the crawl is worth running where something bounds it — a project's
     /// `.gitignore` does — and it is worth *not* running where nothing does.
     /// A home directory has no ignore rules and its first twenty thousand
@@ -258,7 +259,7 @@ impl FileExplorer {
     /// the operations are correct.
     ///
     /// Whether searching may read past the new root is
-    /// [`crate::project::chosen_root`]'s answer, not this function's — a
+    /// [`chosen_root`](super::chosen_root)'s answer, not this function's — a
     /// directory somebody walked into is a directory somebody bounded.
     ///
     /// ⚠️ **Replacing the whole struct replaces [`Self::mode`] with it**, so

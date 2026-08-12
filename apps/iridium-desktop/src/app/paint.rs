@@ -13,6 +13,7 @@ use iridium_editor::render::FrameTarget;
 
 use super::startup::Shell;
 use super::state::DesktopApp;
+use crate::file_tree;
 use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelKind, StripContent};
 use crate::units::u32_to_f32;
 
@@ -215,17 +216,18 @@ impl DesktopApp {
             panels.push((PanelKind::History, self.history.content(editor, theme, fit)));
         }
         if let Some(explorer) = self.explorer.as_mut() {
-            let mut content = explorer.content(theme, sidebar.unwrap_or(fit));
-            // ⭐ The anchor is set here rather than in the panel, and that is
-            // the whole of what the explorer knows about being a sidebar:
+            // ⭐ The anchor is chosen here rather than in the panel, and that
+            // is the whole of what the explorer knows about being a sidebar:
             // nothing. Its rows, its keys and its filter are the same code in
-            // both placements, so there is nothing to keep in step.
-            if let Some(sidebar) = sidebar {
-                content.anchor = PanelAnchor::Left {
-                    top: strip,
-                    interior_rows: sidebar.max_interior_rows,
-                };
-            }
+            // both placements, so there is nothing to keep in step — and since
+            // the panel moved to `iridium-panel` it is not merely that it does
+            // not look, it is that it structurally cannot. `PanelAnchor` does
+            // not exist over there.
+            let anchor = sidebar.map_or(PanelAnchor::Top, |sidebar| PanelAnchor::Left {
+                top: strip,
+                interior_rows: sidebar.max_interior_rows,
+            });
+            let content = file_tree::content(explorer, theme, sidebar.unwrap_or(fit), anchor);
             panels.push((PanelKind::Explorer, content));
         }
         if self.palette_open {

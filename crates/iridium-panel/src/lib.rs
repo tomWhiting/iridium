@@ -38,5 +38,6 @@ pub mod row;
 pub use entry::Entry;
 pub use line::{LineBuilder, highlighted_spans, match_color, skip_chars};
 pub use row::{
-    EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,
+    EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelBody, PanelCaret, PanelFit, PanelRow,
+    Span,
 };

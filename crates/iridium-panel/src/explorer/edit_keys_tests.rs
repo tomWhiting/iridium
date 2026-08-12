@@ -16,7 +16,7 @@ use iridium_file::test_support::TempDir;
 
 use super::mode::Mode;
 use super::tests::support::{FIT, all_lines, lines, meta, opened, press, select_row, settle};
-use crate::file_tree::{ExplorerOutcome, FileExplorer};
+use crate::explorer::{ExplorerOutcome, FileExplorer};
 
 /// A key press under `Ctrl` alone.
 fn ctrl(key: KeyCode) -> KeyEvent {
@@ -398,7 +398,7 @@ fn the_confirmation_leaves_nothing_on_screen_to_type_into() {
         "no query field on the confirmation: {rows:?}"
     );
     assert!(
-        explorer.content(&Theme::dark(), FIT).caret.is_none(),
+        explorer.body(&Theme::dark(), FIT).caret.is_none(),
         "and no caret, because there is nothing here to edit"
     );
 
@@ -750,7 +750,7 @@ fn the_caret_sits_in_the_row_being_edited_rather_than_on_the_label() {
     editing(&mut explorer, "engine");
 
     let caret = explorer
-        .content(&Theme::dark(), FIT)
+        .body(&Theme::dark(), FIT)
         .caret
         .expect("an editing session draws a caret");
     assert_eq!(caret.row, 2, "the label, then the root, then `engine`");

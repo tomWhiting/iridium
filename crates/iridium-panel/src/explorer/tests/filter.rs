@@ -12,7 +12,7 @@ use super::support::{
     FIT, all_lines, lines, open_directory, opened, press, project, query_field, select_row,
     selected_row, selected_text, settle, type_query,
 };
-use crate::file_tree::{ExplorerOutcome, FileExplorer};
+use crate::explorer::{ExplorerOutcome, FileExplorer};
 
 /// The fixture with both directories read, so the filter has them to work
 /// with.
@@ -262,7 +262,7 @@ fn the_characters_the_query_matched_are_drawn_in_the_match_colour() {
     let mut explorer = opened_project(&directory);
 
     type_query(&mut explorer, "but");
-    let content = explorer.content(&Theme::dark(), FIT);
+    let content = explorer.body(&Theme::dark(), FIT);
     let row = content
         .rows
         .iter()

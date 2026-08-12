@@ -801,3 +801,68 @@ correctly not done.
 seat reading it also holds something the summary did not produce.* Two tokens
 are not redundancy with the prose; they are the only thing the prose can be
 wrong against.
+
+---
+
+## STATE AT COMPACTION — 12 Aug 2026, ~19:45
+
+**Receipts, measured this session:**
+- `origin/main = 1d513076`, `git rev-list --count origin/main..HEAD` = **0** at fetch.
+- Working tree clean except **untracked `.claude/skills/`, which must NOT be
+  committed**.
+- Ten gates green, read from `ci.sh`'s own `>>> … OK` lines and
+  `✅ all 10 gates passed`. 527 desktop tests.
+- **Installed** `/Applications/iridium.app`, 19:36, via
+  `bash apps/iridium-desktop/bundle/install.sh` (⚠️ **bash, not zsh** — under
+  zsh it dies at `BASH_SOURCE[0]: parameter not set`, exit 127). Tom's app was
+  closed; nothing was killed. `strings` on the installed binary:
+  `explorer.togglePlacement` = 2, `Toggle Explorer Sidebar` = 1, with controls
+  `explorer.togglePanel` = 2 and `file.saveAs` = 1 — so the grep discriminates.
+
+**Commits this session, all pushed:** `5ae51ba4` (#112c step 1, the fit),
+`b947f481` (#112c steps 2–6, the sidebar), `ae261eb1` (design map marked off),
+`94f213d2` (handoff), `1d513076` (the gate-token answer).
+
+**A loop wakeup is armed for 20:03**, prompt `<<autonomous-loop-dynamic>>`, to
+open **#112d**. No Monitor is running and none is needed — Actions are off on
+Tom's instruction and no background work is in flight.
+
+### The next piece of work, in order
+
+1. **#112d — the terminal face's oil surface.** Tom: "quite big", especially
+   *"when you open up the terminal editor on… a directory"*, which he named as
+   the case that should **shape** the design rather than follow it. Needs its
+   own design map before any code. ⚠️ **Nothing from #112c transfers**: the
+   terminal face has no pixel grid, no `PanelFit`, and no `set_left_inset` to
+   reserve a band with. `docs/TERMINAL-STACK.md` holds verified API facts.
+2. **#113** — terminal face modal-by-default plus a non-modal keymap; the
+   pending-operator mechanism first.
+3. **⚠️ OWED: a reply to Hermes Crumpet** (`dm:5b70322e-e7a9-451c-91ca-a3dfa7b05bd9`).
+   Owed since before the previous compaction and **its content did not
+   survive** — recover it from the session transcript before answering, rather
+   than guessing what was asked.
+
+### Two questions put to Tom, not yet answered
+
+- The sidebar sits **flush at x = 0** with rounded corners, so two small arcs
+  meet the window edge. The alternative is insetting it a few pixels so it
+  reads as a floating column. Cheap either way; asked him to look and say.
+- (Standing, older) the bold-by-default preset look is his docket via Waffles,
+  not this seat's call.
+
+### Laws added today, in the order they were earned
+
+1. **A test whose fixture never reaches the state it is about passes for the
+   wrong reason. Assert the precondition, not just the result.**
+2. **When a new mode changes what a key means, the things that break are the
+   values that were only ever asked one question.** They read as complete
+   because nothing had asked them the second one yet.
+3. **A value's coverage is a fact about its call sites, not about the value.**
+   The corollary, and the reason mutation testing earns its keep here:
+   *reading cannot find these defects, because reading only ever shows you the
+   question that was asked.*
+4. **A summary is only checkable if the seat reading it also holds something
+   the summary did not produce.** A coarse channel does not merely lose
+   detail — it loses *disagreement*, which is the worse and less obvious loss.
+5. **A stale question in a handoff is worse than no question.** The next seat
+   reads it as live and asks it again.

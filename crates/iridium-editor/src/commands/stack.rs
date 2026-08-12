@@ -218,6 +218,18 @@ impl KeymapStack {
             .all(|layer| layer.types_unclaimed_keys(mode))
     }
 
+    /// The mode a session using this stack begins in, or `None`.
+    ///
+    /// The **highest** layer that names one wins, unlike
+    /// [`Self::types_unclaimed_keys`]. This is a single value rather than a
+    /// safety property, and a layer pushed on top of a modal keymap is the more
+    /// specific statement about which mode the session is in — that is exactly
+    /// what layering means everywhere else here.
+    #[must_use]
+    pub fn initial_mode(&self) -> Option<&ModeName> {
+        self.layers.iter().rev().find_map(Keymap::initial_mode)
+    }
+
     /// Validates every layer against `registry`, then every layer against every
     /// other.
     ///

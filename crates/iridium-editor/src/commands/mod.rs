@@ -40,6 +40,7 @@
 //! | [`builtin`] | ids and metadata for every command the kernel implements |
 //! | [`palette`] | fuzzy search, recency and result ordering over the registry |
 //! | [`default_non_modal_keymap`] | the non-modal default bindings, as data |
+//! | [`minimal_modal_keymap`] | two modes and seven bindings; nothing installs it |
 //!
 //! # How the keyboard layer uses this
 //!
@@ -60,7 +61,10 @@
 //!    [`crate::input::KeyCode::Char`] and none of `ctrl`, `alt` or `meta` is held,
 //!    [`builtin::EDIT_INSERT_CHARACTER`] runs with the **original,
 //!    un-normalized** character; otherwise the key is
-//!    `KeyResult::Ignored`.
+//!    `KeyResult::Ignored`. Typing is therefore *not a binding*, which is why a
+//!    modal keymap cannot switch it off by binding keys and must declare it with
+//!    [`Keymap::silence_typing_in`] — the one question the dispatcher asks the
+//!    keymap about a mode.
 //! 4. Sticky columns and the multi-cursor addition-order stack are invalidated
 //!    after *every* key by `note_operation`, keyed on the resolved command. A
 //!    selection that round-trips to a byte-identical state has twice revived a
@@ -105,6 +109,7 @@ mod id;
 mod keymap;
 mod keynames;
 mod meta;
+mod modal_keymap;
 mod modifiers;
 mod names;
 mod registry;
@@ -121,6 +126,8 @@ mod grammar_tests;
 mod keymap_tests;
 #[cfg(test)]
 mod layer_tests;
+#[cfg(test)]
+mod modal_keymap_tests;
 #[cfg(test)]
 mod reachability_tests;
 #[cfg(test)]
@@ -145,6 +152,7 @@ pub use id::CommandId;
 pub use keymap::Keymap;
 pub use keynames::{key_from_name, name_of};
 pub use meta::CommandMeta;
+pub use modal_keymap::{INSERT, MODAL_KEYMAP_BINDING_COUNT, NORMAL, minimal_modal_keymap};
 pub use modifiers::{ModifierPattern, ModifierState};
 pub use names::{CommandCategory, ModeName};
 pub use registry::CommandRegistry;

@@ -34,29 +34,50 @@ Landed, ten gates green at each, all unpushed:
 | `2054a497` | **L1a** — `RunStyle` through the whole seam |
 | `bf832da7` | the taxonomy finding below |
 | `4efce7de` | **L1b** — ten markup categories, no visual change |
+| `a830d8a6` | **L1c** — `Theme::emphasis`, both native faces wired |
 
-**Next step, concretely: style per category in the theme.** The categories
-exist now, so `SyntaxColors` (a fixed struct of fourteen colours,
-`crates/iridium-editor/src/theme/colors.rs:229`) is the thing standing between
-a theme and "headings are bold". Widen it to carry a `RunStyle` per category
-rather than a `Color`, keeping the JSON `#[serde(default)]` shape so an
-existing theme file still loads and still means what it meant. This is #87's
-work and lands with it, not beside it.
+**Next step, concretely: prove a weight reaches the screen, then turn the
+presets on.**
 
-⚠️ Two constraints on that step, both measured:
+L1c deliberately left both shipped presets empty. Turning "headings are bold"
+on is an **outcome** claim, not a mechanism claim: a weight only reaches the
+screen if the face the shaper resolves *has* that weight. `FontSystem::new()`
+loads system fonts and `span_attrs` asks for `Family::Monospace`, so on this
+machine that resolves to a family with a bold face — but that is a reading of
+the code, not a thing anyone has watched happen. The evidence needed is a GPU
+readback: render one line plain and one at `RunWeight::BOLD` through the real
+pipeline and assert the pixels differ. `apps/iridium-desktop/tests/` already
+has the harness.
 
-- `highlight_to_color` (`crates/iridium-editor/src/syntax.rs`) is called by the
+⚠️ **Do not flip the presets before that test exists.** A theme asking for a
+weight nothing can draw is exactly the decorative API this lane keeps naming.
+`the_shipped_presets_say_nothing_about_emphasis_yet` says so in its failure
+message; when the proof lands, that test is updated with the ruling in the
+same commit.
+
+Then, with the presets on: the markdown-inline grammar and the injection
+queries — which is what makes `**bold**` and `*italic*` produce spans at all,
+since `MarkupStrong` and `MarkupEmphasis` are dormant until then — and then
+L2's cumulative layout table.
+
+⚠️ Two constraints carried forward, both measured:
+
+- `highlight_to_style` (`crates/iridium-editor/src/syntax.rs`) is called by the
   desktop resolver **and** by the TUI palette
-  (`crates/iridium-tui/src/frame/palette.rs:187`) precisely so the two native
-  faces cannot drift. Whatever replaces it keeps that property or the point of
+  (`crates/iridium-tui/src/frame/palette.rs`) precisely so the two native faces
+  cannot drift. Anything that replaces it keeps that property or the point of
   it is gone.
 - `markup_emphasis_borrows_a_slot_that_is_still_plain_ink` will start failing
-  the moment markup gets its own fields, and **that is the signal, not a
-  breakage** — it exists to say "the borrowing is over". Delete it in the same
+  the moment markup gets its own colour *fields*, and **that is the signal, not
+  a breakage** — it exists to say "the borrowing is over". Delete it in the same
   commit that gives markup real fields, never before.
 
-Then: the markdown-inline grammar and the injection queries, then L2's
-cumulative layout table.
+⚠️ **#110, found while landing L1c.** `VsCodeTokenSettings::font_style` is
+parsed and read by nothing, so an imported VS Code theme loses its italics
+silently. Not folded in for the same reason as #109: carrying it needs a
+scope → *category* map, and the importer has a scope → colour *field* map, so
+importing against what exists would lean half the keywords in a theme that
+said "keywords are italic".
 
 ⚠️ **#109 is not part of this lane and must not be folded into it.** The
 unmapped-capture ratchet turns out to be blind to every grammarless language,

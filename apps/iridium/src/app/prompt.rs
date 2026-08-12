@@ -44,12 +44,26 @@ use iridium_tui::cell::{CellBuffer, Style, WriteOutcome};
 use iridium_tui::frame::{LineLayout, Palette, PlacedCluster};
 
 /// What answering "yes" to a confirmation asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// ⭐ **Not `Copy`, and the variant that costs it is the one that earns it.**
+/// [`Deed::Open`] carries the path it is about, so the question on screen and
+/// the thing "yes" does cannot come apart. The alternative — a unit variant
+/// plus a `pending_path` field on the app — keeps `Copy` and introduces two
+/// pieces of state that must agree, one of which is only meaningful while a
+/// particular prompt happens to be open. That is precisely the shape that goes
+/// stale, and a stale one here opens the wrong file over unsaved work.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deed {
     /// Leave the editor, discarding unsaved changes.
     Quit,
     /// Re-read the file, discarding unsaved changes.
     Reload,
+    /// Open this file in place of the current one, discarding unsaved changes.
+    ///
+    /// ⚠️ **A one-buffer face makes "open" a destructive verb.** The GPU face
+    /// opens a file in a new tab and nothing is lost; here the document on
+    /// screen is replaced, so it is asked about exactly as a reload is.
+    Open(std::path::PathBuf),
 }
 
 /// What the application must do about a key handed to an open prompt.
@@ -154,7 +168,7 @@ impl Prompt {
                 },
             },
             Self::Confirm { deed, .. } => match event.key {
-                KeyCode::Char('y' | 'Y') => Answer::Do(*deed),
+                KeyCode::Char('y' | 'Y') => Answer::Do(deed.clone()),
                 KeyCode::Char('n' | 'N') | KeyCode::Escape => Answer::Cancelled,
                 _ => Answer::Pending,
             },

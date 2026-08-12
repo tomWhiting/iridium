@@ -29,6 +29,11 @@ iridium-editor = { workspace = true, features = ["syntax"] }
 # from it too — `frame::LineLayout` — so this crate never counts characters.
 iridium-tui.workspace = true
 
+# For `chosen_root` alone: whether a search may read past a directory somebody
+# walked into is a property of the explorer and is answered identically in
+# every face. Where to open when nobody said is this face's own guess, below.
+iridium-panel.workspace = true
+
 # The file layer: atomic saves and staleness detection, shared with the desktop
 # shell. It began life in this crate as `src/file` and moved out unchanged when
 # a second face needed the same guarantees; `src/lib.rs` re-exports it as

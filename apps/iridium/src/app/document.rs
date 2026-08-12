@@ -21,9 +21,9 @@
 //! asked for, and the surprise belongs to the disk, not to them.
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use iridium_editor::{KeymapError, Language, RegistryError};
+use iridium_editor::{KeymapError, Language, Position, RegistryError};
 
 use super::prompt::{Deed, Message, Prompt};
 use super::{App, Flow};
@@ -179,6 +179,60 @@ impl App {
                 self.editor.set_content(&text);
                 self.ensure_caret_visible();
                 self.message = Some(Message::notice(format!("re-read {name}")));
+            },
+            Err(error) => self.message = Some(Message::error(error.to_string())),
+        }
+        Flow::Running
+    }
+
+    /// Asks before replacing the document with another file.
+    ///
+    /// ⚠️ **The same guard `request_reload` has, for the same reason and not
+    /// by analogy: this face edits one buffer, so opening a file *discards*
+    /// the one on screen.** The GPU face's answer to the identical
+    /// `ExplorerOutcome::Open` is a new tab and loses nothing — the outcome
+    /// means "the user picked this file", and what that costs is the face's to
+    /// know. Recorded here because the word "open" reads as harmless and is
+    /// not.
+    pub(super) fn request_open(&mut self, path: PathBuf) -> Flow {
+        if self.is_dirty() {
+            let name = path.file_name().map_or_else(
+                || path.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            self.prompt = Some(Prompt::confirm(
+                format!("Unsaved changes. Open {name} and lose them? (y/n)"),
+                Deed::Open(path),
+            ));
+            return Flow::Running;
+        }
+        self.open_file(&path)
+    }
+
+    /// Replaces the document with `path`, discarding unsaved changes.
+    ///
+    /// The language is re-derived rather than kept: a session that opened a
+    /// `.rs` and then a `.json` would otherwise highlight the second as the
+    /// first, which is #39's defect wearing a different hat. `set_language`
+    /// takes `None` for a name nothing claims, which is what makes a plain
+    /// text file plain rather than the previous file's language.
+    pub(super) fn open_file(&mut self, path: &Path) -> Flow {
+        match TextFile::open(path) {
+            Ok((file, text)) => {
+                let name = file.display_name();
+                self.file = Some(file);
+                self.editor.set_content(&text);
+                // ⚠️ Cleared, not left alone, when the new name claims no
+                // language. That is #39's defect exactly: a session that
+                // opened a `.rs` and then a plain `NOTES` would highlight the
+                // second as Rust, because nothing had ever said "stop".
+                match language_of(path) {
+                    Some(language) => self.editor.set_language(language),
+                    None => self.editor.clear_language(),
+                }
+                self.editor.set_cursor(Position::new(0, 0));
+                self.ensure_caret_visible();
+                self.message = Some(Message::notice(format!("opened {name}")));
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),
         }

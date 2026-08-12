@@ -66,15 +66,17 @@ mod view;
 #[cfg(test)]
 mod tests;
 
-use iridium_editor::commands::builtin::{HISTORY_TOGGLE_PANEL, PALETTE_OPEN};
+use iridium_editor::commands::builtin::{
+    EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN,
+};
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyEvent,
 };
 use iridium_tui::frame::{
-    CommandPalette, Frame, HistoryOutcome, HistoryPanel, PaletteOutcome, SearchOutcome,
-    SearchOverlay,
+    CommandPalette, ExplorerAction, FileExplorerPanel, Frame, HistoryOutcome, HistoryPanel,
+    PaletteOutcome, SearchOutcome, SearchOverlay,
 };
 use iridium_tui::input::TerminalInput;
 
@@ -116,6 +118,12 @@ pub struct App {
     /// Recorded only after a command actually ran — an entry for a command
     /// that errored would rank a failure as a favourite.
     mru: CommandMru,
+    /// The file explorer, when it is open. `None` is the whole of "closed" —
+    /// there is no second flag to disagree with it, unlike the panels above,
+    /// which keep their state across closes because they have a query worth
+    /// offering back. A directory listing is not: it is read again in
+    /// milliseconds and a stale one would be a lie about the disk.
+    explorer: Option<FileExplorerPanel>,
     /// The undo-tree panel.
     history: HistoryPanel,
     /// Whether the undo-tree panel is on screen. Modal while it is.
@@ -188,6 +196,7 @@ impl App {
             search_open: false,
             palette: CommandPalette::new(),
             palette_open: false,
+            explorer: None,
             mru: CommandMru::default(),
             history: HistoryPanel::new(),
             history_open: false,
@@ -245,6 +254,12 @@ impl App {
     #[must_use]
     pub const fn is_searching(&self) -> bool {
         self.search_open
+    }
+
+    /// Whether the file explorer is on screen.
+    #[must_use]
+    pub const fn is_explorer_open(&self) -> bool {
+        self.explorer.is_some()
     }
 
     /// Whether the command palette is on screen.
@@ -313,6 +328,14 @@ impl App {
 
         if self.history_open {
             return self.drive_history(event);
+        }
+
+        // Modal like the three above it, and for the stronger reason: the
+        // explorer gives every printable character to its filter, so a key
+        // that fell through here would be a key typed into the document while
+        // the person was looking at a file list.
+        if self.explorer.is_some() {
+            return self.drive_explorer(event);
         }
 
         if self.search_open {
@@ -404,6 +427,8 @@ impl App {
             self.palette_open = true;
             self.palette.open();
             Flow::Running
+        } else if command == &EXPLORER_TOGGLE_PANEL {
+            self.toggle_explorer()
         } else if command == &HISTORY_TOGGLE_PANEL {
             // A toggle, exactly as the kernel names it: the panel has no query
             // to abandon, so the chord that opened it is how it is put away.
@@ -435,6 +460,89 @@ impl App {
                     ));
                 }
                 self.ensure_caret_visible();
+                Flow::Running
+            },
+        }
+    }
+
+    /// Opens the file explorer, or closes it if it is already up.
+    ///
+    /// ⚠️ **Refused while the panel holds unapplied edits**, exactly as the GPU
+    /// face refuses it. Closing here drops the panel outright, so the refusal
+    /// `FileExplorer` keeps for its own `Escape` is never asked — it has to be
+    /// asked here instead, or a directory's worth of typed renames goes with
+    /// one chord and nothing says so.
+    fn toggle_explorer(&mut self) -> Flow {
+        if let Some(explorer) = self.explorer.as_ref() {
+            if explorer.has_unapplied_edits() {
+                self.message = Some(Message::error(
+                    "the file explorer has unapplied edits — esc twice in it to throw them away"
+                        .to_owned(),
+                ));
+                return Flow::Running;
+            }
+            self.explorer = None;
+            return Flow::Running;
+        }
+        let root = self.explorer_root();
+        match FileExplorerPanel::open(root.path, root.crawl) {
+            Ok(explorer) => self.explorer = Some(explorer),
+            // Named rather than swallowed: the key was consumed, and a silent
+            // failure is indistinguishable from a dead key.
+            Err(error) => {
+                self.message = Some(Message::error(format!("the file explorer: {error}")));
+            },
+        }
+        Flow::Running
+    }
+
+    /// Where this face opens the explorer when nobody said.
+    ///
+    /// ⭐ **The *choice* is [`chosen_root`] and is shared; this *guess* is this
+    /// face's, and the two faces genuinely guess differently.** The GPU face
+    /// must distrust its working directory — a bundled application launched
+    /// from Finder inherits `/`, and rooting there once sent a search crawl
+    /// across an entire disk. A terminal has the opposite property: its working
+    /// directory is where a person `cd`-ed to, which is the most reliable
+    /// statement of intent either face ever gets.
+    ///
+    /// So: the open file's folder if there is one, and otherwise the working
+    /// directory, trusted. `chosen_root` then answers the only question that
+    /// means the same thing in both faces — whether a search may read past it.
+    fn explorer_root(&self) -> iridium_panel::explorer::ExplorerRoot {
+        let from_file = self
+            .file
+            .as_ref()
+            .map(TextFile::path)
+            .and_then(|path| path.parent())
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(std::path::Path::to_path_buf);
+        let directory = from_file
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        iridium_panel::explorer::chosen_root(directory)
+    }
+
+    /// Hands a key to the open explorer and acts on the outcome.
+    fn drive_explorer(&mut self, event: &KeyEvent) -> Flow {
+        let Some(explorer) = self.explorer.as_mut() else {
+            return Flow::Running;
+        };
+        match explorer.handle_key(event) {
+            ExplorerAction::Handled => Flow::Running,
+            ExplorerAction::Close => {
+                self.explorer = None;
+                Flow::Running
+            },
+            ExplorerAction::Open(path) => {
+                self.explorer = None;
+                self.request_open(path)
+            },
+            // Everything the panel could not do, in its own words. This is the
+            // arm that keeps `ToggleSidebar` from being a dead key while the
+            // terminal has no sidebar to toggle.
+            ExplorerAction::Report(message) => {
+                self.message = Some(Message::error(message));
                 Flow::Running
             },
         }
@@ -572,6 +680,7 @@ impl App {
             Answer::SaveAs(path) => self.save_as(&path),
             Answer::Do(Deed::Quit) => Flow::Exit,
             Answer::Do(Deed::Reload) => self.reload(),
+            Answer::Do(Deed::Open(path)) => self.open_file(&path),
         }
     }
 }

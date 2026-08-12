@@ -203,6 +203,21 @@ impl KeymapStack {
             .any(|layer| layer.accepts_count_at(presses, mode))
     }
 
+    /// Whether a printable key no binding claimed inserts itself in `mode`.
+    ///
+    /// **Any layer that silences `mode` silences it for the stack**, rather than
+    /// the highest layer deciding as it does for bindings. Two layers
+    /// disagreeing about whether a mode types is not a precedence question — a
+    /// mode either is a typing mode or it is not — and of the two readings only
+    /// one is safe: a key that does nothing is a key the user presses again,
+    /// while a key that types is text in a document nobody asked to change.
+    #[must_use]
+    pub fn types_unclaimed_keys(&self, mode: Option<&ModeName>) -> bool {
+        self.layers
+            .iter()
+            .all(|layer| layer.types_unclaimed_keys(mode))
+    }
+
     /// Validates every layer against `registry`, then every layer against every
     /// other.
     ///

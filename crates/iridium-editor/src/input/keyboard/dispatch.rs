@@ -136,6 +136,16 @@ impl KeyboardHandler {
     /// likewise not consulted here: layouts that report `AltGr` as `Ctrl+Alt`
     /// fail the `ctrl`/`alt` test and pass through untouched, which is what lets
     /// the host compose the character itself.
+    ///
+    /// # The one mode question the kernel asks
+    ///
+    /// Self-insert is reached *after* the keymap declined the key, so a modal
+    /// keymap cannot switch typing off by binding — see
+    /// [`Keymap::silence_typing_in`](crate::commands::Keymap::silence_typing_in)
+    /// for why suppression cannot do it either. The keymap is therefore asked
+    /// whether the active mode types at all before the character is inserted.
+    /// The kernel still knows no mode *names*: it passes the resolver's mode
+    /// straight back to the stack that declared it.
     fn fall_through(&mut self, ctx: &CommandContext<'_>) -> (KeyResult, Option<KeyboardAction>) {
         let Some(event) = ctx.event else {
             return (KeyResult::Ignored, None);
@@ -146,6 +156,16 @@ impl KeyboardHandler {
             && !modifiers.alt
             && !modifiers.meta
         {
+            // A silent mode swallows the character rather than reporting it
+            // unhandled: `Handled`, not `Ignored`. A host that saw `Ignored`
+            // would be entitled to type the key itself, which is the exact
+            // outcome the mode was declared to prevent. The gate sits inside
+            // this branch and not above it, because what the keymap declared is
+            // that the mode does not *type* — a key carrying no character was
+            // never the host's to lose.
+            if !self.keymap.types_unclaimed_keys(self.resolver.mode()) {
+                return (KeyResult::Handled, None);
+            }
             // Routed through the same action as an explicit binding would be, so
             // self-insert has exactly one implementation.
             let result = self.run_action(KeyboardAction::InsertCharacter, ctx);

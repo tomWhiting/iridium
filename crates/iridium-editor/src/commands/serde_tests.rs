@@ -327,3 +327,33 @@ fn command_ids_and_labels_serialize_transparently() {
         CommandId::from_static("edit.tab")
     );
 }
+
+#[test]
+fn a_silenced_mode_survives_a_round_trip_through_configuration() {
+    // A keymap that stops typing in a mode and comes back typing again would be
+    // a modal keymap that quietly turns non-modal the first time it is written
+    // to disk and read back.
+    let normal = ModeName::from_static("normal");
+    let mut keymap = Keymap::new("modal");
+    keymap.silence_typing_in(normal.clone());
+
+    let json = serde_json::to_string(&keymap).expect("a keymap serializes");
+    let restored: Keymap = serde_json::from_str(&json).expect("a keymap deserializes");
+
+    assert_eq!(restored.silent_modes(), std::slice::from_ref(&normal));
+    assert!(!restored.types_unclaimed_keys(Some(&normal)));
+}
+
+#[test]
+fn a_keymap_that_silences_nothing_writes_nothing_about_modes() {
+    // Every keymap serialized before modes existed must still read back, and a
+    // keymap that has nothing to say about them must not start saying it.
+    let json = serde_json::to_string(&default_non_modal_keymap()).expect("a keymap serializes");
+    assert!(
+        !json.contains("silent_modes"),
+        "the default keymap wrote a field it has no opinion about"
+    );
+
+    let restored: Keymap = serde_json::from_str(&json).expect("a keymap deserializes");
+    assert!(restored.silent_modes().is_empty());
+}

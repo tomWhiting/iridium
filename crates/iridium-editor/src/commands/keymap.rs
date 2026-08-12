@@ -63,6 +63,9 @@ pub struct Keymap {
     /// Indices of bindings whose first stroke is a capture wildcard, which no
     /// [`KeyCode`] can index.
     wildcard_index: Vec<usize>,
+    /// Modes in which a printable key no binding claimed must **not** insert
+    /// itself. See [`Keymap::silence_typing_in`].
+    silent_modes: Vec<ModeName>,
 }
 
 impl Keymap {
@@ -74,6 +77,7 @@ impl Keymap {
             bindings: Vec::new(),
             index: HashMap::new(),
             wildcard_index: Vec::new(),
+            silent_modes: Vec::new(),
         }
     }
 
@@ -123,6 +127,48 @@ impl Keymap {
         for binding in bindings {
             self.push(binding);
         }
+    }
+
+    /// Declares that in `mode`, a printable key no binding claimed does nothing
+    /// instead of inserting itself.
+    ///
+    /// # Why this is a keymap's declaration and not the kernel's rule
+    ///
+    /// Typing is **not a binding**: self-insert happens after resolution
+    /// declines a key, so a normal mode cannot switch typing off by binding
+    /// keys — and it cannot switch it off with
+    /// [`suppressions`](KeyBinding::unbound) either, because a suppressed
+    /// sequence is *unbound*, which is precisely the state that falls through to
+    /// self-insert. Something outside the binding table has to say so.
+    ///
+    /// Saying it here rather than in the dispatcher keeps the promise the whole
+    /// mode design rests on: a modal keymap is expressible **without the kernel
+    /// knowing any mode**. The kernel asks a question; the keymap answers it.
+    ///
+    /// A mode named here is silent for as long as this layer is on the stack.
+    /// Nothing is silent by default, so a keymap that never calls this — every
+    /// keymap that exists today — types exactly as it always has.
+    pub fn silence_typing_in(&mut self, mode: ModeName) {
+        if !self.silent_modes.contains(&mode) {
+            self.silent_modes.push(mode);
+        }
+    }
+
+    /// Whether a printable key no binding claimed inserts itself in `mode`.
+    ///
+    /// `true` unless [`Self::silence_typing_in`] named `mode`. Always `true` for
+    /// `None`: a keymap with no modes has no mode to silence, which is the
+    /// invariant that keeps a non-modal keymap unable to stop typing by
+    /// accident.
+    #[must_use]
+    pub fn types_unclaimed_keys(&self, mode: Option<&ModeName>) -> bool {
+        mode.is_none_or(|mode| !self.silent_modes.contains(mode))
+    }
+
+    /// The modes this keymap has silenced, in the order they were named.
+    #[must_use]
+    pub fn silent_modes(&self) -> &[ModeName] {
+        &self.silent_modes
     }
 
     /// Returns the binding that matches `presses` exactly, or `None`.
@@ -367,6 +413,12 @@ struct KeymapData {
     name: String,
     /// The bindings, in precedence order (later wins).
     bindings: Vec<KeyBinding>,
+    /// The modes in which an unclaimed printable key does not self-insert.
+    ///
+    /// Defaulted so that every keymap serialized before modes existed still
+    /// deserializes, and so a keymap that silences nothing writes nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    silent_modes: Vec<ModeName>,
 }
 
 impl From<Keymap> for KeymapData {
@@ -374,6 +426,7 @@ impl From<Keymap> for KeymapData {
         Self {
             name: keymap.name.into_owned(),
             bindings: keymap.bindings,
+            silent_modes: keymap.silent_modes,
         }
     }
 }
@@ -385,6 +438,7 @@ impl From<KeymapData> for Keymap {
             bindings: data.bindings,
             index: HashMap::new(),
             wildcard_index: Vec::new(),
+            silent_modes: data.silent_modes,
         };
         keymap.rebuild_index();
         keymap

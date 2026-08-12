@@ -27,7 +27,7 @@ use crate::commands::builtin::{
     BUILTIN_COMMAND_COUNT, SELECTION_SELECT_ALL, builtin_commands, builtin_registry,
 };
 use crate::commands::{
-    CommandArgs, CommandId, KeyBinding, ModifierPattern, ModifierState, StrokePattern,
+    CommandArgs, CommandId, KeyBinding, ModeName, ModifierPattern, ModifierState, StrokePattern,
 };
 use crate::editor::CaretScopes;
 
@@ -476,6 +476,143 @@ fn adding_a_cursor_vertically_by_id_matches_the_key() {
             2,
             "`{id}` must leave two carets, not {:?}",
             heads(&id_cursor)
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The typing gate: a mode in which unclaimed printable keys do not self-insert.
+//
+// Typing is not a binding. Self-insert happens *after* resolution declines a
+// key, so a modal keymap cannot switch it off by binding keys, and cannot switch
+// it off with suppressions either — a suppressed sequence is unbound, which is
+// exactly the state that falls through to self-insert. The keymap declares it
+// instead, and these tests are what hold that declaration to its word.
+// ---------------------------------------------------------------------------
+
+/// A handler whose top layer silences typing in mode `normal` and binds
+/// nothing.
+///
+/// Binding nothing is the point: the gate must work for a key no binding in any
+/// layer claims, which is every printable key a modal normal mode does not use.
+fn handler_with_silent_normal_mode() -> KeyboardHandler {
+    let mut handler = KeyboardHandler::new();
+    let mut layer = Keymap::new("modal-probe");
+    layer.silence_typing_in(ModeName::from_static("normal"));
+    handler.push_keymap(layer);
+    handler
+}
+
+#[test]
+fn a_silenced_mode_does_not_type_a_key_no_binding_claimed() {
+    let mut doc = Document::new("ab");
+    let mut cursor = cursors_at(&[(0, 1)]);
+    let mut handler = handler_with_silent_normal_mode();
+    handler.set_mode(Some(ModeName::from_static("normal")));
+
+    let result = press(
+        &mut handler,
+        &KeyEvent::new(KeyCode::Char('q'), Modifiers::none()),
+        &mut doc,
+        &mut cursor,
+    );
+
+    assert_eq!(doc.text(), "ab", "a silenced mode typed into the document");
+    assert!(
+        matches!(result, KeyResult::Handled),
+        "a silenced mode must swallow the key, not report it unhandled: a host \
+         that saw `Ignored` would be entitled to type it itself — got {result:?}"
+    );
+}
+
+#[test]
+fn the_same_key_types_the_moment_the_mode_is_left() {
+    // The gate is a property of the *mode*, not of the layer being on the stack:
+    // the silencing layer is still there, and `q` types again anyway.
+    let mut doc = Document::new("ab");
+    let mut cursor = cursors_at(&[(0, 1)]);
+    let mut handler = handler_with_silent_normal_mode();
+    handler.set_mode(Some(ModeName::from_static("normal")));
+
+    let typing = KeyEvent::new(KeyCode::Char('q'), Modifiers::none());
+    press(&mut handler, &typing, &mut doc, &mut cursor);
+    assert_eq!(doc.text(), "ab");
+
+    handler.set_mode(Some(ModeName::from_static("insert")));
+    press(&mut handler, &typing, &mut doc, &mut cursor);
+    assert_eq!(
+        doc.text(),
+        "aqb",
+        "only the mode that was silenced may stop typing"
+    );
+
+    handler.set_mode(None);
+    press(&mut handler, &typing, &mut doc, &mut cursor);
+    assert_eq!(
+        doc.text(),
+        "aqqb",
+        "a keymap with no active mode has no mode to silence"
+    );
+}
+
+#[test]
+fn a_key_carrying_no_character_stays_the_hosts_in_a_silenced_mode() {
+    // What the keymap declared is that the mode does not *type*. A key that was
+    // never going to insert anything was never the gate's to swallow, and a host
+    // that watches for unhandled keys must still see it.
+    let doc = Document::new("ab");
+    let cursor = cursors_at(&[(0, 1)]);
+    let mut handler = handler_with_silent_normal_mode();
+    handler.set_mode(Some(ModeName::from_static("normal")));
+
+    let result = probe(
+        &mut handler,
+        &KeyEvent::new(KeyCode::F9, Modifiers::none()),
+        &doc,
+        &cursor,
+    );
+
+    assert!(
+        matches!(result, KeyResult::Ignored),
+        "the gate swallowed a key that carries no character — got {result:?}"
+    );
+}
+
+#[test]
+fn a_bound_key_still_runs_in_a_silenced_mode() {
+    // The gate sits behind resolution, so it can only ever affect keys no
+    // binding claimed. A silenced mode that also broke its own bindings would be
+    // a normal mode that does nothing at all.
+    let mut doc = Document::new("ab");
+    let mut cursor = cursors_at(&[(0, 1)]);
+    let mut handler = handler_with_silent_normal_mode();
+    handler.set_mode(Some(ModeName::from_static("normal")));
+
+    press(
+        &mut handler,
+        &KeyEvent::new(KeyCode::Left, Modifiers::none()),
+        &mut doc,
+        &mut cursor,
+    );
+
+    assert_eq!(
+        heads(&cursor),
+        vec![(0, 0)],
+        "a bound motion stopped working"
+    );
+}
+
+#[test]
+fn no_shipped_keymap_silences_anything() {
+    // The guard on every face that exists today: the gate is opt-in, and nothing
+    // has opted in. If this ever fails, some keymap started refusing to type and
+    // the change that did it needs to say so out loud.
+    for layer in KeyboardHandler::new().keymap().layers() {
+        assert!(
+            layer.silent_modes().is_empty(),
+            "the `{}` keymap silences {:?}",
+            layer.name(),
+            layer.silent_modes()
         );
     }
 }

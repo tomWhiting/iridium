@@ -12,7 +12,7 @@
 )]
 
 use super::{
-    CommandId, KeyBinding, KeyPress, Keymap, KeymapStack, ModifierPattern, ModifierState,
+    CommandId, KeyBinding, KeyPress, Keymap, KeymapStack, ModeName, ModifierPattern, ModifierState,
     StrokePattern,
 };
 use crate::input::{KeyCode, Modifiers};
@@ -400,4 +400,65 @@ fn the_highest_precedence_match_is_the_one_replaced() {
         1,
         "the layer handed back is the one that was replaced"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Silenced modes across the stack.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn one_layer_silencing_a_mode_silences_the_whole_stack() {
+    // Unlike a binding, this is not decided by precedence. A mode either is a
+    // typing mode or it is not, and the layer that says "not" is the one that
+    // knows — the base layer never heard of the mode at all.
+    let normal = ModeName::from_static("normal");
+    let mut stack = KeymapStack::with_base(base_layer());
+    assert!(stack.types_unclaimed_keys(Some(&normal)));
+
+    let mut modal = Keymap::new("modal");
+    modal.silence_typing_in(normal.clone());
+    stack.push(modal);
+    assert!(!stack.types_unclaimed_keys(Some(&normal)));
+
+    // And a plain layer pushed *above* the silencing one does not restore
+    // typing by being higher: it never spoke to the question.
+    stack.push(Keymap::new("plain-on-top"));
+    assert!(
+        !stack.types_unclaimed_keys(Some(&normal)),
+        "a higher layer that says nothing about a mode must not un-silence it"
+    );
+}
+
+#[test]
+fn a_stack_with_no_active_mode_always_types() {
+    // The invariant that keeps a non-modal keymap unable to stop typing by
+    // accident: with no mode there is no mode to have been silenced, however
+    // many layers name one.
+    let mut stack = KeymapStack::with_base(base_layer());
+    let mut modal = Keymap::new("modal");
+    modal.silence_typing_in(ModeName::from_static("normal"));
+    modal.silence_typing_in(ModeName::from_static("visual"));
+    stack.push(modal);
+
+    assert!(stack.types_unclaimed_keys(None));
+}
+
+#[test]
+fn a_mode_nobody_silenced_types() {
+    let mut stack = KeymapStack::with_base(base_layer());
+    let mut modal = Keymap::new("modal");
+    modal.silence_typing_in(ModeName::from_static("normal"));
+    stack.push(modal);
+
+    assert!(stack.types_unclaimed_keys(Some(&ModeName::from_static("insert"))));
+}
+
+#[test]
+fn silencing_a_mode_twice_names_it_once() {
+    let normal = ModeName::from_static("normal");
+    let mut modal = Keymap::new("modal");
+    modal.silence_typing_in(normal.clone());
+    modal.silence_typing_in(normal);
+
+    assert_eq!(modal.silent_modes().len(), 1);
 }

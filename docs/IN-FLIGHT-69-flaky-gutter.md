@@ -314,3 +314,57 @@ a flake becomes a silently disabled check.
 invented figure removed from the evidence, one dead experiment deleted, one live
 experiment recorded with its single observation and its honest statistics, the
 load caveat closed, and a rubric that can classify what was actually seen.
+
+## 9. ⭐ AN OCCURRENCE, AND THE RUBRIC IN §7 SAYS IT IS NOT ATLAS PACKING
+
+**12 Aug 2026.** Seen during the L1c gate run, in a `scripts/ci.sh` pass that
+also failed `left_inset::the_content_column_is_the_same_pixels_a_sidebars_width_across`
+and both gutter rows. Every one of them is a pixel-identity comparison; every
+one was green on an immediate re-run with nothing changed.
+
+⚠️ **Read the diagnostic before reading the conclusion.** From
+`a_gutter_toggle_misses_and_recomposes_identically`, verbatim:
+
+```
+the gutterless frame must be byte-identical
+  40 of 196608 pixels differ; the first at column 10, row 10;
+  they span columns 10..=11 and rows 10..=29;
+  the largest single channel difference is 149
+```
+
+That is a **contiguous 2×20 band** — two columns wide, twenty rows tall, which
+at `FONT_SIZE` 14 and a 1.5 factor is one line's full height. Magnitude 149 on a
+single channel is a stroke drawn against a stroke absent, not an edge sampled
+differently.
+
+§7's rubric was written to decide exactly this: *few pixels on glyph edges =
+atlas packing; contiguous block/row band = real regression.* This is the second
+shape. It is also **not** the recorded signature this document was built around
+— that one was 1 pixel, 1 channel, magnitude 23 — so there are now two distinct
+failure shapes filed under one number, and treating them as one is how the
+smaller one keeps hiding the larger.
+
+⚠️ **What this does NOT establish.** The run that produced it also produced
+three other pixel-identity failures at once, which is a pattern no single-test
+mechanism explains. Simultaneous failure across independent binaries points at
+something shared — device contention, or an adapter under load — and the
+already-recorded caveat is that all 160 clean runs were at load ≤ 5.6. This run
+was not: it was the second full gate pass in a session that had just built three
+crates, and #90 L1c added a fourth GPU test binary
+(`run_weight_reaches_the_glyphs`, three contexts) to the same parallel run.
+
+So the honest reading is **two candidate mechanisms, not one conclusion**:
+
+1. A real gutter-toggle regression, which the band shape fits and which the
+   rubric says to believe.
+2. Contention among concurrently-running GPU test binaries, which the
+   simultaneity fits and which the single-test rubric cannot see at all,
+   because it was written to classify one test's pixels.
+
+**The experiment that separates them, and it is cheap:** re-run the same gate
+pass with `--test-threads=1`, or with the four GPU binaries serialised. If the
+band survives serialisation it is (1) and the rubric holds. If it vanishes, the
+subject of #69 was never one test — it is the harness running GPU work in
+parallel, and every pixel-identity test in the tree shares the defect.
+
+⛔ Still no change to any test, harness or assertion, for the reason §8 gives.

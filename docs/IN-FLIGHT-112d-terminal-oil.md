@@ -369,7 +369,75 @@ Each step is checkable on its own, and the first two are strictly refactor.
    `project`'s two root functions. `PanelAnchor`, `PanelContent` and the
    painters stay in the desktop; `overlay` re-exports the rest. Desktop
    behaviour must not change: the census is the proof, and it has held once.
-3. **The TUI paints it** into a `FloatingBox`, at the *queried* ceiling, reached
+
+   ### ✅ 2c is DONE — `cb2a9208`, `e82f0ef7`, `1d582a65` (13 Aug 2026)
+
+   Landed in three commits, and the split is deliberate: only the middle one
+   had to be atomic.
+
+   **`cb2a9208` — `scroll_for` first, alone.** The last thing `compose` reached
+   for that could cross without the type. Moved with its three tests, because a
+   `const fn` hoisted into a crate where nothing can fail on it is the same
+   hazard `Entry` had one slice earlier. Census: panel **70 → 73**, desktop
+   **495 → 492**.
+
+   **`e82f0ef7` — the atomic move.** `panel`, `buffer`, `keys`, `edit_keys`,
+   `mode`, `session`, `compose`, plus `buffer_tests`, `edit_keys_tests`,
+   `mode_tests` and the whole `tests/` directory. One commit because the orphan
+   rule makes it one.
+
+   Census: panel **73 → 215**, desktop **492 → 350**. **±142, exactly
+   balanced.** No test written, deleted, renamed or skipped — every one that
+   ran in the desktop crate runs in the panel crate, against the same real
+   directories and the same real reader thread.
+
+   ⭐ **The `compose` problem, priced against the prediction.** This file said
+   `compose` was "genuinely hard: it must stop returning a `PanelContent` and
+   start returning rows plus a caret, with the desktop adding the anchor."
+   That was right about the shape and **wrong about the difficulty**. The
+   translation is one struct literal, in a new free function
+   `file_tree::content`, and the reason it is that small is that `hovered` was
+   *already* set by the face after composition and `content_columns` was
+   already just `fit.content_columns` passed through. The anchor was the only
+   genuinely face-owned field. The new type is `iridium_panel::PanelBody`.
+
+   Worth keeping: the thinness is the finding. It says the R2 seam was drawn in
+   the right place rather than merely somewhere, and that is a claim the hoist
+   could only settle by being carried out.
+
+   **A free function, not a method, and not by choice.** The orphan rule
+   forbids `impl FileExplorer` in the desktop crate now. Read that as a
+   feature: it is structurally impossible for this face to grow explorer
+   behaviour the terminal face would never see. `PanelAnchor` does not exist
+   over there.
+
+   **`1d582a65` — ⚠️ what the census could not prove.** The anchor is the one
+   thing that did *not* move, and it changed shape: `panel_contents` used to
+   compose and then overwrite `content.anchor`; it now chooses first and passes
+   it in. **Nothing in the repository could tell the difference.** A sidebar
+   silently drawing as a floating popover — wrong placement, wrong height,
+   document indented past nothing — passed all 351 tests.
+
+   Measured both ways: `explorer_anchor` sabotaged to always return `Top` gives
+   **1 failed, 351 passed**, and the one failure is the test added there;
+   reverted, **352 passed**. `explorer_anchor` is extracted as a free function
+   for the same reason `apply_hover` beside it already was — `panel_contents`
+   returns an empty vector without a `Shell`, so a decision made inside it is
+   unreachable from a headless test.
+
+   ⭐ **The law this one earns: a census proves nothing about the code that
+   did not move.** It balances departures against arrivals, which is exactly
+   the right instrument for a hoist and exactly the wrong one for the seam the
+   hoist leaves behind. The seam is new code by definition, and new code wants
+   a test that fails without it.
+
+   *Revert cost: three commits, all mechanical; `git revert` in reverse order.*
+
+   **Sizes after, against the 800 target / 1,000 hard limit:** the largest file
+   in `iridium-panel` is `edit_keys_tests.rs` at 787, then `plan_tests.rs` 768
+   and `panel.rs` 573. `apps/iridium-desktop/src/file_tree/mod.rs` is 67 lines
+   and holds nothing but the wrapper and the two re-exports.
+3. ⏭️ **NEXT — the TUI paints it** into a `FloatingBox`, at the *queried* ceiling, reached
    by the same command id the desktop uses. The smallest slice that puts a file
    tree in a terminal.
 4. **The browsed fit** — R3. Full screen height, and the ceiling rides on the
@@ -384,4 +452,11 @@ Each step is checkable on its own, and the first two are strictly refactor.
 ## Where this leaves #112
 
 Parts A, B and C are landed and installed. Part D is the last of Tom's
-sentence, and step 1 of it is the census — which is the next thing to run.
+sentence, and **steps 1, 2a, 2b and 2c are landed** — the file explorer is
+face-independent, whole, in `iridium-panel`. What is left is steps 3–6, all of
+which are the terminal face actually drawing it: the `FloatingBox` at the
+queried ceiling, the browsed fit, the left band in `FrameLayout`, and
+`iridium <dir>`.
+
+⛔ **Not installed.** `bundle/install.sh` refuses while `iridium-desktop` runs,
+by design, and pid 69873 is still up. Nothing here is on Tom's machine yet.

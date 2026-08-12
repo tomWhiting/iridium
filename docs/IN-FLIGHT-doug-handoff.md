@@ -1535,3 +1535,50 @@ shape #91's task description said #58 wanted.
 
 ⚠️ Its fixture note still stands and still costs a red run: **row 0 must be the
 folder the panel is showing**, or every plan returns `Refused`.
+
+---
+
+# LIVE STATE — 13 Aug 2026, later still
+
+`origin/main = bacb0fba`, **0 unpushed**. Ten gates green
+(`✅ all 10 gates passed`, exit 0, read from `ci.sh`'s own markers). Working
+tree clean apart from untracked `.claude/skills/`, which must not be committed.
+
+## Landed this window
+
+- **`920ffbec`** — D-1 in `IN-FLIGHT-113-modality.md` retired. Tom's correction:
+  the Vim/Helix fork was never put to him, and there was no fork to put. **#113
+  is NOT blocked**; steps 4 and 5 proceed.
+- **`bacb0fba` — #118 CLOSED.** `config.toml` lists every binding, generated
+  from the real keymaps. See `docs/IN-FLIGHT-118-keys-discoverability.md` for
+  the six rulings, the mutation table, and the defect found on the way.
+
+## ⛔ Still blocked on Tom — one thing, not two
+
+- **#108** — menu bar is CODE-COMPLETE. He must build it and click one menu
+  item. Slice B (key equivalents) is gated on that confirmation. **Do not turn
+  key equivalents on before he confirms.**
+- Also outstanding with him: the bold-by-default preset look (Waffles' docket),
+  the older sidebar-flush-at-x=0 question, and — new — whether the `~shift`
+  spelling in the generated `[keys]` block should stay. He was told the reason
+  it is ugly; it works either way and nothing waits on the answer.
+
+## Two laws earned here
+
+1. **A test that compares an artefact against itself agrees with the writer by
+   sharing its mistake.** `every_emitted_line_parses_back_to_the_chord_it_names`
+   *passed* under the mutation its own doc comment claimed to guard against — a
+   prettified chord parses fine and renders back to itself. The tests that
+   caught it compare the file against the keymaps.
+2. **A vocabulary a format cannot see is a vocabulary it will silently omit.**
+   The desktop face's ⌘ chords were invisible to the crate writing the file that
+   claimed to list them all. The fix is not a lookup — the dependency cannot run
+   that way — it is a parameter that cannot be left unanswered.
+
+## Backlog
+
+#58, #87, #88, #90, #92, #93, #95, #96, #99, #117, #43→#44→#45.
+
+**#117** (the other seven panel key tables) is the natural next one: it is the
+same conversion #91 did for the explorer, and every table it converts is another
+group the generated `[keys]` block picks up for free.

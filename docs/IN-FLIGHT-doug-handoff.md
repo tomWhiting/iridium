@@ -1022,12 +1022,18 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
 
-`origin/main = 08e981c4`, **0 unpushed**, verified from the remote. Ten gates
+`origin/main = 5b20f5c4`, **0 unpushed**, verified from the remote. Ten gates
 green. Working tree clean apart from untracked `.claude/skills/`.
 
-**#113 steps 4–5 still wait on Tom's grammar ruling; #108 is the live thread**
-— M-1..M-4 and D-1 ruled, **steps 1, 2 and 3 landed**. Only step 4 (the
-enablement push) is left, plus slice B.
+**#113 steps 4–5 wait on Tom's grammar ruling. #108 is CODE-COMPLETE — all
+four steps landed — and now waits on Tom's hands.** Nothing is half-done and
+nothing is in flight.
+
+⛔ **Both open threads are blocked on Tom, and neither should be guessed at.**
+He was messaged on 13 Aug with both: the grammar ruling, and a request to
+build #108 and click one menu item. If a tick finds this and no answer, work
+something else — the backlog is #109, #110, #58, #87, #88, #90, #91, #92, #93,
+#95, #96, #99, #43→#44→#45.
 
 ⚠️ **#108 needs Tom's hands before it can be called done.** Steps 2–3 are
 proven to compile, link and be present in the binary (`strings` finds

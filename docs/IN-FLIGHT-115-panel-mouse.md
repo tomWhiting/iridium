@@ -142,9 +142,51 @@ many rows is that" before a font has measured and leaves pixel deltas working.
   `explorer.toggleSidebar` = 2 as the freshness control plus something new —
   suggest counting the hover band's absence/presence is not greppable, so use
   `git rev-parse` against the installed build's recorded sha instead.
-- The **hover band has never been looked at**. It is arithmetic-tested (opaque,
-  distinct from the panel background and from the selection, in both presets)
-  and has no screenshot. Worth one in `chrome_screenshots.rs` next tick.
-- The **popover** explorer's click path is covered only by the sidebar tests
-  reaching the same `click_row`; a popover-specific test (click opens a file
-  *and* closes the popover) is not written.
+- The **hover band has been looked at.** `chrome-hover.png` — the palette with
+  a row hovered *and* a different row selected, so the two bands are in one
+  frame. **Verdict: it works.** The band is clearly visible against the panel
+  background and reads plainly as weaker than the selection rather than as a
+  second one; its ends carry the same arc as the selection band. The hovered
+  row is found in the composed content rather than written in as a literal,
+  because an index past the end or on a separator is silently skipped by the
+  painter — a hard-coded row would have produced a frame with no band on it and
+  nothing would have said so.
+- The **popover click path is covered.** Two tests, stated as a pair:
+  `a_press_on_a_popover_row_opens_the_file_and_takes_the_popover_away` and
+  `a_press_on_a_sidebar_row_leaves_the_sidebar_standing`. One press verb, one
+  outcome, two placements — and the only thing that reads the placement is
+  `leave_explorer`. Proven discriminating: making `leave_explorer` treat a
+  popover like a sidebar fails the popover test and leaves the sidebar test
+  green.
+
+### The harness was 316 lines over the bar before this tick, and it got worse
+
+`chrome_screenshots.rs` stood at 1,232 against a 1,000-line hard limit, and the
+hover shot took it to 1,316. Split along the seam between *how a frame is made*
+and *what a frame is*, following the layout `iridium-editor/tests/retained_shaping`
+already uses — a `tests/<name>/main.rs` target root with siblings:
+
+| file | lines | holds |
+| --- | --- | --- |
+| `chrome_screenshots/main.rs` | 756 | the headless device, the compositor, the readback, the PNG encoder and its oracle |
+| `chrome_screenshots/shots.rs` | 489 | one function per frame, plus `run()` |
+| `chrome_screenshots/encoder.rs` | 120 | the two encoder tests that need no adapter |
+
+⭐ **The split needed no visibility changes to the infrastructure**, because a
+child module can see its parent's private items. Only `run` had to be named
+outward, and clippy required `pub` rather than `pub(crate)` inside a private
+module.
+
+`MAX_RUN_BYTES` re-measured with the hover frame in the set: **9,340,285 bytes
+over 25 frames**, `chrome-hover.png` itself 355,292. Ceiling raised 9,500,000 →
+10,200,000, still far under the ~11.3 MB `Adaptive` would produce over the same
+25. The doc's older 8,734,042 figure is now explicitly labelled as belonging to
+the set that preceded the hover frame — a measured number keeps the set it was
+measured on.
+
+### Receipts, 12 Aug 2026
+
+- `bash scripts/ci.sh` → exit 0, `✅ all 10 gates passed`.
+- Desktop lib tests: **553 passed, 0 failed**.
+- The GPU harness run end to end after the split: `test result: ok. 1 passed`,
+  25 frames written.

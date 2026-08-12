@@ -21,7 +21,50 @@
 # ⚠️ `fmt --check`, never `fmt`. A gate must not mutate the tree it judges: one
 # that reformats and then reports success has verified the tree it made, not the
 # tree it was handed.
+#
+# ⛔⛔ `--verdict` IS A DIFFERENT EXIT CONTRACT FROM THE DEFAULT, AND MIXING
+# THEM UP IS THE ONE WAY TO BE BADLY MISLED BY THIS SCRIPT.
+#
+#   default     exit 0 = every gate passed.  exit 1 = a gate failed.
+#   --verdict   exit 0 = the gates RAN.      the token on stdout says pass/fail.
+#
+# So `./scripts/ci.sh --verdict` exits **0 on a red build**, and that is not a
+# bug. It is the contract a workflow gate needs: non-zero has to mean "I could
+# not measure", because a red build is the normal case an iterating loop exists
+# to work on — routing it to "unmeasured" would abort the run instead of
+# feeding the failure back to whatever is trying to fix it. ⭐ Caught by Vesper
+# Lynd before the first run, against the seam's written contract rather than
+# from memory.
+#
+# ⚠️ **Never read `--verdict`'s exit status as a verdict.** Read the token. A
+# person running this mode by hand and seeing 0 on a broken tree has read the
+# wrong number, which is why the mode says so on its own first line of output.
 set -u
+
+verdict=0
+case "${1:-}" in
+    '') ;;
+    --verdict) verdict=1 ;;
+    # ⛔ Refused, never ignored. An unrecognised flag — a typo like `--verdcit`
+    # — must not fall through to the default mode, because the caller that
+    # passed it is expecting a token and would get a log file where a word
+    # should be, then read the exit status as the verdict. That is the mistake
+    # this whole file exists to make impossible.
+    *)
+        printf 'ci.sh: unknown argument %s (expected nothing, or --verdict)\n' "$1" >&2
+        exit 2
+        ;;
+esac
+
+# fd 3 is the real stdout, reserved for the verdict token and nothing else.
+# In `--verdict` mode fd 1 is pointed at stderr, so every `printf` below — the
+# gate headers, the `>>>` and `!!!` lines, the census refusal — becomes detail
+# on stderr by construction rather than by each one remembering to redirect.
+exec 3>&1
+if [ "$verdict" -eq 1 ]; then
+    exec 1>&2
+    printf '=== --verdict mode: the exit status says whether the gates RAN, not whether they passed; read the token on stdout\n'
+fi
 
 cd "$(dirname "$0")/.." || exit 2
 
@@ -93,10 +136,30 @@ run "fmt" cargo fmt --all --check
 # "some gates failed" from "we do not know what the gates would have said".
 # The `!!!` lines above still name whatever did fail before the truncation;
 # what is refused here is *summing them into a verdict*.
+#
+# ⭐ **This is the one branch both modes share**, and it is the reason
+# `--verdict` can afford to exit 0 on a red build: everything that reaches the
+# token below is something this script actually watched run. No token is
+# printed here, in either mode — an unmeasured run has no verdict to give, and
+# emitting `fail` for one would be the lie the whole exercise is against.
 if [ "$ran" -ne "$GATES" ]; then
     printf '⛔ UNMEASURED — %d of %d gates ran; believe neither the passes nor the failures\n' \
         "$ran" "$GATES"
     exit 3
+fi
+
+# `--verdict`: the gates ran, so the run is measured, so the exit status is 0
+# whichever way they went. The word on fd 3 is the answer.
+if [ "$verdict" -eq 1 ]; then
+    if [ "$failed" -ne 0 ]; then
+        printf '⛔ %d of %d gates FAILED — reporting `fail`, exit 0: the gates ran\n' \
+            "$failed" "$GATES"
+        printf 'fail\n' >&3
+    else
+        printf '✅ all %d gates passed — reporting `pass`\n' "$GATES"
+        printf 'pass\n' >&3
+    fi
+    exit 0
 fi
 
 # ⭐ Every gate runs even after one fails — the point is the whole picture, not

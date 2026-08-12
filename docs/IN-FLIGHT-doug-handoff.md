@@ -365,3 +365,81 @@ wants to route it without burning the retries.
 
 **:8080 is aion's**, which explains CLAUDE.md's "always in use". No collision
 with the port ban — that ban is on *starting* servers there.
+
+---
+
+## `ci.sh --verdict` — the fleet's gate seam, and a defect Vesper caught first
+
+⛔ **Two exit contracts in one script. Confusing them is the one way to be
+badly misled by it.**
+
+| mode | exit 0 | exit 1 | exit 2 | exit 3 |
+| --- | --- | --- | --- | --- |
+| default | every gate passed | a gate failed | bad working directory / bad flag | census short |
+| `--verdict` | **the gates RAN** — token on stdout says which | *never* | bad working directory / bad flag | census short, **and no token** |
+
+### The defect, which was mine
+
+I had proposed the seam call `./scripts/ci.sh` bare. Vesper read her seam's
+written contract — *"exits 0 whenever the gate RAN … a gate that could not
+MEASURE exits non-zero"* — and pointed out that **exit 1 for a genuine test
+failure would route the whole run to `unmeasured` and abort it.**
+
+⭐ Which is backwards: **a red build is the normal case an iterating loop
+exists to work on.** Non-zero must mean "I could not measure", so a failure has
+to arrive as `exit 0` + the token `fail` and be fed to the judge for another
+pass. Exits 2 and 3 stay non-zero because those genuinely are unmeasured.
+
+She also checked and killed my retry warning: the gate actions carry no `retry`
+clause at all — `retry 3 backoff 30s..5m` is on the two *agent* actions only.
+
+### Why the default contract did not move
+
+Exit 0 on a red build is right for a workflow leg and catastrophic for a
+person, a git hook or a CI runner. So `--verdict` is a **separate** contract,
+the flag announces itself on its own first line of output, and an unrecognised
+flag is refused with exit 2 rather than falling through — a caller expecting a
+token must never silently receive a log.
+
+Mechanism: `exec 3>&1` reserves the real stdout for the token, and `--verdict`
+does `exec 1>&2` so every existing `printf` becomes stderr detail **by
+construction** rather than by each line remembering to redirect.
+
+### Four proofs, all measured
+
+| what | result |
+| --- | --- |
+| `--verdcit` (typo) | exit 2, **0 bytes** on stdout, refusal on stderr |
+| `--verdict`, green tree | stdout is `pass\n` — 5 bytes, `od -c` — exit 0 |
+| `--verdict`, `run "fmt" false` | stdout is `fail\n`, **exit 0**; same tree in default mode: **exit 1** |
+| `--verdict`, `GATES=11` | exit 3, **0 bytes on stdout** — an unmeasured run has no verdict to give |
+
+The diff is **63 insertions, 0 deletions**: the default path is untouched by
+construction as well as by measurement.
+
+### Token vocabulary — and the reason a wrong one would have been silent
+
+`pass` / `fail`, lowercase. ⚠️ **Nothing in the workflow matches on the token
+structurally.** It goes into the judge's prompt as text, and the judge is
+primed to "complete ONLY when both gates say pass". So a wrong token wedges
+nothing — it **quietly misinforms the judgment seat and the run completes
+looking fine.** The only structural match in the document is the judge's own
+reply, exactly `CONTINUE` or `DONE`.
+
+## The harness section — final values
+
+```
+harness
+  kind acp                          # oversight; norn for the builder
+  concurrency 1
+  reconnect_initial_backoff 5s
+  reconnect_max_backoff 30s
+  reconnect_max_attempts 6          # ~2 minutes bounded, then a loud failure
+  env_pass "PATH", "HOME", "TMPDIR"
+  cwd "/Users/tom/Developer/ablative/libs/iridium"   # run 1 only; run 2 is a clone
+  permission "deny"                 # acp only — see the ruling above
+  exit_grace 10s                    # acp only
+```
+
+`binary` omitted — `norn` is on PATH. `command` is Vesper's to measure. `args`
+omitted.

@@ -961,3 +961,49 @@ would call a correct move a loss.
    two sentences.** `dismiss_modal_panel` returning `true` meant the first and
    was read as the second, and the result is a panel you cannot click. Third
    instance this window of one value standing for two questions.
+
+---
+
+## ⛔ STANDING, 12 Aug 2026: `workflows/iridium_loop.awl` will not check here
+
+**Do not "fix" it by deleting the `cwd` line.** The document is correct; the
+installed binary is old.
+
+aion #222 (`1deff0eef`) made `cwd` **required** on a `kind norn` harness, at
+parity with `acp` since #204 — it closes a defect where a norn agent inherited
+its working directory from wherever the worker happened to start, and nothing
+recorded which tree it then read and edited. The line landed in `bdc93840`.
+
+The trap has two jaws, and a seat that sees only one will make it worse:
+
+- **aion 0.14.1** — what is installed on this box, built 12 Aug 06:54 —
+  **refuses the line's presence.** Proven at this seat's own hand on a scratch
+  copy before the real document was touched: *"`cwd` configures the `acp`
+  harness, and this section declares `kind norn`."*
+- **The new engine refuses its absence.** Not proven here — that half rests on
+  Vesper's run against the new binary, and the commit message says so.
+
+So no version of the document satisfies both, and the refusal is the expected
+state rather than a regression.
+
+**How it clears, and when.** The box's aion *checkout* is already at
+`1deff0eef`; only the installed binary is behind. Vesper owns the install and
+it is in flight — but deliberately gated: #220 bumped beamr 0.17.0 → 0.18.2 in
+the same commit, and a build prices the migration, not the behaviour. The last
+soak died at 3h28m01s on `invalid correlation id` under 0.17.0, so nothing is
+installed until a soak dies or survives on 0.18 bytes. **The window is hours,
+not minutes.** Do not start a second build; it is a shared box and hers is
+running.
+
+Nothing is blocked by this. No process on this box serves the iridium document
+— verified by `ps` over all seven live `aion` processes, every one on a
+market-mirror document.
+
+### The law this exchange earned
+
+9. **A checkout and an installed binary are two places, and an ordering
+   argument that prices only the first is incomplete.** The engine-vs-document
+   merge order was ruled and correct; what bit was that `~/.cargo/bin` had not
+   caught up with a checkout that had. Committed, pushed and installed are
+   three different places — and this is the same law arriving from the
+   direction of somebody else's repository.

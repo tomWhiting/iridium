@@ -699,3 +699,82 @@ which is still generic. **Three inputs, one document.**
    editor *on a directory* as the case that shapes it.
 3. **#113** the pending-operator mechanism before any modal keymap is authored.
 4. Fleet run 1, once workers are served per the launch note above.
+
+---
+
+## 12 Aug 2026 — #112c landed: the explorer as a sidebar
+
+`5ae51ba4` (step 1), `b947f481` (steps 2–6), `ae261eb1` (the map marked off).
+Pushed; `origin/main = ae261eb1`. Ten gates green, read from `ci.sh`'s own
+`>>>` lines. 527 desktop tests.
+
+`⌘B` / `Ctrl+Alt+B` moves the explorer between a floating panel and a
+full-height column. `FrameCompositor::set_left_inset` — built in #50, never
+called since — now has its caller.
+
+### ⭐ The three defects, and they are one shape
+
+Every one was **one value standing for two different sentences**, and every
+one was found by running rather than by reading:
+
+1. **`ExplorerOutcome::Closed`** meant both "Escape: give the document back"
+   and "⌘⌥E: the panel goes away". The moment Escape stopped closing a
+   sidebar, `⌘⌥E` stopped closing one too — a silent no-op on the placement
+   that most needed it. Now `Dismissed` and `Closed`.
+2. **`self.explorer.is_some()`** meant both "a panel is drawn" and "the panel
+   has the keys". A sidebar routed through it makes the document unreachable
+   while it is on screen.
+3. **`dismiss_modal_panel`** would have swallowed every document click.
+
+**The law: when a placement changes what a key means, look for the values
+that were only ever asked one question.** They read as complete because
+nothing had asked them the second one yet.
+
+### What is proven, and by what
+
+- Geometry: `overlay.rs` tests. The mutation that makes a sidebar inherit the
+  popover's 30 fails `a_sidebar_browses_further_down_than_a_popover_ever_will`
+  with `left: 30, right: 46` — the trap by name.
+- Routing: `apps/iridium-desktop/src/app/tests/sidebar.rs`, 5 tests.
+- Pixels and hit-testing: **`crates/iridium-editor/tests/left_inset.rs`, which
+  already existed** from #50 and has been running under `test/workspace` ever
+  since. I confirmed that by running it. What had never existed was a *face*
+  calling the inset; the mechanism was proven all along.
+
+### ⚠️ Two numbers I got wrong first, both by reading instead of measuring
+
+- A sidebar survives a **shorter** window than a popover (87.2 px against
+  99.1 px on the 2× grid) because `fit_for` gives up 12% of the height to the
+  top anchor before it measures. My first test asserted that distinction with
+  two heights that were both above *both* thresholds and proved nothing.
+- `EXPLORER_MAX_VISIBLE_ROWS` is on the **fit**, not on a placement enum the
+  explorer reads. Not tidiness: a panel that took its width from one placement
+  and its ceiling from another would be too tall for the box it is drawn in
+  and nothing downstream could tell. On the fit they cannot be paired wrongly.
+
+### Still owed on #112
+
+**#112d — the terminal face**, "quite big", with *opening the terminal editor
+on a directory* as the case that shapes it rather than follows it. Needs its
+own design map. Nothing of C transfers directly: the terminal face has no
+pixel grid and no `set_left_inset`.
+
+**R4 (persistence) is deliberately out** and named so it is not dropped: a
+sidebar that forgets it was open is one nobody keeps open. It belongs with the
+config work (#59/#102/#105), not with the geometry.
+
+**R3 (a drag handle)** is additive on a working fixed-width sidebar, not a
+reversal of it.
+
+### Vesper's per-leg gate suggestion — my answer, 12 Aug
+
+She is right that `ci.sh --verdict` returns one token for ten legs where
+market-mirror's returns one per leg, and right that it is a script change
+rather than a document one (`ci.sh` takes nothing or `--verdict`, so a leg
+selector is not expressible today).
+
+**Not doing it before run 1.** The first run has not happened; adding
+attribution to a seam nobody has used yet is optimising ahead of evidence.
+The `!!! <name> FAILED` lines are already on stderr in `--verdict` mode, so
+the detail *is* crossing the seam — the open question is whether the judgment
+seat sees stderr at all, which is hers. Asked.

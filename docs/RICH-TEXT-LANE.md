@@ -20,6 +20,36 @@ Design calls during the lane route to Waffles, not to Tom.
 L2 consumes L1's style payload; there is no arrangement in which L2 lands
 first. Backlog item: **#90**.
 
+## ▶ RESUME HERE (12 Aug 2026)
+
+**Released and in progress. No stop is in force.** Design calls go to Waffles,
+not to Tom.
+
+Landed, ten gates green at each, all unpushed:
+
+| commit | what |
+|---|---|
+| `ad449ea8` | #107 — open file / open folder / set project |
+| `f46b2cf7` | #107 closed in the docs, this file created |
+| `2054a497` | **L1a** — `RunStyle` through the whole seam |
+| `bf832da7` | the taxonomy finding below |
+
+**Next step, concretely: markup needs its own `HighlightType` slots.**
+`title.markup`, `link_uri.markup` and `link_text.markup` currently map onto
+`Keyword`, `String` and `Function` in
+`crates/iridium-syntax/src/highlight/capture.rs` — see the reordering section
+below for why that blocks everything after it. Give them slots, map the slots
+in `crates/iridium-editor/src/syntax.rs`'s `highlight_to_color`, and hold the
+new arms with the existing
+`the_six_ruled_capture_colours_are_the_ones_that_were_ruled` test's discipline.
+
+Then: style-per-slot in the theme (`SyntaxColors` → styles, alongside #87),
+then the markdown-inline grammar and the injection queries, then L2's
+cumulative layout table.
+
+⚠️ Working tree carries an untracked `.claude/skills/` that is unrelated to
+any of this and must not be committed.
+
 ## Ground
 
 ### The seam everything goes through

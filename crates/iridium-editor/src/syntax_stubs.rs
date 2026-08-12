@@ -277,6 +277,14 @@ pub enum HighlightType {
     MarkupPunctuation,
     /// Fenced code block delimiter or info string
     MarkupFence,
+    /// Diff status: a file was added
+    DiffAdded,
+    /// Diff status: a file was removed
+    DiffRemoved,
+    /// Diff status: a file's contents changed
+    DiffModified,
+    /// Diff status: a file moved or was renamed
+    DiffMoved,
     /// Error
     Error,
 }

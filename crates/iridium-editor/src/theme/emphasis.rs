@@ -190,6 +190,74 @@ impl SyntaxEmphasis {
     }
 }
 
+/// Every highlight category, by the name a theme file writes for it.
+///
+/// ⭐ **This list is the only thing holding the two `HighlightType`s
+/// together.** There are two: the real one in `iridium_syntax` and the stub in
+/// `crate::syntax_stubs`, chosen by the `syntax` feature. No build sees both,
+/// so no `match`, `derive` or trait can compare them — and they have already
+/// drifted once, when four `Diff*` variants were added to the real enum and not
+/// to the stub, giving a parser-free build that refuses a theme file the full
+/// build accepts.
+///
+/// The gate works because **both configurations run this same list**: a name
+/// the running build's enum does not have fails to deserialize, and a variant
+/// missing from either side therefore fails in the gate that compiles that
+/// side. `test/kernel` runs the parser-free half, which is the half with no
+/// other check on it at all.
+///
+/// ⚠️ What it does **not** catch: a category added to `iridium_syntax` and to
+/// this list but to neither's consumers — that is what `theme::slot_of`'s
+/// exhaustive match is for — or one added to `iridium_syntax` and forgotten
+/// here. The list is a hand-kept spec, and it is hand-kept because there is
+/// nothing to derive it from that both builds can see.
+#[cfg(test)]
+const EVERY_CATEGORY_NAME: &[&str] = &[
+    "keyword",
+    "keywordControl",
+    "string",
+    "stringEscape",
+    "number",
+    "boolean",
+    "comment",
+    "commentDoc",
+    "function",
+    "functionDefinition",
+    "functionMethod",
+    "functionSpecial",
+    "variable",
+    "variableParameter",
+    "variableSpecial",
+    "type",
+    "typeBuiltin",
+    "typeInterface",
+    "operator",
+    "punctuationBracket",
+    "punctuationDelimiter",
+    "punctuationSpecial",
+    "property",
+    "constant",
+    "lifetime",
+    "attribute",
+    "tag",
+    "embedded",
+    "markupHeading",
+    "markupEmphasis",
+    "markupStrong",
+    "markupStrikethrough",
+    "markupCode",
+    "markupLink",
+    "markupUrl",
+    "markupList",
+    "markupPunctuation",
+    "markupFence",
+    "diffAdded",
+    "diffRemoved",
+    "diffModified",
+    "diffMoved",
+    "error",
+];
+
 #[cfg(test)]
 mod tests {
     use super::{Emphasis, SyntaxEmphasis};
@@ -357,5 +425,71 @@ mod tests {
 
         let back: SyntaxEmphasis = serde_json::from_str(&text).expect("its own output parses");
         assert_eq!(back, table);
+    }
+}
+
+#[cfg(test)]
+mod parity {
+    use super::{EVERY_CATEGORY_NAME, SyntaxEmphasis};
+    use crate::HighlightType;
+
+    /// ⭐ Every category a theme file can name is a category **this build's**
+    /// `HighlightType` has.
+    ///
+    /// Run in both feature configurations, which is the whole mechanism — see
+    /// [`EVERY_CATEGORY_NAME`] for why a `match` cannot do this job.
+    #[test]
+    fn every_named_category_exists_in_this_build() {
+        for name in EVERY_CATEGORY_NAME {
+            let json = format!("{{\"{name}\": {{\"weight\": 700}}}}");
+            let table: SyntaxEmphasis = serde_json::from_str(&json).unwrap_or_else(|error| {
+                panic!(
+                    "a theme naming `{name}` is refused by this build: {error}. \
+                     The two HighlightType enums have drifted — see \
+                     EVERY_CATEGORY_NAME."
+                )
+            });
+            assert_eq!(
+                table.entries().count(),
+                1,
+                "`{name}` parsed but produced no entry"
+            );
+        }
+    }
+
+    /// The list has no duplicates and no gaps big enough to be an oversight.
+    ///
+    /// ⚠️ A count, deliberately: it is the one cheap signal that a variant was
+    /// added to `iridium_syntax` and never written here. It will need updating
+    /// when a category is added, which is the point — that edit is the moment
+    /// somebody decides whether the stub needs it too.
+    #[test]
+    fn the_category_list_is_complete_and_distinct() {
+        let mut names = EVERY_CATEGORY_NAME.to_vec();
+        names.sort_unstable();
+        let total = names.len();
+        names.dedup();
+        assert_eq!(names.len(), total, "a category is listed twice");
+        assert_eq!(
+            total, 43,
+            "the category count moved — add the new one to EVERY_CATEGORY_NAME \
+             and to the stub in `syntax_stubs`, then update this number"
+        );
+    }
+
+    /// A name no build has must be refused, or the test above proves nothing:
+    /// a deserializer that accepted anything would pass it for every string.
+    #[test]
+    fn a_category_no_build_has_is_refused() {
+        let refused =
+            serde_json::from_str::<SyntaxEmphasis>(r#"{"diffSideways": {"weight": 700}}"#);
+        assert!(
+            refused.is_err(),
+            "an unknown category was accepted, so the parity test above is \
+             checking nothing"
+        );
+        // The control: a real one is accepted by the same call.
+        assert!(serde_json::from_str::<SyntaxEmphasis>(r#"{"keyword": {"weight": 700}}"#).is_ok());
+        let _ = HighlightType::Keyword;
     }
 }

@@ -915,3 +915,49 @@ fold-visible document line), but the *painter* still wraps, so:
 `extra_wrap_lines` among the things it deletes. ⚠️ **Do not "fix" either of
 these by re-deriving a total from the shaped window** — that is the loop above,
 returning.
+
+---
+
+## 12 Aug 2026, ~21:00 — state at compaction
+
+**Pushed and green:** `origin/main` clean, ten gates green, 0 unpushed. Landed
+this window: `db360125` scroll limit, `57257d8b` ⌘B, `d6ae40e8` + `f62d9d81`
+docs, `e9ae4245` overlay split, `515896cf` + `b25730e6` the `iridium-panel`
+crate.
+
+**Installed and verified** at 20:13: `explorer.toggleSidebar` ×2 present,
+`explorer.togglePlacement` **0** — the negative control that proves the bytes
+are new rather than the old ones still sitting there.
+
+### Tom's two live messages
+
+1. **R1 ratified**: *"absolutely definitely all need to share the same core, so
+   definitely don't want any duplicates."* The hoist is his call as well as
+   mine now.
+2. **⚠️ NEW DEFECT — the mouse does nothing in any panel but the context
+   menu.** Written up in full in `docs/IN-FLIGHT-115-panel-mouse.md`, including
+   the measured ground: `PanelGeometry::row_at` already exists and is tested,
+   `app/menu.rs` is its only caller, `dismiss_modal_panel` swallows the press,
+   and `wheel()` scrolls the document unconditionally. **This lands before
+   #112d step 2c** — he is using the sidebar now, and building the click path
+   before the hoist means it moves already-built instead of being ported.
+
+### Where #112d stands
+
+`docs/IN-FLIGHT-112d-terminal-oil.md` is the map. Steps 1, 2a and 2b are done
+and marked. Step **2c** is the explorer hoist, which is **atomic** — `buffer.rs`
+depends on `panel.rs::FileExplorer`, so only 43 of the 198 tests sit in
+free-standing modules.
+
+⚠️ **The census changes shape at 2c.** Today: file-tree 198 across seven
+modules, desktop lib 525, `iridium-panel` 4. After the hoist the desktop number
+*drops by ~198* and the panel crate's rises by the same. **The invariant is the
+workspace sum, not the desktop count** — a seat reading only the desktop number
+would call a correct move a loss.
+
+### The law this window earned, on top of the two already written
+
+8. **"The document must not see this" and "nothing else needs to see this" are
+   two sentences.** `dismiss_modal_panel` returning `true` meant the first and
+   was read as the second, and the result is a panel you cannot click. Third
+   instance this window of one value standing for two questions.

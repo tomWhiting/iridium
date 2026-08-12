@@ -1088,3 +1088,43 @@ band wants only a **width**, not the panel: `SearchOverlay::rows(below_status)`
 is the precedent — the chrome carries what the geometry needs and nothing more.
 
 **Not started. No files touched for step 5.** The tree is clean at `e1235bc5`.
+
+### 4. ✅/⚠️ THE INSTALL RAN — and the receipt is HALF proven
+
+`bl29wptz1` finished **exit 0**. Then the receipt, which is the point:
+
+- ✅ **The DESKTOP face is installed and verified.**
+  `/Applications/iridium.app/Contents/MacOS/iridium-desktop`, 20,557,056 bytes,
+  timestamped 13 Aug 00:50. `strings` finds **5** occurrences of
+  `iridium-panel/src/explorer` in it — a path that did not exist before this
+  session's hoist. Those bytes carry #112d step 2c.
+
+- ⚠️ **The TERMINAL face is NOT verified, and must not be claimed.**
+  The log says `installed /Users/tom/.local/bin/iridium`, but that file is
+  **3,264 bytes — a dispatcher script, not a binary.** It reads
+  `gui="/Applications/iridium.app/Contents/MacOS/iridium-desktop"` and, on
+  another branch, `exec "$tui" "$@"`. **Where `$tui` points was not resolved
+  before this context ended.**
+
+  `strings ~/.local/bin/iridium` finds **zero** occurrences of `file_explorer`
+  or of the sidebar-refusal sentence — which is expected of a shell script and
+  proves nothing either way about the terminal binary behind it.
+
+⭐ **The near-miss worth keeping: exit 0 plus "installed <path>" in the
+installer's own output was about to be read as "both faces are installed".**
+It is not. One face is proven; the other has an unexamined indirection in front
+of it. *Committed, pushed and installed are three different places* — and so
+are **two different faces behind one launcher**.
+
+**NEXT SEAT, first three commands:**
+
+```bash
+grep -n 'tui=' ~/.local/bin/iridium        # resolve $tui
+ls -la "$(that path)"                       # is it a real binary, and how old?
+strings "$(that path)" | grep -c "the sidebar placement is not in the terminal face yet"
+```
+
+A count of **1 or more** is the terminal receipt. **Zero means the terminal
+face on this box is older than `bb9d1a13` and `Ctrl+Alt+E` will do nothing** —
+in which case find what actually builds and installs the `iridium` TUI binary,
+because `bundle/install.sh` may only ever have installed the desktop one.

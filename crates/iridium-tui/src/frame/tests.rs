@@ -227,3 +227,151 @@ fn a_nested_span_wins_over_the_span_containing_it() {
         "the nested keyword must not take the identifier colour, got {colours:?}"
     );
 }
+
+#[test]
+fn a_left_band_moves_the_gutter_and_shrinks_the_text_area() {
+    // R4: the band takes columns *from* the document. Three measures follow it
+    // — the gutter's origin, the text area's origin and width — and this is
+    // the test that says all three moved together rather than one of them.
+    let mut editor = Editor::with_defaults();
+    editor.set_content("alpha\nbeta\ngamma");
+
+    let bare = Frame::layout(&editor, 40, 6, Chrome::default());
+    let banded = Frame::layout(
+        &editor,
+        40,
+        6,
+        Chrome {
+            sidebar_columns: 12,
+            ..Chrome::default()
+        },
+    );
+
+    assert_eq!(banded.sidebar_columns, 12);
+    assert_eq!(
+        banded.gutter_width, bare.gutter_width,
+        "the band must not change how many digits a line number needs"
+    );
+    assert_eq!(
+        banded.text.origin,
+        12 + bare.text.origin,
+        "the gutter did not start after the band"
+    );
+    assert_eq!(
+        banded.text.width,
+        bare.text.width - 12,
+        "the text area kept columns the band had taken"
+    );
+}
+
+#[test]
+fn a_left_band_shrinks_the_kernels_viewport_too() {
+    // ⭐ The same defect the search panel has on the other axis: a viewport
+    // that still claimed the band's columns would let the kernel scroll text
+    // underneath the panel that took them.
+    let mut editor = Editor::with_defaults();
+    editor.set_content("alpha\nbeta\ngamma");
+
+    let bare = Frame::layout(&editor, 40, 6, Chrome::default());
+    let banded = Frame::layout(
+        &editor,
+        40,
+        6,
+        Chrome {
+            sidebar_columns: 12,
+            ..Chrome::default()
+        },
+    );
+    assert!(
+        banded.viewport.width < bare.viewport.width,
+        "the kernel's viewport still described the full width: {} vs {}",
+        banded.viewport.width,
+        bare.viewport.width
+    );
+
+    Frame::sync_viewport(
+        &mut editor,
+        40,
+        6,
+        Chrome {
+            sidebar_columns: 12,
+            ..Chrome::default()
+        },
+    );
+    // Both sides are `cell_units` of a whole column count, so they are exactly
+    // representable and an epsilon compare is a lint requirement rather than a
+    // tolerance the arithmetic needs.
+    assert!(
+        (editor.state().viewport.width - banded.viewport.width).abs() < f32::EPSILON,
+        "the kernel's viewport width was not written from the banded layout"
+    );
+}
+
+#[test]
+fn a_band_as_wide_as_the_screen_leaves_nothing_rather_than_panicking() {
+    // Arithmetic with no guard of its own: everything downstream is a zero-width
+    // area, which paints no cells and places no caret. A band WIDER than the
+    // screen is clamped to it rather than wrapping a subtraction.
+    let mut editor = Editor::with_defaults();
+    editor.set_content("alpha");
+
+    for band in [40, 100] {
+        let layout = Frame::layout(
+            &editor,
+            40,
+            6,
+            Chrome {
+                sidebar_columns: band,
+                ..Chrome::default()
+            },
+        );
+        assert_eq!(layout.sidebar_columns, 40, "band {band} was not clamped");
+        assert_eq!(layout.gutter_width, 0);
+        assert_eq!(layout.text.width, 0);
+        assert_eq!(layout.primary_caret, None);
+
+        let mut buffer = CellBuffer::new(40, 6);
+        let mut frame = Frame::new();
+        frame.render(
+            &editor,
+            Chrome {
+                sidebar_columns: band,
+                ..Chrome::default()
+            },
+            &mut buffer,
+        );
+    }
+}
+
+#[test]
+fn the_gutter_paints_after_the_band_and_not_underneath_it() {
+    // ⚠️ `gutter::width` returns a width and never an origin, so until the band
+    // existed the gutter wrote at absolute column zero. That is exactly the
+    // assumption a band breaks, and this reads the cells back rather than the
+    // geometry: sabotaging `GutterArea::origin` to zero puts " 1" under the
+    // panel and fails here.
+    let mut editor = Editor::with_defaults();
+    editor.set_content("alpha\nbeta");
+
+    let mut buffer = CellBuffer::new(40, 6);
+    let mut frame = Frame::new();
+    frame.render(
+        &editor,
+        Chrome {
+            sidebar_columns: 12,
+            ..Chrome::default()
+        },
+        &mut buffer,
+    );
+
+    let row = row_text(&buffer, 0);
+    let cells: Vec<char> = row.chars().collect();
+    assert!(
+        cells[..12].iter().all(|glyph| *glyph == ' '),
+        "something was painted in the band's own columns: {row:?}"
+    );
+    assert!(
+        row.trim_start().starts_with("1  alpha"),
+        "the line number did not land after the band: {row:?}"
+    );
+}

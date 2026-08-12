@@ -507,8 +507,78 @@ Each step is checkable on its own, and the first two are strictly refactor.
 
    *Revert cost: two commits; the panel module is self-contained and the
    wiring is additive apart from `Deed`.*
-5. **The left band** — R4. `FrameLayout` gives up columns; gutter, `TextArea`
-   and `Viewport` follow; zero is written, not skipped.
+5. ✅ **The left band** — R4. **LANDED 13 Aug 2026.** `FrameLayout` gives up
+   columns; gutter, `TextArea` and `Viewport` follow; zero is written, not
+   skipped.
+
+   **The geometry.** `Chrome::sidebar_columns` in, `FrameLayout::sidebar_columns`
+   out. The band comes off the screen *first* and everything on the X axis is
+   measured against what is left — sizing the gutter against the full width and
+   subtracting afterwards would let a wide gutter and a wide band together claim
+   more columns than the screen has. One field and not two (a width and an
+   origin that must agree): the band starts at the left edge, so its width *is*
+   the gutter's origin, and `FrameLayout::gutter_area()` derives it.
+
+   ⚠️ **The assumed column zero was real.** `gutter::paint` wrote its line
+   number at absolute `0` and `blank_row` filled `0..width`. Both now take a
+   `GutterArea { origin, width }`. Measured, not assumed: forcing that origin
+   back to zero fails `the_gutter_paints_after_the_band_and_not_underneath_it`
+   and nothing else.
+
+   **The furniture.** A new `SidebarBox` beside `FloatingBox` in `frame/panel.rs`.
+   ⭐ *A floating box is furniture with an outside — four borders, because it
+   sits on something. A band has no outside on three of its four edges, so it is
+   drawn with one vertical rule on its right.* That also disposes of the corner
+   question this face would otherwise inherit: a panel flush at column zero has
+   no free corners to round. It stops above the statusline, which describes the
+   *document* and keeps the full width.
+
+   Width: 32 columns, never more than half the screen, refused below `MIN_WIDTH`
+   — a file tree that leaves the document narrower than itself has inverted
+   which one is the point.
+
+   **The seam.** `ExplorerOutcome::ToggleSidebar` now flips an `Anchor` inside
+   `FileExplorerPanel` and reports `Handled`; the host learns about it from a
+   different answer to `sidebar_columns(columns, rows)`. ⚠️ That is asked **every
+   frame** and its answer written **even when zero** — the band is refused on a
+   screen too small for one, so the same panel answers 32 then 0 across a resize
+   with no key pressed. A sidebar the screen cannot fit falls back to a popover
+   *for that frame* without forgetting it was chosen.
+
+   ⚠️ **The kernel's viewport is not the frame's geometry.** `Chrome` reaches
+   the geometry every frame, so what is drawn follows the band at once; the
+   kernel's viewport is only written by `sync_viewport`. `App::resync_after_band_change`
+   calls it when — and only when — the width actually moved, because
+   `sync_viewport` reaches `Editor::state_mut`, which discards the keyboard
+   handler's transient state.
+
+   ⚠️ **The interaction R4 did not name: the search panel.** The explorer is
+   checked before search in `handle_key`, so a search panel cannot be opened
+   while the tree is up — but it can already *be* up when the tree opens, and a
+   band running to the bottom of the screen paints over its left thirty columns.
+   Ruled: **the band spans the document's rows, not the screen's.** The panel
+   already takes its rows *from the document*, so it is a peer of the band and
+   not something the band sits beside; and the statusline describes the document
+   and keeps the full width.
+
+   The number is `frame::document_rows(rows, search_open)` — factored out of
+   `layout` and made public rather than recomputed in the host, because a second
+   copy of that arithmetic in `apps/iridium` would be wrong the first time the
+   search panel changed height. The host passes the same value to
+   `sidebar_columns` and to `paint`, which is what keeps the columns given up and
+   the columns drawn in from disagreeing.
+
+   The old `the_sidebar_request_is_reported_rather_than_swallowed` test was
+   **deleted**, as it was written to be. Five replaced it, plus four on the
+   geometry. Census: iridium-tui **313 → 321**.
+
+   **Three sabotages, each measured rather than claimed:**
+
+   | sabotage | what failed |
+   |---|---|
+   | `GutterArea::origin` forced to `0` | `the_gutter_paints_after_the_band_and_not_underneath_it`, alone |
+   | `Placement::close`'s leftover-row loop dropped | `every_row_the_band_reserved_is_painted_even_past_the_last_file` + the flush-edge test |
+   | `SidebarBox::fitted(columns, rows)` instead of `band_rows` | `a_band_stops_at_the_rows_it_was_given…` + the flush-edge test |
 6. **`iridium <dir>`** — R5. The CLI learns what a directory is, the session
    takes it as its project, and the tree is up when the editor is.
 

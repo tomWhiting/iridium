@@ -8,7 +8,7 @@
 //! [`iridium_panel::explorer`]'s, and are tested there — 215 of them. Repeating
 //! any of it in this file would be testing a re-export. What is this face's,
 //! and so what is tested here, is: the conversion from rows to cells, the box
-//! it lands in, the caret, and the one outcome this face cannot yet honour.
+//! it lands in, the caret, and which of its two placements it takes.
 
 use std::time::{Duration, Instant};
 
@@ -19,10 +19,11 @@ use iridium_file::test_support::TempDir;
 use iridium_editor::theme::Color;
 use iridium_panel::{PanelBody, PanelRow, Span};
 
+use super::paint::Placement;
 use super::{ExplorerAction, FileExplorerPanel};
 use crate::cell::{CellBuffer, CellContent};
 use crate::frame::palette::Palette;
-use crate::frame::panel::TOP;
+use crate::frame::panel::{FloatingBox, TOP};
 
 /// How long a listing is waited for before the test gives up.
 ///
@@ -76,11 +77,20 @@ fn row_text(buffer: &CellBuffer, row: usize) -> String {
     out
 }
 
+/// How many rows a band may span on a screen this tall, with no search panel.
+///
+/// The host's own number, from the frame, rather than `rows - 1` written here:
+/// a test that computed its own would stop agreeing with the editor the first
+/// time the statusline or the search panel changed height.
+fn band_rows(rows: usize) -> usize {
+    crate::frame::document_rows(rows, false)
+}
+
 /// Paints the panel on a screen of this size and returns every row as text.
 fn painted(panel: &mut FileExplorerPanel, columns: usize, rows: usize) -> Vec<String> {
     let mut buffer = CellBuffer::new(columns, rows);
     let styles = Palette::from_theme(&Theme::dark());
-    panel.paint(&mut buffer, &Theme::dark(), &styles);
+    panel.paint(&mut buffer, band_rows(rows), &Theme::dark(), &styles);
     (0..rows).map(|row| row_text(&buffer, row)).collect()
 }
 
@@ -128,7 +138,8 @@ fn a_run_after_a_wide_one_starts_where_that_run_actually_ended() {
     };
     let mut buffer = CellBuffer::new(40, 10);
     let styles = Palette::from_theme(&Theme::dark());
-    super::paint::paint(&body, &mut buffer, &styles);
+    let panel_box = FloatingBox::fitted(40, 10).expect("a 40x10 screen fits a panel");
+    super::paint::paint(&body, Placement::Popover(panel_box), &mut buffer, &styles);
 
     let row = row_text(&buffer, TOP + 1);
     assert!(
@@ -188,7 +199,7 @@ fn the_caret_lands_on_the_query_row_inside_the_box() {
     let mut buffer = CellBuffer::new(80, 24);
     let styles = Palette::from_theme(&Theme::dark());
     let caret = panel
-        .paint(&mut buffer, &Theme::dark(), &styles)
+        .paint(&mut buffer, band_rows(24), &Theme::dark(), &styles)
         .expect("an 80x24 screen fits the panel and its query field");
 
     // The query row is the first interior row: one below the box's top border,
@@ -206,7 +217,10 @@ fn a_screen_too_small_for_an_honest_panel_draws_nothing_rather_than_panicking() 
     let mut panel = opened(&directory);
     let mut buffer = CellBuffer::new(8, 3);
     let styles = Palette::from_theme(&Theme::dark());
-    assert_eq!(panel.paint(&mut buffer, &Theme::dark(), &styles), None);
+    assert_eq!(
+        panel.paint(&mut buffer, band_rows(3), &Theme::dark(), &styles),
+        None
+    );
     let screen = (0..3).map(|row| row_text(&buffer, row)).collect::<String>();
     assert!(
         screen.trim().is_empty(),
@@ -224,34 +238,161 @@ fn escape_closes_the_panel() {
     );
 }
 
-#[test]
-fn the_sidebar_request_is_reported_rather_than_swallowed() {
-    // ⚠️ **A channel that can only carry success is a defect.** The terminal
-    // face has no sidebar placement yet, and a key that silently did nothing
-    // would be indistinguishable from a key that is broken. This is the test
-    // that has to be deleted — not merely edited — when step 5 lands, which is
-    // the point of writing it as an equality rather than as `is_some`.
-    let directory = project("tui-explorer-sidebar");
-    let mut panel = opened(&directory);
-    let action = panel.handle_key(&KeyEvent {
+/// The chord the shared panel binds for the sidebar.
+///
+/// It binds `Ctrl+Alt+B` alongside `Cmd+B`, and only the first is a chord a
+/// terminal can deliver. Spelled out rather than taken from a helper, so these
+/// tests break loudly if the binding moves — the point of them is that a
+/// specific key reaches a specific placement.
+fn sidebar_chord() -> KeyEvent {
+    KeyEvent {
         key: KeyCode::Char('b'),
-        // The shared panel binds `Ctrl+Alt+B` alongside `Cmd+B`, and only the
-        // first of those is a chord a terminal can deliver. Spelled out here
-        // rather than taken from a helper so the test breaks loudly if the
-        // binding moves — the point of this test is that a specific key
-        // reaches a specific answer.
         modifiers: Modifiers {
             ctrl: true,
             alt: true,
             ..Modifiers::none()
         },
         is_repeat: false,
-    });
-    match action {
-        ExplorerAction::Report(message) => assert!(
-            message.contains("sidebar"),
-            "the report said nothing about what was refused: {message:?}"
-        ),
-        other => panic!("the sidebar request was not reported: {other:?}"),
     }
+}
+
+#[test]
+fn the_sidebar_chord_takes_columns_from_the_document_and_gives_them_back() {
+    // R4: the band takes columns *from* the document rather than floating over
+    // them. What the host reads is this number, so it is what the test reads.
+    let directory = project("tui-explorer-sidebar");
+    let mut panel = opened(&directory);
+    assert_eq!(
+        panel.sidebar_columns(80, band_rows(24)),
+        0,
+        "a panel opens as a popover and costs the document nothing"
+    );
+
+    assert_eq!(panel.handle_key(&sidebar_chord()), ExplorerAction::Handled);
+    let band = panel.sidebar_columns(80, band_rows(24));
+    assert!(
+        band > 0 && band < 40,
+        "the band took none of the screen, or more than half of it: {band}"
+    );
+
+    // ⚠️ Zero is a value it writes, not a case it skips.
+    assert_eq!(panel.handle_key(&sidebar_chord()), ExplorerAction::Handled);
+    assert_eq!(
+        panel.sidebar_columns(80, band_rows(24)),
+        0,
+        "the columns were not given back when the sidebar was toggled off"
+    );
+}
+
+#[test]
+fn a_screen_too_narrow_for_an_honest_band_keeps_the_popover() {
+    // ⭐ The refusal has to be visible in BOTH answers or they disagree: a
+    // panel that reported columns it then declined to draw in would leave the
+    // document short of a band that is not there.
+    let directory = project("tui-explorer-narrow");
+    let mut panel = opened(&directory);
+    panel.handle_key(&sidebar_chord());
+
+    assert_eq!(
+        panel.sidebar_columns(30, band_rows(24)),
+        0,
+        "a 30-column screen cannot hold a band and the document too"
+    );
+
+    let screen = painted(&mut panel, 30, 24).join("\n");
+    assert!(
+        screen.contains('╭') && screen.contains('╮'),
+        "the panel drew neither a band nor a box:\n{screen}"
+    );
+}
+
+#[test]
+fn the_band_is_flush_at_the_left_edge_with_a_rule_down_its_right() {
+    let directory = project("tui-explorer-band");
+    let mut panel = opened(&directory);
+    panel.handle_key(&sidebar_chord());
+
+    let (columns, rows) = (80, 24);
+    let band = panel.sidebar_columns(columns, band_rows(rows));
+    let screen = painted(&mut panel, columns, rows);
+
+    // Every row the band spans carries its rule in the same column, and the
+    // statusline row is not one of them.
+    for (row, text) in screen.iter().enumerate().take(rows - 1) {
+        let cells: Vec<char> = text.chars().collect();
+        assert_eq!(
+            cells.get(band - 1),
+            Some(&'│'),
+            "row {row} lost the band's rule: {text:?}"
+        );
+    }
+    let last = &screen[rows - 1];
+    assert!(
+        !last.starts_with('│') && last.chars().nth(band - 1) != Some('│'),
+        "the band covered the statusline, which describes the document: {last:?}"
+    );
+}
+
+#[test]
+fn every_row_the_band_reserved_is_painted_even_past_the_last_file() {
+    // ⭐ **The "zero is written, not skipped" rule, one layer down.** Two files
+    // fill four or five rows of a twenty-three-row band. The document is laid
+    // out to start *after* the band, so nothing else will ever paint the rest
+    // of it: skip them and a full-height column reads as a short box with bare
+    // screen below it.
+    //
+    // Sabotage check: dropping the leftover-row loop in `Placement::close`
+    // fails this on the first row past the list.
+    let directory = project("tui-explorer-tail");
+    let mut panel = opened(&directory);
+    panel.handle_key(&sidebar_chord());
+
+    let (columns, rows) = (80, 24);
+    let band = panel.sidebar_columns(columns, band_rows(rows));
+    let screen = painted(&mut panel, columns, rows);
+
+    let last_band_row = rows - 2;
+    let cells: Vec<char> = screen[last_band_row].chars().collect();
+    assert_eq!(
+        cells.get(band - 1),
+        Some(&'│'),
+        "the band stopped where its list did: {:?}",
+        screen[last_band_row]
+    );
+}
+
+#[test]
+fn a_band_stops_at_the_rows_it_was_given_and_not_at_the_screens_edge() {
+    // ⚠️ **The search panel's rows are not the band's to take.** The host hands
+    // in `document_rows`, which already excludes the statusline and any open
+    // search panel, and the band must honour it rather than running to the
+    // bottom of the buffer. Painting past it would put a file tree over a panel
+    // that took its rows from the same document.
+    //
+    // Sabotage check: passing `buffer.height()` instead of `band_rows` into
+    // `SidebarBox::fitted` fails this on row 10.
+    let directory = project("tui-explorer-shortband");
+    let mut panel = opened(&directory);
+    panel.handle_key(&sidebar_chord());
+
+    let (columns, rows, allowed) = (80, 24, 10);
+    let band = panel.sidebar_columns(columns, allowed);
+    assert!(band > 0, "a ten-row band should still fit");
+
+    let mut buffer = CellBuffer::new(columns, rows);
+    let styles = Palette::from_theme(&Theme::dark());
+    panel.paint(&mut buffer, allowed, &Theme::dark(), &styles);
+
+    let last = row_text(&buffer, allowed - 1);
+    assert_eq!(
+        last.chars().nth(band - 1),
+        Some('│'),
+        "the band did not reach the last row it was given: {last:?}"
+    );
+    let past = row_text(&buffer, allowed);
+    assert_ne!(
+        past.chars().nth(band - 1),
+        Some('│'),
+        "the band ran past the rows it was given: {past:?}"
+    );
 }

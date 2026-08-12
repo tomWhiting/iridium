@@ -26,18 +26,19 @@
 //! decide what each one means — including the printable characters, which go
 //! to the filter — so there is nothing here to keep in step with the GPU face.
 //!
-//! # ⚠️ One outcome this face cannot yet honour, and it says so
+//! # The two placements
 //!
-//! [`ExplorerOutcome::ToggleSidebar`] asks for the panel to become a
-//! full-height column down the left edge, taking columns *from* the document.
-//! The terminal face has no such placement yet — it is #112d step 5, where
-//! `FrameLayout` learns to give up columns.
+//! A **popover** floats over the document; a **sidebar** is a full-height band
+//! down the left edge that takes its columns *from* the document (R4, #112d
+//! step 5). [`ExplorerOutcome::ToggleSidebar`] switches between them.
 //!
-//! **It is reported rather than swallowed.** [`ExplorerAction::Report`]
-//! carries a sentence for the statusline, because a key that silently does
-//! nothing is indistinguishable from a key that is broken, and the person
-//! pressing it has no way to tell which. A channel that can only carry success
-//! is a defect.
+//! ⚠️ **The host must ask [`FileExplorerPanel::sidebar_columns`] every frame
+//! and put the answer in [`Chrome::sidebar_columns`](crate::frame::Chrome).**
+//! Zero is a value it writes, not a case it skips: a host that only assigns the
+//! band width while a sidebar is open leaves the document short of columns
+//! after it closes. The number is screen-dependent, because a band that will
+//! not fit honestly is not taken at all — so it cannot be cached across a
+//! resize.
 
 mod paint;
 
@@ -49,9 +50,10 @@ use iridium_editor::theme::Theme;
 use iridium_panel::PanelFit;
 use iridium_panel::explorer::{ExplorerOutcome, FileExplorer};
 
+use self::paint::Placement;
 use super::CellPosition;
 use super::palette::Palette;
-use super::panel::{FloatingBox, TOP};
+use super::panel::{FloatingBox, SidebarBox, TOP};
 use crate::cell::CellBuffer;
 
 /// What the host should do after handing the explorer a key.
@@ -78,7 +80,11 @@ impl ExplorerAction {
     /// Translates a shared outcome into what this face does about it.
     fn from_outcome(outcome: ExplorerOutcome) -> Self {
         match outcome {
-            ExplorerOutcome::Handled => Self::Handled,
+            // A sidebar toggle joins `Handled` because the placement is this
+            // face's own state: the panel changes shape and no host has to know
+            // a key was pressed. It reaches the host anyway, on the next frame,
+            // as a different answer from `sidebar_columns`.
+            ExplorerOutcome::Handled | ExplorerOutcome::ToggleSidebar => Self::Handled,
             // Dismissed and Closed differ only in whether the panel asked to
             // go or was told to; a face with one placement has nothing to do
             // differently about that, and pretending otherwise would be a
@@ -86,11 +92,17 @@ impl ExplorerAction {
             ExplorerOutcome::Dismissed | ExplorerOutcome::Closed => Self::Close,
             ExplorerOutcome::Open(path) => Self::Open(path),
             ExplorerOutcome::Failed(message) => Self::Report(message),
-            ExplorerOutcome::ToggleSidebar => {
-                Self::Report("the sidebar placement is not in the terminal face yet".to_owned())
-            },
         }
     }
+}
+
+/// Where the panel sits on the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Anchor {
+    /// Floating over the document.
+    Popover,
+    /// A full-height band down the left edge, if one fits.
+    Sidebar,
 }
 
 /// The terminal face's file explorer panel.
@@ -98,6 +110,13 @@ impl ExplorerAction {
 pub struct FileExplorerPanel {
     /// The shared panel, which owns every piece of state there is.
     explorer: FileExplorer,
+    /// Which placement the panel is asking for.
+    ///
+    /// ⚠️ *Asking for*, not occupying: a sidebar the screen cannot fit
+    /// honestly falls back to a popover for that frame without forgetting that
+    /// a sidebar was chosen. Widening the terminal then restores it, which is
+    /// what a person who dragged a window narrow and back expects.
+    anchor: Anchor,
 }
 
 impl FileExplorerPanel {
@@ -108,7 +127,33 @@ impl FileExplorerPanel {
     /// Returns the shared panel's own message when the directory cannot be
     /// read — already a sentence fit for the statusline.
     pub fn open(root: std::path::PathBuf, crawl: bool) -> Result<Self, String> {
-        FileExplorer::open(root, crawl).map(|explorer| Self { explorer })
+        FileExplorer::open(root, crawl).map(|explorer| Self {
+            explorer,
+            // A popover to begin with, in both faces. The panel is opened by a
+            // chord far more often to find one file than to keep a tree up, and
+            // the placement that costs the document nothing is the one to
+            // default to.
+            anchor: Anchor::Popover,
+        })
+    }
+
+    /// How many columns the document must give up to this panel.
+    ///
+    /// `band_rows` is [`document_rows`](crate::frame::document_rows) — how many
+    /// rows the band may span — and **must be the same number the host later
+    /// passes to [`paint`](Self::paint)**, or the document gives up columns to
+    /// a band that then declines to draw.
+    ///
+    /// ⚠️ **Ask every frame and write the answer, zero included.** The band is
+    /// refused on a screen too small to hold one honestly, so the same panel
+    /// answers 32 and then 0 across a resize with no key pressed in between.
+    /// A host that cached this would starve the document of columns nothing
+    /// draws in — which is the failure this sentence exists to make findable.
+    pub fn sidebar_columns(&self, columns: usize, band_rows: usize) -> usize {
+        match self.anchor {
+            Anchor::Popover => 0,
+            Anchor::Sidebar => SidebarBox::fitted(columns, band_rows).map_or(0, |band| band.width),
+        }
     }
 
     /// Collects any directory listing that has arrived since the last frame.
@@ -144,7 +189,14 @@ impl FileExplorerPanel {
 
     /// Hands one key to the panel.
     pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerAction {
-        ExplorerAction::from_outcome(self.explorer.handle_key(event))
+        let outcome = self.explorer.handle_key(event);
+        if matches!(outcome, ExplorerOutcome::ToggleSidebar) {
+            self.anchor = match self.anchor {
+                Anchor::Popover => Anchor::Sidebar,
+                Anchor::Sidebar => Anchor::Popover,
+            };
+        }
+        ExplorerAction::from_outcome(outcome)
     }
 
     /// Composes and paints the panel, reporting where the caret landed.
@@ -158,17 +210,39 @@ impl FileExplorerPanel {
     pub fn paint(
         &mut self,
         buffer: &mut CellBuffer,
+        band_rows: usize,
         theme: &Theme,
         styles: &Palette,
     ) -> Option<CellPosition> {
-        let panel_box = FloatingBox::fitted(buffer.width(), buffer.height())?;
-        let interior = interior_rows(buffer.height())?;
-        let body = self.explorer.body(
-            theme,
-            PanelFit::popover(panel_box.content_width(), interior),
-        );
-        paint::paint(&body, buffer, styles)
+        let (columns, rows) = (buffer.width(), buffer.height());
+        let (placement, fit) = match self.anchor {
+            Anchor::Sidebar => SidebarBox::fitted(columns, band_rows)
+                .map(|band| {
+                    (
+                        Placement::Sidebar(band),
+                        PanelFit::sidebar(band.content_width(), band.rows),
+                    )
+                })
+                // ⚠️ Falls back rather than drawing nothing. A band that will
+                // not fit is a placement the screen cannot afford, not a panel
+                // the person closed — and `sidebar_columns` refuses the same
+                // screen, so the document keeps the columns the band declined.
+                .or_else(|| popover(columns, rows))?,
+            Anchor::Popover => popover(columns, rows)?,
+        };
+        let body = self.explorer.body(theme, fit);
+        paint::paint(&body, placement, buffer, styles)
     }
+}
+
+/// The floating placement and its fit, on a screen that can hold one.
+fn popover(columns: usize, rows: usize) -> Option<(Placement, PanelFit)> {
+    let panel_box = FloatingBox::fitted(columns, rows)?;
+    let interior = interior_rows(rows)?;
+    Some((
+        Placement::Popover(panel_box),
+        PanelFit::popover(panel_box.content_width(), interior),
+    ))
 }
 
 /// How many interior rows a floating box has on a screen this tall.

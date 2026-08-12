@@ -147,6 +147,7 @@ fn render(editor: &Editor, overlay: &SearchOverlay, width: usize, height: usize)
     let chrome = Chrome {
         status: crate::frame::Status::default(),
         search: Some(overlay),
+        sidebar_columns: 0,
     };
     let layout = frame.render(editor, chrome, &mut buffer);
     Screen { buffer, layout }
@@ -948,6 +949,7 @@ fn the_panel_takes_its_rows_from_the_document() {
         Chrome {
             status: crate::frame::Status::default(),
             search: Some(&overlay),
+            sidebar_columns: 0,
         },
     );
     assert_eq!(with.text_rows, 5, "two rows go to the panel");
@@ -964,6 +966,7 @@ fn the_kernels_viewport_shrinks_with_the_panel() {
     let chrome = Chrome {
         status: crate::frame::Status::default(),
         search: Some(&overlay),
+        sidebar_columns: 0,
     };
 
     Frame::sync_viewport(&mut editor, 60, 8, Chrome::default());

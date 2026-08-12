@@ -69,7 +69,7 @@ use crate::cell::{CellBuffer, Color, Style};
 
 pub use self::command_palette::{CommandPalette, PaletteOutcome};
 pub use self::file_explorer::{ExplorerAction, FileExplorerPanel};
-pub use self::geometry::{CellPosition, Chrome, FrameLayout};
+pub use self::geometry::{CellPosition, Chrome, FrameLayout, document_rows};
 pub use self::history_panel::{HistoryOutcome, HistoryPanel};
 pub use self::line::{LineLayout, PlacedCluster};
 pub use self::palette::Palette;
@@ -259,7 +259,7 @@ impl Frame {
             row,
             is_active,
             palette,
-            geometry.gutter_width,
+            geometry.gutter_area(),
         );
 
         let line_start = state

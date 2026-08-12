@@ -473,6 +473,7 @@ impl App {
     /// asked here instead, or a directory's worth of typed renames goes with
     /// one chord and nothing says so.
     fn toggle_explorer(&mut self) -> Flow {
+        let band = self.sidebar_columns();
         if let Some(explorer) = self.explorer.as_ref() {
             if explorer.has_unapplied_edits() {
                 self.message = Some(Message::error(
@@ -482,6 +483,7 @@ impl App {
                 return Flow::Running;
             }
             self.explorer = None;
+            self.resync_after_band_change(band);
             return Flow::Running;
         }
         let root = self.explorer_root();
@@ -493,7 +495,27 @@ impl App {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));
             },
         }
+        self.resync_after_band_change(band);
         Flow::Running
+    }
+
+    /// Writes the kernel's viewport again when the left band's width moved.
+    ///
+    /// ⚠️ **The frame's geometry and the kernel's viewport are two different
+    /// things.** `Chrome` reaches the geometry every frame, so what is *drawn*
+    /// follows the band immediately; the kernel's own viewport is only written
+    /// by `sync_viewport`, and it is what the scroll verbs measure against. Skip
+    /// this and the document draws in the columns it has while the kernel keeps
+    /// scrolling against the columns it used to have.
+    ///
+    /// Guarded on an actual change rather than called after every explorer key,
+    /// because `sync_viewport` reaches `Editor::state_mut`, which discards the
+    /// keyboard handler's transient state — see this module's own note on what
+    /// that costs.
+    fn resync_after_band_change(&mut self, before: usize) {
+        if self.sidebar_columns() != before {
+            self.sync_viewport();
+        }
     }
 
     /// Where this face opens the explorer when nobody said.
@@ -525,10 +547,12 @@ impl App {
 
     /// Hands a key to the open explorer and acts on the outcome.
     fn drive_explorer(&mut self, event: &KeyEvent) -> Flow {
+        let band = self.sidebar_columns();
         let Some(explorer) = self.explorer.as_mut() else {
             return Flow::Running;
         };
-        match explorer.handle_key(event) {
+        let action = explorer.handle_key(event);
+        let flow = match action {
             ExplorerAction::Handled => Flow::Running,
             ExplorerAction::Close => {
                 self.explorer = None;
@@ -538,14 +562,17 @@ impl App {
                 self.explorer = None;
                 self.request_open(path)
             },
-            // Everything the panel could not do, in its own words. This is the
-            // arm that keeps `ToggleSidebar` from being a dead key while the
-            // terminal has no sidebar to toggle.
+            // Everything the panel could not do, in its own words.
             ExplorerAction::Report(message) => {
                 self.message = Some(Message::error(message));
                 Flow::Running
             },
-        }
+        };
+        // The sidebar chord reports `Handled` like any other key — the
+        // placement is the panel's own state — so the band's width is what
+        // says it moved.
+        self.resync_after_band_change(band);
+        flow
     }
 
     /// Hands a key to the open palette and acts on the outcome.

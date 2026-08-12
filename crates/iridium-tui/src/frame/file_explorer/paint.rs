@@ -1,16 +1,19 @@
-//! Drawing the file explorer's floating panel.
+//! Drawing the file explorer, in either of its two placements.
 //!
 //! ```text
-//!     ╭──────────────────────────────────────────╮
-//!     │ > src              tab to edit these rows │
-//!     │ ▾ crates                                 │
-//!     │   ▾ iridium-panel                        │
-//!     │     src                                  │
-//!     ╰──────────────────────────────────────────╯
+//!     ╭──────────────────────────────────────────╮   > src         │ fn main() {
+//!     │ > src              tab to edit these rows │   ▾ crates      │     …
+//!     │ ▾ crates                                 │   ▾ iridium-p…  │ }
+//!     │   ▾ iridium-panel                        │     src         │
+//!     ╰──────────────────────────────────────────╯                 │
+//!            a popover, floating over the text          a sidebar, taking columns
 //! ```
 //!
 //! The box is [`FloatingBox`], shared with the palette and the undo tree; see
-//! [`panel`](crate::frame::panel) for why the corners are round.
+//! [`panel`](crate::frame::panel) for why its corners are round, and for why
+//! the band has none to round. Which one is drawn is [`Placement`], and it is
+//! the *only* thing that differs between them: the rows themselves come from
+//! the same shared builder either way.
 //!
 //! # ⭐ Nothing here decides what a row says
 //!
@@ -48,47 +51,138 @@
 
 use iridium_panel::{PanelBody, PanelCaret};
 
-use crate::cell::CellBuffer;
+use crate::cell::{CellBuffer, Style};
 use crate::frame::CellPosition;
 use crate::frame::line::LineLayout;
 use crate::frame::palette::Palette;
-use crate::frame::panel::{FloatingBox, TOP};
+use crate::frame::panel::{FloatingBox, SidebarBox, TOP};
 use crate::frame::text::{self, TextArea};
 
-/// Paints `body` into a floating box and reports where its caret landed.
+/// The furniture a body is painted into: a box that floats, or a band that
+/// takes columns from the document.
 ///
-/// `None` when the screen cannot hold an honest panel, or when the caret fell
-/// outside the rows that fit — the same answer the palette gives, and for the
-/// same reason: a caret drawn where its row is not is worse than no caret.
+/// ⭐ **One enum rather than two paint functions**, because everything between
+/// the first row and the last is identical — the rows, their runs, their
+/// widths and their caret are the shared panel's, and the only thing a
+/// placement decides is what surrounds them. Two functions would be two places
+/// for a row-painting rule to be fixed in.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Placement {
+    /// A floating box, centred, one row down from the top.
+    Popover(FloatingBox),
+    /// A full-height band down the left edge.
+    Sidebar(SidebarBox),
+}
+
+impl Placement {
+    /// The area a row's runs are painted into.
+    const fn content(self) -> TextArea {
+        let (origin, width) = match self {
+            Self::Popover(panel_box) => (panel_box.content_origin(), panel_box.content_width()),
+            Self::Sidebar(band) => (SidebarBox::CONTENT_ORIGIN, band.content_width()),
+        };
+        TextArea {
+            origin,
+            width,
+            scroll: 0,
+        }
+    }
+
+    /// The screen row the first body row lands on.
+    ///
+    /// A band starts at the top of the screen because it has no border above
+    /// it; a box starts below the one it drew.
+    const fn first_row(self) -> usize {
+        match self {
+            Self::Popover(_) => TOP + 1,
+            Self::Sidebar(_) => 0,
+        }
+    }
+
+    /// How many rows the furniture can hold body rows in.
+    const fn capacity(self) -> usize {
+        match self {
+            // A box grows to its content, so the only bound is the body.
+            Self::Popover(_) => usize::MAX,
+            Self::Sidebar(band) => band.rows,
+        }
+    }
+
+    /// Draws whatever sits above the first body row.
+    fn open(self, buffer: &mut CellBuffer, style: Style) {
+        if let Self::Popover(panel_box) = self {
+            panel_box.top_border(buffer, TOP, style);
+        }
+    }
+
+    /// Blanks one row of furniture, edges included.
+    fn blank_row(self, buffer: &mut CellBuffer, row: usize, style: Style) {
+        match self {
+            Self::Popover(panel_box) => panel_box.blank_row(buffer, row, style),
+            Self::Sidebar(band) => band.blank_row(buffer, row, style),
+        }
+    }
+
+    /// Draws a separator across one already-blanked row.
+    fn rule_row(self, buffer: &mut CellBuffer, row: usize, style: Style) {
+        match self {
+            Self::Popover(panel_box) => panel_box.rule_row(buffer, row, style),
+            Self::Sidebar(band) => band.rule_row(buffer, row, style),
+        }
+    }
+
+    /// Draws whatever sits below the last body row, and fills any reserved
+    /// space the body did not use.
+    ///
+    /// ⚠️ **The band's leftover rows are written, not skipped.** The document
+    /// is laid out to start *after* the band, so nothing else ever paints those
+    /// cells: skip them and the band's rule stops where the list stops, leaving
+    /// a full-height column that looks like a short box with the screen's
+    /// background below it. The columns were taken either way.
+    fn close(self, buffer: &mut CellBuffer, after: usize, style: Style) {
+        match self {
+            Self::Popover(panel_box) => panel_box.bottom_border(buffer, after, style),
+            Self::Sidebar(band) => {
+                for row in after..band.rows {
+                    band.blank_row(buffer, row, style);
+                }
+            },
+        }
+    }
+}
+
+/// Paints `body` into its placement and reports where its caret landed.
+///
+/// `None` when the caret fell outside the rows that were drawn — the same
+/// answer the palette gives, and for the same reason: a caret drawn where its
+/// row is not is worse than no caret.
 pub(super) fn paint(
     body: &PanelBody,
+    placement: Placement,
     buffer: &mut CellBuffer,
     styles: &Palette,
 ) -> Option<CellPosition> {
-    let panel_box = FloatingBox::fitted(buffer.width(), buffer.height())?;
-    let content = TextArea {
-        origin: panel_box.content_origin(),
-        width: panel_box.content_width(),
-        scroll: 0,
-    };
+    let content = placement.content();
+    let first = placement.first_row();
+    let drawn = body.rows.len().min(placement.capacity());
 
     let base = styles.overlay();
-    panel_box.top_border(buffer, TOP, base);
-    for (index, row) in body.rows.iter().enumerate() {
-        let screen_row = TOP + 1 + index;
-        panel_box.blank_row(buffer, screen_row, base);
+    placement.open(buffer, base);
+    for (index, row) in body.rows.iter().take(drawn).enumerate() {
+        let screen_row = first + index;
+        placement.blank_row(buffer, screen_row, base);
         if row.separator {
             // A separator is furniture, and furniture is this face's. The
             // shared builder says "a rule goes here" and says nothing about
             // what a rule looks like.
-            panel_box.rule_row(buffer, screen_row, base);
+            placement.rule_row(buffer, screen_row, base);
             continue;
         }
         paint_row(buffer, screen_row, content, row, styles);
     }
-    panel_box.bottom_border(buffer, TOP + 1 + body.rows.len(), base);
+    placement.close(buffer, first + drawn, base);
 
-    caret_position(body.caret, &panel_box, body.rows.len())
+    caret_position(body.caret, placement, drawn)
 }
 
 /// Paints one row's runs, left to right, each in its own colour.
@@ -136,15 +230,16 @@ fn paint_row(
 /// Where the caret goes on screen, or `None` when its row was not drawn.
 fn caret_position(
     caret: Option<PanelCaret>,
-    panel_box: &FloatingBox,
+    placement: Placement,
     drawn_rows: usize,
 ) -> Option<CellPosition> {
     let caret = caret?;
-    if caret.row >= drawn_rows || caret.column >= panel_box.content_width() {
+    let content = placement.content();
+    if caret.row >= drawn_rows || caret.column >= content.width {
         return None;
     }
     Some(CellPosition {
-        column: panel_box.content_origin() + caret.column,
-        row: TOP + 1 + caret.row,
+        column: content.origin + caret.column,
+        row: placement.first_row() + caret.row,
     })
 }

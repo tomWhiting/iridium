@@ -1020,7 +1020,34 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ---
 
-## ⚠️ LIVE STATE at the 13 Aug compaction — read this first
+## ⚠️ LIVE STATE at the SECOND 13 Aug compaction — read this first
+
+`origin/main = 25cf95e1`, **0 unpushed**, working tree clean apart from
+untracked `.claude/skills/` (must NOT be committed). Both faces installed and
+verified at 01:48. All ten gates green on every code commit this session.
+
+**#112 IS CLOSED.** All four parts, all six steps of part D. Nothing is in
+flight, nothing is half-done, and no build or install is running.
+
+Landed since the previous compaction, in order: `60faf529` (installer fix,
+#116), `6ea898a6` (#112d step 5, the left band), `df01868a` (step 5's install
+receipt), `90a8fe90` (#112d step 6, `iridium <dir>`), `25cf95e1` (#112 closed).
+Each is written up where it belongs — #116 in §5a of this file, steps 5 and 6
+in `IN-FLIGHT-112d-terminal-oil.md`.
+
+**Tom has been told all of it** via Meridian, twice, including the two
+questions still owed to him: the bold-by-default preset look (Waffles' docket)
+and the desktop sidebar flush at x = 0 with rounded corners.
+
+⭐ **Nothing is picked up next by default.** #112 was the thread being pulled;
+it is finished. The open backlog is #108, #109, #110, #113, #58, #87, #88, #90,
+#91, #92, #93, #95, #96, #99, #43→#44→#45. **#113 is the natural successor** —
+it is what turns the terminal explorer from a modal picker into a real sidebar,
+and step 6's ruling is written to be revisited the moment it lands.
+
+---
+
+## LIVE STATE at the FIRST 13 Aug compaction — historical
 
 ### 1. ⛔ AN INSTALL IS RUNNING IN THE BACKGROUND RIGHT NOW
 

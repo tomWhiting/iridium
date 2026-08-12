@@ -1152,6 +1152,54 @@ looked whole. A receipt has to name the *artefact*, not the *command*.
 4. Tell Tom, because it changes what he can try: the desktop face is current,
    the terminal face on his box is from 3 August.
 
+### 5d. ⭐ The receipt when a change adds no strings
+
+Step 5 is **installed**, and proving it needed a different instrument.
+
+| | before (01:16 install) | after |
+|---|---|---|
+| `~/.local/bin/iridium-tui` | 14,933,888 · 13 Aug 00:59 | 14,950,384 · **13 Aug 01:16** |
+| `strings` · the sidebar-refusal sentence | **1** | **0** |
+| `strings` · `iridium-panel/src/explorer` | 5 | 5 |
+
+⚠️ **No positive marker exists for step 5.** It added no string literal a user
+or a `strings` grep can see, and a release build carries neither `SidebarBox`
+nor `sidebar_columns` as a symbol — `nm` finds zero. Searching for a path like
+`frame/panel.rs` finds zero too, and that is *expected*: rustc embeds a
+`file!()` string only where something can panic, and nothing in that module can.
+
+⭐ **The law: a marker can be a string's ABSENCE, but only when its presence was
+measured on the previous artefact.** The refusal sentence went 1 → 0 on the same
+box in the same hour, and the only thing that removes it is this commit's code.
+A bare zero would have been worthless — it is also what an uninstalled terminal
+face reports, which is exactly the trap §5 was written about.
+
+**So: when a change adds no strings, measure the artefact before you replace
+it.** The chance to take the "before" reading is gone the moment `install.sh`
+runs.
+
+### 5c. #112d step 5 — LANDED `6ea898a6`
+
+The full write-up is in `IN-FLIGHT-112d-terminal-oil.md` under step 5, including
+the three measured sabotages. What a later seat most needs from here:
+
+- **`frame::document_rows(rows, search_open)` is now public** and is the one
+  copy of "how many rows the document has". The band spans exactly it. Anything
+  else that wants to sit beside the document should use it rather than
+  subtracting one for the statusline itself.
+- **`gutter::paint` takes a `GutterArea`, not a width.** Any future left-edge
+  furniture inherits a gutter that already knows it does not start at zero.
+- **`sidebar_columns` and `paint` must be given the same row count.** They are
+  two answers to one question and the doc comments say so; passing different
+  numbers gives up columns to a band that then declines to draw.
+
+**Step 6 is what remains of #112d:** `iridium <dir>` roots the explorer there
+and shows it (R5). ⚠️ R5 warns that `project::chosen_root` / `explorer_root`
+live in `apps/iridium-desktop/src/project.rs` and **must move with the oil
+crate** — but note `iridium_panel::explorer::chosen_root` already exists and
+`App::explorer_root` already calls it, so check what is actually left over
+there before moving anything.
+
 ### 5a. ✅ CLOSED — all four steps done, 13 Aug 2026
 
 **1 and 2, the ground.** `install.sh` builds `-p iridium-desktop` through

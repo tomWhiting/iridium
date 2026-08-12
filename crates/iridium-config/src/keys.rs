@@ -274,6 +274,46 @@ mod tests {
         );
     }
 
+    /// ⭐ **#91, from the file's side.** A panel verb is a registered command,
+    /// so a line naming one is accepted and installs — where before it was
+    /// reported as a command that did not exist.
+    #[test]
+    fn a_binding_to_a_panel_command_validates_against_the_editors_registry() {
+        use iridium_editor::commands::builtin::{builtin_registry, default_registry};
+
+        let (bindings, problems) = read("[keys]\n\"ctrl+j\" = \"explorer.moveDown\"\n");
+        assert!(problems.is_empty(), "{problems:?}");
+        let layer = keymap(bindings);
+        layer
+            .validate(&default_registry().expect("the kernel tables are consistent"))
+            .expect("a panel command is a registered command");
+
+        // ⚠️ The control, and the reason this test means anything: a registry
+        // without the panel table genuinely does not know the id and says so.
+        // Without this half, the assertion above would pass just as well if
+        // `validate` had quietly stopped checking anything.
+        let error = layer
+            .validate(&builtin_registry().expect("the built-in table is consistent"))
+            .expect_err("the built-ins alone cannot know a panel command");
+        assert!(
+            matches!(error, iridium_editor::KeymapError::UnknownCommand { ref id, .. }
+                if id.as_str() == "explorer.moveDown"),
+            "expected the panel command to be the unknown one, got {error:?}"
+        );
+    }
+
+    /// A misspelling is still a misspelling. Registering the vocabulary must not
+    /// turn the diagnostic off for everything that looks like a panel verb.
+    #[test]
+    fn a_misspelled_panel_command_is_still_reported() {
+        use iridium_editor::commands::builtin::default_registry;
+
+        let (bindings, _) = read("[keys]\n\"ctrl+j\" = \"explorer.moveDwon\"\n");
+        keymap(bindings)
+            .validate(&default_registry().expect("the kernel tables are consistent"))
+            .expect_err("`explorer.moveDwon` is not a command and must be reported");
+    }
+
     #[test]
     fn a_keys_key_that_is_not_a_table_is_reported_rather_than_ignored() {
         let (bindings, problems) = read("keys = \"none\"\n");

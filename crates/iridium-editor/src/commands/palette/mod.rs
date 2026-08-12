@@ -54,6 +54,15 @@ use crate::commands::CommandRegistry;
 /// An empty query returns every command rather than nothing — a palette opens
 /// showing what is available, and the recency bonus is what makes that first
 /// screen useful.
+///
+/// ⛔ **Except the mode-scoped ones**, which are filtered out of both branches.
+/// A command belonging to a panel's mode acts on a screen that is not open while
+/// the palette is: *Select Row Below* has no selection to move, and offering it
+/// would be offering a row that cannot do anything. The filter reads
+/// [`CommandMeta::is_palette_entry`](crate::commands::CommandMeta::is_palette_entry)
+/// rather than testing an id prefix, because `explorer.togglePanel` is a genuine
+/// global that shares the prefix and must keep its entry — it is how the panel
+/// gets opened.
 #[must_use]
 pub fn search<'a>(
     registry: &'a CommandRegistry,
@@ -64,11 +73,13 @@ pub fn search<'a>(
     let mut results: Vec<PaletteEntry<'a>> = if query.is_empty() {
         registry
             .commands()
+            .filter(|meta| meta.is_palette_entry())
             .map(|meta| PaletteEntry::listed(meta, mru.bonus(meta.id().as_str())))
             .collect()
     } else {
         registry
             .commands()
+            .filter(|meta| meta.is_palette_entry())
             .filter_map(|meta| {
                 let (field, text, found) = matcher::best_match(query, meta)?;
                 Some(

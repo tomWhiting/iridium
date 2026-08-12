@@ -94,10 +94,13 @@ pub mod rows;
 mod buffer;
 mod compose;
 mod edit_keys;
+mod keymap;
 mod keys;
 mod mode;
 mod panel;
+mod resolve;
 mod session;
+mod verb;
 
 #[cfg(test)]
 mod apply_tests;
@@ -112,6 +115,9 @@ mod confirm_tests;
 mod edit_keys_tests;
 
 #[cfg(test)]
+mod keymap_tests;
+
+#[cfg(test)]
 mod mode_tests;
 
 #[cfg(test)]
@@ -122,6 +128,8 @@ mod tests;
 
 pub use apply::{Failure, apply};
 pub use filter::{FilterRow, FilterView, filter};
+pub use keymap::{DEFAULT_BINDING_COUNT, KEYMAP_NAME, default_keymap};
 pub use panel::{ExplorerOutcome, FileExplorer};
 pub use plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan};
+pub use resolve::USER_LAYER_NAME;
 pub use root::{ExplorerRoot, chosen_root, is_filesystem_root};

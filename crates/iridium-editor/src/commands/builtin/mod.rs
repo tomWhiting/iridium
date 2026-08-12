@@ -28,6 +28,7 @@
 
 mod host;
 mod ids;
+mod panel;
 mod table;
 mod workspace;
 
@@ -37,6 +38,18 @@ pub use host::{
     register_host_commands,
 };
 pub use ids::*;
+pub use panel::{
+    EXPLORER_ACTIVATE, EXPLORER_BEGIN_EDIT, EXPLORER_COLLAPSE, EXPLORER_CONFIRM_APPLY,
+    EXPLORER_CONFIRM_CANCEL, EXPLORER_CONFIRM_MODE, EXPLORER_DISMISS, EXPLORER_EDIT_ASK_APPLY,
+    EXPLORER_EDIT_BACKSPACE, EXPLORER_EDIT_CARET_END, EXPLORER_EDIT_CARET_HOME,
+    EXPLORER_EDIT_CARET_LEFT, EXPLORER_EDIT_CARET_RIGHT, EXPLORER_EDIT_CURSOR_DOWN,
+    EXPLORER_EDIT_CURSOR_UP, EXPLORER_EDIT_DELETE, EXPLORER_EDIT_LEAVE, EXPLORER_EDIT_MODE,
+    EXPLORER_EDIT_NEW_ROW, EXPLORER_EDIT_STRIKE_ROW, EXPLORER_EXPAND, EXPLORER_MODE,
+    EXPLORER_MOVE_DOWN, EXPLORER_MOVE_TO_FIRST, EXPLORER_MOVE_TO_LAST, EXPLORER_MOVE_UP,
+    EXPLORER_QUERY_BACKSPACE, EXPLORER_REFUSED_DISMISS, EXPLORER_REFUSED_MODE, EXPLORER_ROOT_ABOVE,
+    EXPLORER_ROOT_AT_SELECTION, EXPLORER_TOGGLE_HIDDEN, PANEL_COMMAND_COUNT, panel_command_metas,
+    panel_commands, register_panel_commands,
+};
 pub use table::{BUILTIN, BUILTIN_COMMAND_COUNT};
 pub use workspace::{
     WORKSPACE, WORKSPACE_CLOSE_TAB, WORKSPACE_COMMAND_COUNT, WORKSPACE_FIRST_TAB,
@@ -95,10 +108,11 @@ pub fn builtin_registry() -> Result<CommandRegistry, RegistryError> {
 /// collide with each other; the module tests rule both out.
 pub fn default_registry() -> Result<CommandRegistry, RegistryError> {
     let mut registry = CommandRegistry::with_capacity(
-        BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT + WORKSPACE_COMMAND_COUNT,
+        BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT + WORKSPACE_COMMAND_COUNT + PANEL_COMMAND_COUNT,
     );
     register_builtin_commands(&mut registry)?;
     register_host_commands(&mut registry)?;
     register_workspace_commands(&mut registry)?;
+    register_panel_commands(&mut registry)?;
     Ok(registry)
 }

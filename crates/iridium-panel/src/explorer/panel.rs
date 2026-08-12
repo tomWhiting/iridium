@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
-use iridium_editor::Modifiers;
 use iridium_editor::pattern::Pattern;
+use iridium_editor::{KeyPress, KeymapStack};
 use iridium_explorer::{FileTree, NodeId};
 use iridium_tree::{Tree, TreeSource as _};
 
@@ -173,6 +173,22 @@ pub struct FileExplorer {
     /// there is no state here that has to agree with it; see [`super::mode`].
     /// Browse is what every panel opens in and what it returns to.
     pub(super) mode: Mode,
+    /// The keymap the panel resolves its keys against.
+    ///
+    /// ⭐ **The panel's own stack, not the editor's.** The base layer is
+    /// [`super::keymap::default_keymap`]; a face pushes the user's `[keys]`
+    /// layer on top with [`set_user_keymap`](Self::set_user_keymap), so a line
+    /// in `config.toml` moves a panel key exactly as it moves an editor key.
+    /// See `docs/IN-FLIGHT-91-panel-keys.md` D-3 for why the panel resolves
+    /// rather than being driven by the editor's resolver.
+    pub(super) keys: KeymapStack,
+    /// The strokes of a multi-stroke sequence that has begun but not finished.
+    ///
+    /// Empty almost always: nothing in the default table is a chord. It exists
+    /// because a user *may* write `"ctrl+k ctrl+d" = "explorer.edit.strikeRow"`,
+    /// and a binding a configuration file accepts and the panel silently never
+    /// fires is the defect class this repository does not ship.
+    pub(super) pending: Vec<KeyPress>,
 }
 
 impl FileExplorer {
@@ -208,6 +224,8 @@ impl FileExplorer {
             filtered: 0,
             crawl,
             mode: Mode::Browse,
+            keys: KeymapStack::with_base(super::keymap::default_keymap()),
+            pending: Vec::new(),
         })
     }
 
@@ -535,39 +553,5 @@ impl FileExplorer {
             })
             .or(self.view.best)
             .unwrap_or(0);
-    }
-}
-
-/// The modifier shapes this panel distinguishes.
-///
-/// Shift is not among them: it decides which character a printable key
-/// produced, and the key translation has already resolved that.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Chord {
-    /// No modifier that changes the meaning of the key.
-    Plain,
-    /// Control alone — the `Ctrl+N` / `Ctrl+P` movement pair, and the
-    /// non-mac spelling of the re-rooting pair.
-    Ctrl,
-    /// Meta alone — `⌘↑` and `⌘↓`, which are what macOS itself uses for
-    /// "enclosing folder" and "open this one".
-    Meta,
-    /// Control and Alt together — the toggle chord that closes the panel.
-    CtrlAlt,
-    /// Meta and Alt together — the mac spelling of the same toggle.
-    MetaAlt,
-    /// Anything else, which the modal panel swallows.
-    Other,
-}
-
-/// The chord one modifier set names.
-pub(super) const fn chord(modifiers: Modifiers) -> Chord {
-    match (modifiers.ctrl, modifiers.alt, modifiers.meta) {
-        (false, false, false) => Chord::Plain,
-        (true, false, false) => Chord::Ctrl,
-        (false, false, true) => Chord::Meta,
-        (true, true, false) => Chord::CtrlAlt,
-        (false, true, true) => Chord::MetaAlt,
-        _ => Chord::Other,
     }
 }

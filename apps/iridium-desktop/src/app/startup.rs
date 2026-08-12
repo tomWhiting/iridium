@@ -263,6 +263,10 @@ impl DesktopApp {
         // and win — which is what a user keymap is for. Before the first tab,
         // so no document is ever open under a keymap that is about to change.
         let mut problems = user.problems;
+        // Built before the bindings are moved into the installer, because the
+        // explorer needs the same layer and the panel does its own filtering of
+        // it — see `FileExplorer::set_user_keymap`.
+        let user_keys = iridium_config::keys::keymap(user.bindings.iter().cloned());
         problems.extend(config::install_user_bindings(&mut workspace, user.bindings));
 
         // A directory is a *project*, not a file: nothing is read as text and
@@ -326,24 +330,26 @@ impl DesktopApp {
         // The panel a project session exists to show, built here rather than
         // on the first frame so a directory that cannot be read says so before
         // a window opens — the same moment a file that cannot be read does.
-        let explorer = match project.clone() {
-            Some(path) => {
-                // Through `chosen_root`, not around it: a directory named on
-                // the command line was picked by hand, and that is exactly the
-                // distinction that function draws — so the crawl rule stays in
-                // one place rather than being restated here.
-                let root = project::chosen_root(path);
-                Some(
-                    FileExplorer::open(root.path.clone(), root.crawl).map_err(|message| {
-                        StartupError::Explorer {
-                            path: root.path,
-                            message,
-                        }
-                    })?,
-                )
-            },
-            None => None,
-        };
+        let explorer =
+            match project.clone() {
+                Some(path) => {
+                    // Through `chosen_root`, not around it: a directory named on
+                    // the command line was picked by hand, and that is exactly the
+                    // distinction that function draws — so the crawl rule stays in
+                    // one place rather than being restated here.
+                    let root = project::chosen_root(path);
+                    Some({
+                        let mut explorer = FileExplorer::open(root.path.clone(), root.crawl)
+                            .map_err(|message| StartupError::Explorer {
+                                path: root.path,
+                                message,
+                            })?;
+                        explorer.set_user_keymap(&user_keys);
+                        explorer
+                    })
+                },
+                None => None,
+            };
 
         Ok(Self {
             project,
@@ -361,6 +367,7 @@ impl DesktopApp {
             mru: CommandMru::default(),
             menu: None,
             explorer,
+            user_keys,
             explorer_placement: ExplorerPlacement::default(),
             // An explorer opened at startup is the one the user asked for, so
             // it starts with the keys. A closed one is refocused when it opens.

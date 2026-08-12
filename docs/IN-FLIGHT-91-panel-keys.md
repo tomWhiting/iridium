@@ -81,7 +81,7 @@ user writing `"ctrl+j" = "explorer.moveDown"` today gets a diagnostic. Once the
 id is registered, the same line is accepted — and a *typo* still gets the
 diagnostic, which is the half worth keeping.
 
-### D-2 — the mode is derived from the id, not spelled in the file
+### D-2 — the mode is a property of the *command*, declared on its metadata
 
 A panel binding needs a mode; `[keys]` has no spelling for one. Three options
 were priced:
@@ -90,17 +90,29 @@ were priced:
 | --- | --- |
 | **(a)** a `[keys.explorer]` sub-table | TOML requires sub-headers after all bare keys in `[keys]`; a user who writes them in the other order gets a parse error about something that is not their mistake |
 | **(b)** a prefix in the value | a second grammar inside a string, and every diagnostic has to quote it back |
-| **(c)** derive the mode from the command id | no config surface at all |
+| **(c)** infer the mode from the command id's prefix | a string convention doing load-bearing work, invisible to the type system |
+| **(d)** `CommandMeta` gains `mode: Option<ModeName>` | one field on a struct that is already the answer to "what is this command" |
 
-⭐ **(c).** The mode is not independent information — `explorer.moveDown` is
-meaningless outside the explorer, and asking a user to say so twice is asking
-them to keep two things in step for no gain. A binding whose command is a
-registered explorer action is scoped to the explorer's mode; every other binding
-is mode-free exactly as today.
+⭐ **(d), and it was reached by finding what (c) could not answer.**
 
-**Revert cost if this is wrong: one function.** (a) can be added beside (c)
-later without moving a line of the panel — the mode arrives at the same place
-either way.
+`CommandMeta` has no visibility flag, and every registered command is a palette
+entry. So registering 26 explorer verbs puts *Move Down* and *Backspace In Row*
+in the command palette, where they are meaningless — the panel they belong to is
+shut, and running one from the palette is not a thing that can happen.
+
+One field answers both questions at once. A command that names a mode is scoped
+to that mode when a `[keys]` line binds it, **and** is not a global palette
+entry, because those are the same fact stated once: this command belongs to a
+context rather than to the editor. `ModeName::from_static` is `const`, so the
+static tables carry it with no allocation and no second table to keep in step.
+
+⛔ **Not the id prefix.** `explorer.togglePanel` is a genuine global — it opens
+the panel from outside it, and it is already a host command with a palette entry
+and aliases. A prefix rule would scope it into the mode it exists to enter, and
+the panel would become unopenable from the palette. The prefix and the mode
+genuinely disagree for that id, which is the case that kills (c).
+
+**Revert cost: one field, and the palette filter that reads it.**
 
 ### D-3 — the panel resolves against its own stack, not the editor's
 
@@ -178,12 +190,93 @@ an unmovable key — is the thing this task exists to remove.
    an unbind, a multi-stroke binding, and the catch-all still reaching the
    filter.
 
+## What was built, and what changed on the way
+
+Steps 1–7 all landed. Two things the map did not foresee, both found by building:
+
+### ⭐ `CommandMeta` gained the mode, and it answered a second question
+
+The map's D-2 first chose "infer the mode from the id prefix". Writing the table
+showed why that cannot work: **every registered command is a palette entry**, so
+28 explorer verbs would have put *Move Down* and *Delete In Row* in the command
+palette, where they act on a screen that is not open.
+
+One field answers both. `CommandMeta::scoped` names the mode; a `[keys]` line
+binding that command is scoped to it, **and** `palette_order` and
+`palette::search` leave it out. And the prefix rule is refuted outright by
+`explorer.togglePanel`, which shares the prefix, is a genuine global, and must
+keep its palette entry — it is how the panel is opened.
+
+### ⛔ Passing the user's whole layer to the panel would have broken `Tab`
+
+A mode-free binding applies in **every** mode. So a user who bound `Tab` to
+`edit.indent` for the *document* would have found `Tab` had stopped opening the
+oil buffer, having never mentioned the explorer. `set_user_keymap` therefore
+keeps only bindings naming a panel command and scopes each by the mode its
+command declares — which is D-2 doing the real work rather than being a tidy
+idea. Suppressions carry no command and so cannot be scoped; they pass through
+mode-free, and the panel stays closable because the toggle is the editor's.
+
+## Two regressions caught while converting, both by things already in the repo
+
+1. **`⌘⌥E` stopped closing the panel from inside an editing session.** The
+   toggle is not a [`Verb`], so it fell through the new dispatch. Caught by the
+   *compiler* — `close_from_edit` went dead — not by a test.
+2. **`Ctrl+S` typed an `s` into the query.** The new fall-through read the
+   character without checking modifiers; the old table only fed `Chord::Plain`
+   characters to the field. Caught by
+   `a_key_the_panel_does_not_bind_is_swallowed_rather_than_typed`, which existed
+   already.
+
+> **📌 The law: a conversion is exactly as safe as the suite that existed before
+> it.** Both defects were mine, both were introduced in a refactor whose whole
+> claim was that nothing would change, and neither was found by anything written
+> *for* the conversion.
+
+## Mutations, measured
+
+| # | mutation | result |
+| --- | --- | --- |
+| M1 | `set_user_keymap` accepts the user's layer unfiltered | 1 fails — `an_editor_binding_in_the_users_layer_does_not_shadow_a_panel_key` |
+| M2 | `PLAIN` forbids shift instead of ignoring it | 2 fail — both shift ratchets |
+
+⭐ **M2 is the interesting one.** *Only* the two ratchets fired; all 229 other
+tests passed with the mutation in place. That is D-4's claim measured rather than
+asserted: a conversion that forgot shift would have shipped, and no behavioural
+test in this repository would have said a word.
+
+## ⚠️ The terminal face is not wired, because there is nothing to wire
+
+Measured, not assumed: `apps/iridium/src` references `iridium_config` exactly
+twice, both for `iridium_config::theme`. **The terminal face does not read
+`[keys]` at all.** Its explorer therefore runs on the defaults, which is correct
+and complete for that face today.
+
+No passthrough was added to `FileExplorerPanel` for it. A method no caller calls
+is the parsed-and-never-read defect #110 was about, and adding one here would
+have been that defect wearing this task's clothes. When that face gains
+configuration reading it calls the same `set_user_keymap` the desktop does.
+
 ## What is proven, and what is not
 
-Nothing yet — this document is the map. The proof obligations are listed in step
-7 and every one of them is a `cargo test`, because the explorer's key handling
-has no GPU in it and never did.
+**Proven by `cargo test`, with all ten gates green:** a `[keys]` line moves a
+real panel key; the keys it did not name still work; an editor binding does not
+shadow a panel one; a multi-stroke binding fires and its leader is held; an
+abandoned chord does not become a filter; an unbind stops a key working; every
+verb has a default; every default ignores shift; every registered panel command
+is answered; a panel command validates against the editor's registry **and** a
+misspelling of one still does not.
 
-⚠️ **Not provable here:** that the defaults still *feel* right in the hand. The
-conversion is meant to change nothing about what any key does today, and D-4 is
-the one place where a mistake would be silent rather than red.
+The 215 tests that existed before the conversion pass unchanged, which is the
+strongest single statement available that the chords still do what they did.
+
+⚠️ **Not proven:** that any of it is right *in the hand*. Nothing was clicked —
+no face was run. The conversion is meant to change nothing about what any key
+does, and M2 shows exactly where a mistake would have been silent rather than
+red.
+
+⚠️ **Also not proven:** that a binding the *editor* refused (cross-layer
+shadowing) is refused by the panel. The panel receives the bindings as the file
+wrote them, and the editor's refusals are about the editor's stack. It costs
+nothing today — a panel command cannot shadow an editor chord — and it is where
+to look first if the two ever disagree about a sequence.

@@ -198,8 +198,21 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .collect();
 
     let registry = default_registry().unwrap();
+    // ⛔ Mode-scoped commands are not in this enumeration, and their absence is
+    // a statement rather than an exemption: **the kernel owns their names and a
+    // panel owns their keys**. A verb that only means something on the file
+    // explorer's editing screen is bound by the file explorer's own default
+    // keymap, in `iridium-panel`, which is the crate that knows what its screens
+    // are. The kernel's non-modal default has no business binding a chord that
+    // would do nothing anywhere it can be pressed.
+    //
+    // ⚠️ They are therefore *not* unguarded — they are guarded somewhere this
+    // test cannot see. `iridium_panel::explorer` carries the matching assertion
+    // over its own vocabulary, and that is the file to look in if a panel verb
+    // is suspected of being unreachable.
     let unbound: Vec<&str> = registry
         .commands()
+        .filter(|meta| meta.mode().is_none())
         .map(|meta| meta.id().as_str())
         .filter(|id| !bound.contains(*id))
         .collect();

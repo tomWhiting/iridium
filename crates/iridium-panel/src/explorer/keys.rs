@@ -1,74 +1,112 @@
-//! What the explorer does with a key.
+//! What the explorer does with a key it has resolved.
 //!
 //! Split from `panel` by the question each method answers: everything here is
 //! reached from [`FileExplorer::handle_key`], and a defect in it presents as
 //! "the arrow went the wrong way" or "Enter opened the wrong thing" rather
 //! than as a drawing or a timing fault.
 //!
-//! # The panel is modal
+//! # ⭐ The chords are defaults now, not facts
 //!
-//! Every key is consumed. A chord this module does not bind is swallowed
-//! rather than passed to the document: the explorer exists to aim at a file,
-//! and a keystroke falling through to text the user is not looking at would
-//! edit it.
+//! This module used to `match` on `(Chord, KeyCode)`. It matches on a resolved
+//! [`Verb`] instead: the key is looked up in [`super::keymap`] — the panel's
+//! default layer, with the user's `[keys]` bindings on top — and what arrives
+//! here is *what the user asked for*, which may not be what the table below
+//! ships with.
 //!
-//! | Key | Action |
+//! The defaults, for the browsing screen:
+//!
+//! | default key | command |
 //! |---|---|
-//! | `Ctrl+Alt+E`, `⌘⌥E` | Close |
-//! | `Ctrl+Alt+B`, `⌘B` | Show this panel as a sidebar, or put it away |
-//! | `Escape` | Clear the query, or close when there is none |
-//! | `Enter` | Open a file; toggle or reveal a folder |
-//! | `↑` `↓`, `Ctrl+P` `Ctrl+N` | Move the selection |
-//! | `←` `→` | Collapse and expand — the unfiltered tree only |
-//! | `⌘↓`, `Ctrl+↓` | Make the selected folder the root |
-//! | `⌘↑`, `Ctrl+↑` | Make the folder above the root the root |
-//! | `⌘.`, `Ctrl+.` | Show dot-prefixed entries, or stop showing them |
-//! | `Home` `End` | First and last row |
-//! | `Backspace`, any printable key | Edit the query |
-//! | `Tab` | Edit the rows as text |
+//! | `Ctrl+Alt+E`, `⌘⌥E` | `explorer.togglePanel` |
+//! | `Ctrl+Alt+B`, `⌘B` | `explorer.toggleSidebar` |
+//! | `Escape` | `explorer.dismiss` — clear the query, or close |
+//! | `Enter` | `explorer.activate` |
+//! | `Tab` | `explorer.beginEdit` |
+//! | `↑` `↓`, `Ctrl+P` `Ctrl+N` | `explorer.moveUp` / `explorer.moveDown` |
+//! | `←` `→` | `explorer.collapse` / `explorer.expand` |
+//! | `⌘↓`, `Ctrl+↓` | `explorer.rootAtSelection` |
+//! | `⌘↑`, `Ctrl+↑` | `explorer.rootAbove` |
+//! | `⌘.`, `Ctrl+.` | `explorer.toggleHidden` |
+//! | `Home` `End` | `explorer.moveToFirst` / `explorer.moveToLast` |
+//! | `Backspace` | `explorer.queryBackspace` |
+//! | any other printable key | edits the query — a *field*, not a binding |
 //!
-//! # The table above is the *browse* table, and it is not the whole panel
+//! # The panel is still modal
 //!
-//! ⛔ Once the rows are being edited, every key means something else — and it
-//! has to, because the row under the cursor is a text field and the arm at the
-//! bottom of this table swallows every printable character into the query.
-//! [`super::edit_keys`] is that second table, and [`FileExplorer::handle_key`]
-//! reaches it **before** the match below rather than through four more arms
-//! inside it. Adding edit-mode bindings to the table here would be the one
-//! shape that cannot work.
+//! Every key is consumed. A chord nothing binds is swallowed rather than passed
+//! to the document: the explorer exists to aim at a file, and a keystroke
+//! falling through to text the user is not looking at would edit it.
+//!
+//! # ⚠️ The editing screens are no longer reached by a branch before the match
+//!
+//! They used to have to be: the last arm here took every printable character
+//! into the query, so a branch after it was a branch the letters never reached.
+//! With resolution first that inversion is gone — a character typed into a
+//! filename is simply an *unclaimed key in `explorer.edit` mode*, and the
+//! screen decides where an unclaimed key goes. [`super::edit_keys`] holds the
+//! editing screens' dispatch.
 
+use iridium_editor::commands::builtin::{EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_SIDEBAR};
 use iridium_editor::pattern::Pattern;
-use iridium_editor::{KeyCode, KeyEvent};
+use iridium_editor::{CommandId, KeyCode, KeyEvent};
 use iridium_explorer::NodeId;
 
 use super::filter::{FilterRow, FilterView};
-use super::panel::{Chord, ExplorerOutcome, FileExplorer, chord};
+use super::panel::{ExplorerOutcome, FileExplorer};
+use super::resolve::{Resolved, types_text};
+use super::verb::Verb;
 use crate::Entry;
 
 impl FileExplorer {
     /// Handles one key press. Every key is consumed; see [`ExplorerOutcome`].
+    ///
+    /// ⭐ **Resolution first, then the screen.** The key is matched against the
+    /// panel's keymap in the mode naming whichever screen is showing, and only
+    /// what nothing claimed reaches the field below. That order is what lets a
+    /// `[keys]` line move any of these keys — and it is also why the editing
+    /// screens no longer need a branch *before* the match: a character typed
+    /// into a filename is an unclaimed key in `explorer.edit` mode, and the
+    /// screen decides where an unclaimed key goes.
     pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
-        // ⛔ Before the match, not inside it. `(Plain, Char(_))` below takes
-        // every printable character into the filter, and in edit mode those
-        // characters are what the user is typing into a filename. A branch
-        // ordered after that arm would be a branch the letters never reach.
-        if self.mode.is_editing() {
-            return self.handle_edit_key(event);
+        let editing = self.mode.is_editing();
+        let resolved = self.resolve_key(event);
+        if editing {
+            return self.dispatch_edit(&resolved, event);
         }
-        match (chord(event.modifiers), event.key) {
-            (Chord::CtrlAlt | Chord::MetaAlt, KeyCode::Char('e' | 'E')) => ExplorerOutcome::Closed,
-            // The sidebar chord, named here for the reason the close chord is:
-            // the catch-all below consumes every key, so a chord this panel
-            // does not name never reaches the host command it belongs to. `⌘B`
-            // without `⌥` because that is what VS Code and Zed both bind.
-            (Chord::CtrlAlt | Chord::Meta, KeyCode::Char('b' | 'B')) => {
-                ExplorerOutcome::ToggleSidebar
-            },
-            // A query is the first thing `Escape` takes back, and the panel
-            // the second. Closing a panel someone has just typed into throws
-            // away the narrowing and the panel in one press, and the second
-            // press costs nothing.
-            (Chord::Plain, KeyCode::Escape) => {
+        match resolved {
+            Resolved::Command(id) => self.dispatch_browse(&id),
+            // A half-typed sequence has run nothing yet, and a key that
+            // abandoned one was typed as a chord rather than as text — neither
+            // belongs in the query.
+            Resolved::Pending | Resolved::Abandoned => ExplorerOutcome::Handled,
+            Resolved::Unclaimed => self.unclaimed_browse_key(event),
+        }
+    }
+
+    /// Runs a command resolved while the panel is browsing.
+    ///
+    /// The two toggles are answered here rather than in [`Verb`] because they
+    /// are the editor's commands, not the panel's; the panel names them only
+    /// because it is modal and would otherwise swallow them before the face
+    /// could act.
+    fn dispatch_browse(&mut self, id: &CommandId) -> ExplorerOutcome {
+        if id == &EXPLORER_TOGGLE_PANEL {
+            return ExplorerOutcome::Closed;
+        }
+        if id == &EXPLORER_TOGGLE_SIDEBAR {
+            return ExplorerOutcome::ToggleSidebar;
+        }
+        let Some(verb) = Verb::from_id(id) else {
+            // A user's layer may name a command this panel has never heard of.
+            // Modal: swallowed, not passed to the document.
+            return ExplorerOutcome::Handled;
+        };
+        match verb {
+            // A query is the first thing this takes back, and the panel the
+            // second. Closing a panel someone has just typed into throws away
+            // the narrowing and the panel in one press, and the second press
+            // costs nothing.
+            Verb::Dismiss => {
                 if self.is_filtering() {
                     self.clear_query();
                     ExplorerOutcome::Handled
@@ -76,71 +114,74 @@ impl FileExplorer {
                     ExplorerOutcome::Dismissed
                 }
             },
-            (Chord::Plain, KeyCode::Enter) => self.activate(),
-            // Tab is the ruled key into edit mode, and it is bound here rather
-            // than in `edit_keys` because it is the one of the four that is
-            // pressed while still browsing. Nothing else in this panel uses
-            // it, and there is no focus ring for it to walk.
-            (Chord::Plain, KeyCode::Tab) => self.begin_editing(),
-            (Chord::Plain, KeyCode::Up) | (Chord::Ctrl, KeyCode::Char('p' | 'P')) => {
+            Verb::Activate => self.activate(),
+            Verb::BeginEdit => self.begin_editing(),
+            Verb::MoveUp => {
                 self.move_up();
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Down) | (Chord::Ctrl, KeyCode::Char('n' | 'N')) => {
+            Verb::MoveDown => {
                 self.move_down();
                 ExplorerOutcome::Handled
             },
-            // Re-rooting. `⌘↓` and `⌘↑` are what macOS itself binds for
-            // "open this folder" and "enclosing folder", so the pair needs no
-            // learning; `Ctrl` is the same pair for a keyboard without a
-            // command key. **Not `Enter`**, which is a question still open
-            // with Tom — binding these separately means whatever he rules for
-            // `Enter` only adds a second way in, and takes nothing away.
-            (Chord::Meta | Chord::Ctrl, KeyCode::Down) => self.root_at_selection(),
-            (Chord::Meta | Chord::Ctrl, KeyCode::Up) => self.root_above(),
-            // `.` for dotfiles, which is the mnemonic every file manager that
-            // has this key already uses. **Not `⌘H`**, which macOS takes to
-            // hide the application before any window sees it — a binding the
-            // user would experience as the editor vanishing. `.` is also
-            // unshifted on every layout this face runs on, which matters
-            // because [`Chord`] deliberately does not distinguish Shift.
-            (Chord::Meta | Chord::Ctrl, KeyCode::Char('.')) => self.toggle_hidden(),
-            (Chord::Plain, KeyCode::Home) => {
+            Verb::MoveToFirst => {
                 self.move_to_first();
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::End) => {
+            Verb::MoveToLast => {
                 self.move_to_last();
                 ExplorerOutcome::Handled
             },
-            // `←` and `→` are the tree's. A filtered view has no expansion
-            // state to walk — every folder in it is already open — so they
-            // are swallowed there rather than repurposed into something the
-            // same key does not do one keystroke earlier.
-            (Chord::Plain, KeyCode::Right) if !self.is_filtering() => {
-                self.expand_or_descend();
+            // ⚠️ The filtered guard is a property of the *screen*, not of the
+            // binding, so it stays here rather than becoming a second mode. A
+            // filtered view has no expansion state to walk — every folder in it
+            // is already open — so these are swallowed there rather than
+            // repurposed into something the same key does one keystroke
+            // earlier.
+            Verb::Expand => {
+                if !self.is_filtering() {
+                    self.expand_or_descend();
+                }
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Left) if !self.is_filtering() => {
-                self.tree.move_left();
+            Verb::Collapse => {
+                if !self.is_filtering() {
+                    self.tree.move_left();
+                }
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Backspace) => {
+            Verb::RootAtSelection => self.root_at_selection(),
+            Verb::RootAbove => self.root_above(),
+            Verb::ToggleHidden => self.toggle_hidden(),
+            Verb::QueryBackspace => {
                 if self.query.backspace() {
                     self.requery();
                 }
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Char(character)) => {
-                if self.query.insert(character) {
-                    self.requery();
-                }
-                ExplorerOutcome::Handled
-            },
-            // Modal: everything else is swallowed, not passed to the
-            // document.
+            // The editing verbs cannot be reached from the browse screen: they
+            // are bound in the editing modes, and `screen_mode` was browse.
+            // Swallowed rather than run, because running one would act on a
+            // buffer that does not exist.
             _ => ExplorerOutcome::Handled,
         }
+    }
+
+    /// What a key nothing claimed means while browsing: it edits the query.
+    ///
+    /// ⛔ **The fall-through, kept as a fall-through.** Turning it into
+    /// twenty-six bindings would make a keymap that cannot express a *field*.
+    /// A user who binds a bare letter to a command takes that letter out of the
+    /// query, which is the honest consequence of what they asked for — and is
+    /// why resolution runs first.
+    fn unclaimed_browse_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
+        if let KeyCode::Char(character) = event.key
+            && types_text(event.modifiers)
+            && self.query.insert(character)
+        {
+            self.requery();
+        }
+        ExplorerOutcome::Handled
     }
 
     /// What a press on composed row `row` does.

@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Deserializer, Serialize, de};
 
-use super::{CommandCategory, CommandId};
+use super::{CommandCategory, CommandId, ModeName};
 
 /// Rejects any attempt to supply aliases through `serde`.
 ///
@@ -69,6 +69,12 @@ pub struct CommandMeta {
         skip_serializing_if = "aliases_are_empty"
     )]
     aliases: &'static [&'static str],
+    /// The mode this command belongs to, or `None` for an editor-wide one.
+    ///
+    /// See [`Self::in_mode`] for what naming one means — it is two statements
+    /// at once, and both of them matter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode: Option<ModeName>,
 }
 
 impl CommandMeta {
@@ -90,6 +96,7 @@ impl CommandMeta {
             category,
             mutates_document: false,
             aliases: &[],
+            mode: None,
         }
     }
 
@@ -112,6 +119,7 @@ impl CommandMeta {
             category,
             mutates_document: false,
             aliases: &[],
+            mode: None,
         }
     }
 
@@ -141,6 +149,50 @@ impl CommandMeta {
             category,
             mutates_document: false,
             aliases: &[],
+            mode: None,
+        }
+    }
+
+    /// Declares a command that belongs to `mode` rather than to the editor.
+    ///
+    /// ⭐ **Naming a mode is two statements at once, and they are the same
+    /// fact**: this command belongs to a context rather than to the editor.
+    ///
+    /// 1. **A `[keys]` line binding it is scoped to that mode.** The user
+    ///    writes `"ctrl+j" = "explorer.moveDown"` and gets a binding that fires
+    ///    in the explorer and nowhere else, without having to say so — because
+    ///    the mode is not independent information they could get wrong, it is a
+    ///    property of the command they named.
+    /// 2. **It is not a global palette entry.** *Move Down* is meaningless in a
+    ///    palette: the panel it belongs to is shut, and there is no state for it
+    ///    to act on. A palette listing it would be offering a row that cannot do
+    ///    anything.
+    ///
+    /// ⚠️ **A panel's *toggle* is not one of these.** `explorer.togglePanel`
+    /// opens the explorer from outside it, so it is editor-wide and keeps its
+    /// palette entry — which is why the mode is declared per command here rather
+    /// than inferred from the `explorer.` prefix the two would share. The prefix
+    /// and the mode genuinely disagree for that id.
+    ///
+    /// A parameter rather than a builder step for the reason [`Self::described`]
+    /// is: replacing an `Option<ModeName>` field would drop the old value, and a
+    /// `const fn` may not run a destructor.
+    #[must_use]
+    pub const fn scoped(
+        id: CommandId,
+        title: &'static str,
+        description: &'static str,
+        category: CommandCategory,
+        mode: ModeName,
+    ) -> Self {
+        Self {
+            id,
+            title: Cow::Borrowed(title),
+            description: Some(Cow::Borrowed(description)),
+            category,
+            mutates_document: false,
+            aliases: &[],
+            mode: Some(mode),
         }
     }
 
@@ -208,6 +260,27 @@ impl CommandMeta {
     #[must_use]
     pub const fn aliases(&self) -> &'static [&'static str] {
         self.aliases
+    }
+
+    /// The mode this command belongs to, or `None` for an editor-wide one.
+    ///
+    /// See [`Self::scoped`]. A caller reading this is asking one of two
+    /// questions — "what mode do I scope a binding to" or "should a palette list
+    /// this" — and both are answered by the same `Some`.
+    #[must_use]
+    pub const fn mode(&self) -> Option<&ModeName> {
+        self.mode.as_ref()
+    }
+
+    /// Whether a command palette should offer this command.
+    ///
+    /// A mode-scoped command is not offered: it acts on a context that is not
+    /// open while the palette is. Spelled as its own method rather than left as
+    /// `meta.mode().is_none()` at each call site, so that the *reason* a palette
+    /// filters lives here rather than being re-derived by every face.
+    #[must_use]
+    pub const fn is_palette_entry(&self) -> bool {
+        self.mode.is_none()
     }
 
     /// The palette grouping.

@@ -149,9 +149,21 @@ impl CommandRegistry {
     /// A total order over distinct commands — ids are unique, so ties are
     /// impossible — which makes palette ordering independent of the order
     /// commands happened to be registered in.
+    ///
+    /// ⛔ **Mode-scoped commands are left out.** This is the *display* listing —
+    /// a palette, a menu, a keybinding sheet — and a command belonging to a
+    /// panel's mode acts on a screen none of those are showing. Use
+    /// [`Self::commands`] for the complete vocabulary, which is what keymap
+    /// validation wants: a `[keys]` line may legitimately bind a panel verb, and
+    /// rejecting it because a palette would not list it would be the config file
+    /// refusing the exact customization this listing exists to keep tidy.
     #[must_use]
     pub fn palette_order(&self) -> Vec<&CommandMeta> {
-        let mut ordered: Vec<&CommandMeta> = self.entries.iter().collect();
+        let mut ordered: Vec<&CommandMeta> = self
+            .entries
+            .iter()
+            .filter(|meta| meta.is_palette_entry())
+            .collect();
         ordered.sort_by(|left, right| {
             left.category()
                 .cmp(right.category())

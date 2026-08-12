@@ -16,6 +16,7 @@ use std::path::PathBuf;
 
 #[cfg(test)]
 use iridium_editor::Editor;
+use iridium_editor::Keymap;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::workspace::{DocumentId, Workspace};
 use iridium_file::TextFile;
@@ -188,6 +189,14 @@ pub struct DesktopApp {
     /// and an arena of every directory ever expanded for the rest of the
     /// session.
     pub(super) explorer: Option<FileExplorer>,
+    /// The user's `[keys]` bindings, kept so a panel opened *later* gets them.
+    ///
+    /// ⭐ **Held rather than applied once.** The explorer is built fresh every
+    /// time it is opened and every time the project moves, so a layer installed
+    /// only at start-up would reach the first panel and none of the ones after
+    /// it. Replaced wholesale on a configuration reload, which is also what
+    /// keeps a binding deleted from the file from going on firing.
+    pub(super) user_keys: Keymap,
     /// Where the explorer is drawn when one is open.
     ///
     /// ⚠️ **Here rather than on the panel, for the same reason

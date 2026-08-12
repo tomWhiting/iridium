@@ -131,6 +131,14 @@ impl DesktopApp {
         self.workspace.set_config(user.editor.clone());
 
         let mut problems = user.problems.clone();
+        self.user_keys = iridium_config::keys::keymap(user.bindings.iter().cloned());
+        // ⭐ Replace, never add — the same rule the workspace layer follows, and
+        // for the same reason: a binding deleted from the file must stop firing.
+        // `set_user_keymap` rebuilds the panel's whole stack, so an open panel
+        // picks up the reload without being reopened.
+        if let Some(explorer) = self.explorer.as_mut() {
+            explorer.set_user_keymap(&self.user_keys);
+        }
         problems.extend(config::replace_user_bindings(
             &mut self.workspace,
             user.bindings.clone(),
@@ -333,7 +341,10 @@ impl DesktopApp {
             return;
         }
         match FileExplorer::open(root.path, root.crawl) {
-            Ok(explorer) => self.explorer = Some(explorer),
+            Ok(mut explorer) => {
+                explorer.set_user_keymap(&self.user_keys);
+                self.explorer = Some(explorer);
+            },
             // Dropped rather than left on the old root, and the failure is
             // named. A panel still showing the previous project after the
             // session moved is the quieter of the two wrongs and much the
@@ -418,7 +429,8 @@ impl DesktopApp {
         }
         let root = self.explorer_root();
         match FileExplorer::open(root.path, root.crawl) {
-            Ok(explorer) => {
+            Ok(mut explorer) => {
+                explorer.set_user_keymap(&self.user_keys);
                 self.explorer = Some(explorer);
                 // A panel the user just asked for takes the keys, whichever
                 // placement it lands in.

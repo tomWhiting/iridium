@@ -70,7 +70,10 @@ fn a_position_past_the_end_is_dropped_rather_than_guessed() {
 fn listing_covers_every_registered_command_in_browse_order() {
     let registry = registry();
     let commands = list(&registry, &hints(), false);
-    assert_eq!(commands.len(), registry.len());
+    // ⚠️ Against `palette_order`, not `len`: a mode-scoped command is
+    // registered and deliberately not offered, because the panel it belongs to
+    // is not open while a palette is. `registry.len()` counts both kinds.
+    assert_eq!(commands.len(), registry.palette_order().len());
 
     let listed: Vec<&str> = commands.iter().map(|command| command.id.as_str()).collect();
     let expected: Vec<&str> = registry
@@ -202,7 +205,8 @@ fn the_limit_caps_the_result_without_changing_the_order() {
 fn an_empty_query_searches_everything_rather_than_nothing() {
     let registry = registry();
     let results = search(&registry, &hints(), &CommandMru::new(), "", 0, false);
-    assert_eq!(results.len(), registry.len());
+    // "Everything" is everything a palette offers — see the listing test.
+    assert_eq!(results.len(), registry.palette_order().len());
 }
 
 #[test]

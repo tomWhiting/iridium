@@ -1,64 +1,77 @@
 //! What the explorer does with a key while its rows are being edited.
 //!
-//! The second key table. [`super::keys`] holds the first, and
-//! [`super::panel::FileExplorer::handle_key`] reaches this one **before** that
-//! table rather than through arms inside it — which is not a style choice. The
-//! browse table ends in `(Plain, Char(_)) => the filter`, and in edit mode a
-//! printable character is somebody typing a filename. Bindings added inside
-//! that match would be bindings the letters never reach.
+//! The second dispatch. [`super::keys`] holds the browsing one, and both act on
+//! a [`Verb`] the keymap already resolved — so every chord named below is a
+//! **default** that a `[keys]` line can move, not a fixed fact.
 //!
 //! # Three screens, not one
 //!
-//! An editing session shows one of three things, and each takes a different
-//! set of keys:
+//! An editing session shows one of three things, each its own mode, and each
+//! taking a different set of keys:
 //!
-//! | screen | what is on it | what answers it |
+//! | mode | what is on it | what answers it |
 //! | --- | --- | --- |
-//! | the rows | the buffer, one row carrying a caret | everything below |
-//! | a refusal | why the buffer cannot be applied | `esc`, and nothing else |
-//! | a confirmation | the operations, in the order they will happen | `y`, `n`, `esc` |
+//! | `explorer.edit` | the buffer, one row carrying a caret | everything below |
+//! | `explorer.refused` | why the buffer cannot be applied | `explorer.refused.dismiss` |
+//! | `explorer.confirm` | the operations, in the order they will happen | apply and cancel |
 //!
 //! The last two replace the row list wholesale, so a key that edited a row
 //! from behind one of them would change something nobody can see. That is why
-//! the refusal screen takes one key and the confirmation three.
+//! the refusal screen takes one key and the confirmation two.
 //!
-//! # The four ruled keys
+//! # The four ruled keys, as defaults
 //!
-//! | key | what it does |
-//! | --- | --- |
-//! | `Tab` | enters edit mode — bound in [`super::keys`], because it is pressed while browsing |
-//! | `Ctrl+D` | strikes the row under the cursor through, or unstrikes it |
-//! | `Ctrl+Enter` | types a new row below the cursor |
-//! | `⌘S` | asks for the confirmation. **It does not apply**; `y` does |
+//! | default key | command | what it does |
+//! | --- | --- | --- |
+//! | `Tab` | `explorer.beginEdit` | enters edit mode — bound in [`super::keys`], because it is pressed while browsing |
+//! | `Ctrl+D` | `explorer.edit.strikeRow` | strikes the row under the cursor through, or unstrikes it |
+//! | `Ctrl+Enter` | `explorer.edit.newRow` | types a new row below the cursor |
+//! | `⌘S` | `explorer.edit.askApply` | asks for the confirmation. **It does not apply**; `y` does |
 //!
 //! `Ctrl+N` and `Ctrl+P` were already the movement pair before any of this,
 //! which is why a new row is `Ctrl+Enter` and not `Ctrl+N`.
 //!
-//! # What is deliberately *not* bound
+//! # What is deliberately *not* bound in these modes
 //!
 //! - **`Enter`.** In the browse table it returns
 //!   [`ExplorerOutcome::Open`](super::panel::ExplorerOutcome::Open), and the
 //!   host answers that by dropping the panel — which would take a dirty buffer
-//!   with it and no keystroke would have meant it. Swallowed here.
+//!   with it and no keystroke would have meant it. Unbound here, so it is
+//!   swallowed.
 //! - **`⌘↑` and `⌘↓`.** Re-rooting replaces the whole panel, mode and all.
 //! - **`←` and `→` as tree keys.** Expanding a folder changes the row source
 //!   the buffer is a snapshot of. They move the caret in the name instead, and
 //!   `Home` and `End` go with them, because a field that took two of the four
 //!   motions and gave the others to the list would be a field with no rule.
+//!
+//! ⚠️ Unbound in a mode is not the same as absent: a user may bind any of them,
+//! and the dispatch below answers whatever arrives. What the defaults decline to
+//! do is offer them.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use iridium_editor::commands::builtin::EXPLORER_TOGGLE_PANEL;
 use iridium_editor::{KeyCode, KeyEvent};
 
 use super::apply;
 use super::mode::{Confirmation, Leaving};
-use super::panel::{Chord, ExplorerOutcome, FileExplorer, chord};
+use super::panel::{ExplorerOutcome, FileExplorer};
 use super::plan::{Operation, Plan};
+use super::resolve::{Resolved, types_text};
+use super::verb::Verb;
 use crate::Entry;
 
+/// The verb a resolution names, if it named one this panel owns.
+fn verb_of(resolved: &Resolved) -> Option<Verb> {
+    match resolved {
+        Resolved::Command(id) => Verb::from_id(id),
+        _ => None,
+    }
+}
+
 impl FileExplorer {
-    /// Handles one key press while an editing session is open.
+    /// Acts on a key resolved while an editing session is open.
     ///
     /// Split by **what is actually on the screen**, because that is what
     /// decides which keys can honestly do anything — and each of the three
@@ -68,17 +81,21 @@ impl FileExplorer {
     ///
     /// A session that answers none of the three is browsing, and the caller
     /// only comes here when it is not. The key is swallowed rather than passed
-    /// back to the browse table anyway, so a future caller getting the guard
+    /// back to the browse dispatch anyway, so a future caller getting the guard
     /// wrong cannot turn a filename into a filter.
-    pub(super) fn handle_edit_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
+    pub(super) fn dispatch_edit(
+        &mut self,
+        resolved: &Resolved,
+        event: &KeyEvent,
+    ) -> ExplorerOutcome {
         if self.mode.plan().is_some() {
-            return self.confirming_key(event);
+            return self.confirming(resolved, event);
         }
         if !self.mode.refusals().is_empty() {
-            return self.refused_key(event);
+            return self.refused(resolved);
         }
         if self.mode.cursor().is_some() {
-            return self.editing_key(event);
+            return self.editing(resolved, event);
         }
         ExplorerOutcome::Handled
     }
@@ -91,87 +108,110 @@ impl FileExplorer {
     /// something the user cannot see while they are reading why the last
     /// change was turned down.
     ///
-    /// `esc` is what [`super::confirm::refusal_rows`] promises on screen, and
-    /// it goes back to the rows rather than out of the session — the edits are
-    /// what needs fixing, so throwing them away is the opposite of the help
-    /// being offered.
-    fn refused_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
-        if (chord(event.modifiers), event.key) == (Chord::Plain, KeyCode::Escape) {
+    /// What that one binding does is go back to the rows rather than out of
+    /// the session — the edits are what needs fixing, so throwing them away is
+    /// the opposite of the help being offered.
+    fn refused(&mut self, resolved: &Resolved) -> ExplorerOutcome {
+        if verb_of(resolved) == Some(Verb::RefusedDismiss) {
             self.mode.note_edit();
         }
         ExplorerOutcome::Handled
     }
 
     /// A key while the rows are on screen.
-    fn editing_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
-        let pair = (chord(event.modifiers), event.key);
-        // Every key but the second escape answers the discard question with
+    fn editing(&mut self, resolved: &Resolved, event: &KeyEvent) -> ExplorerOutcome {
+        let verb = verb_of(resolved);
+        // Every key but the one that leaves answers the discard question with
         // "no, I am still working". Cleared here, once, rather than in each
-        // arm — an arm that forgot would leave an escape pressed much later
-        // able to throw the buffer away without asking again.
-        if pair != (Chord::Plain, KeyCode::Escape) {
+        // arm — an arm that forgot would leave a later press able to throw the
+        // buffer away without asking again.
+        //
+        // ⭐ Keyed on the *verb* rather than on the chord, which is what makes
+        // it survive rebinding: a user who moves "stop editing" to another key
+        // moves the arming with it, and `esc` becomes an ordinary key that
+        // disarms like every other.
+        if verb != Some(Verb::EditLeave) {
             self.mode.disarm_discard();
         }
 
-        match pair {
-            (Chord::CtrlAlt | Chord::MetaAlt, KeyCode::Char('e' | 'E')) => self.close_from_edit(),
-            (Chord::Plain, KeyCode::Escape) => self.leave_edit(),
-            (Chord::Ctrl, KeyCode::Char('d' | 'D')) => self.strike_row(event.is_repeat),
-            (Chord::Ctrl, KeyCode::Enter) => self.type_row(event.is_repeat),
-            (Chord::Meta, KeyCode::Char('s' | 'S')) => self.ask_to_apply(event.is_repeat),
-            (Chord::Plain, KeyCode::Up) | (Chord::Ctrl, KeyCode::Char('p' | 'P')) => {
+        let Some(verb) = verb else {
+            return match resolved {
+                // ⚠️ The toggle chord closes the panel from inside an editing
+                // session, and is answered here rather than by the browse
+                // dispatch — it has to be, because leaving with a dirty buffer
+                // is refused rather than allowed. It is not a [`Verb`]: it is
+                // the editor's command, which this panel names only because it
+                // is modal and would otherwise swallow it.
+                Resolved::Command(id) if id == &EXPLORER_TOGGLE_PANEL => self.close_from_edit(),
+                // ⭐ The case the whole mode exists for: this character reaches
+                // the row being edited, not the query.
+                Resolved::Unclaimed => self.unclaimed_edit_key(event),
+                _ => ExplorerOutcome::Handled,
+            };
+        };
+
+        match verb {
+            Verb::EditLeave => self.leave_edit(),
+            Verb::EditStrikeRow => self.strike_row(event.is_repeat),
+            Verb::EditNewRow => self.type_row(event.is_repeat),
+            Verb::EditAskApply => self.ask_to_apply(event.is_repeat),
+            Verb::EditCursorUp => {
                 self.move_cursor_up();
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Down) | (Chord::Ctrl, KeyCode::Char('n' | 'N')) => {
+            Verb::EditCursorDown => {
                 self.move_cursor_down();
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Left) => {
+            Verb::EditCaretLeft => {
                 self.mode.move_caret(Entry::move_left);
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Right) => {
+            Verb::EditCaretRight => {
                 self.mode.move_caret(Entry::move_right);
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Home) => {
+            Verb::EditCaretHome => {
                 self.mode.move_caret(Entry::move_home);
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::End) => {
+            Verb::EditCaretEnd => {
                 self.mode.move_caret(Entry::move_end);
                 ExplorerOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Backspace) => self.backspace_in_row(),
-            (Chord::Plain, KeyCode::Delete) => {
+            Verb::EditBackspace => self.backspace_in_row(),
+            Verb::EditDelete => {
                 self.mode.edit_name(Entry::delete);
                 ExplorerOutcome::Handled
             },
-            // ⭐ The arm the whole pre-match branch exists for: this character
-            // reaches the row, not the filter.
-            (Chord::Plain, KeyCode::Char(character)) => {
-                self.mode.edit_name(|entry| entry.insert(character));
-                ExplorerOutcome::Handled
-            },
             // Modal, and more so than in browse: `Enter` and the re-rooting
-            // pair are *deliberately* here rather than bound, because what
-            // they do in the browse table would drop the buffer.
+            // pair are *deliberately* unbound in this mode rather than bound to
+            // something harmless, because what they do while browsing would
+            // drop the buffer.
             _ => ExplorerOutcome::Handled,
         }
     }
 
+    /// A key nothing claimed while the rows are being edited: it types.
+    fn unclaimed_edit_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
+        if let KeyCode::Char(character) = event.key
+            && types_text(event.modifiers)
+        {
+            self.mode.edit_name(|entry| entry.insert(character));
+        }
+        ExplorerOutcome::Handled
+    }
+
     /// A key while the confirmation is on screen.
     ///
-    /// Three bindings, and they are exactly the three
-    /// [`super::confirm::plan_rows`] prints at the bottom of it. `⌘S` is
-    /// **inert** here: it is what got the user to this screen, and a held key
-    /// repeating into an apply is the one way a confirmation can be answered
-    /// by an accident of timing rather than by a decision.
-    fn confirming_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
-        match (chord(event.modifiers), event.key) {
-            (Chord::Plain, KeyCode::Char('y' | 'Y')) if !event.is_repeat => self.apply_confirmed(),
-            (Chord::Plain, KeyCode::Char('n' | 'N') | KeyCode::Escape) => {
+    /// Two bindings, and they are what [`super::confirm::plan_rows`] prints at
+    /// the bottom of it. Applying is **inert under key repeat**: a held key
+    /// repeating into an apply is the one way a confirmation can be answered by
+    /// an accident of timing rather than by a decision.
+    fn confirming(&mut self, resolved: &Resolved, event: &KeyEvent) -> ExplorerOutcome {
+        match verb_of(resolved) {
+            Some(Verb::ConfirmApply) if !event.is_repeat => self.apply_confirmed(),
+            Some(Verb::ConfirmCancel) => {
                 self.mode.back_to_edit();
                 ExplorerOutcome::Handled
             },

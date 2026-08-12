@@ -175,6 +175,82 @@ Ten gates green. What remains of #112 is the terminal face — see below.
 
 ---
 
+## After Tom used it — 12 Aug 2026
+
+He tried it: *"that's looks quite good. It looks really good actually."* Two
+defects came back with that, and both are recorded here because neither was
+findable from the code.
+
+### ⚠️ R6 — a key names a **state**, not a **transition**
+
+> *"when you command-B a second time, it just alternates between that and the
+> central version, like the command palette, so the style version. So that's an
+> issue."*
+
+`explorer.togglePlacement` did exactly what it said: it moved the panel to the
+other placement. Pressing it twice therefore left the explorer floating in the
+middle of the window rather than gone — a toggle whose second press does not
+undo its first.
+
+⭐ **This reverses part of R5's framing, not its mechanism.** The placement is
+still one field on the host, still derived-not-stored for focus, still carried
+on `PanelFit` for the geometry. What changed is what the *key* means:
+`explorer.toggleSidebar` names a state — sidebar on screen or not — and has
+three cases, of which only the first is new.
+
+| before | after |
+| --- | --- |
+| sidebar on screen | **goes away**, and the placement returns to the floating panel |
+| floating panel on screen | becomes a sidebar |
+| nothing on screen | becomes a sidebar |
+
+The floating panel stays reachable on `⌘⌥E` without a third id, because the
+close hands the placement back. ⚠️ **Only once the close has actually
+happened** — closing is refused while the oil buffer holds unapplied edits, and
+a placement given back ahead of a refused close would leave a sidebar drawn
+while the reserved band, the hit test and the key routing had all been told it
+was a popover.
+
+⭐ **The test that would have passed for the wrong reason.** The refusal test
+first pressed `⌘B`, and the panel's *edit-mode* key table ends in a catch-all —
+so the chord was swallowed, no close was ever attempted, and the placement
+assertion held for a reason that had nothing to do with the rule. The
+`app.message.is_some()` line is what caught it. The test now runs the command,
+which is the path the palette and an unfocused sidebar both take.
+
+### ⚠️ The bounce at the bottom — not the sidebar's, but the sidebar exposed it
+
+> *"when you scroll to the bottom you get this sort of like stuttering bouncing
+> effect kind of thing"*
+
+`FrameCompositor::max_scroll_y` read a total that included the wrap rows
+cosmic-text produced **for the window currently shaped**. Only the window is
+ever shaped, so that total moved whenever the window did — and the face clamps
+every scroll write against the limit and re-reads it between frames. A closed
+loop: a wheel tick at the bottom clamps to one value, the frame it triggers
+reports another, and the document bounces between the two.
+
+MEASURED on an 80-line document at 512×384: **3105.2** with the wrapped lines on
+screen against **1223.6** without them, and one round of clamp-then-compose
+moved the document **549px with no input**.
+
+The limit is now one row per fold-visible document line, counted across the
+whole document — the unit the scroll offset, the viewport window and the caret
+anchor already advance in. ⚠️ **The remaining cost is named rather than
+hidden**: the tail rows of a wrapped line at the very end of a document sit
+below the window and cannot be scrolled to. That belongs to the half-built wrap
+model — `docs/SOFT-WRAP-DESIGN.md` already names `extra_wrap_lines` among the
+things its replacement deletes.
+
+⭐ **Why a sidebar surfaced a bug that predates it.** A narrower content column
+wraps more lines, and the loop is only visible where wrapping is. Nothing about
+the placement was wrong.
+
+**LANDED `db360125` (the scroll limit) and `57257d8b` (the key), 12 Aug 2026.**
+Ten gates green.
+
+---
+
 ## What this does not cover
 
 The **terminal face**, which is the other half of Tom's sentence. He named

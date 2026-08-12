@@ -44,14 +44,22 @@ had accumulated locally before that; Waffles caught the gap. ⚠️ **Say
 "committed" until it is pushed.** "Landed" was doing work in reports that the
 repository state did not support — the gates were green on one machine.
 
-**Next step 1: the #69 serialisation experiment, and it blocks trusting the
-rubric.** See §9 of `docs/IN-FLIGHT-69-flaky-gutter.md`. Re-run
-`scripts/ci.sh` with the GPU test binaries serialised (`--test-threads=1`, or
-serialise the four). If the contiguous band survives, §7's rubric holds and
-there is a gutter-toggle regression. If it vanishes, **#69 was never about one
-test** — every pixel-identity test in the tree shares a parallel-GPU confound,
-and the whole document was calibrated on it. The downside branch invalidates
-more than #69, which is why this runs before the rubric is trusted further.
+**~~Next step 1: the #69 serialisation experiment~~ — ✅ DONE, and it landed on
+the downside branch.** See **§10** of `docs/IN-FLIGHT-69-flaky-gutter.md`. Run
+12 Aug with three arms rather than two: the flake is **the blinking caret**, in
+every arm including the fully serialised one. The caret quad is 2 px × one line
+= 40 pixels, and its visibility is a function of `Instant::now()` read inside
+`compose`; two composes straddling the 500 ms half-interval differ by exactly
+those pixels. Fourteen distinct tests across three binaries, one signature, 8
+failures in 87 runs.
+
+⭐ **It invalidated more than #69, exactly as the downside branch predicted** —
+just not through parallelism. §5's rubric and §7's classification are
+**withdrawn**: "contiguous band = real regression" was classifying a caret.
+Fixed by pinning the blink off in the harnesses, with two instruments so the
+finding cannot decay into a comment. **This also means `b7dd6c7c`'s
+plain-versus-plain control was doing its job** — it was one of the fourteen,
+and it failed loudly rather than letting a style difference be misattributed.
 
 **Next step 2 is NOT mine to take.** Turning "headings are bold" on in the two
 shipped presets is a **look ruling** and goes on Tom's docket through Waffles.

@@ -163,5 +163,39 @@ pub fn compositor_sized(gpu: &Gpu, width: u32, height: u32) -> FrameCompositor {
         compositor.load_font(FONT.to_vec()),
         "the vendored test font holds no readable face"
     );
+    // ⭐ #69, and it is the reason a whole class of these tests was flaky.
+    //
+    // The caret quad is two pixels wide and one line tall — 40 pixels at this
+    // font size — and whether it is drawn at all is a function of `Instant::
+    // now()` read inside `compose`. Two composes that straddle the 500 ms
+    // half-interval therefore differ by exactly those 40 pixels, in ANY test,
+    // whatever it thought it was comparing.
+    //
+    // ⚠️ Pinning it off here rather than resetting it before each compose is
+    // the whole fix. A reset is time-*relative* — it says "visible from now" —
+    // so it only holds while the box is fast enough to compose inside the
+    // half-interval. That is a guard which works when it is not needed and
+    // fails when it is; measured, it failed 8 times in 87 binary runs at a
+    // load average of 50 to 102. Off is time-*independent*, and the caret is
+    // still drawn, at its real position, in every frame: only the phase goes.
+    compositor.set_cursor_blink_enabled(false);
     compositor
+}
+
+/// ⭐ The harness invariant every pixel comparison in this crate rests on.
+///
+/// Stated as a test rather than trusted to the comment above it, because the
+/// comment cannot fail. Every binary that pulls in this module runs this, which
+/// is the point: the guarantee belongs to the harness, not to whichever test
+/// remembered to ask for it.
+#[test]
+fn a_harness_compositor_draws_a_caret_that_does_not_depend_on_the_clock() {
+    let gpu = gpu("support::gpu");
+    let compositor = compositor(&gpu);
+    assert!(
+        !compositor.cursor_blink_enabled(),
+        "this harness composes with a live caret blink, so any two of its \
+         frames can differ by the caret's 40 pixels for no reason but when \
+         they were drawn — see docs/IN-FLIGHT-69-flaky-gutter.md §10"
+    );
 }

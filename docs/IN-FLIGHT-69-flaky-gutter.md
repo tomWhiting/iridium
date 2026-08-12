@@ -1,16 +1,34 @@
 # #69 — `custom_gutter_lines_miss_and_recompose_identically`
 
-**Still not reproduced. The load caveat is now closed. And the signature this
-doc reasoned from was never measured — it was an illustration.**
+## ⭐⭐ SOLVED — READ §10 FIRST, THEN THE HISTORY
+
+**It is the blinking caret, and it was never the gutter.** The caret quad is
+two pixels wide by one line tall — 40 pixels at the harness's font size — and
+whether it is drawn is a function of `Instant::now()` read inside `compose`.
+Any two composes straddling the 500 ms half-interval differ by exactly those
+40 pixels, **in any test**, whatever that test believed it was comparing.
+Reproduced 12 Aug 2026 in fourteen distinct tests across three binaries, every
+one with the same signature. **8 failures in 87 runs before; 0 in 455 after,
+across load averages from 39 to 433.** §10 carries the experiment, the
+mechanism, the fix and both after-columns.
+
+⛔ **§§1–9 below are the history of getting there, and parts of them are now
+known wrong.** They are kept because how the wrong answers were held matters,
+and because two of them name a defect worth remembering. But **§5's rubric and
+§7's classification are withdrawn** — see §10e — and no reader should apply
+them. Every section that a later one overturns says so, at its own head.
+
+---
 
 `crates/iridium-editor/tests/retained_shaping/gutter.rs:73`.
 
-Third sitting. The first added `support::pixels::assert_same_frame` so the
+Four sittings. The first added `support::pixels::assert_same_frame` so the
 *next* occurrence says count, position, area and magnitude — deliberately not a
-fix. The second eliminated two mechanisms and named a third. This one ran the
-experiment the second sitting proposed, found it cannot discriminate, ran its
-inverse instead, and — chasing the recorded signature to compare against —
-found the signature had no measurement behind it.
+fix. The second eliminated two mechanisms and named a third. The third ran the
+experiment the second proposed, found it cannot discriminate, ran its inverse
+instead, and — chasing the recorded signature to compare against — found the
+signature had no measurement behind it. The fourth varied the execution context
+first, as §9a said to, and the answer fell out in twelve minutes.
 
 ---
 
@@ -233,7 +251,16 @@ make. Rubric replaced in §5.
 
 ---
 
-## 5. What to do at the next occurrence — revised, in order
+## 5. ⛔ WITHDRAWN — What to do at the next occurrence
+
+⛔ **Do not use this rubric.** It says a contiguous band means the layout moved
+and is "a real regression, the most serious outcome". The contiguous band was
+the caret. Applying this to a 40-pixel two-column band would produce a
+confident wrong answer, which is worse than no rubric. Kept only so the §10
+correction has something to point at. **See §10e.**
+
+Steps 2 and 3 survive and are worth keeping: record the full line verbatim with
+its population, and do not loosen `assert_same_frame` to a tolerance.
 
 1. **Read the diagnostic and classify by three questions, not two:**
    - **Is the differing set larger than one glyph cell?** A row band, a column
@@ -315,7 +342,17 @@ invented figure removed from the evidence, one dead experiment deleted, one live
 experiment recorded with its single observation and its honest statistics, the
 load caveat closed, and a rubric that can classify what was actually seen.
 
-## 9. ⭐ AN OCCURRENCE, AND THE RUBRIC IN §7 SAYS IT IS NOT ATLAS PACKING
+## 9. ◐ SUPERSEDED — AN OCCURRENCE, AND THE RUBRIC IN §7 SAYS IT IS NOT ATLAS PACKING
+
+⛔ **Both candidate mechanisms below are wrong, and one premise is factually
+wrong.** The occurrence is real and its diagnostic is the most valuable thing
+in this file — it is the caret, and §10 shows why to the pixel. What is wrong:
+neither "a gutter-toggle regression" nor "contention among concurrently running
+GPU binaries" is the cause, and `cargo` does **not** run test targets in
+parallel, so the fourth binary #90 added never joined a "parallel run". The
+section is kept intact because its *method* — record two candidates and the
+separating experiment rather than a conclusion — is what produced the answer,
+and §9a's transferable rule is what pointed the experiment at the right thing.
 
 **12 Aug 2026.** Seen during the L1c gate run, in a `scripts/ci.sh` pass that
 also failed `left_inset::the_content_column_is_the_same_pixels_a_sidebars_width_across`
@@ -383,3 +420,246 @@ context is a candidate mechanism with at least as much standing as anything
 inside the test. Vary the execution context first, because that experiment is
 cheap and its negative result is what licenses trusting every per-test rubric
 built on top.
+
+## 10. ⭐⭐ SOLVED — IT IS THE CARET, AND IT WAS NEVER THE GUTTER
+
+**12 Aug 2026.** The serialisation experiment §9 asked for was run. It found the
+mechanism in twelve minutes, and the mechanism is neither of §9's two
+candidates.
+
+### 10a. What was run
+
+Three arms, not two, because the two-arm form can only discriminate by
+**waiting** for a rare natural failure — and a few hundred clean runs in both
+arms would have said nothing about either hypothesis. The third arm attacks the
+proposed mechanism instead of waiting for it:
+
+| arm | binaries | threads inside each |
+| --- | --- | --- |
+| **C** | all four launched **at once** | default |
+| **P** | one after another — **the status quo** | default |
+| **S** | one after another | `--test-threads=1` |
+
+Arms alternate order per iteration (`C,P,S` then `S,P,C`) so no arm sits at a
+fixed position and a load excursion cannot land on one arm. The four binaries
+are `retained_shaping`, `top_inset`, `left_inset`,
+`run_weight_reaches_the_glyphs`. Harness kept at
+`scratchpad/serialisation-experiment.sh` for the session; it is reproduced by
+its own comments, and nothing in it is piped.
+
+⚠️ **A premise of §9 was wrong and is corrected here.** §9 wrote of "the
+harness running GPU work in parallel" and of #90 L1c "adding a fourth GPU test
+binary to the same parallel run". `scripts/ci.sh` runs its gates one at a time,
+and `cargo test` runs test *targets* one after another — the only real
+concurrency is between the tests **inside** one binary. So the simultaneity §9
+found suspicious was never concurrent binaries; it was several binaries each
+hitting the same time-dependent condition during one loaded pass.
+
+### 10b. The result, before any fix
+
+**87 binary runs, 8 failures, in all three arms**, at one-minute load averages
+between 22 and 102:
+
+| arm | runs | failures |
+| --- | --- | --- |
+| C | 28 | 2 |
+| P | 28 | 2 |
+| S | 31 | 4 |
+
+⭐ **Failures in the fully serialised arm kill the contention hypothesis
+outright.** The first three occurrences were *all* in arm S. The arm does not
+matter; the load does.
+
+**Fourteen distinct tests failed, across all three binaries** — including the
+plain-versus-plain *control* in `run_weight_reaches_the_glyphs`, which exists
+precisely so that a difference can be attributed:
+
+```
+document_identity::switching_back_to_the_first_document_is_a_miss_as_well
+document_identity::a_second_document_through_the_same_compositor_is_not_a_cache_hit
+layout::loading_a_font_misses_and_recomposes_identically
+theme::a_theme_flip_misses_and_recomposes_identically
+syntax::a_syntax_toggle_misses_and_recomposes_identically
+syntax::a_syntax_theme_borrow_misses_and_recomposes_identically
+syntax::a_language_less_source_composes_the_plain_frame
+syntax::a_highlight_generation_bump_misses_and_recolors_identically
+hits::steady_frames_hit_and_reproduce_the_cold_frame_exactly
+gutter::custom_gutter_lines_miss_and_recompose_identically
+gutter::a_gutter_toggle_misses_and_recomposes_identically
+the_content_column_is_the_same_pixels_a_sidebars_width_across
+a_plain_run_draws_what_an_unstyled_run_always_drew
+a_bold_run_draws_different_glyphs_than_a_plain_one
+```
+
+**Every single failure carried one signature.** Verbatim, three of them:
+
+```
+40 of 196608 pixels differ; the first at column 10, row 10; they span columns 10..=11 and rows 10..=29; the largest single channel difference is 149
+40 of 196608 pixels differ; the first at column 61, row 10; they span columns 61..=62 and rows 10..=29; the largest single channel difference is 149
+40 of 196608 pixels differ; the first at column 67, row 10; they span columns 67..=68 and rows 10..=29; the largest single channel difference is 158
+```
+
+Always **40 pixels**. Always **two columns wide**. Always **rows 10..=29** —
+twenty rows, one line. Only the column moves, and it moves with the cursor.
+
+### 10c. The mechanism
+
+`render/compositor/quads.rs::build_cursor_quads` emits, for every caret:
+
+```rust
+Quad::new(x, y, 2.0, m.line_height, cursor_color)
+```
+
+**Two pixels wide by one line tall.** At the harness's `FONT_SIZE` of 14 and a
+1.5 line factor that is 2 × 20 = **40 pixels**, at the caret's column, on the
+caret's line — `top_inset` 10 puts line 0 at rows 10..=29. The signature is not
+*like* a caret. It **is** the caret, to the pixel.
+
+Whether it is drawn at all is decided one line earlier:
+
+```rust
+if !self.cursor_renderer.is_visible() { return; }
+```
+
+and `is_visible` is a function of the wall clock. `compose` calls
+`self.cursor_renderer.update(Instant::now())`; `CursorRenderer::update` derives
+the phase from `elapsed % blink_interval`, with `blink_interval` one second.
+**Any two composes that straddle the 500 ms half-interval differ by exactly
+those 40 pixels — in any test, whatever that test believed it was comparing.**
+
+### 10d. Why the existing mitigation did not hold — and the law
+
+`tests/support/frame.rs` already called `compositor.reset_blink()` before every
+compose, under a comment that names the mechanism exactly: *"Without it the
+caret's phase depends on wall-clock time, so an otherwise identical pair of
+frames differs in a handful of pixels, intermittently."* Someone saw this.
+
+It was not enough, because **a reset is time-*relative***. It sets the cycle's
+origin to *now* and buys visibility for the half-second that follows. The phase
+is still recomputed from `Instant::now()` when `compose` runs. On an idle box
+the gap between those two lines is microseconds and the caret is always
+visible; under load it crosses 500 ms, and the caret vanishes from one frame of
+a comparison.
+
+⭐ **A guard whose correctness depends on the box being fast is a guard that
+works when it is not needed and fails when it is.** This is a sibling of *"a
+fallback the real failure mode cannot reach is not a fallback"*: the mitigation
+was reachable only in the conditions that never needed it. The 210 clean runs
+in §4b and §6 are explained — they were runs in which the mitigation held.
+
+### 10e. What this retires
+
+⛔ **§5's rubric and §7's classification are withdrawn.** They said: *few
+pixels on glyph edges = atlas packing; contiguous block or row band = a real
+regression, and the most serious outcome.* The contiguous band was a caret.
+Any future reader applying that rubric to a 40-pixel two-column band would
+reach a confidently wrong conclusion.
+
+⛔ **The atlas hypothesis (§3) is not confirmed by anything.** It remains
+neither proved nor disproved — but it now has **no** observation behind it: the
+one occurrence §9 offered it, and the earlier signature §0 corrected, are both
+accounted for by the caret.
+
+⭐ **And this is the branch §9a warned of, in its more expensive form.** Not
+"one test's rubric was wrong" but "every pixel-identity comparison in the tree
+shared one confound, and the document was calibrated on it". The kinship named
+in §9a holds and the method paid: **vary the execution context first.** What
+made it pay was widening "execution context" past the harness's threading to
+include *the clock* — which is shared execution context too, and the only one
+the failures were actually sensitive to.
+
+### 10f. The fix
+
+`FrameCompositor::set_cursor_blink_enabled(bool)` — new, and
+product-legitimate: a solid caret is a real setting, not a test hook. **Off
+means solid, not hidden.** The caret is still drawn on every frame at its real
+position, so a caret-placement regression is still caught; only the phase — the
+part that makes a frame a function of when it was drawn — is removed.
+
+Pinned off in five places, each with the reason at the call site:
+
+- `tests/support/gpu.rs::compositor_sized` — every kernel harness compositor,
+  from birth.
+- `tests/support/frame.rs::compose` — again, per compose, because that function
+  accepts *any* compositor including one a test built for itself, and a
+  guarantee that depends on the caller having remembered is not one.
+- `apps/iridium-desktop/tests/plain_frames.rs` — same comparison, same defect.
+- `apps/iridium-desktop/tests/chrome_screenshots.rs` — which had no mitigation
+  at all, so its shots showed a caret or not at random.
+
+⭐ **Pinning it off in the harness does not make the harness diverge from the
+product, and that is worth stating because it is the obvious objection.** The
+desktop face composes only on `RedrawRequested`, and requests one only after
+input, resize or scale change — there is no animation loop
+(`apps/iridium-desktop/src/app/mod.rs`, which names the consequence in its own
+words: *"the caret does not blink while the keyboard is idle"*). So the shipped
+editor already draws a solid caret except across an input. The phase existed
+only where frames are composed back to back, which is exactly and only the test
+harness.
+
+Two instruments, so the finding cannot decay into a comment:
+
+- `render::cursor::tests::a_disabled_blink_is_visible_at_every_moment_an_enabled_one_would_hide`
+  — swept over two full intervals rather than sampled at one instant, so it is
+  deterministic whatever the cycle's origin and whatever the load. Determinism
+  is the property under test, so the test must not itself be timing-dependent.
+- `support::gpu::a_harness_compositor_draws_a_caret_that_does_not_depend_on_the_clock`
+  — runs in **every** binary that pulls the harness in. The guarantee belongs
+  to the harness, not to whichever test remembered to ask.
+
+### 10g. The after column
+
+Same harness, same three arms, same box, at a comparable load. Recorded on the
+next line rather than promised:
+
+| arm | runs | failures |
+| --- | --- | --- |
+| C | 52 | **0** |
+| P | 52 | **0** |
+| S | 51 | **0** |
+
+**155 binary runs, 0 failures** — a sample 1.8× the size of the one that
+produced 8 — over 155 load samples between **39.74 and 55.86**, mean 49.39.
+
+⚠️ **That first after-run had a real gap, and it is recorded rather than
+quietly dropped.** The before-run's load ranged from 22 to 102 and **five of its
+eight failures were above 60** — outside the band this run reached. Waffles
+named it on sight: *"if you can push an arm above 60 before committing, the
+claim closes fully rather than mostly."* So it was pushed.
+
+### The high-load arm — the caveat closed
+
+The box went to a one-minute load average above **400** shortly afterwards
+(other lanes, plus a browser, not this work). The same harness was run again
+against **copies** of the fixed binaries in a scratch directory — deliberately,
+so that the `scripts/ci.sh` pass running concurrently could not rewrite a binary
+mid-execution and turn a failed `exec` into a counted "failure".
+
+| arm | runs | failures |
+| --- | --- | --- |
+| C | 100 | **0** |
+| P | 100 | **0** |
+| S | 100 | **0** |
+
+**300 binary runs, 0 failures**, over 300 load samples from **49.83 to 433.03**,
+mean **123.34**.
+
+⭐ **That is four times the load at which the flake originally fired, and it
+spans the entire before-run band rather than overlapping part of it.** Combined:
+**455 post-fix binary runs, 0 failures, across loads 39 to 433**, against **8
+failures in 87 runs** before. The caveat is closed.
+
+The proof is still not the counting. The proof is that the caret quad is
+2 × `line_height`, the signature was 2 × 20 every single time, and the column
+moved with the cursor. The counts are what rule out a second mechanism hiding
+behind the first.
+
+### 10h. Still open, honestly
+
+- The **atlas** question (§3) has no evidence for or against it. It should not
+  be closed; it should be left with nothing behind it, which is what it has.
+- This says nothing about whether a *different*, rarer mechanism also exists.
+  It says the mechanism behind every failure this experiment produced, and
+  behind the one occurrence §9 recorded, is the caret.
+- ⚠️ The desktop screenshot corpus was generated with a live blink. Any shot in
+  it may or may not show a caret. Regenerating it is not in this lane.

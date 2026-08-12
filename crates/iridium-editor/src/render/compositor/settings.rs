@@ -101,8 +101,44 @@ impl FrameCompositor {
     ///
     /// Every input path that moves a caret calls this: a caret that stays in
     /// its off-phase across a movement looks like a caret that vanished.
+    ///
+    /// ⚠️ **This makes the caret visible *now*, and "now" decays.** The phase
+    /// is recomputed from `Instant::now()` on every compose, so a reset only
+    /// guarantees visibility for the half-interval that follows it. Anything
+    /// that needs a caret whose appearance does not depend on the clock wants
+    /// [`Self::set_cursor_blink_enabled`], not this.
     pub fn reset_blink(&mut self) {
         self.cursor_renderer.reset_blink();
+    }
+
+    /// Turns the caret blink on or off.
+    ///
+    /// Off means *solid*, not *hidden*: the caret is drawn on every frame at
+    /// its real position, and only the phase — the thing that makes a frame's
+    /// appearance a function of wall-clock time — is removed. A face wanting a
+    /// non-blinking caret sets this, and so must anything comparing two frames
+    /// for equality.
+    ///
+    /// ⭐ **This exists because the reset was not enough, and the difference
+    /// was measured.** [`Self::reset_blink`] is time-*relative*: it sets the
+    /// cycle's origin to now, and [`Self::compose`] then derives the phase
+    /// from `Instant::now()` a moment later. On an idle box that gap is
+    /// microseconds and the caret is always visible; on 12 Aug 2026, under a
+    /// one-minute load average between 50 and 102, the gap crossed the 500 ms
+    /// half-interval often enough that **fourteen distinct pixel-identity
+    /// tests across three binaries failed with one signature** — 40 pixels of
+    /// 196,608, two columns wide by one line tall, at the caret's column. See
+    /// `docs/IN-FLIGHT-69-flaky-gutter.md` §10. A guard whose correctness
+    /// depends on the box being fast is a guard that works only when it is not
+    /// needed.
+    pub const fn set_cursor_blink_enabled(&mut self, enabled: bool) {
+        self.cursor_renderer.set_blink_enabled(enabled);
+    }
+
+    /// Whether the caret blinks. See [`Self::set_cursor_blink_enabled`].
+    #[must_use]
+    pub const fn cursor_blink_enabled(&self) -> bool {
+        self.cursor_renderer.blink_enabled()
     }
 
     /// Switches between the built-in dark and light themes, keeping the

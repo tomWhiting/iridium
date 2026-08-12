@@ -372,6 +372,51 @@ mod tests {
         assert!(renderer.is_visible());
     }
 
+    /// ⭐ #69's mechanism, written as an assertion so it cannot go stale.
+    ///
+    /// A reset makes the caret visible *at the moment it is called*, and
+    /// nothing more: the phase is recomputed from the instant handed to
+    /// [`CursorRenderer::update`], so the guarantee lasts one half-interval.
+    /// Fourteen pixel-identity tests across three binaries were flaky on
+    /// exactly this, because they reset the blink and then composed — and
+    /// under load the compose landed on the far side of the boundary. Turning
+    /// the blink off is what removes the clock from the answer.
+    ///
+    /// Swept rather than sampled at one instant, on purpose: the cycle's
+    /// origin is set inside `new` and cannot be named from out here, so an
+    /// assertion about one moment would be an assertion about how long
+    /// construction took. A sweep over two full intervals is true whatever the
+    /// origin is, which is what makes this test deterministic under any load —
+    /// the property it is guarding is precisely that determinism.
+    #[test]
+    fn a_disabled_blink_is_visible_at_every_moment_an_enabled_one_would_hide() {
+        let config = CursorConfig {
+            blink_interval: Duration::from_millis(100),
+            blink_enabled: true,
+            ..Default::default()
+        };
+        let mut renderer = CursorRenderer::new(config);
+        let start = Instant::now();
+        let sweep = || (0..=200).step_by(10).map(Duration::from_millis);
+
+        assert!(
+            sweep().any(|elapsed| renderer.update(start + elapsed) == BlinkState::Hidden),
+            "an enabled blink must have an off phase somewhere in two full \
+             intervals, or this test is guarding nothing"
+        );
+
+        renderer.set_blink_enabled(false);
+        for elapsed in sweep() {
+            assert_eq!(
+                renderer.update(start + elapsed),
+                BlinkState::Visible,
+                "a disabled blink hid the caret {} ms in, so a frame's \
+                 appearance still depends on when it was drawn",
+                elapsed.as_millis()
+            );
+        }
+    }
+
     #[test]
     fn cursor_no_blink_without_focus() {
         let mut renderer = CursorRenderer::default();

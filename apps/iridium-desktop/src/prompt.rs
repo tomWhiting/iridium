@@ -26,24 +26,39 @@
 //! same convention rather than inventing a second one.
 
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use unicode_segmentation::UnicodeSegmentation as _;
 
 /// What answering "yes" to a confirmation asks for.
 ///
-/// Every variant here discards unsaved work, which is the only thing this
-/// face asks permission for. There was a third — replacing the buffer with
-/// a dropped file — and it went away rather than changing when opening a
-/// file became *additive*: a drop now makes a tab beside what is open and
-/// destroys nothing, so there is nothing left to ask about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Every variant here destroys something that cannot be got back, which is
+/// the only thing this face asks permission for. There was a third — replacing
+/// the buffer with a dropped file — and it went away rather than changing when
+/// opening a file became *additive*: a drop now makes a tab beside what is open
+/// and destroys nothing, so there is nothing left to ask about.
+///
+/// ⚠️ **[`OverwriteWith`](Self::OverwriteWith) is the one that destroys work
+/// that is not the user's own.** The other two discard an unsaved buffer, which
+/// its author typed and can retype; this one replaces a file on disk that
+/// something else wrote. It is a confirmation rather than a refusal because a
+/// save-as that could never overwrite is a save-as that cannot answer "put this
+/// over that", which is half of what the verb is for.
+///
+/// This carries a [`PathBuf`], so the enum is [`Clone`] rather than [`Copy`].
+/// The path is *the answer*, not a lookup key: the file the buffer is currently
+/// attached to is deliberately not the one being written, and asking the
+/// application for "the path" at the moment the answer comes back would find
+/// the wrong one.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deed {
     /// Leave the editor, discarding unsaved changes.
     Quit,
     /// Close the active tab, discarding its unsaved changes.
     CloseTab,
+    /// Write the document to this path even though a file is already there.
+    OverwriteWith(PathBuf),
 }
 
 /// What the application must do about a key handed to an open prompt.
@@ -74,10 +89,30 @@ pub enum Prompt {
 }
 
 impl Prompt {
-    /// A prompt asking for a file name.
+    /// A prompt asking for a file name, with nothing typed into it yet.
     #[must_use]
     pub fn save_as() -> Self {
         Self::SaveAs(Entry::new())
+    }
+
+    /// A prompt asking for a file name, starting from the one the document
+    /// already has.
+    ///
+    /// ⭐ **The field is filled rather than left empty, and that is the whole
+    /// difference between a usable "Save As" and a paragraph of retyping.** A
+    /// named document's path is often forty characters of directory and six of
+    /// file name, and the change wanted is nearly always in the last six. An
+    /// empty field asks for all forty-six again and invites the typo that
+    /// writes the file somewhere nobody will look for it.
+    ///
+    /// The caret lands at the **end**, because [`Entry`] has no selection: the
+    /// macOS convention of pre-selecting the stem needs one, and a caret at the
+    /// start would put every typed character in front of the directory. End is
+    /// the position from which the common edit — change the extension, add a
+    /// suffix — is one keystroke away.
+    #[must_use]
+    pub fn save_as_named(path: &Path) -> Self {
+        Self::SaveAs(Entry::with_text(&path.to_string_lossy()))
     }
 
     /// A prompt asking a yes-or-no question.
@@ -117,7 +152,7 @@ impl Prompt {
                 },
             },
             Self::Confirm { deed, .. } => match event.key {
-                KeyCode::Char('y' | 'Y') => Answer::Do(*deed),
+                KeyCode::Char('y' | 'Y') => Answer::Do(deed.clone()),
                 KeyCode::Char('n' | 'N') | KeyCode::Escape => Answer::Cancelled,
                 _ => Answer::Pending,
             },
@@ -232,6 +267,24 @@ impl Entry {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A field already holding `text`, with the caret after it.
+    ///
+    /// Built by [`insert`](Self::insert)ing one character at a time rather than
+    /// by assigning the string, so the field's one invariant — **no control
+    /// character ever enters a file name** — holds by construction here as it
+    /// does for typing. A second way in that assigned the string directly would
+    /// be a second way for a newline to reach a path, and the caller's text is
+    /// exactly the kind that could carry one: it comes from an
+    /// [`OsStr`](std::ffi::OsStr), which permits bytes a keyboard cannot send.
+    #[must_use]
+    pub fn with_text(text: &str) -> Self {
+        let mut entry = Self::new();
+        for character in text.chars() {
+            let _ = entry.insert(character);
+        }
+        entry
     }
 
     /// The field's text.
@@ -418,6 +471,50 @@ mod tests {
         assert_eq!(
             prompt.answer(&press(KeyCode::Enter)),
             Answer::SaveAs(PathBuf::from("notes.md"))
+        );
+    }
+
+    #[test]
+    fn a_named_document_is_asked_about_starting_from_the_name_it_has() {
+        // The difference between a usable Save As and forty-six characters of
+        // retyping, and the caret is at the end so the common edit — change the
+        // extension — is one keystroke away rather than forty-six.
+        let mut prompt = Prompt::save_as_named(Path::new("/tmp/notes.md"));
+        assert_eq!(prompt.line(), "Save as: /tmp/notes.md");
+        assert_eq!(prompt.caret_column(), Some("Save as: /tmp/notes.md".len()));
+
+        type_into(&mut prompt, "x");
+        assert_eq!(
+            prompt.answer(&press(KeyCode::Enter)),
+            Answer::SaveAs(PathBuf::from("/tmp/notes.mdx")),
+            "typing appends at the caret rather than in front of the directory"
+        );
+    }
+
+    #[test]
+    fn a_prefilled_name_cannot_smuggle_in_a_control_character() {
+        // The field's one invariant, and the prefill is the way in a keyboard
+        // cannot use: a path comes from an `OsStr`, which permits bytes no key
+        // sends. Filling through `insert` is what makes this hold by
+        // construction rather than by a second check nobody would remember.
+        let prompt = Prompt::save_as_named(Path::new("a\nb.md"));
+        assert_eq!(prompt.line(), "Save as: ab.md");
+    }
+
+    #[test]
+    fn a_confirmation_carries_the_path_its_answer_needs() {
+        // `OverwriteWith` is the one deed with an argument, because the file
+        // being written is deliberately *not* the one the document is attached
+        // to — asking the application for "the path" when the answer comes back
+        // would find the wrong one.
+        let target = PathBuf::from("/tmp/already-there.md");
+        let mut prompt = Prompt::confirm(
+            "already-there.md exists. Overwrite it? (y/n)",
+            Deed::OverwriteWith(target.clone()),
+        );
+        assert_eq!(
+            prompt.answer(&press(KeyCode::Char('y'))),
+            Answer::Do(Deed::OverwriteWith(target))
         );
     }
 

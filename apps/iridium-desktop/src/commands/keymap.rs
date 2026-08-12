@@ -24,7 +24,7 @@ use iridium_editor::{
 
 use ModifierState::{Any, Forbidden, Required};
 
-use super::ids::{FILE_OPEN, FILE_SAVE, FILE_SAVE_FORCE, PROJECT_OPEN};
+use super::ids::{FILE_NEW, FILE_OPEN, FILE_SAVE, FILE_SAVE_AS, FILE_SAVE_FORCE, PROJECT_OPEN};
 
 /// Shorthand for a modifier pattern, in the field order of [`ModifierPattern`].
 const fn pattern(
@@ -37,11 +37,6 @@ const fn pattern(
     ModifierPattern::new(shift, ctrl, alt, meta, alt_graph)
 }
 
-/// A bare `Ctrl` chord: `Shift` ignored, `Alt` and `Meta` absent — the same
-/// shape the terminal face binds its save under, so a keymap reads the same
-/// across both.
-const CTRL: ModifierPattern = pattern(Any, Required, Forbidden, Forbidden, Any);
-
 /// A `Ctrl+Alt` chord. `AltGraph` is forbidden for the reason the kernel's
 /// add-cursor chord forbids it: on many layouts `AltGr` is reported as
 /// `Ctrl+Alt` while composing a character, and a forced save is not something
@@ -51,11 +46,15 @@ const CTRL_ALT: ModifierPattern = pattern(Any, Required, Required, Forbidden, Fo
 /// A bare `Ctrl` chord with `Shift` absent — the unshifted half of a pair
 /// whose shifted spelling is a *different verb*.
 ///
-/// [`CTRL`] ignores `Shift`, which is right for `Ctrl+S`, a verb that owns its
-/// key either way. It is wrong for `Ctrl+O`, because `Ctrl+⇧O` opens a folder
-/// rather than a file: with `Shift` spelled [`Any`] the unshifted row would
-/// match the shifted chord too, and whichever of the two outranked the other
-/// would swallow it outright.
+/// A pattern spelling `Shift` [`Any`] matches the shifted chord as well, so the
+/// unshifted row would swallow it or be swallowed by it depending on which
+/// outranked the other. Every letter on this face that carries two verbs — `O`
+/// (open file / open folder), `S` (save / save as), `N` (new file, holding
+/// `⌘⇧N` open for a new window) — is split with this and [`CTRL_SHIFT`] rather
+/// than left to that ordering.
+///
+/// ⚠️ The `Ctrl+S` row used the `Shift`-ignoring shape until 12 Aug 2026, which
+/// is exactly how `Ctrl+⇧S` came to save rather than save-as.
 const CTRL_NO_SHIFT: ModifierPattern = pattern(Forbidden, Required, Forbidden, Forbidden, Any);
 
 /// A `Ctrl+⇧` chord: the shifted half of [`CTRL_NO_SHIFT`].
@@ -126,8 +125,30 @@ const CHORD: &[StrokePattern] = &[];
 
 /// The binding table: `(stroke, command)`.
 pub(super) const BINDINGS: &[(StrokePattern, CommandId)] = &[
-    (StrokePattern::new(KeyCode::Char('s'), CTRL), FILE_SAVE),
-    (StrokePattern::new(KeyCode::Char('s'), META), FILE_SAVE),
+    // ⚠️ **The save rows forbid `Shift` — they used to ignore it.** `⌘⇧S` and
+    // `Ctrl+⇧S` reached `file.save` until 12 Aug 2026 simply because nothing
+    // else claimed them; they are Save As on every editor a hand arrives from,
+    // and the rows below now say so. The split is the same one the kernel makes
+    // between `Ctrl+K` and `Ctrl+Shift+K`, and it is declared rather than left
+    // to rank order: a [`Required`] `Shift` does outrank an [`Any`] one inside
+    // a layer, but a binding that only works because of the ordering is one an
+    // edit somewhere else can quietly break.
+    (
+        StrokePattern::new(KeyCode::Char('s'), CTRL_NO_SHIFT),
+        FILE_SAVE,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('s'), META_NO_SHIFT),
+        FILE_SAVE,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('s'), CTRL_SHIFT),
+        FILE_SAVE_AS,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('s'), META_SHIFT),
+        FILE_SAVE_AS,
+    ),
     (
         StrokePattern::new(KeyCode::Char('s'), CTRL_ALT),
         FILE_SAVE_FORCE,
@@ -135,6 +156,20 @@ pub(super) const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Char('s'), META_ALT),
         FILE_SAVE_FORCE,
+    ),
+    // `⌘N` / `Ctrl+N`, `Shift` forbidden — leaving `⌘⇧N` free for a new
+    // *window* rather than silently claiming it, which is the reasoning `⌘W`
+    // already follows for `⌘⇧W`. Nothing in any layer bound `n` before this:
+    // `Char('n')` over the kernel's default keymap and every source file of
+    // both native faces returned nothing but tests answering `n` to a
+    // yes-or-no prompt, checked 12 Aug 2026 immediately before these two rows.
+    (
+        StrokePattern::new(KeyCode::Char('n'), CTRL_NO_SHIFT),
+        FILE_NEW,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('n'), META_NO_SHIFT),
+        FILE_NEW,
     ),
     (StrokePattern::new(KeyCode::Char('c'), META), CLIPBOARD_COPY),
     (StrokePattern::new(KeyCode::Char('x'), META), CLIPBOARD_CUT),

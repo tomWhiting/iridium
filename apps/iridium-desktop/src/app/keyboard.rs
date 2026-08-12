@@ -268,6 +268,11 @@ impl DesktopApp {
             // Forced: the question that got here *was* the guard, and asking
             // it again from inside the answer would never terminate.
             Answer::Do(Deed::CloseTab) => self.close_active_tab(true),
+            // The path travels in the answer rather than being looked up here,
+            // for the reason `Deed` states: the document is still attached to
+            // the file it had, so "the path" asked for now would be the wrong
+            // one.
+            Answer::Do(Deed::OverwriteWith(path)) => self.overwrite_as(&path),
         }
     }
 

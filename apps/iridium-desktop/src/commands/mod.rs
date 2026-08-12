@@ -10,11 +10,34 @@
 //! [`EditorKeyResult::HostCommand`](iridium_editor::EditorKeyResult::HostCommand),
 //! and [`DesktopApp`](crate::app::DesktopApp) runs it.
 //!
-//! The two ids this face contributes are **the terminal face's ids,
+//! Two of the ids this face contributes are **the terminal face's ids,
 //! character for character**: `file.save` and `file.saveForce`. One id and
 //! one meaning across every face is the whole argument of the kernel's
 //! `builtin::host` module, and two faces spelling the same verb differently
 //! is exactly the drift it warns about.
+//!
+//! # ⚠️ Two ids this face contributes that the terminal face does not
+//!
+//! `file.saveAs` and `file.new` are **desktop-only today**, and that is stated
+//! here rather than left to be noticed, because the paragraph above is a
+//! promise about drift and these are the two places it is not yet kept.
+//!
+//! * **`file.saveAs`** is a verb the terminal face *has* — `App::save_as` is
+//!   written and tested there — with no way in, exactly the gap this face just
+//!   closed. What is not transferable is the **key**. The split below is
+//!   `Ctrl+S` against `Ctrl+⇧S`, and the terminal face's own `CTRL` pattern
+//!   ignores `Shift` for a stated reason: *a terminal cannot always report it*.
+//!   So the chord that opens this door on a window is not a chord that face can
+//!   rely on, and choosing what replaces it — another chord, or a palette-only
+//!   row like `commands.list` — is a decision about that face, taken with the
+//!   modal work, not transcribed from here.
+//! * **`file.new`** is a different verb on the two faces rather than the same
+//!   one missing. This face has tabs, so a new file is additive and asks
+//!   nothing; the terminal face holds one document for the session, so the same
+//!   verb would have to discard it and would need the confirmation a reload
+//!   already carries. Same word, different stakes — which is precisely the
+//!   drift the paragraph above warns about, so the id stays unclaimed there
+//!   until that face has an answer of its own.
 //!
 //! # The ⌘ layer
 //!
@@ -31,7 +54,9 @@
 //! | Key | Command | Note |
 //! |---|---|---|
 //! | `Ctrl+S` / `⌘S` | [`FILE_SAVE`] | refuses a file that changed on disk |
+//! | `Ctrl+⇧S` / `⌘⇧S` | [`FILE_SAVE_AS`] | asks where, starting from the current name |
 //! | `Ctrl+Alt+S` / `⌘⌥S` | [`FILE_SAVE_FORCE`] | saves anyway |
+//! | `Ctrl+N` / `⌘N` | [`FILE_NEW`] | a fresh untitled tab |
 //! | `⌘C` | `clipboard.copy` | kernel verb, mac chord |
 //! | `⌘X` | `clipboard.cut` | kernel verb, mac chord |
 //! | `⌘V` | `clipboard.paste` | kernel verb, mac chord |
@@ -130,7 +155,7 @@ mod keymap;
 mod tests;
 
 pub use ids::{
-    COMMAND_COUNT, COMMANDS, COMMANDS_LIST, CONFIG_EDIT, FILE_OPEN, FILE_SAVE, FILE_SAVE_FORCE,
-    PROJECT_OPEN, PROJECT_SET, command_metas,
+    COMMAND_COUNT, COMMANDS, COMMANDS_LIST, CONFIG_EDIT, FILE_NEW, FILE_OPEN, FILE_SAVE,
+    FILE_SAVE_AS, FILE_SAVE_FORCE, PROJECT_OPEN, PROJECT_SET, command_metas,
 };
 pub use keymap::{BINDING_COUNT, keymap};

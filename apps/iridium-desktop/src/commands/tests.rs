@@ -18,7 +18,9 @@ use iridium_editor::{
     Modifiers, StrokePattern,
 };
 
-use super::ids::{COMMAND_COUNT, COMMANDS, FILE_SAVE, FILE_SAVE_FORCE, command_metas};
+use super::ids::{
+    COMMAND_COUNT, COMMANDS, FILE_OPEN, FILE_SAVE, FILE_SAVE_FORCE, PROJECT_OPEN, command_metas,
+};
 use super::keymap::{BINDING_COUNT, BINDINGS, MAC_CHORDS, keymap};
 
 /// The whole stack a session resolves against: the kernel's default layer
@@ -51,6 +53,19 @@ const fn ctrl_shift_meta() -> Modifiers {
         ctrl: true,
         alt: false,
         meta: true,
+        alt_graph: false,
+    }
+}
+
+/// Modifiers with `Ctrl` held, and `Shift` as asked — the combination
+/// [`held`] cannot spell, named rather than given a fourth parameter that
+/// every existing call site would have to grow.
+const fn ctrl_held(shift: bool) -> Modifiers {
+    Modifiers {
+        shift,
+        ctrl: true,
+        alt: false,
+        meta: false,
         alt_graph: false,
     }
 }
@@ -108,6 +123,56 @@ fn the_mac_navigation_chords_resolve_through_the_whole_stack() {
     for &(key, modifiers, expected) in cases {
         resolves_to(&stack, key, modifiers, expected);
     }
+}
+
+/// The four rows that open something, each landing on the verb it names.
+///
+/// `⌘O` and `⌘⇧O` are **different verbs** on one letter, so what this
+/// checks is that the shifted chord and the unshifted one come apart at the
+/// far end of the resolver rather than one taking both.
+///
+/// ⚠️ **It does not discriminate on the `Shift` spelling, and saying so is
+/// the point of this paragraph.** Loosening the file rows to `Any` was
+/// tried on 12 Aug 2026 and this test still passed — the folder rows
+/// declare `Shift` `Required`, which outranks a loose pattern within the
+/// layer. So a reader must not take a green result here as evidence that
+/// `META_NO_SHIFT` is load-bearing; see the note above the rows in
+/// [`keymap`](super::keymap) for what it actually buys.
+///
+/// Resolved through the whole stack rather than read off `BINDINGS`,
+/// because a row proves nothing on its own — the layer underneath binds the
+/// same keys under looser patterns.
+#[test]
+fn the_open_chords_resolve_through_the_stack_to_the_verbs_they_name() {
+    let stack = session_stack();
+    let cases: &[(Modifiers, &CommandId)] = &[
+        (held(false, false, true), &FILE_OPEN),
+        (ctrl_held(false), &FILE_OPEN),
+        (held(true, false, true), &PROJECT_OPEN),
+        (ctrl_held(true), &PROJECT_OPEN),
+    ];
+    for &(modifiers, expected) in cases {
+        resolves_to(&stack, KeyCode::Char('o'), modifiers, expected);
+    }
+}
+
+/// A bare `o` still types an `o`.
+///
+/// The four rows above all require a modifier, but that is a claim about
+/// the patterns and this is the check on it. Binding a bare letter by
+/// accident is how an editor stops being able to write the letter, and
+/// nothing else here would notice.
+#[test]
+fn the_letter_o_is_still_a_letter() {
+    let stack = session_stack();
+    let mut resolver = KeymapResolver::new();
+    let outcome = resolver.resolve(
+        &stack,
+        KeyPress::new(KeyCode::Char('o'), held(false, false, false)),
+    );
+    let landed = outcome.command().map(CommandId::as_str);
+    assert_ne!(landed, Some(FILE_OPEN.as_str()), "`o` opens a file chooser");
+    assert_ne!(landed, Some(PROJECT_OPEN.as_str()), "`o` opens a folder");
 }
 
 #[test]
@@ -450,7 +515,7 @@ fn every_command_carries_a_title_and_a_description() {
 ///   is deliberately **not** taken: this face has no preferences window,
 ///   and claiming the key that everyone's hand expects one from — to open
 ///   a text file instead — is a promise it cannot keep.
-const PALETTE_ONLY: &[&str] = &["commands.list", "config.edit"];
+const PALETTE_ONLY: &[&str] = &["commands.list", "config.edit", "project.set"];
 
 #[test]
 fn every_command_this_face_adds_is_bound_or_deliberately_is_not() {

@@ -130,6 +130,7 @@ mod keymap;
 mod tests;
 
 pub use ids::{
-    COMMAND_COUNT, COMMANDS, COMMANDS_LIST, CONFIG_EDIT, FILE_SAVE, FILE_SAVE_FORCE, command_metas,
+    COMMAND_COUNT, COMMANDS, COMMANDS_LIST, CONFIG_EDIT, FILE_OPEN, FILE_SAVE, FILE_SAVE_FORCE,
+    PROJECT_OPEN, PROJECT_SET, command_metas,
 };
 pub use keymap::{BINDING_COUNT, keymap};

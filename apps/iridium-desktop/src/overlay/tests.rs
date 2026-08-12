@@ -9,9 +9,7 @@ use super::content::{PanelAnchor, PanelContent, PanelKind};
 use super::frame::{PaintedFrame, PaintedPanel};
 use super::geometry::{GridMetrics, fit_for, panel_geometry, sidebar_fit_for};
 use super::metrics::{PAD_X, PAD_Y, SIDEBAR_MAX_FRACTION, TOP_ANCHOR_FRACTION};
-use super::paint::{
-    hairline_color, hover_color, panel_background, panel_spans, scroll_for, strip_background,
-};
+use super::paint::{hairline_color, hover_color, panel_background, panel_spans, strip_background};
 use crate::tab_strip::tab_strip_height;
 use crate::units::index_to_f32;
 use iridium_editor::theme::Color;
@@ -42,23 +40,6 @@ fn metrics_at(scale: f32) -> GridMetrics {
 fn placed(anchor: PanelAnchor, rows: usize, columns: usize, reserve: f32) -> super::PanelGeometry {
     panel_geometry(WINDOW.0, WINDOW.1, METRICS, anchor, rows, columns, reserve)
         .expect("the standard window holds a mid-sized panel")
-}
-
-#[test]
-fn a_short_line_does_not_scroll() {
-    assert_eq!(scroll_for(0, 40), 0);
-    assert_eq!(scroll_for(39, 40), 0);
-}
-
-#[test]
-fn the_caret_is_kept_in_the_last_cell() {
-    assert_eq!(scroll_for(40, 40), 1);
-    assert_eq!(scroll_for(55, 40), 16);
-}
-
-#[test]
-fn a_zero_width_strip_is_not_divided_by() {
-    assert_eq!(scroll_for(10, 0), 0);
 }
 
 #[test]

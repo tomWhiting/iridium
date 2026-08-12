@@ -129,11 +129,33 @@ pub fn skip_chars(text: &str, count: usize) -> &str {
     }
 }
 
+/// The first cell of a line that is shown, so `caret` stays inside `cells`.
+///
+/// Zero until the caret would fall off the right edge, and then just enough
+/// to keep it in the last cell. The caret's own cell counts: a caret past the
+/// last glyph of a full line must still be visible, or typing into a field
+/// that has filled the strip gives no feedback at all.
+///
+/// ⭐ **The companion to [`skip_chars`], and the pair is why this is here.**
+/// Every field in every panel scrolls the same way — this decides *how far*,
+/// `skip_chars` takes the tail — and a face that owned one of the two would
+/// own half of an answer. The terminal face still carries its own copy in
+/// `frame::field`; folding that one in is a separate change, because it is
+/// counted in cells rather than in `char`s and the two units have to be
+/// reconciled deliberately rather than by a rename.
+#[must_use]
+pub const fn scroll_for(caret: usize, cells: usize) -> usize {
+    if cells == 0 || caret < cells {
+        return 0;
+    }
+    caret + 1 - cells
+}
+
 #[cfg(test)]
 mod tests {
     use iridium_editor::theme::Color;
 
-    use super::{LineBuilder, skip_chars};
+    use super::{LineBuilder, scroll_for, skip_chars};
 
     const WHITE: Color = Color::new(1.0, 1.0, 1.0, 1.0);
 
@@ -180,5 +202,22 @@ mod tests {
         assert_eq!(skip_chars("héllo", 1), "éllo");
         assert_eq!(skip_chars("ab", 5), "");
         assert_eq!(skip_chars("", 0), "");
+    }
+
+    #[test]
+    fn a_short_line_does_not_scroll() {
+        assert_eq!(scroll_for(0, 40), 0);
+        assert_eq!(scroll_for(39, 40), 0);
+    }
+
+    #[test]
+    fn the_caret_is_kept_in_the_last_cell() {
+        assert_eq!(scroll_for(40, 40), 1);
+        assert_eq!(scroll_for(55, 40), 16);
+    }
+
+    #[test]
+    fn a_zero_width_strip_is_not_divided_by() {
+        assert_eq!(scroll_for(10, 0), 0);
     }
 }

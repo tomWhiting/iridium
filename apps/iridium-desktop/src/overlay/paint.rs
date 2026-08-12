@@ -17,6 +17,7 @@ use wgpu::{
     RenderPassDescriptor, StoreOp, TextureFormat,
 };
 
+use iridium_panel::line::scroll_for;
 use iridium_panel::{PanelFit, Span};
 
 use super::content::{PanelAnchor, PanelContent, PanelKind, StripContent};
@@ -809,15 +810,3 @@ pub(super) fn composite(over: Color, under: Color) -> Color {
     )
 }
 
-/// The first cell of a line that is shown, so `caret` stays inside `cells`.
-///
-/// Zero until the caret would fall off the right edge, and then just enough
-/// to keep it in the last cell. The caret's own cell counts: a caret past the
-/// last glyph of a full line must still be visible, or typing into a field
-/// that has filled the strip gives no feedback at all.
-pub const fn scroll_for(caret: usize, cells: usize) -> usize {
-    if cells == 0 || caret < cells {
-        return 0;
-    }
-    caret + 1 - cells
-}

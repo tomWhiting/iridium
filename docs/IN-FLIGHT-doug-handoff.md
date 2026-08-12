@@ -74,23 +74,38 @@ desktop-only, stated in `commands/mod.rs` rather than left to be noticed:
   is terminal), refused to invent a latency number, and answered the
   surface-vocabulary question that unblocked the irreversible decision.
 - **Vesper Lynd** (`dm:5849e0d8-4802-4869-8e0f-9f7fd187e198`) — answered on the
-  fleet workflow; a reply is owed. Her findings, kept here because they change
-  what I should build:
-  - **The fleet has no isolation mechanism at all** — she measured
-    `worktree|git clone|checkout|workspace_root|cwd|working_dir` across both
-    fleet documents and found **zero hits**. Its unit of work is a *judgement*,
-    not an edit, so it never needed to stop two writers interleaving. Their own
-    practice is a MARKER doc and one mutating lane at a time — a vocabulary
-    rule, not a mechanism, and she said so unprompted.
+  fleet workflow, then **corrected herself against her own answer**, and a
+  reply is owed. Her findings, kept here because they change what I build:
+  - ⚠️ **The correction, and my own error inside it.** Her first answer said
+    the fleet has no isolation mechanism, measured across *two* named
+    documents. There are **three**. She had read `norn_fleet.awl`, the
+    judging-only one, and answered as though it were "the fleet"; she had
+    never opened `mm_fleet_loop.awl`, which is the one that has actually been
+    run. **My part**: her original message named the two files it searched, and
+    I relayed it to Tom as "both fleet documents" — turning a bounded
+    measurement into a claim about the whole class. *An absence claim carries
+    its search scope, and a relay that drops the scope makes a stronger claim
+    than the evidence supports.*
+  - **`mm_fleet_loop` is a sequential single-writer loop** — plan, build,
+    gate, review, decide, `until not decision == "CONTINUE"`, bounded by an
+    operator-named `max_passes` with no default. One builder at a time, so it
+    needs no worktree isolation: it never has two writers. Its gate legs are
+    declared `run` calls returning `{exit_code, stdout, stderr}`, and its own
+    comment states the rule independently — *"an unmeasured gate is never
+    summed into green or red."* That meets requirement 2 as built and makes
+    requirement 1 moot by design.
+  - What survives, narrowed: **`mm_fleet_swarm.awl` does fan out concurrent
+    writers** (`distribute lane in lanes`) with no isolation — measured, zero
+    hits. Real gap, but not the document I would use.
   - **AWL's declared `run` is the receipt mechanism I want**: the command's own
     outcome record (`exit_code`/`stdout`/`stderr`) produced by the dispatcher,
     with the program written out in the document rather than named by a
     parameter, so an agent cannot forge or summarise it. Non-zero exit is
     retryable *carrying its own output*; unparseable `run json` is terminal.
-    **But `norn_fleet` does not use it** — it uses the `agent` seam, which
-    returns the agent's own account. Her proposal: a two-phase unit, agent
-    edits then a declared `run` of `scripts/ci.sh` produces the receipt the
-    agent cannot write. Both halves ship today; nobody has composed them.
+    `norn_fleet` does not use it — it uses the `agent` seam, which returns the
+    agent's own account — but `mm_fleet_loop` **does**, which is the whole
+    substance of her correction. Her revised offer is not "write a document"
+    but "point the existing one at your repo and your ten-gate script".
   - **Strict collection**: verdicts pair with inputs *by position*, so a unit
     that fails after its retries fails the whole run rather than returning a
     gap dressed as a result. All-or-nothing, but finished units are recorded
@@ -106,13 +121,63 @@ desktop-only, stated in `commands/mod.rs` rather than left to be noticed:
     collection** (no result may be absent, because a gap and a pass look
     identical downstream).
 
+## #112 — the oil surface (IN PROGRESS)
+
+**Part A, taller: DONE.** The explorer shared `PANEL_MAX_VISIBLE_ROWS = 12`
+with the command palette and the undo tree. Twelve is right for a panel that
+is *queried* — you type three characters and take the top row — and wrong for
+one that is *browsed*. It now has `EXPLORER_MAX_VISIBLE_ROWS = 30`, still
+clamped by `fit.max_interior_rows - 1`.
+
+⭐ **The old cap was leaving most of the window unused, measured not assumed.**
+`fit_for` gives a panel `1 - TOP_ANCHOR_FRACTION` (88%) of the window height
+less padding, and a row costs `font_size × line_height` = `14 × 1.4` logical
+px. A 1440×900 laptop affords **39** interior rows; the panel drew twelve.
+Thirty rather than "as many as fit" because the window clamp is what protects
+a short window, so the constant is only an upper *taste* bound — and the
+full-height column Tom also asked for is the **sidebar**, a placement, not a
+bigger number.
+
+Proven by mutation: reverting to the shared constant makes the new test report
+**13 rows into a window that affords 26**. There is a paired short-window test,
+because raising a ceiling is only safe if the clamp under it still binds — a
+tall-case-only test would pass against a panel that had stopped consulting
+`PanelFit` entirely.
+
+**Part B, hidden files: DESIGNED, NOT BUILT.** There is **no hidden-file
+handling anywhere** — not in `iridium-explorer`, not in the view layer.
+`crates/iridium-explorer/src/ignores.rs` settles where it goes, in its own
+words: *"Nothing here filters a listing. A directory someone opens by hand
+shows everything in it… a file tree that hid `target/` would be lying about
+the disk."* Ignores bound the **crawl** only, and they are the *project's*
+statement (a `.gitignore`), so they are a different authority from a
+*viewer's* preference.
+
+The ruling that follows from that same sentence: **hide by default, and say
+so.** A panel that silently drops dotfiles is the lie the module warns about;
+one that shows "n hidden" with the key that reveals them is not. So part B is
+three pieces, not one — the filter, the count, and the toggle key.
+
+⚠️ **The seam is the hard part and it is not the obvious one.** Filtering
+*after* `Tree` is unsafe: `Tree` is index-based (`index_of`, `select`,
+`expand`, `collapse` all take row indices), so dropping rows underneath it
+corrupts the selection and the expansion. The filter has to be applied where
+children are produced — `FileTree`'s `TreeSource::children` — so the `Tree`
+simply sees fewer children and every index invariant holds. Two candidates:
+a `show_hidden` flag on `FileTree` itself, or a wrapper `TreeSource` in the
+desktop face (which keeps viewer policy out of the crate but changes the type
+parameter at ~20 call sites).
+
+**Still to do:** part B, the **sidebar** placement, and the terminal face —
+Tom named opening the terminal editor *on a directory* as the case that shapes
+that design rather than following it.
+
 ## Next work, in order
 
-1. **#112** oil surface: taller, hidden-file filter, **as a sidebar**, and in
-   the terminal face — Tom named the directory-open path as shaping the
-   terminal design rather than following it. This is the first task big enough
-   that fan-out would help, and per Vesper it is exactly the one the fleet
-   cannot safely take: isolation is the missing piece, not parallelism.
+1. **#112** parts B, sidebar, terminal — above. This is the first task big
+   enough that fan-out would help, and per Vesper it is exactly the one the
+   fleet's swarm document cannot safely take: isolation is the missing piece,
+   not parallelism. Her `mm_fleet_loop` correction (below) changes that answer.
 2. **#113** the pending-operator mechanism, before any modal keymap is
    authored. Carries the terminal face's `file.saveAs` ruling above.
 3. **#108** the menu bar — the other half of the way in. The command palette is

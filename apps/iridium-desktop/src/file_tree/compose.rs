@@ -33,7 +33,7 @@ use super::rows::{RowShape, depths, edited_name_column, edited_row, entry_row};
 use crate::line::{LineBuilder, skip_chars};
 use crate::overlay::scroll_for;
 use crate::overlay::{
-    PANEL_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span,
+    EXPLORER_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span,
 };
 
 /// What the label at the top of an editing session says after its verb.
@@ -131,7 +131,7 @@ impl FileExplorer {
     /// [`follow_selection`]: Self::follow_selection
     fn edit_content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
         let total = self.row_count();
-        let ceiling = PANEL_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.saturating_sub(1).max(1));
+        let ceiling = EXPLORER_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.saturating_sub(1).max(1));
         let visible = total.clamp(1, ceiling);
         self.follow_selection(total, visible);
 
@@ -223,7 +223,7 @@ impl FileExplorer {
         // says "Reading…" rather than composing an empty panel; and never
         // more than the panel's own limit or the window's, less the query
         // row that is always drawn.
-        let ceiling = PANEL_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.saturating_sub(1).max(1));
+        let ceiling = EXPLORER_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.saturating_sub(1).max(1));
         let visible = total.clamp(1, ceiling);
         self.follow_selection(total, visible);
 

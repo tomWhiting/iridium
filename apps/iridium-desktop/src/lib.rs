@@ -104,6 +104,7 @@ pub mod history_overlay;
 pub mod keys;
 pub mod latency;
 mod line;
+pub mod menubar;
 pub mod mouse;
 pub mod overlay;
 mod project;
@@ -113,5 +114,6 @@ pub mod search;
 pub mod surface;
 pub mod tab_strip;
 pub mod units;
+pub mod verbs;
 
 pub use run::{ExitStatus, main};

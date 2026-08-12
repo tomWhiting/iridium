@@ -51,10 +51,11 @@ use iridium_editor::commands::builtin::{
     CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, PALETTE_OPEN, SELECTION_SELECT_ALL,
 };
 use iridium_editor::theme::Theme;
-use iridium_editor::{CommandId, Editor, KeyCode, KeyEvent, KeyLabelStyle};
+use iridium_editor::{CommandId, Editor, KeyCode, KeyEvent};
 
 use crate::line::LineBuilder;
 use crate::overlay::{PanelAnchor, PanelContent, PanelFit, PanelRow};
+use crate::verbs::{Availability, ResolvedVerb, Row, resolve};
 
 /// The blank characters between a row's label and its key hint.
 const HINT_GAP: usize = 2;
@@ -111,42 +112,19 @@ impl MenuItem {
     }
 }
 
-/// One entry of the ruled verb set, before the registry is consulted.
-struct Verb {
-    /// The registered command the row runs.
-    id: CommandId,
-    /// The menu's label for it.
-    label: &'static str,
-}
-
-/// The ruled verb set (D-2), in order; `None` is a separator.
+/// The ruled verb set (D-2), in order.
 ///
 /// The ids are the kernel's own constants, so a renamed command is a compile
 /// error here rather than a dead row.
-fn verbs() -> Vec<Option<Verb>> {
+fn verbs() -> Vec<Row> {
     vec![
-        Some(Verb {
-            id: CLIPBOARD_CUT,
-            label: "Cut",
-        }),
-        Some(Verb {
-            id: CLIPBOARD_COPY,
-            label: "Copy",
-        }),
-        Some(Verb {
-            id: CLIPBOARD_PASTE,
-            label: "Paste",
-        }),
-        None,
-        Some(Verb {
-            id: SELECTION_SELECT_ALL,
-            label: "Select All",
-        }),
-        None,
-        Some(Verb {
-            id: PALETTE_OPEN,
-            label: "Command Palette…",
-        }),
+        Row::verb(CLIPBOARD_CUT, "Cut"),
+        Row::verb(CLIPBOARD_COPY, "Copy"),
+        Row::verb(CLIPBOARD_PASTE, "Paste"),
+        Row::Rule,
+        Row::verb(SELECTION_SELECT_ALL, "Select All"),
+        Row::Rule,
+        Row::verb(PALETTE_OPEN, "Command Palette…"),
     ]
 }
 
@@ -369,40 +347,37 @@ impl ContextMenu {
 
 /// Resolves the ruled verb set against a live registry.
 ///
-/// A verb the registry does not carry is **dropped**, not greyed: a menu row
-/// that could never run is a lie, and the registry is the only authority on
-/// what exists. Separators are dropped with it where that would leave a rule
-/// leading, trailing or doubled.
+/// The resolution itself is [`crate::verbs::resolve`], shared with the menu
+/// bar — dropping a verb the registry does not carry, reading the label's
+/// chord off the keymap, and trimming the rules left behind — because both
+/// menus must answer those questions the same way. What is decided *here* is
+/// only the shape a resolved row takes on screen.
+///
+/// `inert` is false: the context menu is not opened while anything modal is
+/// up ([`secondary_pressed`](crate::app::DesktopApp) refuses), so a row greyed
+/// for that reason could never be seen.
 fn build(editor: &Editor) -> Vec<MenuItem> {
-    let read_only = editor.state().read_only;
-    let mut items: Vec<MenuItem> = Vec::new();
-    for entry in verbs() {
-        let Some(verb) = entry else {
-            if items.last().is_some_and(|item| item.command.is_some()) {
-                items.push(MenuItem::separator());
-            }
-            continue;
-        };
-        let Some(meta) = editor.commands().get(verb.id.as_str()) else {
-            continue;
-        };
-        let hint = editor
-            .key_hints()
-            .primary_hint(verb.id.as_str())
-            .map(|hint| hint.label(KeyLabelStyle::MacGlyphs).to_owned());
-        items.push(MenuItem {
-            // The one honest disable this face can state: a verb that would
-            // change text the document refuses to change.
-            enabled: !(meta.mutates_document() && read_only),
-            command: Some(verb.id),
-            label: verb.label,
-            hint,
-        });
+    let availability = Availability {
+        // The one honest disable this face can state: a verb that would
+        // change text the document refuses to change.
+        read_only: editor.state().read_only,
+        inert: false,
+    };
+    resolve(editor, &verbs(), availability)
+        .into_iter()
+        .map(|row| row.map_or_else(MenuItem::separator, MenuItem::from))
+        .collect()
+}
+
+impl From<ResolvedVerb> for MenuItem {
+    fn from(row: ResolvedVerb) -> Self {
+        Self {
+            command: Some(row.command),
+            label: row.label,
+            hint: row.hint,
+            enabled: row.enabled,
+        }
     }
-    while items.last().is_some_and(|item| item.command.is_none()) {
-        items.pop();
-    }
-    items
 }
 
 #[cfg(test)]
@@ -412,6 +387,7 @@ mod tests {
 
     use super::{ContextMenu, MenuOutcome};
     use crate::overlay::{PanelFit, PanelRow};
+    use crate::verbs::Row;
 
     /// The fit of a comfortable window.
     const FIT: PanelFit = PanelFit::popover(60, 24);
@@ -458,7 +434,7 @@ mod tests {
     #[test]
     fn every_menu_verb_is_a_command_the_registry_carries() {
         let editor = editor();
-        for verb in super::verbs().into_iter().flatten() {
+        for verb in super::verbs().iter().filter_map(Row::as_verb) {
             assert!(
                 editor.commands().contains(verb.id.as_str()),
                 "the menu offers `{}`, which no registry carries",
@@ -490,7 +466,7 @@ mod tests {
         // command's own palette title; the four editing verbs must not drift
         // from the registry.
         let editor = editor();
-        for verb in super::verbs().into_iter().flatten() {
+        for verb in super::verbs().iter().filter_map(Row::as_verb) {
             let meta = editor
                 .commands()
                 .get(verb.id.as_str())

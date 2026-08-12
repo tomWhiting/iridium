@@ -351,6 +351,13 @@ impl DesktopApp {
                 None => None,
             };
 
+        // Built before the struct literal, not inside it: `user_keys` is moved
+        // into the literal, and a field evaluated after that move could not
+        // borrow it. The undo tree resolves its own keys (#117) and filters this
+        // layer to its own verbs, exactly as the palette and the explorer do.
+        let mut history = HistoryPanel::new();
+        history.set_user_keymap(&user_keys);
+
         Ok(Self {
             project,
             workspace,
@@ -382,7 +389,7 @@ impl DesktopApp {
             // An explorer opened at startup is the one the user asked for, so
             // it starts with the keys. A closed one is refocused when it opens.
             explorer_focus: ExplorerFocus::Panel,
-            history: HistoryPanel::new(),
+            history,
             history_open: false,
             prompt: None,
             message,

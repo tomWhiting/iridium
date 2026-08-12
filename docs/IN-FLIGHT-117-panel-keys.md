@@ -6,8 +6,8 @@
 
 | # | panel | state |
 | --- | --- | --- |
-| 1 | desktop command palette | ✅ **DONE** — the split `3d491f8e`, the conversion below |
-| 2 | desktop history overlay | not started |
+| 1 | desktop command palette | ✅ **DONE** — the split `3d491f8e`, the conversion `56bd0e2f` |
+| 2 | desktop history overlay | 🔨 **CODE COMPLETE, UNCOMMITTED** — see below |
 | 3 | TUI command palette | not started |
 | 4 | TUI history panel | not started |
 | 5 | TUI search | not started |
@@ -65,6 +65,114 @@ are justified by what did *not* fail, not by what did.
 
 📌 **A panel converted without its `FaceKeys` entry is a panel whose keys are
 undiscoverable.** Every remaining conversion owes one.
+
+---
+
+## 🔨 Panel 2 — the undo tree. CODE COMPLETE, NOT COMMITTED, gates NOT run
+
+**Resume here.** `origin/main = df1a3c4f`; everything below is uncommitted work
+in the tree. `cargo test -p iridium-desktop --lib` is **402 passing, exit 0**,
+and `history_overlay` alone is **21 passing**. The ten gates have NOT been run.
+
+### What is on disk
+
+**Kernel** — `commands/builtin/panel/history.rs` (new): `HISTORY_MODE` and eight
+verbs, in `TABLES`, re-exported from `panel/mod.rs` and `builtin/mod.rs`. Kernel
+tests 1376 passing.
+
+**Desktop face** — `history_overlay.rs` (525 lines) became a directory:
+`mod.rs`, `panel.rs`, `keymap.rs` (10 bindings, 3 patterns), `resolve.rs`,
+`verb.rs`, `keys.rs`, `tests.rs`, `keymap_tests.rs`. `Chord` and `chord()`
+deleted.
+
+**Wiring** — `startup.rs` builds the panel *before* the struct literal (⚠️
+`user_keys` is moved into that literal, so a field evaluated after the move
+cannot borrow it); `host_commands.rs::apply_config` reloads it;
+`commands/template.rs` hands over a **third `FaceKeys`** and its test now loops
+over every panel rather than naming the palette.
+
+### ⭐⭐ The finding that matters — M2 did NOT fail
+
+| # | mutation | result against the *original* tests |
+| --- | --- | --- |
+| M1 | `PLAIN`'s shift `Any` → `Forbidden` | 3 ratchets failed, **399 passed** |
+| M2 | `set_user_keymap` pushes the layer unfiltered | ⛔ **402 passed — NOTHING FAILED** |
+
+M2 exposed **my own bad test**, not a missing one. `a_user_binding_naming_a_
+document_command_never_reaches_this_panel` opened the panel and pressed `End` —
+but a freshly opened panel **already has the newest state selected**, so `End`
+moved nothing, and the test compared two keys that both did nothing.
+
+Two fixes, both in `keymap_tests.rs`:
+
+1. Every seam test now presses `Home` first (`at_the_oldest`), so a key that
+   works and a key that has been taken away land in different places.
+2. `edited_editor` **pastes** instead of calling `set_content` — `set_content`
+   replaces the document rather than editing it, so the tree had **one node**
+   and every travel assertion compared a node against itself. A guard assertion
+   (`assert_ne!(newest, oldest)`) now fails loudly if the fixture ever goes flat
+   again; it is what caught this.
+
+📌 **A panel test that starts where the key would land proves nothing.** The
+selection's *initial position* is part of the fixture, and a fixture that begins
+at the destination makes every movement assertion vacuous.
+
+### ✅ M2 re-measured against the corrected tests
+
+Same mutation, re-applied to the fixed fixture:
+
+| # | mutation | result against the *corrected* tests |
+| --- | --- | --- |
+| M2 | `set_user_keymap` pushes the layer unfiltered | ✅ **1 failed, 401 passed** |
+
+The one failure is the right one, and its message is the defect in words:
+
+```
+a_user_binding_naming_a_document_command_never_reaches_this_panel
+  assertion `left == right` failed: a document binding must not take `End`
+  away from the undo tree
+  left: Jump(UndoNodeId(0))    ← the selection never left the oldest state
+ right: Jump(UndoNodeId(3))    ← where `End` should have taken it
+```
+
+`left: Jump(UndoNodeId(0))` versus `right: Jump(UndoNodeId(3))` is exactly what
+the corrected fixture bought: **before** the fix both sides read
+`Jump(UndoNodeId(0))` and the assertion held. **401 other tests passed anyway**
+— the same finding as M1 and as #91's D-4: nothing but this panel's own ratchet
+catches this.
+
+### ✅ The generated `config.toml` was read, not just asserted
+
+408 lines. The undo tree appears under its own heading with all ten chords, the
+titles legible (`Select A Page Of States Down`, `Jump To Selected State`), and
+the note correct. No duplicate-chord defect of the kind the palette had.
+
+One asymmetry noted and **deliberately left alone**: the desktop layer's
+`~shift+alt+meta+h` (`history.togglePanel`) *forbids* AltGraph — documented in
+`commands/keymap.rs:40` as intentional — while the panel's own
+`~shift+alt+meta+~altgraph+h` (`history.dismiss`) ignores it, because the
+`chord` function this table replaced never read AltGraph. So with AltGraph
+latched, ⌘⌥H closes the panel but would not have opened it. That is
+**pre-#117 behaviour reproduced exactly**, which is what a conversion is for;
+changing it is a keymap ruling, not a conversion.
+
+### The gates, first pass — `fmt` failed, as it did for the palette
+
+`⛔ 1 of 10 gates FAILED`. Nine green; `fmt` wanted four files, **all of them
+ones written for this conversion**: `commands/template.rs`,
+`history_overlay/keys.rs`, `history_overlay/resolve.rs`,
+`commands/builtin/mod.rs`. Fixed with `cargo fmt --all` — rustfmt's own output,
+not hand-wrapping — and `--check` then exits 0, with the desktop suite still at
+402 green.
+
+⚠️ **The nine that passed ran against pre-format bytes**, so their verdict does
+not carry to the committed tree. The ten are re-run on the commit itself, which
+is the only run whose verdict may be quoted.
+
+⚠️ The background task reported **exit code 0** for a run whose own output says
+`⛔ 1 of 10 gates FAILED` — because the command ended in `echo`, so the status
+reported was `echo`'s. The verdict was read from the runner's output, which is
+the whole reason that rule exists.
 
 ---
 

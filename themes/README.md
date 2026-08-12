@@ -46,6 +46,33 @@ directory by re-serialising what it parses and comparing bytes. It also means
 these files are in canonical serialiser output: reformat one by hand and the
 test will tell you.
 
+### `emphasis` — the one block that is *not* colours
+
+`emphasis` names the highlight categories the theme draws in a face other than
+body text. Both files here state it as `{}`, which is a complete answer and not
+a placeholder: it says "everything is drawn in one face", which is what a code
+theme should say.
+
+```json
+"emphasis": {
+  "markupHeading":  { "weight": 700 },
+  "markupEmphasis": { "slant": "italic" },
+  "comment":        { "slant": "italic" }
+}
+```
+
+Unlike every other block, this one is keyed by **highlight category** rather
+than by colour field, and deliberately: a heading and a keyword share the
+`keyword` *colour* on purpose, so hanging weight off that field would bold
+every `fn` in every language the moment you bolded a heading. The key names are
+the categories' own spellings — a key naming no category is an error rather
+than a line that silently does nothing, and so is an unknown field inside an
+entry.
+
+⚠️ A `weight` only reaches the screen if the resolved face has that weight. A
+terminal has one bold, so anything at 700 or above is bold there and anything
+below is regular — a real loss against a GPU surface, and a stated one.
+
 Drop a new `.json` in here and it joins that check, plus every rule the map
 states — surfaces opaque, gutter distinct from the page, panel surface at
 least 17/255 off it, body text at 12:1, caret at 15:1, all fourteen syntax

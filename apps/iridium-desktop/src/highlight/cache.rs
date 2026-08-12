@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use iridium_editor::Editor;
 use iridium_editor::span_index::WindowedSpanCache;
-use iridium_editor::theme::SyntaxColors;
+use iridium_editor::theme::Theme;
 
 use super::resolve::FrameHighlights;
 
@@ -97,17 +97,23 @@ impl HighlightCache {
     /// [`FrameCompositor::compose`](iridium_editor::render::FrameCompositor)
     /// alongside mutable borrows of the surface and compositor.
     ///
-    /// The resolver's generation is this cache's. `colors` is a second
+    /// The resolver's generation is this cache's. The **theme** is a second
     /// input to the resolution that the generation does not cover: today
     /// the desktop face sets its theme once at startup and never again, so
-    /// the colours cannot change under a retained frame — if runtime theme
+    /// it cannot change under a retained frame — if runtime theme
     /// switching ever lands, the switch must move this generation too, or
     /// retained frames keep the old palette.
+    ///
+    /// Takes the whole theme rather than its `syntax` field alone, because
+    /// resolution now reads two parts of it — the colours and the emphasis
+    /// table — and passing them separately is one more thing eleven call
+    /// sites could get out of step.
     #[must_use]
-    pub fn resolver<'a>(&'a self, colors: &'a SyntaxColors) -> FrameHighlights<'a> {
+    pub fn resolver<'a>(&'a self, theme: &'a Theme) -> FrameHighlights<'a> {
         FrameHighlights {
             index: self.spans.index(),
-            colors,
+            colors: &theme.syntax,
+            emphasis: &theme.emphasis,
             generation: self.spans.generation(),
             language_active: self.spans.language_active(),
         }

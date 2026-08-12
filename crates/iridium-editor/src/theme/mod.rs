@@ -14,12 +14,14 @@
 
 pub mod classic;
 mod colors;
+mod emphasis;
 mod fonts;
 mod vscode;
 #[cfg(test)]
 mod wcag;
 
 pub use colors::{Color, EditorColors, SyntaxColors};
+pub use emphasis::{Emphasis, SyntaxEmphasis};
 pub use fonts::Typography;
 pub use vscode::{VsCodeTheme, VsCodeTokenColor};
 
@@ -84,6 +86,15 @@ pub struct Theme {
     pub editor: EditorColors,
     /// Syntax highlighting colors
     pub syntax: SyntaxColors,
+    /// The categories this theme draws in a face other than body text.
+    ///
+    /// Empty in both shipped presets, and empty is a complete answer — see
+    /// [`SyntaxEmphasis`]. Kept beside `syntax` rather than inside it because
+    /// the two are keyed differently on purpose: colour resolves per *colour
+    /// field*, emphasis per *highlight category*, and collapsing them would
+    /// bold every keyword the moment a theme bolded headings.
+    #[serde(default)]
+    pub emphasis: SyntaxEmphasis,
     /// Typography settings
     pub typography: Typography,
 }
@@ -103,6 +114,7 @@ impl Theme {
             is_dark: true,
             editor: EditorColors::dark(),
             syntax: SyntaxColors::dark(),
+            emphasis: SyntaxEmphasis::none(),
             typography: Typography::default(),
         }
     }

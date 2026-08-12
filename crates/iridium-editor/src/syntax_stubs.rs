@@ -191,7 +191,15 @@ impl std::fmt::Display for SyntaxError {
 impl std::error::Error for SyntaxError {}
 
 /// Stub [`HighlightType`] — highlight types for syntax coloring.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// ⚠️ The `Ord`, `Hash` and serde derives are not decoration. The theme's
+/// emphasis table (`theme::SyntaxEmphasis`) is a `BTreeMap` keyed by this type
+/// and compiles in *both* feature configurations, so a stub without them is a
+/// parser-free build that cannot load a theme file the real build can.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
 pub enum HighlightType {
     /// Keyword
     Keyword,

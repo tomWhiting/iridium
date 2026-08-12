@@ -16,10 +16,21 @@
 //! - **the dark control**: `chrome-palette.png`, `chrome-search.png`,
 //!   `chrome-history.png`, `chrome-tabs.png`, plus the context menu as
 //!   `chrome-menu.png` and `chrome-menu-read-only.png` (the frame that shows
-//!   the greyed verbs);
+//!   the greyed verbs), plus `chrome-hover.png` — the palette with a row under
+//!   the pointer as well as a row selected, which is the only frame in the set
+//!   where the hover band appears;
 //! - **six frames per candidate light variant** of
 //!   `docs/design/LIGHT-THEME-MAP.md` §2.3, named `light-<variant>-<state>.png`
 //!   — `editor`, `selection`, `palette`, `search`, `history`, `bridge`.
+//!
+//! # Where things live
+//!
+//! This file is the harness: the headless device, the compositor, the readback
+//! and the PNG. [`shots`] holds the recipes — one function per frame, plus the
+//! run that writes the set — and [`encoder`] holds the two encoder tests that
+//! need no adapter. The split is by *how a frame is made* against *what a
+//! frame is*, and it needed no visibility changes: a child module can see its
+//! parent's private items.
 //!
 //! # Which syntax palette a frame is showing
 //!
@@ -79,9 +90,9 @@
 //! Every shot is now decoded again by [`verify_png`] — the `png` crate's
 //! decoder, which did not write it — and checked for its dimensions, its
 //! colour type and depth, and every byte of its pixels against what the GPU
-//! handed over. [`png_round_trip_is_compressed_and_decodable`] makes the same
-//! check without a GPU and asserts the compression ratio outright, so the
-//! claim in this doc comment is falsifiable by `cargo test` rather than
+//! handed over. [`encoder::png_round_trip_is_compressed_and_decodable`] makes
+//! the same check without a GPU and asserts the compression ratio outright, so
+//! the claim in this doc comment is falsifiable by `cargo test` rather than
 //! merely stated.
 //!
 //! What that GPU-free test does *not* police is the filter choice: a small
@@ -91,23 +102,24 @@
 
 use std::path::{Path, PathBuf};
 
-use iridium_config::test_support::classic_light_faces;
-use iridium_desktop::command_palette::CommandPalette;
-use iridium_desktop::context_menu::ContextMenu;
 use iridium_desktop::highlight::HighlightCache;
-use iridium_desktop::history_overlay::HistoryPanel;
 use iridium_desktop::overlay::{
-    OverlayPainter, PaintedFrame, PanelContent, PanelFit, PanelKind, StripContent,
+    OverlayPainter, PaintedFrame, PanelContent, PanelKind, StripContent,
 };
-use iridium_desktop::search::SearchOverlay;
-use iridium_desktop::tab_strip::{TabItem, TabStripContent};
+use iridium_desktop::tab_strip::TabStripContent;
 use iridium_desktop::units::u32_to_f32;
-use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::{
     FrameCompositor, FrameTarget, HighlightContext, HighlightSource, RunStyle,
 };
 use iridium_editor::theme::{Color, Theme};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Language, Modifiers, Position};
+
+/// The GPU-free half of the encoder's proof: a synthetic frame and the two
+/// tests that run against it without an adapter.
+mod encoder;
+/// The shot recipes and the run that writes them — a panel per function, and
+/// nothing about how a frame is made or encoded.
+mod shots;
 
 /// Frame width in physical pixels — a 2× desktop window.
 const WIDTH: u32 = 3024;
@@ -122,7 +134,8 @@ const SCALE: f32 = 2.0;
 const FONT_SIZE: f32 = 14.0 * SCALE;
 
 /// The same face font the desktop shell embeds.
-static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
+static FONT: &[u8] =
+    include_bytes!("../../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf");
 
 /// A highlight source playing a language'd document whose spans never
 /// arrive — the bridge case, selecting the compositor's built-in keyword
@@ -661,398 +674,14 @@ fn shot_dir() -> PathBuf {
     std::env::var_os("IRIDIUM_CHROME_SHOT_DIR").map_or_else(std::env::temp_dir, PathBuf::from)
 }
 
-/// The bare document: the surface, the gutter, the current-line band under
-/// the caret, and the code in the theme's own syntax colours.
-///
-/// The only shot that asserts a pixel, because it is the only one with an
-/// uncovered page: [`check_clear_colour`] reads its corner.
-fn document_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    theme: &Theme,
-    palette: Palette,
-    path: &Path,
-) -> Result<(), String> {
-    let editor = editor_with_document(theme, palette)?;
-    let pixels = shoot(gpu, overlay, theme, &editor, palette, Chrome::NONE, path)?;
-    check_clear_colour(
-        &pixels,
-        theme.editor.background,
-        &format!("{} ({})", path.display(), theme.name),
-    )
-}
-
-/// A live multi-line selection over the page — `selection` and
-/// `selection_inactive`'s hue judged against the code it covers.
-///
-/// Not a current-line shot, and deliberately not named one: the compositor's
-/// only line-background pass is fed by `line_backgrounds_mut`, which nothing
-/// in this face populates, so `theme.editor.current_line` never reaches the
-/// document surface. It reaches pixels through the overlay's panel and strip
-/// derivation instead, which is what the `palette`, `search` and `history`
-/// frames show.
-fn selection_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    theme: &Theme,
-    palette: Palette,
-    path: &Path,
-) -> Result<(), String> {
-    let mut editor = editor_with_document(theme, palette)?;
-    for _ in 0..3 {
-        let _ = editor.handle_key(&chord(KeyCode::Down, Modifiers::shift()));
-    }
-    let _ = editor.handle_key(&chord(KeyCode::Right, Modifiers::shift()));
-    shoot(gpu, overlay, theme, &editor, palette, Chrome::NONE, path)?;
-    Ok(())
-}
-
-/// The command palette: a query typed, the selection moved off the first row,
-/// over a document with a visible text selection.
-fn palette_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    fit: PanelFit,
-    theme: &Theme,
-    palette: Palette,
-    path: &Path,
-) -> Result<(), String> {
-    let mut editor = editor_with_document(theme, palette)?;
-    for _ in 0..2 {
-        let _ = editor.handle_key(&chord(KeyCode::Down, Modifiers::shift()));
-    }
-    let mut command_palette = CommandPalette::new();
-    command_palette.open();
-    let mru = CommandMru::default();
-    for character in "se".chars() {
-        let _ = command_palette.handle_key(&press(KeyCode::Char(character)), &editor, &mru);
-    }
-    let _ = command_palette.handle_key(&press(KeyCode::Down), &editor, &mru);
-    let content = command_palette.content(&editor, &mru, &editor.state().theme, fit);
-    let chrome = Chrome {
-        tabs: None,
-        strip: None,
-        panels: &[(PanelKind::Palette, &content)],
-    };
-    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
-    Ok(())
-}
-
-/// The context menu hung from a click in the document — the frame that
-/// answers what no CPU test can: row height and padding against the
-/// palette's, the separator rules, and (in the read-only shot) the exact
-/// alpha a greyed verb is drawn at.
-fn menu_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    fit: PanelFit,
-    theme: &Theme,
-    palette: Palette,
-    read_only: bool,
-    path: &Path,
-) -> Result<(), String> {
-    let mut editor = editor_with_document(theme, palette)?;
-    // A selection under the click, which is what a real right-press finds.
-    for _ in 0..2 {
-        let _ = editor.handle_key(&chord(KeyCode::Right, Modifiers::shift()));
-    }
-    editor.state_mut().read_only = read_only;
-    let menu = ContextMenu::open(&editor, 0.34 * u32_to_f32(WIDTH), 0.30 * u32_to_f32(HEIGHT));
-    let content = menu.content(&editor.state().theme, fit);
-    let chrome = Chrome {
-        tabs: None,
-        strip: None,
-        panels: &[(PanelKind::Menu, &content)],
-    };
-    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
-    Ok(())
-}
-
-/// The search panel above the strip, a query with live matches — where
-/// `search_match` and `search_match_current` are judged against real text.
-fn search_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    fit: PanelFit,
-    theme: &Theme,
-    palette: Palette,
-    path: &Path,
-) -> Result<(), String> {
-    let mut editor = editor_with_document(theme, palette)?;
-    let mut search = SearchOverlay::new();
-    search.open(&mut editor);
-    for character in "entry".chars() {
-        let _ = search.handle_key(&press(KeyCode::Char(character)), &mut editor);
-    }
-    let strip = StripContent {
-        text: "chrome preview — the strip stands on an honest background".to_string(),
-        caret_column: None,
-        is_error: false,
-    };
-    let content = search.content(&editor, &editor.state().theme, fit);
-    let chrome = Chrome {
-        tabs: None,
-        strip: Some(&strip),
-        panels: &[(PanelKind::Search, &content)],
-    };
-    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
-    Ok(())
-}
-
-/// The undo tree, with a real branch to badge — the panel's dim rows are the
-/// `line_number`-class grey.
-fn history_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    fit: PanelFit,
-    theme: &Theme,
-    palette: Palette,
-    path: &Path,
-) -> Result<(), String> {
-    let mut editor = editor_with_document(theme, palette)?;
-    for character in "abc".chars() {
-        let _ = editor.handle_key(&press(KeyCode::Char(character)));
-    }
-    let _ = editor.handle_key(&chord(KeyCode::Char('z'), Modifiers::ctrl()));
-    for character in "xy".chars() {
-        let _ = editor.handle_key(&press(KeyCode::Char(character)));
-    }
-    let mut history = HistoryPanel::new();
-    history.open();
-    let content = history.content(&editor, &editor.state().theme, fit);
-    let chrome = Chrome {
-        tabs: None,
-        strip: None,
-        panels: &[(PanelKind::History, &content)],
-    };
-    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
-    Ok(())
-}
-
-/// The tab strip along the top edge, with the document pushed down under it.
-///
-/// The frame that answers what no CPU test can about the strip: whether the
-/// active tab's card reads against the band, whether an inactive label is
-/// legible at its alpha, whether the dirty dot is findable, and — the thing
-/// the round-trip test proves arithmetically and nobody has yet *seen* —
-/// whether the document really does start below the band rather than under
-/// it.
-fn tab_strip_shot(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    theme: &Theme,
-    palette: Palette,
-    path: &Path,
-) -> Result<(), String> {
-    let editor = editor_with_document(theme, palette)?;
-    let tab = |label: &str, is_active: bool, is_dirty: bool| TabItem {
-        label: label.to_owned(),
-        is_active,
-        is_dirty,
-    };
-    let tabs = TabStripContent {
-        tabs: vec![
-            tab("main.rs", false, false),
-            tab("compositor.rs", true, true),
-            tab("Cargo.toml", false, false),
-            // Longer than the budget: the frame that shows where the cut
-            // falls and what the ellipsis looks like beside a real name.
-            tab("a-rather-long-file-name.json", false, true),
-            tab("untitled", false, false),
-        ],
-    };
-    let chrome = Chrome {
-        tabs: Some(&tabs),
-        strip: None,
-        panels: &[],
-    };
-    shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
-    Ok(())
-}
-
-/// One candidate light variant's six frames, per the light-theme map §4.1.
-///
-/// Five of them wear the variant's own syntax palette; the sixth is the
-/// bridge, which wears nobody's — see the module doc.
-fn variant_shots(
-    gpu: &Gpu,
-    overlay: &mut OverlayPainter,
-    fit: PanelFit,
-    slug: &str,
-    theme: &Theme,
-    out_dir: &Path,
-) -> Result<Vec<PathBuf>, String> {
-    let named = |state: &str| out_dir.join(format!("light-{slug}-{state}.png"));
-
-    let editor_path = named("editor");
-    document_shot(gpu, overlay, theme, Palette::ThemeSyntax, &editor_path)?;
-
-    let selection_path = named("selection");
-    selection_shot(gpu, overlay, theme, Palette::ThemeSyntax, &selection_path)?;
-
-    let palette_path = named("palette");
-    palette_shot(
-        gpu,
-        overlay,
-        fit,
-        theme,
-        Palette::ThemeSyntax,
-        &palette_path,
-    )?;
-
-    let search_path = named("search");
-    search_shot(gpu, overlay, fit, theme, Palette::ThemeSyntax, &search_path)?;
-
-    let history_path = named("history");
-    history_shot(
-        gpu,
-        overlay,
-        fit,
-        theme,
-        Palette::ThemeSyntax,
-        &history_path,
-    )?;
-
-    let bridge_path = named("bridge");
-    document_shot(gpu, overlay, theme, Palette::KeywordBridge, &bridge_path)?;
-
-    Ok(vec![
-        editor_path,
-        selection_path,
-        palette_path,
-        search_path,
-        history_path,
-        bridge_path,
-    ])
-}
-
-/// The whole harness: the dark control's three frames, then six per candidate
-/// light variant.
-fn run() -> Result<Vec<PathBuf>, String> {
-    let out_dir = shot_dir();
-    std::fs::create_dir_all(&out_dir)
-        .map_err(|error| format!("cannot create {}: {error}", out_dir.display()))?;
-    let gpu = headless_gpu()?;
-
-    let mut overlay = OverlayPainter::new(
-        &gpu.device,
-        &gpu.queue,
-        wgpu::TextureFormat::Bgra8Unorm,
-        WIDTH,
-        HEIGHT,
-    )
-    .map_err(|error| format!("the overlay painter could not be created: {error}"))?;
-    assert!(
-        overlay.set_font(FONT_SIZE, FONT.to_vec()),
-        "the vendored test font holds no readable face"
-    );
-    overlay.set_scale(SCALE);
-
-    let fit = overlay
-        .panel_fit(WIDTH, HEIGHT)
-        .ok_or_else(|| "the shot window cannot fit a panel".to_string())?;
-    let mut written = Vec::new();
-
-    // The dark control: the three frames this harness has always produced,
-    // under the same theme and the same keyword-bridge source, under the same
-    // names — so the light set is judged against an unchanged reference.
-    let dark = Theme::dark();
-    let palette_path = out_dir.join("chrome-palette.png");
-    palette_shot(
-        &gpu,
-        &mut overlay,
-        fit,
-        &dark,
-        Palette::KeywordBridge,
-        &palette_path,
-    )?;
-    written.push(palette_path);
-
-    let search_path = out_dir.join("chrome-search.png");
-    search_shot(
-        &gpu,
-        &mut overlay,
-        fit,
-        &dark,
-        Palette::KeywordBridge,
-        &search_path,
-    )?;
-    written.push(search_path);
-
-    let menu_path = out_dir.join("chrome-menu.png");
-    menu_shot(
-        &gpu,
-        &mut overlay,
-        fit,
-        &dark,
-        Palette::KeywordBridge,
-        false,
-        &menu_path,
-    )?;
-    written.push(menu_path);
-
-    // The same menu over a read-only document, where the two mutating verbs
-    // are greyed — the only frame that shows the disabled alpha.
-    let menu_read_only_path = out_dir.join("chrome-menu-read-only.png");
-    menu_shot(
-        &gpu,
-        &mut overlay,
-        fit,
-        &dark,
-        Palette::KeywordBridge,
-        true,
-        &menu_read_only_path,
-    )?;
-    written.push(menu_read_only_path);
-
-    let history_path = out_dir.join("chrome-history.png");
-    history_shot(
-        &gpu,
-        &mut overlay,
-        fit,
-        &dark,
-        Palette::KeywordBridge,
-        &history_path,
-    )?;
-    written.push(history_path);
-
-    let tabs_path = out_dir.join("chrome-tabs.png");
-    tab_strip_shot(
-        &gpu,
-        &mut overlay,
-        &dark,
-        Palette::KeywordBridge,
-        &tabs_path,
-    )?;
-    written.push(tabs_path);
-
-    // The map's three light faces: the ruled preset, plus the two that ship
-    // as files under `themes/` and are read from disk here exactly as a user's
-    // `--theme` reads them.
-    let faces = classic_light_faces()
-        .map_err(|error| format!("the shipped light themes under `themes/` must load: {error}"))?;
-    for (slug, theme) in faces {
-        written.extend(variant_shots(
-            &gpu,
-            &mut overlay,
-            fit,
-            slug,
-            &theme,
-            &out_dir,
-        )?);
-    }
-
-    Ok(written)
-}
-
-/// How many frames the dark control contributes: the palette, the search
-/// panel, the context menu in both its editable and read-only states, the
-/// history tree, and the tab strip.
+/// How many frames the dark control contributes: the palette, the palette
+/// again with a row hovered, the search panel, the context menu in both its
+/// editable and read-only states, the history tree, and the tab strip.
 ///
 /// Named rather than written into the assertion as a literal because it was a
 /// literal, it said three, and it stayed saying three when the two menu shots
 /// landed — so the harness failed its own count on every run.
-const DARK_CONTROL_SHOTS: usize = 6;
+const DARK_CONTROL_SHOTS: usize = 7;
 
 /// How many frames each candidate light variant contributes, per the
 /// light-theme map §4.1.
@@ -1075,133 +704,28 @@ const CLASSIC_LIGHT_FACES: usize = 3;
 const MAX_FRAME_BYTES: u64 = 1024 * 1024;
 
 /// A budget on the whole run, which is the number the harness is actually
-/// judged on — 23 frames onto someone's disk.
+/// judged on — 25 frames onto someone's disk.
 ///
 /// Tighter than [`MAX_FRAME_BYTES`] on purpose, because it is the only
-/// assertion that can see the filter choice. Measured totals: 8,734,042 bytes
-/// with [`png::Filter::NoFilter`], 10,550,488 with `Adaptive`, 546,488,878
-/// with the stored-block encoder this replaced. The ceiling sits above the
-/// first and below the second, so silently losing the filter setting — which
+/// assertion that can see the filter choice. Measured totals over the set that
+/// **preceded** `chrome-hover.png`: 8,734,042 bytes with
+/// [`png::Filter::NoFilter`], 10,550,488 with `Adaptive`, 546,488,878 with the
+/// stored-block encoder this replaced. The ceiling sits above the first and
+/// below the second, so silently losing the filter setting — which
 /// `Encoder::set_compression` will do for you — fails here.
-const MAX_RUN_BYTES: u64 = 9_500_000;
-
-/// A frame shaped like the ones the harness really writes — a flat page, a
-/// band across it, and a scatter of glyph-like marks — without a GPU.
-fn synthetic_frame(width: u32, height: u32) -> Vec<u8> {
-    // A capacity hint only; the loop below is what fixes the real length.
-    let mut pixels = Vec::with_capacity(frame_byte_count(width, height).unwrap_or_default());
-    for y in 0..height {
-        for x in 0..width {
-            let band = y % 64 < 3;
-            let mark = !band && x % 11 < 4 && y % 19 < 12;
-            let pixel = match (band, mark) {
-                (true, _) => [0x2A, 0x2E, 0x36, 0xFF],
-                (_, true) => [0xD4, 0xC8, 0x9A, 0xFF],
-                _ => [0x1E, 0x21, 0x27, 0xFF],
-            };
-            pixels.extend_from_slice(&pixel);
-        }
-    }
-    pixels
-}
-
-/// The encoder's oracle, without a GPU: encode a frame, decode it with the
-/// `png` crate's decoder, and hold the result to both claims the module doc
-/// makes — that the bytes are a real RGBA PNG of the stated size carrying the
-/// stated pixels, and that they are actually compressed.
 ///
-/// The second assertion is the one that matters. The defect this replaced was
-/// a valid PNG in every respect except that its compression ratio was
-/// 1.00008, and no test in the tree could tell.
-///
-/// The threshold is deliberately loose. This frame is far more compressible
-/// than a real one — and it is the wrong shape to judge the *filter* on, so
-/// it does not try; see the module doc.
-#[test]
-fn png_round_trip_is_compressed_and_decodable() {
-    let width = 512_u32;
-    let height = 384_u32;
-    let pixels = synthetic_frame(width, height);
-    let encoded = match png_bytes(width, height, &pixels) {
-        Ok(bytes) => bytes,
-        Err(message) => panic!("{message}"),
-    };
-
-    // Stated as integers rather than a ratio so no cast is needed: at least
-    // tenfold. The measured frames manage sixtyfold; the stored-block encoder
-    // this replaced managed 1.00008 and would fail here.
-    assert!(
-        encoded.len() * 10 < pixels.len(),
-        "the encoder turned {} bytes into {} — under tenfold, which is not \
-         the compression this harness depends on",
-        pixels.len(),
-        encoded.len()
-    );
-
-    let mut reader = match png::Decoder::new(std::io::Cursor::new(&encoded)).read_info() {
-        Ok(reader) => reader,
-        Err(error) => panic!("the encoded bytes are not a readable PNG: {error}"),
-    };
-    let capacity = reader
-        .output_buffer_size()
-        .expect("the decoder reports an unrepresentable frame size");
-    let mut decoded = vec![0_u8; capacity];
-    let info = match reader.next_frame(&mut decoded) {
-        Ok(info) => info,
-        Err(error) => panic!("the encoded bytes did not decode: {error}"),
-    };
-
-    assert_eq!(info.width, width, "the decoded width");
-    assert_eq!(info.height, height, "the decoded height");
-    assert_eq!(
-        info.color_type,
-        png::ColorType::Rgba,
-        "the decoded colour type"
-    );
-    assert_eq!(
-        info.bit_depth,
-        png::BitDepth::Eight,
-        "the decoded bit depth"
-    );
-    assert_eq!(
-        &decoded[..info.buffer_size()],
-        &pixels[..],
-        "the decoded pixels"
-    );
-
-    // Two named pixels, so the whole-buffer comparison above cannot pass by
-    // both sides being wrong the same way: the band that crosses the origin,
-    // and the page colour on the first row below it.
-    let row_bytes =
-        usize::try_from(width).expect("the test frame width does not fit this host") * 4;
-    assert_eq!(
-        &decoded[..4],
-        &[0x2A, 0x2E, 0x36, 0xFF],
-        "the band at the origin"
-    );
-    let page = 3 * row_bytes + 5 * 4;
-    assert_eq!(
-        &decoded[page..page + 4],
-        &[0x1E, 0x21, 0x27, 0xFF],
-        "the page below the band"
-    );
-}
-
-/// Rejects a pixel buffer that does not match the dimensions it is encoded
-/// under, rather than writing a frame that decodes to something else.
-#[test]
-fn png_bytes_refuses_a_mismatched_buffer() {
-    let short = vec![0_u8; 4 * 4 * 4];
-    assert!(png_bytes(8, 8, &short).is_err(), "an undersized buffer");
-    assert!(png_bytes(0, 0, &short).is_err(), "an oversized buffer");
-}
+/// Re-measured with the hover frame in the set, 12 Aug 2026: **9,340,285 bytes
+/// over 25 frames**, `chrome-hover.png` itself 355,292. The ceiling is raised
+/// to keep roughly the same proportional headroom the previous one had, and
+/// stays far under the ~11.3 MB `Adaptive` would produce over the same 25.
+const MAX_RUN_BYTES: u64 = 10_200_000;
 
 /// The review artifact: the dark control plus the three candidate light
 /// variants, produced headlessly.
 #[test]
 #[ignore = "needs a GPU and writes multi-megabyte artifacts; run with --ignored"]
 fn chrome_screenshots_render_headlessly() {
-    match run() {
+    match shots::run() {
         Ok(paths) => {
             assert_eq!(
                 paths.len(),

@@ -61,14 +61,42 @@ fn sidebar_session(
     // which selection it is already following. A fixture that clicked before
     // any frame would exercise the first-composition path, which is a state
     // no user can be in.
-    compose(&mut app, rows);
+    compose(&mut app, PanelFit::sidebar(24, rows));
     (app, geometry)
 }
 
-/// Composes the open explorer once, exactly as a frame would.
-fn compose(app: &mut DesktopApp, rows: usize) {
+/// A session opened on `directory` with the explorer in the placement it
+/// **starts** in — a floating popover — and a painted frame stating where it
+/// landed.
+///
+/// ⭐ **Not the same panel in a different position.** A popover is modal and a
+/// sidebar is not, and the difference shows up on exactly the path this
+/// fixture exists to test: opening a file from a popover takes the popover
+/// away with it, and opening one from a sidebar leaves the sidebar standing.
+fn popover_session(
+    directory: &TempDir,
+    rows: usize,
+) -> (DesktopApp, crate::overlay::PanelGeometry) {
+    let mut app = DesktopApp::new(Options {
+        path: Some(directory.path().to_path_buf()),
+        ..Options::default()
+    })
+    .expect("a session opened on the directory");
+    settle(&mut app);
+    assert_eq!(
+        app.explorer_placement,
+        ExplorerPlacement::Popover,
+        "the explorer starts as a popover, and this fixture never asks it to move"
+    );
+    let geometry = placed(120.0, 90.0, rows, 24);
+    painted(&mut app, &[(PanelKind::Explorer, geometry)]);
+    compose(&mut app, PanelFit::popover(24, rows));
+    (app, geometry)
+}
+
+/// Composes the open explorer once against `fit`, exactly as a frame would.
+fn compose(app: &mut DesktopApp, fit: PanelFit) {
     let theme = app.test_editor().state().theme.clone();
-    let fit = PanelFit::sidebar(24, rows);
     app.explorer
         .as_mut()
         .expect("an explorer to compose")
@@ -158,6 +186,57 @@ fn a_press_on_the_sidebar_gives_it_the_keys() {
     );
 }
 
+/// ⭐ **A press on a popover row is two things at once, and the second one is
+/// the part a sidebar test cannot see.** Opening a file from a floating panel
+/// takes the panel away with it — the popover is a thing you open, use and are
+/// done with — and that dismissal rides on `ExplorerOutcome::Open` reaching
+/// `leave_explorer`, which is placement-dependent.
+///
+/// Worth its own test because the press path and the `Enter` path arrive at
+/// that outcome from different callers: `Enter` from `drive_explorer`, a press
+/// from `press_panel_row`. A press wired to open the file without producing
+/// the outcome would pass every sidebar test in this file and leave a popover
+/// standing over the document it just opened.
+#[test]
+fn a_press_on_a_popover_row_opens_the_file_and_takes_the_popover_away() {
+    let directory = project("desktop-panel-mouse-popover");
+    let (mut app, geometry) = popover_session(&directory, 4);
+
+    point_at(&mut app, row_center(geometry, 3));
+    assert_eq!(app.pointer_pressed(), Flow::Running);
+
+    assert_eq!(
+        front_tab(&app).as_deref(),
+        Some("beta.txt"),
+        "the row under the pointer is the file that opened"
+    );
+    assert!(
+        app.explorer.is_none(),
+        "a popover that has been used is a popover that is finished"
+    );
+}
+
+/// The other placement, stated rather than assumed: the same press on a
+/// sidebar opens the file and **leaves the sidebar standing**, because a
+/// sidebar is the panel you keep open beside the code.
+///
+/// The pair is the point. One press verb, one outcome, two placements — and
+/// the only thing that reads the placement is `leave_explorer`.
+#[test]
+fn a_press_on_a_sidebar_row_leaves_the_sidebar_standing() {
+    let directory = project("desktop-panel-mouse-sidebar-stays");
+    let (mut app, geometry) = sidebar_session(&directory, 4);
+
+    point_at(&mut app, row_center(geometry, 3));
+    assert_eq!(app.pointer_pressed(), Flow::Running);
+
+    assert_eq!(front_tab(&app).as_deref(), Some("beta.txt"));
+    assert!(
+        app.explorer.is_some(),
+        "a sidebar is not dismissed by being used"
+    );
+}
+
 /// ⚠️ **The wheel's half of the defect.** `wheel` scrolled the document
 /// whatever the pointer was over, so spinning the wheel on a full-height
 /// sidebar scrolled the text behind it.
@@ -180,7 +259,7 @@ fn the_wheel_over_a_panel_leaves_the_document_where_it_was() {
     settle(&mut app);
     let geometry = placed(0.0, 30.0, 6, 24);
     painted(&mut app, &[(PanelKind::Explorer, geometry)]);
-    compose(&mut app, 6);
+    compose(&mut app, PanelFit::sidebar(24, 6));
 
     let before = app.test_document().scroll_y;
     point_at(&mut app, row_center(geometry, 2));
@@ -245,7 +324,7 @@ fn a_wheeled_window_survives_the_next_composition() {
     // Composed exactly as the frame would: composition is where the window
     // follows the selection, so this is the moment a naive `follow_selection`
     // undoes the wheel.
-    compose(&mut app, 6);
+    compose(&mut app, PanelFit::sidebar(24, 6));
 
     assert_eq!(
         app.explorer

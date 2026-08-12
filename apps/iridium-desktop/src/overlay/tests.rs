@@ -1,12 +1,13 @@
 use iridium_config::test_support::classic_light_faces;
 use iridium_editor::theme::Theme;
 
-use super::content::{PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span};
-use super::geometry::{GridMetrics, fit_for, panel_geometry, sidebar_fit_for};
-use super::metrics::{
-    EXPLORER_MAX_VISIBLE_ROWS, PAD_X, PAD_Y, PANEL_MAX_VISIBLE_ROWS, SIDEBAR_MAX_FRACTION,
-    TOP_ANCHOR_FRACTION,
+use iridium_panel::{
+    EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,
 };
+
+use super::content::{PanelAnchor, PanelContent};
+use super::geometry::{GridMetrics, fit_for, panel_geometry, sidebar_fit_for};
+use super::metrics::{PAD_X, PAD_Y, SIDEBAR_MAX_FRACTION, TOP_ANCHOR_FRACTION};
 use super::paint::{hairline_color, panel_background, panel_spans, scroll_for, strip_background};
 use crate::tab_strip::tab_strip_height;
 use crate::units::index_to_f32;

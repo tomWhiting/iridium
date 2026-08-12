@@ -5,7 +5,9 @@
 //! painter: placement is arithmetic, and arithmetic that can only be checked
 //! by looking at a screen is arithmetic nobody checks.
 
-use super::content::{PanelAnchor, PanelCaret, PanelFit};
+use iridium_panel::{PanelCaret, PanelFit};
+
+use super::content::PanelAnchor;
 use super::metrics::{
     CARET_WIDTH, HAIRLINE, PAD_X, PAD_Y, PANEL_MAX_COLUMNS, PANEL_MIN_COLUMNS, PANEL_RADIUS,
     ROW_INSET, ROW_RADIUS, SIDEBAR_COLUMNS, SIDEBAR_MAX_FRACTION, TOP_ANCHOR_FRACTION,

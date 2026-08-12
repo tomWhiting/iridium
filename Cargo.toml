@@ -8,6 +8,7 @@ members = [
     "crates/iridium-explorer",
     "crates/iridium-file",
     "crates/iridium-lang",
+    "crates/iridium-panel",
     "crates/iridium-syntax",
     "crates/iridium-bindings",
     "crates/iridium-tree",
@@ -139,6 +140,7 @@ iridium-editor = { path = "crates/iridium-editor", default-features = false }
 iridium-explorer = { path = "crates/iridium-explorer" }
 iridium-file = { path = "crates/iridium-file" }
 iridium-lang = { path = "crates/iridium-lang" }
+iridium-panel = { path = "crates/iridium-panel" }
 iridium-syntax = { path = "crates/iridium-syntax" }
 iridium-tree = { path = "crates/iridium-tree" }
 iridium-bindings = { path = "crates/iridium-bindings" }

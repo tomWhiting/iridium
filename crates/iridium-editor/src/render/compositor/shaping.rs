@@ -321,13 +321,31 @@ impl FrameCompositor {
                 .push((run.line_i, run_start_col));
         }
 
-        // Cache total visual lines for max_scroll_y.
-        // doc_visual_lines (from the doc_to_visual pass) counts all visible doc lines as 1 each.
-        // The actual buffer visual lines (from layout_runs) may be more due to wrapping.
-        // Extra wrapped lines = buffer_visual_lines - buffer_logical_lines.
-        let buffer_visual_lines = self.cached_visual_line_map.len();
-        let buffer_logical_lines = self.cpu_visible_doc_lines.len();
-        let extra_wrap_lines = buffer_visual_lines.saturating_sub(buffer_logical_lines);
-        self.cached_total_visual_lines = doc_visual_lines + extra_wrap_lines;
+        // The document's height for [`FrameCompositor::max_scroll_y`], in the
+        // same unit every other measure here uses: one row per fold-visible
+        // document line, counted across the whole document by the
+        // `doc_to_visual` pass.
+        //
+        // ⚠️ **The rows cosmic-text wrapped a long line into are deliberately
+        // not added, and this is a correctness rule rather than an
+        // approximation.** Only the *window* is ever shaped, so wrap rows are
+        // knowable only for the lines currently on screen — and a scroll limit
+        // derived from them moves when the window does. The face clamps every
+        // scroll write against this limit and reads it back between frames, so
+        // a limit that moved with the window closed a loop: a wheel tick at the
+        // bottom clamped to one value, the frame it triggered reported another,
+        // and the document bounced between the two for as long as the wheel
+        // turned. MEASURED 12 Aug 2026 on an 80-line document at 512×384: the
+        // same document reported bottoms of 3105.2 and 1223.6 depending on
+        // which end was on screen.
+        //
+        // The cost of counting each line once is that the tail rows of a
+        // wrapped line at the very end of a document sit below the window and
+        // cannot be scrolled to. That is the ad-hoc wrap model's, not this
+        // line's: the scroll offset, the viewport window and the caret anchor
+        // all already advance one row per document line. `docs/SOFT-WRAP-DESIGN.md`
+        // is the replacement, where rows become a coordinate space the whole
+        // kernel shares.
+        self.cached_total_visual_lines = doc_visual_lines;
     }
 }

@@ -44,6 +44,7 @@ mod document_identity;
 mod gutter;
 mod hits;
 mod layout;
+mod scroll_limit;
 mod syntax;
 mod theme;
 mod typing;

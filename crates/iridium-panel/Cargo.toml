@@ -21,6 +21,15 @@ path = "src/lib.rs"
 [dependencies]
 iridium-editor = { workspace = true, default-features = false }
 
+# ⚠️ **This narrows the crate to native targets, deliberately.** The explorer
+# filters a real filesystem hierarchy, and `iridium-explorer` is native by
+# nature — a browser has no directory to read. Both faces that depend on this
+# crate are native; the web face composes its panels in TypeScript and never
+# links it. Nothing here is reachable from `iridium-bindings`, so the wasm gate
+# is unaffected, and the day that changes it will change loudly rather than
+# silently.
+iridium-explorer.workspace = true
+
 # Grapheme clusters, for the one place a row is truncated. A row cut between a
 # base character and its combining mark is a row that renders as a different
 # character, which is why this is counted in clusters rather than in `char`s.

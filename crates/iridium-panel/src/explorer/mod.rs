@@ -21,6 +21,11 @@
 //! - [`apply`] — the only module here that writes anything. Decides nothing;
 //!   re-checks everything.
 //!
+//! And alongside them, [`filter`] — narrowing the rows to what a query matches
+//! without losing the hierarchy the matches live in. Pure, and part of what a
+//! row *is* rather than of how one is drawn, so it belongs on this side of the
+//! line for the same reason the pipeline does.
+//!
 //! # What is deliberately still in the desktop face
 //!
 //! The rows as loaded (`buffer`), what a key does to them (`edit_keys`), what
@@ -30,6 +35,7 @@
 //! mechanics work.
 
 pub mod apply;
+pub mod filter;
 pub mod order;
 pub mod plan;
 
@@ -40,4 +46,5 @@ mod apply_tests;
 mod plan_tests;
 
 pub use apply::{Failure, apply};
+pub use filter::{FilterRow, FilterView, filter};
 pub use plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan};

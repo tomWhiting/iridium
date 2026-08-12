@@ -313,15 +313,27 @@ Each step is checkable on its own, and the first two are strictly refactor.
    one of the nine is either an `impl FileExplorer` or imports the type, so
    nothing else in the set can move ahead of it.
 
-   ⚠️ **The one open question in 2c is `project::chosen_root`.** R1b named it
-   as the single member of the explorer's foreign surface that the other three
-   panels do *not* share, and `panel.rs` calls it. It is a decision, not a
-   move: either it goes to the shared crate as the explorer's own, or the
-   caller supplies a root and the crate stops asking. The second reads better
-   — a crate that picks a directory out of the environment is a crate that
-   behaves differently depending on how the process was launched, which is the
-   exact shape of the `/`-as-root defect (#57) — but it changes a signature,
-   so it is stated here rather than taken in passing.
+   **`project::chosen_root` — ruled and moved.** R1b named it as the single
+   member of the explorer's foreign surface the other three panels do not
+   share, and `panel.rs` calls it. ⚠️ **Correcting a note I wrote an hour
+   earlier in this same file: `chosen_root` reads nothing from the
+   environment.** It is `ExplorerRoot { crawl: !is_filesystem_root(path), path }`
+   and nothing else. The environment-reading function is its neighbour,
+   `explorer_root`, which is a different question wearing the same word.
+
+   ⭐ **Two questions, one word.** *"Somebody walked into this folder — may a
+   search read past it?"* is a property of the explorer, answered identically
+   in every face. *"Nobody said where to open; where should it be?"* consults
+   the active tab, the process's working directory and the home directory —
+   and the two faces need not answer it alike. So the **choice** moved to
+   `iridium-panel::explorer::root` with its two tests, and the **guess** stayed
+   in `project.rs`. `is_filesystem_root` is `pub` from the shared side because
+   the guess needs the same predicate, and two spellings of "has no parent"
+   would be two places for it to stop being true.
+
+   Census: desktop **510 → 508**, panel **55 → 57**. Sum 565 either way.
+
+   *Revert cost: the two `pub use` lines in `project.rs`.*
 
    **The scope 2c was written against, unchanged:** the whole explorer — the
    tree, filter, keys, oil buffer, edit keys, plan, confirm, apply — plus

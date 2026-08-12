@@ -96,6 +96,14 @@ objc2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
 	"std",
 	"NSApplication",
+	# The menu bar (#108). `NSMenu` and `NSMenuItem` are additional headers on
+	# a crate already compiled in rather than a new edge — `muda`, the obvious
+	# alternative, would be one. winit already installs a menu bar containing
+	# only the application menu; these are what let this face add File, Edit
+	# and the rest beside it. `NSMenuItem` is gated on `NSResponder`, which
+	# `NSOpenPanel` already required.
+	"NSMenu",
+	"NSMenuItem",
 	"NSOpenPanel",
 	"NSPanel",
 	"NSResponder",

@@ -15,9 +15,10 @@ use winit::window::{Theme as WinitTheme, WindowId};
 use super::startup::Shell;
 use super::state::{DesktopApp, Flow};
 use crate::keys;
+use crate::menubar::MenuCommand;
 use crate::units::pixel_from_f64;
 
-impl ApplicationHandler for DesktopApp {
+impl ApplicationHandler<MenuCommand> for DesktopApp {
     /// Creates the window and everything behind it, once.
     ///
     /// winit delivers `resumed` before any window event and may deliver it
@@ -48,11 +49,32 @@ impl ApplicationHandler for DesktopApp {
                 self.sync_left_inset();
                 self.sync_kernel_viewport();
                 self.refresh_title();
+                // Inside the once-only guard: a menu bar installed twice
+                // would be two File menus. `take` because the proxy is
+                // needed exactly here — the target holds its own clone for
+                // the rest of the session.
+                if let Some(proxy) = self.menu_proxy.take() {
+                    self.install_menubar(&proxy);
+                }
             },
             Err(message) => {
                 self.failure = Some(message);
                 event_loop.exit();
             },
+        }
+    }
+
+    /// Runs a command the macOS menu bar chose.
+    ///
+    /// ⭐ **This is the only reason the loop carries a user event.** An
+    /// `AppKit` menu action cannot touch [`DesktopApp`] — `run_app` borrows it
+    /// for the loop's whole lifetime — so the item sends the id through an
+    /// `EventLoopProxy`, which both enqueues it and wakes a `ControlFlow::
+    /// Wait` loop that would otherwise be asleep. It arrives here, on the main
+    /// thread, between events, and runs down the same path a chord takes.
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: MenuCommand) {
+        if self.run_menu_command(&event) == Flow::Exit {
+            event_loop.exit();
         }
     }
 

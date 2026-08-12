@@ -311,3 +311,57 @@ gate is green today, so its result is already true of the tree.
 
 **Recommendation: drop all eight.** Nothing in them is recoverable work.
 Awaiting Tom naming them.
+
+---
+
+## The fleet loop — my harness rulings, 12 Aug 2026
+
+Vesper's `mm_fleet_loop.awl` is blocked on a missing `harness` section in its
+two agent seams. Those are my calls. Decided:
+
+| field | ruling | why |
+| --- | --- | --- |
+| `permission` | ⛔ **`deny` for run 1.** `allow-once` **only** against a scratch clone, never against this checkout. | This checkout has nine banned git commands, eight stashes never to be touched, and Tom's running app. An unattended agent with write-and-run here could issue `git stash`/`checkout`/`reset` — the exact commands whose ban exists to protect his work. Her own clone-per-lane design already solves it. |
+| `concurrency` | **1** | The loop is sequential single-writer by her own description. Anything higher is capacity its shape can never use, and it would silently permit two writers if the shape ever changed. |
+| `env_pass` | named list — `PATH`, `HOME`, `TMPDIR`, and `CARGO_HOME`/`RUSTUP_HOME` if set. Not pass-all. | Shared box. The gates are **server-run**, so `ci.sh`'s environment is the server's, not the agent's — the agent needs very little. |
+| `cwd` | absolute. Run 1: this repo. Run 2: the clone. | — |
+| `exit_grace`, the reconnect trio | ⏳ policy given, values owed once she names the units | A guess in the wrong unit is worse than a question. Policy: bounded to a couple of minutes total, fail loudly rather than retry forever — a seam that reconnects for an hour is a seam holding a shared box while nobody watches. |
+
+⭐ **Run 1 is a read-only review pass, and that is a feature not a concession.**
+`deny` still exercises the control step, the server-run gate seam, the judge
+protocol and every refusal arm. If the pipeline is broken I find out at zero
+risk, which is the same argument as the control step itself one level up.
+
+### Two integration facts
+
+1. **The verdict token.** Her `mm_gates` seam expects a token on stdout and
+   detail on stderr. `ci.sh` prints the whole log to stdout and no token.
+   Offered: a `--verdict` mode matching her `mm-gate` shape. ⏳ Blocked on her
+   naming the token vocabulary her workflow matches on — guessing it would
+   produce a run that looks wired and is not.
+2. **`docs/CONTROL-ANCHOR.txt` is in place** (`34cd102b`), first line verified
+   byte-exact with `od -c`.
+
+### The census guard — done, and it was worse than she thought
+
+She asked for the row-count check to live inside `ci.sh` because the workflow
+sees one exit code and cannot count markers. Correct. What was actually there:
+the gate count `10` was a **typed literal in both summary lines with nothing
+checking it**, and a truncated run printed `✅ all 10 gates passed` because the
+gates that would have failed never ran.
+
+Now `GATES` is declared once, `ran` is counted after each gate returns, and a
+mismatch exits **3** — distinct from the 1 a failure uses and the 2 a bad
+working directory uses — with an `⛔ UNMEASURED` line.
+
+> Proven by mutation: at `GATES=11`, **all ten gates passed and it still
+> refused**. That is the shape wanted — the passes were real and were still not
+> summed into a verdict.
+
+⚠️ Note for her retry logic: a non-zero exit is retryable in her design, so a
+census mismatch will be retried before it lands in `unmeasured`. Harmless —
+the mismatch is deterministic — but **exit 3 is the distinct signal** if she
+wants to route it without burning the retries.
+
+**:8080 is aion's**, which explains CLAUDE.md's "always in use". No collision
+with the port ban — that ban is on *starting* servers there.

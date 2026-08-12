@@ -557,3 +557,17 @@ zero would mean absence rather than a bad pattern:
 Before the install every one of the new patterns was **0** against the same
 three controls at 1/1/2. Committed, pushed **and installed** — three different
 places, all three now true.
+
+### Executed, and the recovery path exercised rather than claimed
+
+`git stash clear` → exit 0, `git stash list` empty.
+
+⭐ **Then the documented recovery command was run against a cleared SHA**, because
+a safety net nobody has pulled on is a claim, not a net:
+
+```
+git cat-file -t 769ddcee…                     -> commit
+git stash show --stat --no-ext-diff 769ddcee… -> 26 files changed, 619 insertions(+), 205 deletions(-)
+```
+
+So the table above is usable as written, for about two weeks.

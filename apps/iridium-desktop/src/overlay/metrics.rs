@@ -101,6 +101,22 @@ pub(super) const fn backdrop_alpha(theme: &Theme) -> f32 {
     }
 }
 
+/// How much of the selection's strength the hover band is drawn at.
+///
+/// ⭐ **The hover is the selection colour, weakened — not a colour of its
+/// own.** A separate hue would be a third thing on screen competing with the
+/// selection and the caret, and it would have to be chosen again for every
+/// theme anyone imports. Weakening the one colour the theme already nominates
+/// for "this row" says *this row, provisionally* in whatever palette the theme
+/// brought with it.
+///
+/// 0.4 rather than something fainter because the band is composited onto the
+/// panel background rather than blended live: at 0.2 the two presets' selection
+/// colours land within a few percent of the background they sit on, which is a
+/// highlight nobody can see. At 0.4 it is unmistakably present and still
+/// unmistakably not the selection sitting a row away from it.
+pub(super) const HOVER_STRENGTH: f32 = 0.4;
+
 /// How far down the window's top edge a top-anchored panel starts — the web
 /// backdrop's `paddingTop: "12vh"`, as a fraction of the window height.
 pub(super) const TOP_ANCHOR_FRACTION: f32 = 0.12;

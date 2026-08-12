@@ -11,7 +11,7 @@ use iridium_editor::KeyEvent;
 
 use super::state::{DesktopApp, Flow};
 use crate::context_menu::{ContextMenu, MenuOutcome};
-use crate::overlay::PanelGeometry;
+use crate::overlay::{PanelGeometry, PanelKind};
 
 impl DesktopApp {
     /// Handles the secondary button going down: the context menu.
@@ -110,21 +110,18 @@ impl DesktopApp {
 
     /// The open menu as the last frame painted it.
     ///
-    /// The menu is composed last of all the panels
-    /// ([`panel_contents`](Self::panel_contents)), so it is the last placement
-    /// the painter recorded. `None` when it is closed, when the window could
-    /// not hold it, or before the first frame that showed it — a press that
-    /// cannot be resolved against painted chrome is honestly not on the menu.
+    /// ⚠️ **Asked for by name, not taken as the last entry.** It used to be
+    /// read off the end of the record on the reasoning that the menu composes
+    /// last — true, but true only until the day something composes after it,
+    /// and the failure that day would be a menu handing its clicks to whatever
+    /// had taken its place.
+    ///
+    /// `None` when it is closed, when the window could not hold it, or before
+    /// the first frame that showed it — a press that cannot be resolved
+    /// against painted chrome is honestly not on the menu.
     fn painted_menu(&self) -> Option<(&ContextMenu, PanelGeometry)> {
         let menu = self.menu.as_ref()?;
-        let geometry = self
-            .shell
-            .as_ref()?
-            .overlay
-            .painted_panels()
-            .last()
-            .copied()
-            .flatten()?;
+        let geometry = self.painted.geometry_of(PanelKind::Menu)?;
         Some((menu, geometry))
     }
 }

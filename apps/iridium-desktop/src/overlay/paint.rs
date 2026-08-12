@@ -19,11 +19,12 @@ use wgpu::{
 
 use iridium_panel::{PanelFit, Span};
 
-use super::content::{PanelAnchor, PanelContent, StripContent};
+use super::content::{PanelAnchor, PanelContent, PanelKind, StripContent};
+use super::frame::{PaintedFrame, PaintedPanel};
 use super::geometry::{GridMetrics, PanelGeometry, fit_for, panel_geometry, sidebar_fit_for};
 use super::metrics::{
-    CARET_WIDTH, PAD_X, PAD_Y, STRIP_PAD_X, STRIP_PAD_Y, TAB_CLOSE_ALPHA, TAB_INACTIVE_ALPHA,
-    backdrop_alpha, frame_width, shadow_for,
+    CARET_WIDTH, HOVER_STRENGTH, PAD_X, PAD_Y, STRIP_PAD_X, STRIP_PAD_Y, TAB_CLOSE_ALPHA,
+    TAB_INACTIVE_ALPHA, backdrop_alpha, frame_width, shadow_for,
 };
 use crate::tab_strip::{
     TabColors, TabStripContent, TabStripLayout, tab_strip_height, tab_strip_layout, tab_strip_spans,
@@ -43,12 +44,6 @@ pub struct OverlayPainter {
     /// The window scale factor, converting the chrome's logical measurements
     /// to physical pixels. Only the face knows it; see [`Self::set_scale`].
     scale: f32,
-    /// Where each panel of the last painted frame landed, in the order the
-    /// caller handed them in. See [`Self::painted_panels`].
-    painted: Vec<Option<PanelGeometry>>,
-    /// Where the tab strip of the last painted frame landed. See
-    /// [`Self::painted_tab_strip`].
-    painted_tabs: Option<TabStripLayout>,
 }
 
 impl std::fmt::Debug for OverlayPainter {
@@ -91,8 +86,6 @@ impl OverlayPainter {
             text,
             chrome,
             scale: 1.0,
-            painted: Vec::new(),
-            painted_tabs: None,
         };
         painter.resize(queue, width, height);
         Ok(painter)
@@ -154,17 +147,6 @@ impl OverlayPainter {
         tab_strip_height(height, self.metrics())
     }
 
-    /// Where the tab strip of the last painted frame landed, or `None` when
-    /// the frame drew none.
-    ///
-    /// This is what a press is hit-tested against, for the same reason
-    /// [`Self::painted_panels`] is: the placement on screen, not one
-    /// recomputed from state that may have moved since.
-    #[must_use]
-    pub const fn painted_tab_strip(&self) -> Option<&TabStripLayout> {
-        self.painted_tabs.as_ref()
-    }
-
     /// The height in pixels a panel with `interior_rows` content rows takes,
     /// padding included.
     pub fn panel_height(&self, interior_rows: usize) -> f32 {
@@ -204,18 +186,6 @@ impl OverlayPainter {
         index_to_f32(content_columns).mul_add(metrics.char_width, 2.0 * PAD_X * metrics.scale)
     }
 
-    /// Where each panel of the last painted frame landed, in the order it was
-    /// handed to [`Self::paint`]; `None` for a panel the window could not
-    /// hold, so the indices never shift under the caller.
-    ///
-    /// This is what a pointer is hit-tested against: the placement that is on
-    /// screen, rather than a placement recomputed from state that may have
-    /// moved since the frame the user is clicking on.
-    #[must_use]
-    pub fn painted_panels(&self) -> &[Option<PanelGeometry>] {
-        &self.painted
-    }
-
     /// The text grid the chrome is placed against, as currently measured.
     fn metrics(&mut self) -> GridMetrics {
         GridMetrics {
@@ -233,6 +203,20 @@ impl OverlayPainter {
     /// A window shorter than a strip paints that strip not at all; a panel
     /// that no longer fits paints nothing rather than a sliver.
     ///
+    /// # `painted`
+    ///
+    /// Filled with where everything it drew landed — the face's record of the
+    /// frame the user is about to click on. ⭐ **Handed back rather than
+    /// kept**: the painter cannot exist without a GPU device, and a hit test
+    /// that can only be checked against a live device is a hit test nobody
+    /// checks. Giving the record to the face leaves exactly one copy of it and
+    /// makes the pointer's whole ladder testable without a display.
+    ///
+    /// An out-parameter rather than a return value because it must survive the
+    /// error path: a panel that shaped and placed before a later failure is
+    /// still on the record, and the caller decides what a frame that never
+    /// presented means.
+    ///
     /// # Errors
     ///
     /// Returns an error when glyph preparation or text rendering fails.
@@ -241,8 +225,9 @@ impl OverlayPainter {
         target: FrameTarget<'_>,
         tabs: Option<&TabStripContent>,
         strip: Option<&StripContent>,
-        panels: &[&PanelContent],
+        panels: &[(PanelKind, &PanelContent)],
         theme: &Theme,
+        painted: &mut PaintedFrame,
     ) -> Result<(), IridiumError> {
         let FrameTarget {
             view,
@@ -260,7 +245,7 @@ impl OverlayPainter {
         // same way it dims the prompt strip's.
         let tab_buffer = tabs
             .and_then(|content| self.shape_tabs(content, theme, width_f, height_f, &mut chrome));
-        self.painted_tabs = tab_buffer.as_ref().map(|(_, layout)| layout.clone());
+        painted.tabs = tab_buffer.as_ref().map(|(_, layout)| layout.clone());
 
         let strip_buffer = strip
             .and_then(|content| self.shape_strip(content, theme, width_f, height_f, &mut chrome));
@@ -271,19 +256,33 @@ impl OverlayPainter {
             0.0
         };
         // Placement is recorded per input panel — `None` for one the window
-        // could not hold — so the indices stay aligned with what the caller
-        // handed in and a face can hit-test exactly what it is looking at.
-        let mut placed: Vec<Option<PanelGeometry>> = Vec::with_capacity(panels.len());
+        // could not hold — so a panel that declined to draw stays
+        // distinguishable from one that was never composed, and a face can
+        // hit-test exactly what it is looking at.
+        let mut placed: Vec<PaintedPanel> = Vec::with_capacity(panels.len());
         let shaped: Vec<ShapedPanel> = panels
             .iter()
-            .filter_map(|panel| {
-                let shaped =
-                    self.shape_panel(panel, theme, width_f, height_f, reserve_bottom, &mut chrome);
-                placed.push(shaped.as_ref().map(|panel| panel.geometry));
+            .filter_map(|&(kind, content)| {
+                let shaped = self.shape_panel(
+                    content,
+                    theme,
+                    width_f,
+                    height_f,
+                    reserve_bottom,
+                    &mut chrome,
+                );
+                placed.push(PaintedPanel {
+                    kind,
+                    geometry: shaped.as_ref().map(|panel| panel.geometry),
+                    // The rows this frame *drew*, not the rows the panel has
+                    // now: the record answers for the screen the user is
+                    // clicking on.
+                    rows: content.rows.len(),
+                });
                 shaped
             })
             .collect();
-        self.painted = placed;
+        painted.panels = placed;
 
         if chrome.is_empty() && strip_buffer.is_none() && shaped.is_empty() {
             return Ok(());
@@ -585,6 +584,24 @@ impl OverlayPainter {
             panel_background(theme),
             (exterior.radius - frame).max(0.0),
         ));
+        // Before the selection band and after the background, so a pointer
+        // resting on the selected row shows the selection rather than a
+        // fainter wash over it — the row is still the selection, and the hover
+        // has nothing to add once the two coincide.
+        if let Some(index) = panel.hovered
+            && index < panel.rows.len()
+            && !panel.rows[index].separator
+        {
+            let band = geometry.selected_row_rect(index);
+            chrome.push(RoundedQuad::new(
+                band.x,
+                band.y,
+                band.width,
+                band.height,
+                hover_color(theme),
+                band.radius,
+            ));
+        }
         for (index, row) in panel.rows.iter().enumerate() {
             if row.selected {
                 let band = geometry.selected_row_rect(index);
@@ -760,6 +777,25 @@ pub(super) fn tab_colors(theme: &Theme) -> TabColors {
 /// not the theme's.
 pub(super) fn hairline_color(theme: &Theme) -> Color {
     composite(theme.editor.panel_border, panel_background(theme))
+}
+
+/// The band drawn behind the row the pointer is resting on: the theme's own
+/// selection colour at [`HOVER_STRENGTH`], composited onto the panel's
+/// background so it is opaque like every other quad in the chrome.
+///
+/// A theme whose selection colour is fully transparent gets no hover band
+/// rather than an invisible one — the composite would return the background
+/// exactly, and pushing a quad that draws nothing is a quad that costs the
+/// same as one that does.
+pub(super) fn hover_color(theme: &Theme) -> Color {
+    let selection = theme.editor.selection;
+    let over = Color::new(
+        selection.r,
+        selection.g,
+        selection.b,
+        selection.a * HOVER_STRENGTH,
+    );
+    composite(over, panel_background(theme))
 }
 
 /// `over` alpha-composited onto an opaque `under`.

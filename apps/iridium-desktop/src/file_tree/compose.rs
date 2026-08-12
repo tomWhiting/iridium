@@ -105,6 +105,7 @@ impl FileExplorer {
             content_columns: fit.content_columns,
             rows,
             caret: None,
+            hovered: None,
         }
     }
 
@@ -124,6 +125,7 @@ impl FileExplorer {
             content_columns: fit.content_columns,
             rows,
             caret: None,
+            hovered: None,
         }
     }
 
@@ -175,6 +177,7 @@ impl FileExplorer {
             content_columns: fit.content_columns,
             rows,
             caret: self.edit_caret(cursor, &depths, visible, fit.content_columns),
+            hovered: None,
         }
     }
 
@@ -247,6 +250,7 @@ impl FileExplorer {
             content_columns: fit.content_columns,
             rows,
             caret: caret_column.map(|column| PanelCaret { row: 0, column }),
+            hovered: None,
         }
     }
 
@@ -256,7 +260,7 @@ impl FileExplorer {
     /// typed row makes the buffer longer than either source list immediately,
     /// and a window sized from the source would stop drawing at the row before
     /// the one just created.
-    fn row_count(&self) -> usize {
+    pub(super) fn row_count(&self) -> usize {
         if let Some(buffer) = self.mode.buffer() {
             return buffer.rows().len();
         }
@@ -460,16 +464,36 @@ impl FileExplorer {
     /// Slides the window so the selection is inside it, and never past the
     /// end of the rows.
     ///
+    /// ⭐ **The window follows the selection when the selection *moves*, and
+    /// not otherwise — and for a browsed panel that distinction is the whole
+    /// difference between a list you can look through and one you cannot.**
+    /// The wheel moves the window and deliberately leaves the selection alone,
+    /// so a rule that re-centred on the selection every composition would undo
+    /// the scroll on the very next frame; the list would spring back under the
+    /// pointer, which is the same class of defect as the scroll bounce — a
+    /// consumer feeding its own answer back in.
+    ///
+    /// Following unconditionally was correct for as long as the keyboard was
+    /// the only thing that could move either of them.
+    ///
     /// The clamp is applied on the way out as well as the way in: a refresh
     /// that removed rows can leave a scroll pointing past the end, and a
-    /// window starting past the last row draws nothing at all.
+    /// window starting past the last row draws nothing at all. It is also what
+    /// bounds an over-scrolled wheel, which is why [`scroll_rows`] does not
+    /// have to know how tall the window is.
+    ///
+    /// [`scroll_rows`]: Self::scroll_rows
     fn follow_selection(&mut self, total: usize, visible: usize) {
         let last_start = total.saturating_sub(visible);
-        if let Some(selected) = self.selected_row() {
-            if selected < self.scroll {
-                self.scroll = selected;
-            } else if visible > 0 && selected >= self.scroll + visible {
-                self.scroll = selected + 1 - visible;
+        let selected = self.selected_row();
+        if selected != self.followed {
+            self.followed = selected;
+            if let Some(selected) = selected {
+                if selected < self.scroll {
+                    self.scroll = selected;
+                } else if visible > 0 && selected >= self.scroll + visible {
+                    self.scroll = selected + 1 - visible;
+                }
             }
         }
         self.scroll = self.scroll.min(last_start);

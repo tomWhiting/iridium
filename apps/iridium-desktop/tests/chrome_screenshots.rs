@@ -96,7 +96,9 @@ use iridium_desktop::command_palette::CommandPalette;
 use iridium_desktop::context_menu::ContextMenu;
 use iridium_desktop::highlight::HighlightCache;
 use iridium_desktop::history_overlay::HistoryPanel;
-use iridium_desktop::overlay::{OverlayPainter, PanelContent, PanelFit, StripContent};
+use iridium_desktop::overlay::{
+    OverlayPainter, PaintedFrame, PanelContent, PanelFit, PanelKind, StripContent,
+};
 use iridium_desktop::search::SearchOverlay;
 use iridium_desktop::tab_strip::{TabItem, TabStripContent};
 use iridium_desktop::units::u32_to_f32;
@@ -325,7 +327,7 @@ struct Chrome<'a> {
     /// The docked strip, when the state has one.
     strip: Option<&'a StripContent>,
     /// The floating panels, back to front.
-    panels: &'a [&'a PanelContent],
+    panels: &'a [(PanelKind, &'a PanelContent)],
 }
 
 impl Chrome<'_> {
@@ -374,6 +376,7 @@ fn render_shot(
             chrome.strip,
             chrome.panels,
             &editor.state().theme,
+            &mut PaintedFrame::default(),
         )
         .map_err(|error| format!("the overlay pass failed: {error}"))?;
     Ok(())
@@ -729,7 +732,7 @@ fn palette_shot(
     let chrome = Chrome {
         tabs: None,
         strip: None,
-        panels: &[&content],
+        panels: &[(PanelKind::Palette, &content)],
     };
     shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
     Ok(())
@@ -759,7 +762,7 @@ fn menu_shot(
     let chrome = Chrome {
         tabs: None,
         strip: None,
-        panels: &[&content],
+        panels: &[(PanelKind::Menu, &content)],
     };
     shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
     Ok(())
@@ -790,7 +793,7 @@ fn search_shot(
     let chrome = Chrome {
         tabs: None,
         strip: Some(&strip),
-        panels: &[&content],
+        panels: &[(PanelKind::Search, &content)],
     };
     shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
     Ok(())
@@ -820,7 +823,7 @@ fn history_shot(
     let chrome = Chrome {
         tabs: None,
         strip: None,
-        panels: &[&content],
+        panels: &[(PanelKind::History, &content)],
     };
     shoot(gpu, overlay, theme, &editor, palette, chrome, path)?;
     Ok(())

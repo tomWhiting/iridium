@@ -165,6 +165,28 @@ impl SearchOverlay {
         self.refresh(editor);
     }
 
+    /// Puts the caret in the field on composed row `row`.
+    ///
+    /// ⭐ **This panel has no list, and that is the whole shape of what a
+    /// click means here.** Its two rows are the Find field and the Replace
+    /// field, so a press is a request to type into one of them — the same
+    /// thing `Tab` asks for, said by pointing instead. A press anywhere else
+    /// on the panel changes nothing.
+    ///
+    /// A window with room for one row shows whichever field has focus, so row
+    /// zero is already that field and the press is a no-op rather than a jump
+    /// to Find.
+    pub const fn click_row(&mut self, row: usize, rows_shown: usize) {
+        if rows_shown < 2 {
+            return;
+        }
+        match row {
+            0 => self.focus = Focus::Find,
+            1 => self.focus = Focus::Replace,
+            _ => {},
+        }
+    }
+
     /// Closes the panel and the kernel's search with it.
     ///
     /// The field text is kept; the kernel's state is not.
@@ -272,6 +294,7 @@ impl SearchOverlay {
             content_columns: fit.content_columns,
             rows,
             caret,
+            hovered: None,
         }
     }
 
@@ -621,6 +644,71 @@ mod tests {
                 ..Modifiers::none()
             },
         )
+    }
+
+    /// The pointer's way into a two-field panel: pressing a field is the same
+    /// request `Tab` makes, said by pointing instead.
+    #[test]
+    fn a_press_on_the_replace_row_puts_the_caret_in_it() {
+        let (mut panel, editor) = open_over("hello world");
+        let theme = Theme::dark();
+        let fit = PanelFit::popover(40, 12);
+        assert_eq!(
+            panel
+                .content(&editor, &theme, fit)
+                .caret
+                .map(|caret| caret.row),
+            Some(0),
+            "the panel opens with the caret in Find"
+        );
+
+        panel.click_row(1, 2);
+        assert_eq!(
+            panel
+                .content(&editor, &theme, fit)
+                .caret
+                .map(|caret| caret.row),
+            Some(1),
+            "the press moved the caret into Replace"
+        );
+
+        panel.click_row(0, 2);
+        assert_eq!(
+            panel
+                .content(&editor, &theme, fit)
+                .caret
+                .map(|caret| caret.row),
+            Some(0),
+            "and back again"
+        );
+    }
+
+    /// ⚠️ A window with room for one row is already showing the focused field,
+    /// so a press on row zero must not silently mean "go to Find".
+    #[test]
+    fn a_one_row_panel_keeps_the_field_it_is_showing() {
+        let (mut panel, editor) = open_over("hello world");
+        let theme = Theme::dark();
+        let narrow = PanelFit::popover(40, 1);
+        panel.click_row(1, 2);
+        panel.click_row(0, 1);
+        assert_eq!(
+            panel
+                .content(&editor, &theme, narrow)
+                .caret
+                .map(|caret| caret.row),
+            Some(0),
+            "the one row on screen is Replace, and it still has the caret"
+        );
+        let roomy = PanelFit::popover(40, 12);
+        assert_eq!(
+            panel
+                .content(&editor, &theme, roomy)
+                .caret
+                .map(|caret| caret.row),
+            Some(1),
+            "which the two-row composition confirms is still Replace"
+        );
     }
 
     /// An open panel over a kernel holding `text`.

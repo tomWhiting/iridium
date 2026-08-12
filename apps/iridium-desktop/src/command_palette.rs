@@ -114,6 +114,14 @@ pub struct CommandPalette {
     /// so `PageDown` on a panel that has not reached the screen yet still
     /// moves.
     window: usize,
+    /// The selection the window last followed.
+    ///
+    /// ⭐ **What separates "the selection moved" from "a frame happened".**
+    /// The window has to chase the selection when a key moves it and stay put
+    /// when the wheel moves the window instead, and those two are the same
+    /// composition from the inside — the only difference is whether the
+    /// selection is where it was last time this ran.
+    followed: Option<usize>,
 }
 
 impl CommandPalette {
@@ -137,6 +145,7 @@ impl CommandPalette {
         self.query = Entry::new();
         self.selected = 0;
         self.scroll = 0;
+        self.followed = None;
     }
 
     /// The query field's text.
@@ -158,6 +167,7 @@ impl CommandPalette {
         if changed {
             self.selected = 0;
             self.scroll = 0;
+            self.followed = None;
         }
     }
 
@@ -243,6 +253,7 @@ impl CommandPalette {
             content_columns: fit.content_columns,
             rows,
             caret: caret_column.map(|column| PanelCaret { row: 0, column }),
+            hovered: None,
         }
     }
 
@@ -266,6 +277,43 @@ impl CommandPalette {
             PanelRow::new(line.finish()),
             Some(prompt_chars + caret - scroll),
         )
+    }
+
+    /// What a press on composed row `row` does: the row becomes the selection
+    /// and runs, which is exactly what `Enter` does to it.
+    ///
+    /// ⭐ **Through [`accept`](Self::accept), not beside it.** A click that
+    /// resolved its own command would be a second definition of what a palette
+    /// row *is*, and the two would drift the first time the ranking changed.
+    ///
+    /// Row zero is the query field, and a press on it selects nothing: there
+    /// is one field and it already has focus, so the honest answer is that
+    /// nothing happened.
+    pub fn click_row(&mut self, row: usize, editor: &Editor, mru: &CommandMru) -> PaletteOutcome {
+        let Some(offset) = row.checked_sub(1) else {
+            return PaletteOutcome::Handled;
+        };
+        let index = self.scroll.saturating_add(offset);
+        let count = palette::search_text(editor.commands(), mru, self.query.text(), None).len();
+        if index >= count {
+            return PaletteOutcome::Handled;
+        }
+        self.selected = index;
+        self.accept(editor, mru)
+    }
+
+    /// Moves the window `delta` rows without touching the selection.
+    ///
+    /// Clamped at the top only; the bottom is clamped by
+    /// [`follow_selection`](Self::follow_selection) on the next composition,
+    /// which is the one place that knows both how many results there are and
+    /// how many rows the window is showing.
+    pub const fn scroll_rows(&mut self, delta: isize) {
+        self.scroll = if delta < 0 {
+            self.scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.scroll.saturating_add(delta.unsigned_abs())
+        };
     }
 
     /// Resolves the selected entry and closes, or stays open with nothing to
@@ -310,6 +358,10 @@ impl CommandPalette {
         if changed && rewrites {
             self.selected = 0;
             self.scroll = 0;
+            // The list the window was placed against no longer exists, so a
+            // window "already following the selection" would be following an
+            // index into it.
+            self.followed = None;
         }
         PaletteOutcome::Handled
     }
@@ -321,17 +373,28 @@ impl CommandPalette {
 
     /// Slides the scroll window so the selection is inside `visible` rows,
     /// and remembers `visible` as the page size.
+    ///
+    /// ⭐ **The window follows the selection when the selection *moves*, and
+    /// not otherwise.** A wheel moves the window and leaves the selection
+    /// where it was; a rule that re-centred on the selection every composition
+    /// would undo that scroll on the very next frame, so the list would appear
+    /// to spring back under the pointer. Following unconditionally was correct
+    /// while the keyboard was the only thing that could move either.
     fn follow_selection(&mut self, count: usize, visible: usize) {
         self.window = visible.max(1);
         if visible == 0 || count == 0 {
             self.scroll = 0;
+            self.followed = None;
             return;
         }
         let selected = self.clamped_selection(count);
-        if selected < self.scroll {
-            self.scroll = selected;
-        } else if selected >= self.scroll + visible {
-            self.scroll = selected + 1 - visible;
+        if self.followed != Some(selected) {
+            self.followed = Some(selected);
+            if selected < self.scroll {
+                self.scroll = selected;
+            } else if selected >= self.scroll + visible {
+                self.scroll = selected + 1 - visible;
+            }
         }
         self.scroll = self.scroll.min(count.saturating_sub(visible));
     }

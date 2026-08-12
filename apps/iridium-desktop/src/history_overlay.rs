@@ -149,7 +149,32 @@ impl HistoryPanel {
             content_columns: fit.content_columns,
             rows,
             caret: None,
+            hovered: None,
         }
+    }
+
+    /// What a press on composed row `row` does: the row becomes the selection
+    /// and the document jumps to it, which is what `Enter` does to it.
+    ///
+    /// This panel has no query field, so composed row `n` is list row
+    /// `scroll + n` with no offset — the one panel here where those two counts
+    /// coincide, and worth stating rather than leaving the reader to notice
+    /// the missing `- 1`.
+    pub fn click_row(&mut self, row: usize, editor: &Editor) -> HistoryOutcome {
+        let snapshot = editor.history_snapshot();
+        let rows = linearize(&snapshot);
+        let index = self.selection.scroll().saturating_add(row);
+        if !self.selection.select_row(&rows, index) {
+            return HistoryOutcome::Handled;
+        }
+        self.selection
+            .selected_node(&rows)
+            .map_or(HistoryOutcome::Handled, HistoryOutcome::Jump)
+    }
+
+    /// Moves the window `delta` rows without touching the selection.
+    pub const fn scroll_rows(&mut self, delta: isize) {
+        self.selection.scroll_rows(delta);
     }
 
     /// Moves the selection by `delta` rows, clamping at both ends.

@@ -10,6 +10,33 @@
 
 use iridium_panel::{PanelCaret, PanelRow};
 
+/// Which of this face's panels a composed [`PanelContent`] is.
+///
+/// ⭐ **A press has to resolve to a panel, not to a boolean.** The painter
+/// records where each panel of the last frame landed, and until this existed
+/// the only thing that record could answer was *whether* the pointer was on
+/// some panel — which is enough to stop a click reaching the document and not
+/// enough to give it to anything. The kind travels with the content into
+/// [`OverlayPainter::paint`](super::OverlayPainter::paint) and comes back out
+/// in the frame's record, so what the pointer resolves to and what was drawn
+/// cannot be two different answers.
+///
+/// Not in `iridium-panel`: this is the list of panels *this face* has, and the
+/// terminal face's list is its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelKind {
+    /// The find-and-replace panel — two fields, no list.
+    Search,
+    /// The undo tree.
+    History,
+    /// The file explorer, in either placement.
+    Explorer,
+    /// The command palette.
+    Palette,
+    /// The right-click context menu.
+    Menu,
+}
+
 /// One line of strip content, ready to paint.
 #[derive(Debug, Clone)]
 pub struct StripContent {
@@ -78,4 +105,19 @@ pub struct PanelContent {
     pub rows: Vec<PanelRow>,
     /// The caret, if a field in the panel has focus.
     pub caret: Option<PanelCaret>,
+    /// The interior row the pointer is over, drawn as a fainter band than the
+    /// selection.
+    ///
+    /// ⚠️ **Deliberately not [`PanelRow::selected`], and the two must not be
+    /// collapsed.** The selection is what `Enter` acts on; the hover is where
+    /// the mouse happens to be. Merging them would mean dragging the pointer
+    /// across a sidebar silently changed what the next keystroke opened —
+    /// which is the behaviour of a menu, where hover *is* the selection,
+    /// and wrong everywhere else.
+    ///
+    /// Set by the face after the panel composed itself, exactly as the
+    /// sidebar's anchor is: a builder has no idea where a pointer is, and
+    /// giving one an argument for it would put a mouse in every panel's
+    /// signature.
+    pub hovered: Option<usize>,
 }

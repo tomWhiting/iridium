@@ -13,7 +13,7 @@ use iridium_editor::render::FrameTarget;
 
 use super::startup::Shell;
 use super::state::DesktopApp;
-use crate::overlay::{PanelAnchor, PanelContent, StripContent};
+use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelKind, StripContent};
 use crate::units::u32_to_f32;
 
 impl DesktopApp {
@@ -75,7 +75,16 @@ impl DesktopApp {
         let fold_state = editor.fold_state();
         let theme = &editor.state().theme;
         let mut highlights = document.syntax.resolver(theme);
-        let panel_refs: Vec<&PanelContent> = panels.iter().collect();
+        let panel_refs: Vec<(PanelKind, &PanelContent)> = panels
+            .iter()
+            .map(|(kind, content)| (*kind, content))
+            .collect();
+        // Filled by the overlay pass and taken below only if the frame
+        // presented. ⚠️ A frame that failed leaves the *previous* one on
+        // screen, so its record is the one a press must still resolve
+        // against — adopting a half-built record here would hit-test against
+        // chrome nobody can see.
+        let mut painted = PaintedFrame::default();
 
         let outcome = surface.render_frame(|view, device, queue| {
             compositor.compose(
@@ -104,6 +113,7 @@ impl DesktopApp {
                     strip.as_ref(),
                     &panel_refs,
                     theme,
+                    &mut painted,
                 )?;
             }
             Ok(())
@@ -119,6 +129,12 @@ impl DesktopApp {
 
         match outcome {
             Ok(()) => {
+                // Adopted only here: this is the frame that reached the
+                // screen, and so the only one a pointer can have aimed at. A
+                // frame with no overlay pass leaves the default — nothing
+                // painted — which is the honest record of a screen showing
+                // only the document.
+                self.painted = painted;
                 // The frame is submitted and presented; the pending keydown,
                 // if any, is answered. A failed frame keeps it pending — the
                 // keystroke's effect is still unpresented, so the eventual
@@ -160,9 +176,14 @@ impl DesktopApp {
     /// Composes every open panel for this frame, bottom-most first so the
     /// palette — the most modal thing on screen — paints on top.
     ///
+    /// Each panel is paired with its [`PanelKind`], which travels with it into
+    /// the painter and comes back in the frame's record: what a press resolves
+    /// to and what was drawn are then the same list read twice, rather than
+    /// two lists that have to be kept in step.
+    ///
     /// A window too small for an honest panel composes none; the panels' keys
     /// keep working regardless, so `Escape` is never trapped behind a resize.
-    fn panel_contents(&mut self) -> Vec<PanelContent> {
+    fn panel_contents(&mut self) -> Vec<(PanelKind, PanelContent)> {
         // Taken before the shell is borrowed below, and `None` unless the
         // explorer is placed as a sidebar *and* this window can hold one —
         // the same one answer the left reserve is computed from, so the band
@@ -188,10 +209,10 @@ impl DesktopApp {
         let theme = &editor.state().theme;
         let mut panels = Vec::new();
         if self.search_open {
-            panels.push(self.search.content(editor, theme, fit));
+            panels.push((PanelKind::Search, self.search.content(editor, theme, fit)));
         }
         if self.history_open {
-            panels.push(self.history.content(editor, theme, fit));
+            panels.push((PanelKind::History, self.history.content(editor, theme, fit)));
         }
         if let Some(explorer) = self.explorer.as_mut() {
             let mut content = explorer.content(theme, sidebar.unwrap_or(fit));
@@ -205,16 +226,91 @@ impl DesktopApp {
                     interior_rows: sidebar.max_interior_rows,
                 };
             }
-            panels.push(content);
+            panels.push((PanelKind::Explorer, content));
         }
         if self.palette_open {
-            panels.push(self.palette.content(editor, &self.mru, theme, fit));
+            panels.push((
+                PanelKind::Palette,
+                self.palette.content(editor, &self.mru, theme, fit),
+            ));
         }
-        // Last, and so on top and last in the painter's placement record —
-        // which is how `painted_menu` finds it again for the pointer.
+        // Last, and so on top: the frame's record is read topmost-first, so a
+        // press inside a menu opened over another panel reaches the menu.
         if let Some(menu) = &self.menu {
-            panels.push(menu.content(theme, fit));
+            panels.push((PanelKind::Menu, menu.content(theme, fit)));
         }
+        apply_hover(&mut panels, self.hover);
         panels
+    }
+}
+
+/// Marks the hovered row on whichever composed panel the pointer is over.
+///
+/// Applied after composition for the same reason the sidebar's anchor is: a
+/// builder has no idea where a pointer is, and a panel that had to be told
+/// would carry a mouse in its signature into the terminal face, which has
+/// none.
+///
+/// A free function so it is checkable without a window — [`DesktopApp::redraw`]
+/// composes nothing at all before the event loop resumes, so this is the only
+/// part of the hover path a test can reach directly.
+fn apply_hover(panels: &mut [(PanelKind, PanelContent)], hover: Option<(PanelKind, usize)>) {
+    let Some((kind, row)) = hover else {
+        return;
+    };
+    for (panel_kind, content) in panels {
+        if *panel_kind == kind {
+            content.hovered = Some(row);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iridium_editor::theme::Color;
+
+    use super::{PanelAnchor, PanelContent, PanelKind, apply_hover};
+    use crate::overlay::{PanelRow, Span};
+
+    /// A one-row panel with nothing hovered.
+    fn panel() -> PanelContent {
+        PanelContent {
+            anchor: PanelAnchor::Top,
+            content_columns: 8,
+            rows: vec![PanelRow::new(vec![Span::new(
+                "row",
+                Color::new(1.0, 1.0, 1.0, 1.0),
+            )])],
+            caret: None,
+            hovered: None,
+        }
+    }
+
+    #[test]
+    fn the_hover_lands_on_the_panel_it_names_and_no_other() {
+        let mut panels = vec![
+            (PanelKind::Explorer, panel()),
+            (PanelKind::Palette, panel()),
+        ];
+        apply_hover(&mut panels, Some((PanelKind::Palette, 3)));
+        assert_eq!(panels[0].1.hovered, None, "the explorer is not hovered");
+        assert_eq!(panels[1].1.hovered, Some(3));
+    }
+
+    #[test]
+    fn no_hover_marks_nothing() {
+        let mut panels = vec![(PanelKind::Explorer, panel())];
+        apply_hover(&mut panels, None);
+        assert_eq!(panels[0].1.hovered, None);
+    }
+
+    #[test]
+    fn a_hover_on_a_panel_that_is_no_longer_composed_marks_nothing() {
+        // The pointer rested on the palette and the palette then closed; the
+        // frame between the two must not paint a band on the panel that took
+        // its place.
+        let mut panels = vec![(PanelKind::Explorer, panel())];
+        apply_hover(&mut panels, Some((PanelKind::Palette, 0)));
+        assert_eq!(panels[0].1.hovered, None);
     }
 }

@@ -2,9 +2,14 @@
 //!
 //! [`DesktopApp::pointer_pressed`] is the ladder, in the same order as the
 //! keyboard's: an open prompt swallows the click, an open context menu owns
-//! it, an open modal panel spends it being dismissed, the tab strip owns
-//! anything landing on chrome, and only then does the document see it. The
-//! wheel stays live throughout — reading the document can inform the answer.
+//! it, a click *on* a panel belongs to that panel, a click that missed one
+//! spends itself dismissing the modal panel, the tab strip owns anything
+//! landing on chrome, and only then does the document see it. The wheel walks
+//! the same order — the panel under the pointer scrolls, and the document only
+//! when there is none.
+//!
+//! What each panel then *does* with a press or a gesture lives in
+//! [`super::panel_mouse`]; this file is the order the questions are asked in.
 //!
 //! Every question about *where* the pointer is is answered against what the
 //! last frame actually painted, never against geometry recomputed from state
@@ -23,11 +28,14 @@ impl DesktopApp {
     pub(super) fn pointer_moved(&mut self, x: f32, y: f32) {
         self.pointer.set_position(x, y);
         if self.menu.is_some() {
-            // The one overlay this face steers with the pointer; the document
+            // The one overlay whose hover *is* its selection; the document
             // underneath is not being selected while a menu is up.
             self.hover_menu();
             return;
         }
+        // Every other panel highlights the row under the pointer without
+        // moving its selection — see [`PanelContent::hovered`].
+        self.panel_hover();
         if !self.pointer.is_dragging() || self.prompt.is_some() {
             return;
         }
@@ -55,18 +63,29 @@ impl DesktopApp {
     ///
     /// Modal like the keyboard, and in the same order: while a prompt is open
     /// a click answers nothing and edits nothing, so it is swallowed; an open
-    /// context menu owns the click ([`Self::menu_click`]); an open modal panel
-    /// spends it being dismissed ([`Self::dismiss_modal_panel`]); the tab
-    /// strip, which is chrome the document does not extend under, owns any
-    /// click that lands on it ([`Self::tab_strip_press`]); only then does the
-    /// document see it. The wheel stays live throughout — reading the document
-    /// can inform the answer.
+    /// context menu owns the click ([`Self::menu_click`]); a click *on* a
+    /// panel belongs to that panel ([`Self::panel_press`]); a click that
+    /// misses one while a modal panel is up is spent dismissing it
+    /// ([`Self::dismiss_modal_panel`]); the tab strip, which is chrome the
+    /// document does not extend under, owns any click that lands on it
+    /// ([`Self::tab_strip_press`]); only then does the document see it. The
+    /// wheel stays live throughout — reading the document can inform the
+    /// answer.
+    ///
+    /// ⚠️ **`panel_press` runs before `dismiss_modal_panel`, and the order is
+    /// the fix.** The dismissal step answers "is this press on a panel?" and
+    /// swallows it either way, which is right for a press that missed and was
+    /// the whole of what a press that *hit* used to get. Asking the panel
+    /// first is what turns the second half of that answer into something.
     pub(super) fn pointer_pressed(&mut self) -> Flow {
         if self.prompt.is_some() {
             return Flow::Running;
         }
         if self.menu.is_some() {
             return self.menu_click();
+        }
+        if let Some(flow) = self.panel_press() {
+            return flow;
         }
         if self.dismiss_modal_panel() {
             return Flow::Running;
@@ -96,17 +115,21 @@ impl DesktopApp {
         Flow::Running
     }
 
-    /// Spends a press on the modal panel that is open, reporting whether it
-    /// was spent.
+    /// Spends a press that **missed** every painted panel on dismissing the
+    /// modal one, reporting whether it was spent.
     ///
-    /// The click-through fix (D-4): before this, a click while the palette or
-    /// the undo tree was up fell straight through to the document and moved
-    /// the caret under a panel the user was still reading. A press outside the
-    /// panel now dismisses it, macOS-style, and a press *on* it is swallowed
-    /// and leaves it up — those panels are keyboard-driven, so there is
-    /// nothing inside one for a click to do, but dismissing on a click that
-    /// landed on the panel itself would be a trap. Either way the document
-    /// never sees the click.
+    /// ⚠️ **Only reached for a press that missed.** A press landing on a panel
+    /// is taken by [`panel_press`](Self::panel_press) one rung earlier, so
+    /// every path through here is answering "the user pointed somewhere else"
+    /// — which is what makes the dismissal unconditional now rather than
+    /// guarded. It used to hold both halves, and the half that meant *hit*
+    /// returned `true` and did nothing, which is the whole of the defect Tom
+    /// found: the press was correctly kept from the document and then handed
+    /// to nobody.
+    ///
+    /// The click-through fix (D-4) is the other half and still stands: before
+    /// it, a click while the palette or the undo tree was up fell straight
+    /// through and moved the caret under a panel the user was still reading.
     ///
     /// The search panel is deliberately not included: it is not modal — keys
     /// it does not bind stay the host's — so clicking into the document while
@@ -118,45 +141,33 @@ impl DesktopApp {
         // the text has to reach the text, place the caret, and take the keys
         // back — which is what every editor with a file tree does, and what
         // the routing in `keyboard` already spells for `Escape`.
-        //
-        // A click *on* the sidebar is still swallowed. There is nothing inside
-        // one for a click to do yet, but letting it reach the document
-        // underneath would move the caret somewhere the user cannot see.
         let modal_explorer =
             self.explorer.is_some() && self.explorer_placement == ExplorerPlacement::Popover;
-        if self.explorer.is_some() && !modal_explorer {
-            if self.pointer_is_on_a_panel() {
-                return true;
-            }
-            if self.explorer_focus == ExplorerFocus::Panel {
-                self.explorer_focus = ExplorerFocus::Document;
-                self.request_redraw();
-            }
+        if self.explorer.is_some() && !modal_explorer && self.explorer_focus == ExplorerFocus::Panel
+        {
+            self.explorer_focus = ExplorerFocus::Document;
+            self.request_redraw();
         }
         if !(self.palette_open || self.history_open || modal_explorer) {
             return false;
         }
-        if !self.pointer_is_on_a_panel() {
-            self.palette_open = false;
-            self.history_open = false;
-            // ⚠️ The explorer is the one of the three that can be holding work.
-            // Its rows are editable as text and applied to the filesystem, and
-            // a click on the document is not a decision to throw a buffer full
-            // of renames away — so a dirty panel stays up and keeps its
-            // dismissal for the keys that mean it.
-            if modal_explorer
-                && !self
-                    .explorer
-                    .as_ref()
-                    .is_some_and(crate::file_tree::FileExplorer::has_unapplied_edits)
-            {
-                self.explorer = None;
-                self.sync_left_inset();
-            }
-            // Only a dismissal changed the frame; a press on the panel itself
-            // leaves the screen exactly as it was.
-            self.request_redraw();
+        self.palette_open = false;
+        self.history_open = false;
+        // ⚠️ The explorer is the one of the three that can be holding work.
+        // Its rows are editable as text and applied to the filesystem, and a
+        // click on the document is not a decision to throw a buffer full of
+        // renames away — so a dirty panel stays up and keeps its dismissal for
+        // the keys that mean it.
+        if modal_explorer
+            && !self
+                .explorer
+                .as_ref()
+                .is_some_and(crate::file_tree::FileExplorer::has_unapplied_edits)
+        {
+            self.explorer = None;
+            self.sync_left_inset();
         }
+        self.request_redraw();
         true
     }
 
@@ -164,26 +175,7 @@ impl DesktopApp {
     /// painted.
     pub(super) fn pointer_is_on_the_tab_strip(&self) -> bool {
         let (x, y) = self.pointer.position();
-        self.shell.as_ref().is_some_and(|shell| {
-            shell
-                .overlay
-                .painted_tab_strip()
-                .is_some_and(|layout| layout.contains(x, y))
-        })
-    }
-
-    /// Whether the pointer is on any panel the last frame actually painted.
-    fn pointer_is_on_a_panel(&self) -> bool {
-        let Some(shell) = &self.shell else {
-            return false;
-        };
-        let (x, y) = self.pointer.position();
-        shell
-            .overlay
-            .painted_panels()
-            .iter()
-            .flatten()
-            .any(|geometry| geometry.contains(x, y))
+        self.painted.is_on_the_tab_strip(x, y)
     }
 
     /// Moves the caret to the cell the pointer is over, unless the pointer is
@@ -295,11 +287,27 @@ impl DesktopApp {
     }
 
     /// Handles a wheel or trackpad scroll, in the kernel's sign convention.
+    ///
+    /// ⚠️ **The panel under the pointer is asked first, and takes the gesture
+    /// whether or not it had anywhere to go.** This used to scroll the
+    /// document unconditionally, so spinning the wheel over a full-height
+    /// sidebar scrolled the text *behind* it — the one thing on screen the
+    /// user was demonstrably not pointing at.
+    ///
+    /// The document's own conversion needs the compositor's line height, and a
+    /// session with no window has none. A pixel delta — what a trackpad
+    /// reports — is already physical and is honoured regardless; a line delta
+    /// resolves to nothing, which is the honest answer for "how many rows is
+    /// that" asked before a font has measured.
     pub(super) fn wheel(&mut self, delta: &MouseScrollDelta) {
-        let Some(shell) = &self.shell else {
+        if self.panel_wheel(delta) {
             return;
-        };
-        let (_, delta_y) = mouse::wheel_delta(delta, shell.compositor.line_height());
+        }
+        let line_height = self
+            .shell
+            .as_ref()
+            .map_or(0.0, |shell| shell.compositor.line_height());
+        let (_, delta_y) = mouse::wheel_delta(delta, line_height);
         self.scroll_by(delta_y);
     }
 }

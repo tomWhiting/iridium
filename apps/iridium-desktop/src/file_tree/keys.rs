@@ -41,7 +41,7 @@ use iridium_editor::pattern::Pattern;
 use iridium_editor::{KeyCode, KeyEvent};
 use iridium_explorer::NodeId;
 
-use super::filter::FilterView;
+use super::filter::{FilterRow, FilterView};
 use super::panel::{Chord, ExplorerOutcome, FileExplorer, chord};
 use crate::prompt::Entry;
 
@@ -141,6 +141,96 @@ impl FileExplorer {
             // document.
             _ => ExplorerOutcome::Handled,
         }
+    }
+
+    /// What a press on composed row `row` does.
+    ///
+    /// ⭐ **Through [`activate`](Self::activate) — the `Enter` path — not
+    /// beside it.** A file opens, a folder toggles, a filtered folder is
+    /// revealed: those are decisions about what a row *means*, and a click
+    /// that answered them itself would be a second set of them to keep in step
+    /// with the first. What the click adds is only *which* row, which is the
+    /// one thing a key press never has to say.
+    ///
+    /// # The offsets, and why they are the panel's to know
+    ///
+    /// `row` is an index into the rows [`content`](Self::content) composed,
+    /// which is the only thing the pointer can resolve against. Row zero is
+    /// the query field while browsing and the label while editing, and neither
+    /// is a list row; the rest are offset by the scroll window. The face knows
+    /// none of that and must not have to.
+    ///
+    /// A confirmation or a refusal is showing neither list, and a press on one
+    /// changes nothing: both are answered with the keys that mean it, and a
+    /// stray click applying a plan would be the worst possible reading of a
+    /// mouse.
+    pub fn click_row(&mut self, row: usize) -> ExplorerOutcome {
+        if self.mode.plan().is_some() || !self.mode.refusals().is_empty() {
+            return ExplorerOutcome::Handled;
+        }
+        let Some(offset) = row.checked_sub(1) else {
+            return ExplorerOutcome::Handled;
+        };
+        let index = self.scroll.saturating_add(offset);
+        if index >= self.row_count() {
+            return ExplorerOutcome::Handled;
+        }
+        if self.mode.is_editing() {
+            // The row being pointed at is the row being typed into. Nothing is
+            // activated: these rows are text, and a click in a text field puts
+            // the cursor there rather than running something.
+            self.mode.seat(index);
+            return ExplorerOutcome::Handled;
+        }
+        if !self.select_row(index) {
+            return ExplorerOutcome::Handled;
+        }
+        self.activate()
+    }
+
+    /// Puts the selection on list row `index`, reporting whether it went.
+    ///
+    /// A filtered view's folders-above-a-match rows are not selectable, and a
+    /// press on one leaves the selection alone: those rows are context, and
+    /// moving the selection onto one would leave `Enter` pointing at a row the
+    /// panel refuses to act on.
+    fn select_row(&mut self, index: usize) -> bool {
+        if self.is_filtering() {
+            if !self
+                .view
+                .rows
+                .get(index)
+                .is_some_and(FilterRow::is_selectable)
+            {
+                return false;
+            }
+            self.filtered = index;
+            return true;
+        }
+        if self.tree.row(index).is_none() {
+            return false;
+        }
+        self.tree.select(index);
+        true
+    }
+
+    /// Moves the window `delta` rows without touching the selection.
+    ///
+    /// ⭐ **Without touching the selection** is the whole of it: this is a
+    /// browsed panel, and looking further down a directory is not a decision
+    /// about which file `Enter` opens. The keyboard moves the selection and
+    /// the window follows; the wheel moves the window and the selection stays.
+    ///
+    /// Clamped at the top only. The bottom is clamped by `follow_selection` on
+    /// the next composition, which is the one place that knows both how many
+    /// rows there are and how many the window is showing — asking here would
+    /// mean the panel carried a second, staler copy of both.
+    pub const fn scroll_rows(&mut self, delta: isize) {
+        self.scroll = if delta < 0 {
+            self.scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.scroll.saturating_add(delta.unsigned_abs())
+        };
     }
 
     /// Makes the selected folder the root — "go in here".
@@ -248,6 +338,9 @@ impl FileExplorer {
         self.view = FilterView::default();
         self.filtered = 0;
         self.scroll = 0;
+        // The list the window was placed against is gone, so "already
+        // following the selection" would mean following an index into it.
+        self.followed = None;
     }
 
     /// Moves the selection one row towards the top of whichever list shows.

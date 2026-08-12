@@ -106,6 +106,14 @@ pub struct FileExplorer {
     /// The first row the window shows, counted in list rows — the query row
     /// is not part of it and never scrolls away.
     pub(super) scroll: usize,
+    /// The selected row the window last followed.
+    ///
+    /// ⭐ **What separates "the selection moved" from "a frame happened".**
+    /// The window must chase the selection when a key moves it and stay where
+    /// the wheel put it otherwise, and from inside a composition those two are
+    /// the same call — the only thing that tells them apart is whether the
+    /// selection is still where it was last time.
+    pub(super) followed: Option<usize>,
     /// A node that was asked to open before its listing had landed, and
     /// opens as soon as it does.
     ///
@@ -191,6 +199,7 @@ impl FileExplorer {
             files,
             tree,
             scroll: 0,
+            followed: None,
             wanted: Some(root_id),
             query: Entry::new(),
             pattern: Pattern::Unfiltered,
@@ -414,6 +423,13 @@ impl FileExplorer {
     pub fn selected_path(&self) -> Option<&Path> {
         let id = self.selected_node()?;
         self.files.info(id).map(|info| info.path)
+    }
+
+    /// The first list row the window is showing — the panel's scroll position,
+    /// counted in list rows with the query row excluded.
+    #[must_use]
+    pub const fn scroll_position(&self) -> usize {
+        self.scroll
     }
 
     /// Shows dot-prefixed entries, or stops showing them.

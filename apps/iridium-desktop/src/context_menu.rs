@@ -262,6 +262,7 @@ impl ContextMenu {
             content_columns: columns,
             rows,
             caret: None,
+            hovered: None,
         }
     }
 

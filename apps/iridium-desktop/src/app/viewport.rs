@@ -10,7 +10,8 @@
 use iridium_editor::render::FrameCompositor;
 
 use super::startup::{BASE_FONT_SIZE, FONT};
-use super::state::DesktopApp;
+use super::state::{DesktopApp, ExplorerPlacement};
+use crate::overlay::PanelFit;
 use crate::units::{pixel_to_index, scale_to_f32, u32_to_f32};
 
 /// The vertical padding scroll-to-caret keeps between the caret and the
@@ -170,6 +171,52 @@ impl DesktopApp {
             .set_top_inset(FrameCompositor::DOCUMENT_TOP_PADDING + strip);
     }
 
+    /// The fit the explorer is composed against this frame, and `None` when
+    /// it is a popover — which is every frame until the placement is switched.
+    ///
+    /// ⭐ **The single source for "is there a sidebar on screen".** Both the
+    /// reserve below and the composition in [`super::paint`] read this one
+    /// answer, so a window too narrow for a column cannot end up reserving a
+    /// band for a panel that was drawn as a popover instead. `None` on a
+    /// window that cannot hold one is a *fallback*, not a failure: the panel
+    /// still appears, floating, which is the same thing the placement means
+    /// on a window too small to have two of anything side by side.
+    pub(super) fn explorer_sidebar_fit(&mut self) -> Option<PanelFit> {
+        if self.explorer.is_none() || self.explorer_placement != ExplorerPlacement::Sidebar {
+            return None;
+        }
+        let shell = self.shell.as_mut()?;
+        shell
+            .overlay
+            .sidebar_fit(shell.surface.width(), shell.surface.height())
+    }
+
+    /// Reserves the sidebar's width to the left of the gutter, or gives the
+    /// width back when there is no sidebar.
+    ///
+    /// The horizontal twin of [`Self::sync_top_inset`] and called on the same
+    /// occasions, plus the two that are this axis's alone: the explorer
+    /// opening or closing, and the placement being switched. Unlike the
+    /// vertical reserve this one adds nothing of its own — the document's
+    /// horizontal breathing room lives on the far side of the gutter. See
+    /// [`FrameCompositor::set_left_inset`].
+    ///
+    /// ⚠️ **Zero is a value this must write, not a case it may skip.** A
+    /// sidebar that closed while the inset stayed set would leave the document
+    /// indented past a band with nothing in it, and every horizontal measure —
+    /// the gutter, the change bars, both directions of hit-testing — would
+    /// agree with it.
+    pub(super) fn sync_left_inset(&mut self) {
+        let width = self.explorer_sidebar_fit().map_or(0.0, |fit| {
+            self.shell
+                .as_mut()
+                .map_or(0.0, |shell| shell.overlay.panel_width(fit.content_columns))
+        });
+        if let Some(shell) = &mut self.shell {
+            shell.compositor.set_left_inset(width);
+        }
+    }
+
     /// Handles a new surface size, in physical pixels.
     pub(super) fn resized(&mut self, width: u32, height: u32) {
         // Zero means minimized, not small; keep the last honest size.
@@ -184,6 +231,7 @@ impl DesktopApp {
             shell.overlay.resize(shell.surface.queue(), width, height);
         }
         self.sync_top_inset();
+        self.sync_left_inset();
         self.sync_kernel_viewport();
         self.clamp_scroll();
         if let Some(shell) = &self.shell {
@@ -215,10 +263,12 @@ impl DesktopApp {
             let _ = shell.overlay.set_font(font_size, FONT.to_vec());
             shell.overlay.set_scale(scale_to_f32(scale_factor));
         }
-        // After the reload, not before: the strip's height is the overlay's
-        // *measured* line height, and `load_font` is the only path that
-        // remeasures it.
+        // After the reload, not before: both reserves are derived from the
+        // overlay's *measured* cell — the strip's height from its line height,
+        // the sidebar's width from its character width — and `load_font` is
+        // the only path that remeasures either.
         self.sync_top_inset();
+        self.sync_left_inset();
         self.sync_kernel_viewport();
         if let Some(shell) = &self.shell {
             shell.window.request_redraw();

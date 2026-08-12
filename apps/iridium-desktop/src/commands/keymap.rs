@@ -11,12 +11,12 @@ use iridium_editor::commands::builtin::{
     CURSOR_LINE_START, CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT, CURSOR_WORD_LEFT_SELECT,
     CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT, EDIT_DELETE_TO_LINE_END,
     EDIT_DELETE_TO_LINE_START, EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD,
-    EXPLORER_TOGGLE_PANEL, HISTORY_NEXT_BRANCH, HISTORY_PREVIOUS_BRANCH, HISTORY_REDO,
-    HISTORY_TOGGLE_PANEL, HISTORY_UNDO, LINES_DELETE, LINES_JOIN, MULTI_CURSOR_ADD_CURSOR_ABOVE,
-    MULTI_CURSOR_ADD_CURSOR_BELOW, MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH,
-    MULTI_CURSOR_REMOVE_LAST_CURSOR, MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN,
-    SEARCH_OPEN, SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB,
-    WORKSPACE_PREVIOUS_TAB,
+    EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_PLACEMENT, HISTORY_NEXT_BRANCH, HISTORY_PREVIOUS_BRANCH,
+    HISTORY_REDO, HISTORY_TOGGLE_PANEL, HISTORY_UNDO, LINES_DELETE, LINES_JOIN,
+    MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
+    MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
+    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL,
+    VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
 };
 use iridium_editor::{
     CommandId, KeyBinding, KeyCode, Keymap, ModifierPattern, ModifierState, StrokePattern,
@@ -229,6 +229,14 @@ pub(super) const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Char('e'), META_ALT),
         EXPLORER_TOGGLE_PANEL,
+    ),
+    // `⌘B` for the sidebar, **without `⌥`** — the one chord here that is not
+    // the ⌘ spelling of a `Ctrl+Alt` kernel binding, because it is a chord a
+    // mac hand already has: VS Code and Zed both bind the sidebar to plain
+    // `⌘B`. The kernel keeps `Ctrl+Alt+B` for the faces that have no ⌘.
+    (
+        StrokePattern::new(KeyCode::Char('b'), META),
+        EXPLORER_TOGGLE_PLACEMENT,
     ),
     // `⌘/`, the mac spelling of `Ctrl+/`. `Shift` ignored, matching the
     // kernel's `CTRL_ANY_SHIFT`: on several layouts `/` is a shifted key.

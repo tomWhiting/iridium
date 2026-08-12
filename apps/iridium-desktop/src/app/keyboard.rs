@@ -33,7 +33,7 @@ impl DesktopApp {
             self.drive_palette(event)
         } else if self.history_open {
             self.drive_history(event)
-        } else if self.explorer.is_some() {
+        } else if self.explorer_has_focus() {
             self.drive_explorer(event)
         } else {
             self.search_or_document_key(event)
@@ -147,15 +147,32 @@ impl DesktopApp {
         };
         match explorer.handle_key(event) {
             ExplorerOutcome::Handled => Flow::Running,
+            // ⭐ **What `Escape` means depends on the placement, and this is
+            // the only place that difference is spelled.** A popover is a
+            // thing you open, use and dismiss, so it goes. A sidebar is a
+            // thing you keep open beside the code — dismissing it on the key
+            // that means "give me the document back" would make it a panel you
+            // had to reopen after every glance, which is not a sidebar.
+            ExplorerOutcome::Dismissed => {
+                self.leave_explorer();
+                Flow::Running
+            },
+            // ⚠️ The *toggle chord*, which is a different sentence: the panel
+            // goes away in either placement. These two arms were one until a
+            // test found `⌘⌥E` doing nothing to a sidebar.
             ExplorerOutcome::Closed => {
                 self.explorer = None;
+                self.sync_left_inset();
                 Flow::Running
             },
             ExplorerOutcome::Open(path) => {
-                self.explorer = None;
+                self.leave_explorer();
                 self.open_file(&path);
                 Flow::Running
             },
+            // The panel asks; the host owns the placement — see
+            // [`DesktopApp::toggle_explorer_placement`].
+            ExplorerOutcome::TogglePlacement => self.toggle_explorer_placement(),
             // The panel stays open. What failed is one operation inside it,
             // not the panel, and closing over an error would take away the
             // thing the user was in the middle of.

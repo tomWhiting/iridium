@@ -228,8 +228,8 @@ fn escape_takes_back_the_query_before_it_takes_back_the_panel() {
     assert_eq!(query_field(&mut explorer), "");
     assert_eq!(
         explorer.handle_key(&press(KeyCode::Escape)),
-        ExplorerOutcome::Closed,
-        "the second closes the panel"
+        ExplorerOutcome::Dismissed,
+        "the second gives the document back"
     );
 }
 

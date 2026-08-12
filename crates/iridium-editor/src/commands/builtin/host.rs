@@ -67,6 +67,24 @@ pub const HISTORY_TOGGLE_PANEL: CommandId = CommandId::from_static("history.togg
 /// business knowing whether the host has one.
 pub const EXPLORER_TOGGLE_PANEL: CommandId = CommandId::from_static("explorer.togglePanel");
 
+/// Move the file explorer between a floating panel and a sidebar.
+///
+/// Bound to `Ctrl+Alt+B` by the default keymap and to `⌘B` by the desktop
+/// face's ⌘ layer — the spelling VS Code and Zed both use for the sidebar, so a
+/// hand that has used either arrives knowing it.
+///
+/// ⭐ **A placement, not a second panel.** The same explorer is drawn either
+/// way, with the same rows, keys, filter and edit mode; what changes is where
+/// it sits, how much of the window it may fill, and whether it holds key focus.
+/// Two ids — "open the sidebar", "open the panel" — would be two things to bind
+/// and two states to reconcile when both were somehow on.
+///
+/// ⚠️ **The kernel names it and knows nothing else about it.** Whether a face
+/// *has* two placements is the face's business: the browser face has one
+/// document and no window furniture to speak of, and a face with nowhere to put
+/// a column is free to report this unimplemented rather than pretending.
+pub const EXPLORER_TOGGLE_PLACEMENT: CommandId = CommandId::from_static("explorer.togglePlacement");
+
 /// Swap the editor between its light and dark themes.
 ///
 /// Bound to `Ctrl+Alt+T` by the default keymap, and to `⌘⌥T` by the desktop
@@ -133,6 +151,13 @@ pub static HOST: &[CommandMeta] = &[
         CommandCategory::GENERAL,
     )
     .with_aliases(&["files", "file tree", "explorer", "open file"]),
+    CommandMeta::described(
+        EXPLORER_TOGGLE_PLACEMENT,
+        "Toggle Explorer Sidebar",
+        "Moves the file explorer between a floating panel and a column beside the document.",
+        CommandCategory::GENERAL,
+    )
+    .with_aliases(&["sidebar", "side bar", "dock explorer", "file tree sidebar"]),
     CommandMeta::described(
         VIEW_TOGGLE_THEME,
         "Toggle Light/Dark Theme",

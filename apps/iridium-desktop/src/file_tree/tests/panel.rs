@@ -90,13 +90,18 @@ fn a_short_window_still_bounds_the_panel_below_its_own_ceiling() {
     assert_eq!(explorer.content(&Theme::dark(), short).rows.len(), 6);
 }
 
+/// ⚠️ **They report *different* outcomes, and that is the point of there
+/// being two.** `Escape` asks for the document back, which on a popover means
+/// closing and on a sidebar means only giving up the keys; the toggle chord
+/// asks for the panel to be gone either way. The host is the only one that
+/// knows which placement it is in, so the panel names the key and stops there.
 #[test]
-fn escape_and_the_toggle_chord_both_close_the_panel() {
+fn escape_and_the_toggle_chord_both_leave_the_panel() {
     let directory = TempDir::new("panel-close");
     let mut explorer = opened(&directory);
     assert_eq!(
         explorer.handle_key(&press(KeyCode::Escape)),
-        ExplorerOutcome::Closed
+        ExplorerOutcome::Dismissed
     );
 
     let ctrl_alt = Modifiers {

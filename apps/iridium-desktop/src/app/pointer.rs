@@ -13,7 +13,7 @@
 use iridium_editor::{Editor, MouseResult, Position};
 use winit::event::MouseScrollDelta;
 
-use super::state::{DesktopApp, Flow};
+use super::state::{DesktopApp, ExplorerFocus, ExplorerPlacement, Flow};
 use crate::keys;
 use crate::mouse::{self, Grid};
 use crate::units::{index_to_f32, u32_to_f32};
@@ -112,7 +112,28 @@ impl DesktopApp {
     /// it does not bind stay the host's — so clicking into the document while
     /// it is up is the shipped, wanted behaviour.
     fn dismiss_modal_panel(&mut self) -> bool {
-        if !(self.palette_open || self.history_open || self.explorer.is_some()) {
+        // ⚠️ **A sidebar is not one of the modal three, and treating it as one
+        // would make the document unclickable while it is on screen.** The
+        // whole placement exists to be kept open beside the code: a click in
+        // the text has to reach the text, place the caret, and take the keys
+        // back — which is what every editor with a file tree does, and what
+        // the routing in `keyboard` already spells for `Escape`.
+        //
+        // A click *on* the sidebar is still swallowed. There is nothing inside
+        // one for a click to do yet, but letting it reach the document
+        // underneath would move the caret somewhere the user cannot see.
+        let modal_explorer =
+            self.explorer.is_some() && self.explorer_placement == ExplorerPlacement::Popover;
+        if self.explorer.is_some() && !modal_explorer {
+            if self.pointer_is_on_a_panel() {
+                return true;
+            }
+            if self.explorer_focus == ExplorerFocus::Panel {
+                self.explorer_focus = ExplorerFocus::Document;
+                self.request_redraw();
+            }
+        }
+        if !(self.palette_open || self.history_open || modal_explorer) {
             return false;
         }
         if !self.pointer_is_on_a_panel() {
@@ -123,12 +144,14 @@ impl DesktopApp {
             // a click on the document is not a decision to throw a buffer full
             // of renames away — so a dirty panel stays up and keeps its
             // dismissal for the keys that mean it.
-            if !self
-                .explorer
-                .as_ref()
-                .is_some_and(crate::file_tree::FileExplorer::has_unapplied_edits)
+            if modal_explorer
+                && !self
+                    .explorer
+                    .as_ref()
+                    .is_some_and(crate::file_tree::FileExplorer::has_unapplied_edits)
             {
                 self.explorer = None;
+                self.sync_left_inset();
             }
             // Only a dismissal changed the frame; a press on the panel itself
             // leaves the screen exactly as it was.

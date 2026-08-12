@@ -48,6 +48,34 @@ hit-test band of its own — every one of which is additive on top of a working
 fixed-width sidebar, and none of which is needed to answer "is this the right
 shape". *Revert cost: none; it is a later addition, not a reversal.*
 
+**R5 — a sidebar is not modal, and this was missing from the map.**
+Found on contact with `app/keyboard.rs:36`, not by reading: `press` routes
+every key to the explorer whenever `self.explorer.is_some()`. A *popover* that
+holds key focus until `Escape` is right — it is a thing you open, use and
+dismiss. A **sidebar that did the same would make the document unreachable
+while it is on screen**, which is the opposite of what a sidebar is for: Tom's
+whole ask is a tree that stays open *beside* the code.
+
+So the placement changes the routing as well as the geometry:
+
+| placement | keys | `Escape` |
+| --- | --- | --- |
+| popover | always the panel's | closes it |
+| sidebar, focused | the panel's | **unfocuses, leaves it drawn** |
+| sidebar, unfocused | the document's | the document's |
+
+⭐ **Focus is derived, not stored twice.** A popover is focused by definition,
+so the routing reads `popover || sidebar_focused` and never consults the flag
+for a popover — which is what makes "an unfocused popover", the one state that
+would black-hole every key, unrepresentable in effect rather than merely
+unlikely.
+
+⚠️ The placement itself lives on `DesktopApp`, **not** on `FileExplorer`, for
+the reason already written beside `DesktopApp::project`: closing the explorer
+*drops* it, so anything stored on the panel is forgotten on every close. A
+sidebar that reverted to a popover each time it was reopened is a sidebar
+nobody would use twice. *Revert cost: the field and one branch.*
+
 **R4 — persistence is deliberately out of part C.**
 A sidebar that forgets it was open is one nobody keeps open, so this is owed —
 but it belongs with the config work (#59/#102/#105), not with the geometry.
@@ -83,10 +111,21 @@ panel keeps the popover one. `content()` already takes the fit, so nothing in
 
 ## Build order
 
-1. `PanelFit` gains a sidebar constructor beside `fit_for`; the row ceiling
-   becomes a field of the fit rather than a module constant read directly by
-   `compose.rs`. *(This is the step the trap above is about — do it first, and
+1. ✅ **LANDED `5ae51ba4`.** `PanelFit` gains `max_browse_rows` and two named
+   constructors, `popover` and `sidebar`; `sidebar_fit_for` is the counterpart
+   of `fit_for`. *(This is the step the trap above is about — do it first, and
    the rest is wiring.)*
+
+   The ceiling is carried on the **fit** rather than on a placement enum the
+   explorer reads, and the reason is not tidiness: a panel that took its width
+   from one placement and its ceiling from another would be too tall for the
+   box it is drawn in and nothing downstream could tell. On the fit the two
+   cannot be paired wrongly — including on the narrow-window fallback, where
+   the popover fit and the popover ceiling arrive together or not at all.
+
+   Measured on 3024×1964 at 2×: **47** interior rows / **46** browsed, against
+   the popover's 30. The mutation that inherits the popover rule fails the
+   discriminating test with `left: 30, right: 46`.
 2. `paint.rs` passes the sidebar fit to the explorer when the placement is
    sidebar, the popover fit otherwise.
 3. `sync_left_inset` in `app/viewport.rs`, mirroring `sync_top_inset`: called
@@ -97,7 +136,10 @@ panel keeps the popover one. `content()` already takes the fit, so nothing in
    the document. `set_left_inset`'s doc says both directions of hit-testing
    already follow the inset — **verify that by test rather than by reading it**,
    because it has never had a caller.
-6. A command and a chord to switch placement.
+6. A command and a chord to switch placement, **and the focus routing of R5**.
+   Deliberately last: until it lands the placement never leaves `Popover`, so
+   every step above is inert rather than half-wired — a user cannot reach a
+   sidebar that is not finished.
 
 Steps 1–2 are pure composition and testable without a window, which is where
 the discrimination lives: a test that the sidebar fit fills a tall window and

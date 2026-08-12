@@ -9,8 +9,8 @@
 use iridium_config::UserConfig;
 use iridium_editor::CommandId;
 use iridium_editor::commands::builtin::{
-    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN, VIEW_TOGGLE_THEME,
-    WORKSPACE_CLOSE_TAB,
+    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_PLACEMENT, HISTORY_TOGGLE_PANEL,
+    PALETTE_OPEN, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB,
 };
 use iridium_editor::workspace::Node;
 use iridium_file::TextFile;
@@ -18,7 +18,7 @@ use iridium_file::TextFile;
 use std::path::{Path, PathBuf};
 
 use super::config;
-use super::state::{DesktopApp, Flow};
+use super::state::{DesktopApp, ExplorerFocus, ExplorerPlacement, Flow};
 use crate::commands;
 use crate::dialog::{self, Chosen, Want};
 use crate::file_tree::FileExplorer;
@@ -68,6 +68,8 @@ impl DesktopApp {
             Flow::Running
         } else if command == &EXPLORER_TOGGLE_PANEL {
             self.toggle_explorer()
+        } else if command == &EXPLORER_TOGGLE_PLACEMENT {
+            self.toggle_explorer_placement()
         } else if command == &VIEW_TOGGLE_THEME {
             self.toggle_theme()
         } else if command == &commands::FILE_OPEN {
@@ -409,16 +411,66 @@ impl DesktopApp {
                 return Flow::Running;
             }
             self.explorer = None;
+            // The band goes back to the document the moment the panel that
+            // reserved it does.
+            self.sync_left_inset();
             return Flow::Running;
         }
         let root = self.explorer_root();
         match FileExplorer::open(root.path, root.crawl) {
-            Ok(explorer) => self.explorer = Some(explorer),
+            Ok(explorer) => {
+                self.explorer = Some(explorer);
+                // A panel the user just asked for takes the keys, whichever
+                // placement it lands in.
+                self.explorer_focus = ExplorerFocus::Panel;
+                self.sync_left_inset();
+            },
             Err(error) => {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));
             },
         }
         Flow::Running
+    }
+
+    /// Moves the explorer between a floating panel and a sidebar.
+    ///
+    /// ⭐ **It opens one if none is open**, rather than reporting that there is
+    /// nothing to move. Someone pressing the sidebar chord wants a sidebar, and
+    /// answering "no file explorer is open" to that is a refusal on a
+    /// technicality — the placement is remembered whether or not a panel is up,
+    /// so the two verbs compose.
+    pub(super) fn toggle_explorer_placement(&mut self) -> Flow {
+        self.explorer_placement = match self.explorer_placement {
+            ExplorerPlacement::Popover => ExplorerPlacement::Sidebar,
+            ExplorerPlacement::Sidebar => ExplorerPlacement::Popover,
+        };
+        // A panel that has just become a sidebar keeps the keys until `Escape`
+        // hands them back; one that has just become a popover *is* focused by
+        // definition, and setting the flag anyway keeps the two in step for
+        // whenever it becomes a sidebar again.
+        self.explorer_focus = ExplorerFocus::Panel;
+        if self.explorer.is_none() {
+            return self.toggle_explorer();
+        }
+        self.sync_left_inset();
+        Flow::Running
+    }
+
+    /// Gives the document back the keys, and takes the panel away when the
+    /// panel was a popover.
+    ///
+    /// ⚠️ **The one place the two placements behave differently on `Escape`.**
+    /// A popover is opened, used and dismissed; a sidebar is kept open beside
+    /// the code, and dismissing it on the key that means "give me the document
+    /// back" would make it a panel to reopen after every glance.
+    pub(super) fn leave_explorer(&mut self) {
+        match self.explorer_placement {
+            ExplorerPlacement::Popover => {
+                self.explorer = None;
+                self.sync_left_inset();
+            },
+            ExplorerPlacement::Sidebar => self.explorer_focus = ExplorerFocus::Document,
+        }
     }
 
     /// Where the explorer starts, with the environment read here and the

@@ -41,8 +41,35 @@ const CRAWL_PER_FRAME: usize = 64;
 pub enum ExplorerOutcome {
     /// The panel consumed the key and stays open.
     Handled,
-    /// The panel was closed.
+    /// The panel should go away.
+    ///
+    /// ⚠️ **Distinct from [`Self::Dismissed`], and the two used to be one
+    /// value.** This is the *toggle chord*: the user asked for the explorer to
+    /// be gone, and it goes whichever placement it was in. `Escape` is a
+    /// different sentence — see below — and collapsing them made `⌘⌥E` a no-op
+    /// on a sidebar, because "give the keys back" is all a sidebar does with a
+    /// dismissal.
     Closed,
+    /// The user pressed `Escape`: the document should have the keys back.
+    ///
+    /// What that costs depends on the placement, and the host is the only one
+    /// that knows which it is. A popover is drawn *over* the document, so the
+    /// only way to hand it back is to close; a sidebar sits beside it and
+    /// merely stops taking keystrokes.
+    Dismissed,
+    /// The panel should move to the other placement — a floating panel becomes
+    /// a sidebar and back.
+    ///
+    /// ⚠️ **A request, not a decision, and it has to be one.** The placement
+    /// lives on the host, because closing the panel *drops* it and a placement
+    /// stored here would be forgotten every time. So this is the panel saying
+    /// which key was pressed and nothing more — exactly as [`Self::Closed`]
+    /// does, and for the same reason.
+    ///
+    /// The panel has to bind the chord at all because it consumes every key it
+    /// is handed: a chord it did not name would be swallowed by the catch-all
+    /// and never reach the host command it belongs to.
+    TogglePlacement,
     /// This file should be opened in a tab. The host decides what that
     /// means; the panel does not touch the workspace.
     Open(PathBuf),

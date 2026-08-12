@@ -45,6 +45,39 @@ pub enum Flow {
     Exit,
 }
 
+/// Where the file explorer is drawn, and so how it behaves.
+///
+/// ⭐ **One panel, two placements — not two panels.** The rows, the keys, the
+/// filter and the oil-buffer edit mode are the same code either way; what
+/// differs is the fit it is composed against, where the painter puts it, and
+/// whether it holds key focus. Two panels would be two implementations of all
+/// of that, and the divergence would surface as "renaming works in the popover
+/// and not in the sidebar".
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum ExplorerPlacement {
+    /// A floating panel over the document, modal while it is up: every key is
+    /// the panel's and `Escape` closes it. What the explorer has always been.
+    #[default]
+    Popover,
+    /// A column down the left edge that the document is pushed clear of, and
+    /// **not** modal — see [`DesktopApp::explorer_focus`].
+    Sidebar,
+}
+
+/// Which of the two surfaces a **sidebar** explorer leaves the keys with.
+///
+/// Meaningless for a popover, which is focused by definition; see
+/// [`DesktopApp::explorer_has_focus`], the one reader.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum ExplorerFocus {
+    /// The panel is taking keystrokes. Where a panel starts, in either
+    /// placement: it was just asked for.
+    #[default]
+    Panel,
+    /// The document is taking them, with the sidebar still drawn beside it.
+    Document,
+}
+
 /// What this face keeps per open document.
 ///
 /// Three fields, none of which duplicate anything the kernel holds: the
@@ -133,6 +166,26 @@ pub struct DesktopApp {
     /// and an arena of every directory ever expanded for the rest of the
     /// session.
     pub(super) explorer: Option<FileExplorer>,
+    /// Where the explorer is drawn when one is open.
+    ///
+    /// ⚠️ **Here rather than on the panel, for the same reason
+    /// [`Self::project`] is.** Closing the explorer *drops* it, so a placement
+    /// stored on the panel is forgotten on every close — and a sidebar that
+    /// reverted to a popover each time it was reopened is a sidebar nobody
+    /// would use twice.
+    pub(super) explorer_placement: ExplorerPlacement,
+    /// Where keystrokes go while a **sidebar** explorer is up.
+    ///
+    /// Read only through [`Self::explorer_has_focus`], which treats a popover
+    /// as focused whatever this says. That is what makes the one state that
+    /// would swallow every key — an unfocused popover, drawn over the document
+    /// with nothing able to reach either — unreachable in effect rather than
+    /// merely unlikely.
+    ///
+    /// An enum rather than a `bool` on clippy's advice: `struct_excessive_bools`
+    /// fired the moment this was added, and its remedy is the right one here —
+    /// `ExplorerFocus::Document` says at the call site what `false` did not.
+    pub(super) explorer_focus: ExplorerFocus,
     /// The undo-tree panel.
     pub(super) history: HistoryPanel,
     /// Whether the undo-tree panel is on screen. Modal while it is.
@@ -182,6 +235,19 @@ impl std::fmt::Debug for DesktopApp {
 }
 
 impl DesktopApp {
+    /// Whether an open explorer is taking keys.
+    ///
+    /// ⭐ **A popover is focused by definition and this never asks the flag
+    /// about one.** The flag answers for a sidebar only, which is what makes
+    /// an "unfocused popover" — a panel drawn over the document with neither
+    /// able to receive a keystroke — a state the routing cannot enter, rather
+    /// than one it merely never sets.
+    pub(super) fn explorer_has_focus(&self) -> bool {
+        self.explorer.is_some()
+            && (self.explorer_placement == ExplorerPlacement::Popover
+                || self.explorer_focus == ExplorerFocus::Panel)
+    }
+
     /// What killed the session from inside the event loop, if anything.
     #[must_use]
     pub fn failure(&self) -> Option<&str> {

@@ -15,6 +15,7 @@
 //! | Key | Action |
 //! |---|---|
 //! | `Ctrl+Alt+E`, `⌘⌥E` | Close |
+//! | `Ctrl+Alt+B`, `⌘B` | Move between a floating panel and a sidebar |
 //! | `Escape` | Clear the query, or close when there is none |
 //! | `Enter` | Open a file; toggle or reveal a folder |
 //! | `↑` `↓`, `Ctrl+P` `Ctrl+N` | Move the selection |
@@ -56,6 +57,13 @@ impl FileExplorer {
         }
         match (chord(event.modifiers), event.key) {
             (Chord::CtrlAlt | Chord::MetaAlt, KeyCode::Char('e' | 'E')) => ExplorerOutcome::Closed,
+            // The sidebar chord, named here for the reason the close chord is:
+            // the catch-all below consumes every key, so a chord this panel
+            // does not name never reaches the host command it belongs to. `⌘B`
+            // without `⌥` because that is what VS Code and Zed both bind.
+            (Chord::CtrlAlt | Chord::Meta, KeyCode::Char('b' | 'B')) => {
+                ExplorerOutcome::TogglePlacement
+            },
             // A query is the first thing `Escape` takes back, and the panel
             // the second. Closing a panel someone has just typed into throws
             // away the narrowing and the panel in one press, and the second
@@ -65,7 +73,7 @@ impl FileExplorer {
                     self.clear_query();
                     ExplorerOutcome::Handled
                 } else {
-                    ExplorerOutcome::Closed
+                    ExplorerOutcome::Dismissed
                 }
             },
             (Chord::Plain, KeyCode::Enter) => self.activate(),

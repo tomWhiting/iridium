@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// These map to semantic token types used in syntax highlighting.
 /// The Zed query files use more specific capture names (e.g., @keyword.control,
 /// @function.method) which are mapped to these broader categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HighlightType {
     /// Language keywords (if, else, fn, etc.)

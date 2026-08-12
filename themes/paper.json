@@ -239,6 +239,7 @@
       "a": 1.0
     }
   },
+  "emphasis": {},
   "typography": {
     "font_family": "JetBrains Mono, Fira Code, Menlo, Monaco, monospace",
     "font_size": 14.0,

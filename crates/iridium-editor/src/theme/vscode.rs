@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Color, EditorColors, SyntaxColors, Theme, Typography};
+use super::{Color, EditorColors, SyntaxColors, SyntaxEmphasis, Theme, Typography};
 
 /// A VS Code theme definition.
 ///
@@ -155,6 +155,22 @@ pub fn convert_vscode_theme(vscode: &VsCodeTheme) -> Theme {
         },
         is_dark,
         editor,
+        // ⚠️ **An imported theme's `fontStyle` is not carried, and this is
+        // where that shows.** `VsCodeTokenSettings::font_style` is parsed and
+        // has never been read by anything — `convert_token_colors` takes
+        // `foreground` and nothing else — so a VS Code theme that draws
+        // comments in italic imports as a theme that does not. That predates
+        // this field; what changed is that Iridium now has somewhere to put
+        // the answer, so the gap is a gap rather than an impossibility.
+        //
+        // Carrying it needs a **scope → highlight category** map, and
+        // `apply_scope_color` below is a scope → *colour field* map: the two
+        // are not the same shape, since categories outnumber fields roughly
+        // three to one and `keyword` the field covers both `Keyword` and
+        // `KeywordControl`. Importing against the field map would give a theme
+        // saying "keywords are italic" a result where half the keywords lean,
+        // which is worse than not importing it. Tracked as its own item.
+        emphasis: SyntaxEmphasis::none(),
         syntax,
         typography: Typography::default(),
     }

@@ -135,7 +135,7 @@ fn compose(
     gpu: &Gpu,
     tgt: &Target,
 ) {
-    let mut highlights = cache.resolver(&editor.state().theme.syntax);
+    let mut highlights = cache.resolver(&editor.state().theme);
     compositor.reset_blink();
     if let Err(error) = compositor.compose(
         editor,

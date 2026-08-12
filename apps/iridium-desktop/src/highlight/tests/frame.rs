@@ -24,7 +24,7 @@ fn rust_source_resolves_to_keyword_and_string_coloured_runs() {
     let foreground = theme.editor.foreground;
     let context = context_over(source, &syntax_theme, &viewport, foreground);
     let runs = cache
-        .resolver(&theme.syntax)
+        .resolver(&theme)
         .resolve(&context)
         .expect("a parsed Rust document resolves spans");
 
@@ -78,7 +78,7 @@ fn an_interpolation_inside_a_template_literal_keeps_its_own_colours() {
     let foreground = theme.editor.foreground;
     let context = context_over(source, &syntax_theme, &viewport, foreground);
     let runs = cache
-        .resolver(&theme.syntax)
+        .resolver(&theme)
         .resolve(&context)
         .expect("a parsed TypeScript document resolves spans");
 
@@ -157,7 +157,7 @@ fn generation_is_stable_across_no_op_refreshes_and_moves_on_edits() {
 
     let theme = Theme::default();
     assert_eq!(
-        cache.resolver(&theme.syntax).generation(),
+        cache.resolver(&theme).generation(),
         cache.generation(),
         "the per-frame resolver reports the cache's generation"
     );
@@ -194,7 +194,7 @@ fn removing_the_language_moves_the_generation_without_a_rebuild() {
         theme.editor.foreground,
     );
     assert!(
-        cache.resolver(&theme.syntax).resolve(&context).is_none(),
+        cache.resolver(&theme).resolve(&context).is_none(),
         "and the answer really did change: the resolver has no spans"
     );
     assert!(
@@ -227,7 +227,7 @@ fn without_a_language_the_resolver_reports_no_spans_and_no_language() {
         &viewport,
         theme.editor.foreground,
     );
-    let mut resolver = cache.resolver(&theme.syntax);
+    let mut resolver = cache.resolver(&theme);
     assert!(
         resolver.resolve(&context).is_none(),
         "no language means no spans"
@@ -252,7 +252,7 @@ fn a_set_language_keeps_the_language_active_for_the_bridge() {
 
     let theme = Theme::default();
     assert!(
-        cache.resolver(&theme.syntax).language_active(),
+        cache.resolver(&theme).language_active(),
         "and the per-frame resolver carries that answer"
     );
 }
@@ -269,7 +269,7 @@ fn multibyte_content_is_covered_without_splitting_characters() {
     let viewport = ViewportConfig::default();
     let context = context_over(source, &syntax_theme, &viewport, theme.editor.foreground);
     let runs = cache
-        .resolver(&theme.syntax)
+        .resolver(&theme)
         .resolve(&context)
         .expect("the document resolves");
     let rebuilt: String = runs.iter().map(|(text, _)| *text).collect();
@@ -291,7 +291,7 @@ fn a_span_past_the_visible_content_is_clamped_not_panicked() {
     let visible = &source[..14];
     let context = context_over(visible, &syntax_theme, &viewport, theme.editor.foreground);
     let runs = cache
-        .resolver(&theme.syntax)
+        .resolver(&theme)
         .resolve(&context)
         .expect("the document resolves");
     let rebuilt: String = runs.iter().map(|(text, _)| *text).collect();

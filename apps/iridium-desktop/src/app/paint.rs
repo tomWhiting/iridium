@@ -73,7 +73,7 @@ impl DesktopApp {
         let height = surface.height();
         let fold_state = editor.fold_state();
         let theme = &editor.state().theme;
-        let mut highlights = document.syntax.resolver(&theme.syntax);
+        let mut highlights = document.syntax.resolver(theme);
         let panel_refs: Vec<&PanelContent> = panels.iter().collect();
 
         let outcome = surface.render_frame(|view, device, queue| {

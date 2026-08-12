@@ -17,8 +17,9 @@
 //! unknown background the honest answer is the colour itself, because guessing
 //! at the user's terminal background is how a selection ends up invisible.
 
-use iridium_editor::syntax::{HighlightType, highlight_to_color};
-use iridium_editor::theme::{Color as ThemeColor, SyntaxColors, Theme};
+use iridium_editor::render::{RunSlant, RunWeight};
+use iridium_editor::syntax::{HighlightType, highlight_to_style};
+use iridium_editor::theme::{Color as ThemeColor, SyntaxColors, SyntaxEmphasis, Theme};
 
 use super::units::channel;
 use crate::cell::{Attributes, Color, Style};
@@ -56,6 +57,9 @@ pub struct Palette {
     overlay_error: Style,
     /// The theme's syntax colours, mapped per highlight by the kernel.
     syntax: SyntaxColors,
+    /// The theme's emphasis table, applied per highlight by the same kernel
+    /// mapping — so a heading this face draws bold is bold in the GPU face too.
+    emphasis: SyntaxEmphasis,
 }
 
 impl Palette {
@@ -91,6 +95,7 @@ impl Palette {
             overlay_error: overlay_style(theme, foreground, editor_background)
                 .with_foreground(solid(theme.editor.diagnostic_error)),
             syntax: theme.syntax.clone(),
+            emphasis: theme.emphasis.clone(),
         }
     }
 
@@ -179,15 +184,28 @@ impl Palette {
 
     /// The style of text carrying a syntax highlight.
     ///
-    /// The highlight-to-colour mapping is the kernel's
-    /// ([`highlight_to_color`]): a face with its own copy would drift from the
-    /// GPU face's colours the first time a highlight type was added.
+    /// The highlight-to-appearance mapping is the kernel's
+    /// ([`highlight_to_style`]): a face with its own copy would drift from the
+    /// GPU face the first time a highlight category was added.
+    ///
+    /// ⚠️ **A terminal's bold and italic are not the GPU face's.** A weight of
+    /// 700 becomes the `BOLD` attribute and any lean becomes `ITALIC`, because
+    /// those are the only two the cell model has and the only two a terminal
+    /// can be asked for. A theme asking for semibold therefore reads as bold
+    /// here and as semibold there — a deliberate degradation in the same
+    /// direction as [`solid`]'s alpha handling above, not a drift: both faces
+    /// still answer from one theme, and the difference is what the surface can
+    /// physically draw rather than what it believes.
     pub fn highlighted(&self, highlight: HighlightType, background: Color) -> Style {
-        Style::new(
-            solid(highlight_to_color(highlight, &self.syntax)),
-            background,
-            Attributes::NONE,
-        )
+        let style = highlight_to_style(highlight, &self.syntax, &self.emphasis);
+        let mut attributes = Attributes::NONE;
+        if style.weight >= RunWeight::BOLD {
+            attributes |= Attributes::BOLD;
+        }
+        if style.slant == RunSlant::Italic {
+            attributes |= Attributes::ITALIC;
+        }
+        Style::new(solid(style.color), background, attributes)
     }
 }
 
@@ -256,6 +274,7 @@ fn overlay_style(theme: &Theme, foreground: Color, editor_background: ThemeColor
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iridium_editor::theme::Emphasis;
 
     #[test]
     fn a_transparent_colour_is_the_terminals_own() {
@@ -341,6 +360,82 @@ mod tests {
         let style = palette.highlighted(HighlightType::Keyword, Color::Default);
         assert_eq!(style.foreground, solid(theme.syntax.keyword));
         assert_ne!(style.foreground, palette.text().foreground);
+        assert_eq!(
+            style.attributes,
+            Attributes::NONE,
+            "a theme that asks for no emphasis must paint no attributes — the \
+             terminal's bold is a thing the user sees"
+        );
+    }
+
+    /// ⭐ The terminal half of the rich-text lane: a theme that bolds headings
+    /// bolds them here too, and bolds nothing else.
+    ///
+    /// The mapping is the kernel's, so this is not asserting that bold works —
+    /// it is asserting that this face *asks* the kernel rather than deciding
+    /// for itself, which is the only reason the two native faces cannot
+    /// disagree about what a heading looks like.
+    #[test]
+    fn a_theme_that_emphasises_a_category_reaches_the_cells() {
+        let mut theme = Theme::dark();
+        theme.emphasis = SyntaxEmphasis::none()
+            .with(HighlightType::MarkupHeading, Emphasis::bold())
+            .with(HighlightType::MarkupEmphasis, Emphasis::italic());
+        let palette = Palette::from_theme(&theme);
+
+        let heading = palette.highlighted(HighlightType::MarkupHeading, Color::Default);
+        assert!(heading.attributes.contains(Attributes::BOLD));
+        assert!(!heading.attributes.contains(Attributes::ITALIC));
+
+        let emphasis = palette.highlighted(HighlightType::MarkupEmphasis, Color::Default);
+        assert!(emphasis.attributes.contains(Attributes::ITALIC));
+        assert!(!emphasis.attributes.contains(Attributes::BOLD));
+
+        let keyword = palette.highlighted(HighlightType::Keyword, Color::Default);
+        assert_eq!(
+            keyword.attributes,
+            Attributes::NONE,
+            "a keyword shares the heading's colour and must not have gained \
+             its weight"
+        );
+        assert_eq!(
+            keyword.foreground, heading.foreground,
+            "they still share a colour — that sharing was never the defect"
+        );
+    }
+
+    /// The degradation, asserted rather than left to the doc comment.
+    ///
+    /// A terminal has one bold. Every weight at or above 700 reaches it and
+    /// every weight below stays regular, which is a real loss of information
+    /// against the GPU face and must be a stated, tested loss rather than a
+    /// surprise — someone will eventually author a semibold heading and need
+    /// to know what a terminal does with it.
+    #[test]
+    fn a_terminal_has_one_bold_and_the_threshold_is_seven_hundred() {
+        for (weight, bold) in [
+            (RunWeight(300), false),
+            (RunWeight::NORMAL, false),
+            (RunWeight(600), false),
+            (RunWeight::BOLD, true),
+            (RunWeight(900), true),
+        ] {
+            let mut theme = Theme::dark();
+            theme.emphasis = SyntaxEmphasis::none().with(
+                HighlightType::MarkupHeading,
+                Emphasis {
+                    weight: Some(weight),
+                    slant: None,
+                },
+            );
+            let style = Palette::from_theme(&theme)
+                .highlighted(HighlightType::MarkupHeading, Color::Default);
+            assert_eq!(
+                style.attributes.contains(Attributes::BOLD),
+                bold,
+                "weight {weight:?} in a terminal"
+            );
+        }
     }
 
     #[test]

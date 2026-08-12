@@ -33,6 +33,8 @@
 //! equivalent would reshape every line of the first frame after any full
 //! rebuild — a performance cliff with no visible symptom to trace it by.
 
+use serde::{Deserialize, Serialize};
+
 use crate::theme::Color;
 
 /// The weight of the face a run is drawn in, on the usual 100–900 scale.
@@ -41,7 +43,11 @@ use crate::theme::Color;
 /// number and every intermediate value is real: a heading set in semibold is
 /// an ordinary thing to want, and an enum would have to be widened into this
 /// the first time somebody did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Serialized as the bare number, so a theme file writes `700` rather than
+/// `{ "0": 700 }` — the spelling every other tool in this space uses, and the
+/// one a theme author already knows from CSS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct RunWeight(pub u16);
 
 impl RunWeight {
@@ -58,7 +64,8 @@ impl Default for RunWeight {
 }
 
 /// Whether a run leans.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RunSlant {
     /// Upright, as body text and code are.
     #[default]

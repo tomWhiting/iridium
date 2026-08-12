@@ -51,7 +51,7 @@ fn runs_for_line<'a>(
         foreground: theme.editor.foreground,
     };
     cache
-        .resolver(&theme.syntax)
+        .resolver(theme)
         .resolve(&context)
         .expect("a parsed Rust document resolves spans")
 }

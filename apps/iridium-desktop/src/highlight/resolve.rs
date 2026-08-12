@@ -8,8 +8,8 @@ use iridium_editor::render::{
     HighlightContext, HighlightSource, RunStyle, SpanRun, flatten_spans, snap_down,
 };
 use iridium_editor::span_index::SpanIndex;
-use iridium_editor::syntax::highlight_to_color;
-use iridium_editor::theme::SyntaxColors;
+use iridium_editor::syntax::highlight_to_style;
+use iridium_editor::theme::{SyntaxColors, SyntaxEmphasis};
 
 /// The per-frame [`HighlightSource`]: the cached span index and the theme's
 /// syntax colours, borrowed for exactly one `compose` call.
@@ -25,6 +25,10 @@ pub struct FrameHighlights<'a> {
     pub(super) index: Option<&'a SpanIndex>,
     /// The theme's syntax colours, mapped per highlight by the kernel.
     pub(super) colors: &'a SyntaxColors,
+    /// The theme's emphasis table — the categories it draws in a face other
+    /// than body text. Empty in both shipped presets, and empty is a complete
+    /// answer rather than an unset one.
+    pub(super) emphasis: &'a SyntaxEmphasis,
     /// The owning [`HighlightCache`](super::HighlightCache)'s generation at
     /// construction.
     pub(super) generation: u64,
@@ -36,7 +40,7 @@ pub struct FrameHighlights<'a> {
 impl HighlightSource for FrameHighlights<'_> {
     fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         let index = self.index?;
-        Some(rich_spans(index, context, self.colors))
+        Some(rich_spans(index, context, self.colors, self.emphasis))
     }
 
     fn language_active(&self) -> bool {
@@ -52,18 +56,21 @@ impl HighlightSource for FrameHighlights<'_> {
 /// runs in order, gaps filled with the theme foreground, the whole content
 /// covered.
 ///
-/// ⚠️ **Every run comes back [`RunStyle::plain`] for now, and that is a
-/// statement about the theme rather than about this function.** A weight or a
-/// slant has to come from somewhere, and the only thing mapping a capture to
-/// an appearance today is `highlight_to_color`, which — as the name says —
-/// answers with a colour. Inventing a rule here ("italicise comments") would
-/// be this face deciding something the theme owns, and the two faces would
-/// then disagree about what a comment looks like. The seam is widened; what
-/// flows through it is the theme's business, and that is the next piece.
+/// ⚠️ **The weight and slant come from the theme, never from here.** Inventing
+/// a rule in this face ("italicise comments") would be it deciding something
+/// the theme owns, and the GPU face and the terminal face would then disagree
+/// about what a comment looks like. Both call
+/// [`highlight_to_style`](iridium_editor::syntax::highlight_to_style), which is
+/// the single place a category becomes an appearance.
+///
+/// A gap between spans still takes the plain theme foreground and no emphasis:
+/// it belongs to no category, so there is nothing for a theme to have an
+/// opinion about.
 fn rich_spans<'a>(
     index: &SpanIndex,
     context: &HighlightContext<'a>,
     colors: &SyntaxColors,
+    emphasis: &SyntaxEmphasis,
 ) -> Vec<(&'a str, RunStyle)> {
     let visible = context.content;
     let start_byte = context.content_start_byte;
@@ -89,10 +96,11 @@ fn rich_spans<'a>(
     flatten_spans(spans, visible.len())
         .into_iter()
         .map(|run| {
-            let colour = run.payload.map_or(context.foreground, |highlight| {
-                highlight_to_color(highlight, colors)
-            });
-            (&visible[run.start..run.end], RunStyle::plain(colour))
+            let style = run.payload.map_or_else(
+                || RunStyle::plain(context.foreground),
+                |highlight| highlight_to_style(highlight, colors, emphasis),
+            );
+            (&visible[run.start..run.end], style)
         })
         .collect()
 }

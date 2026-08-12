@@ -583,7 +583,7 @@ fn shoot(
         Palette::ThemeSyntax => {
             let mut cache = HighlightCache::new();
             cache.refresh(editor);
-            let mut highlights = cache.resolver(&editor.state().theme.syntax);
+            let mut highlights = cache.resolver(&editor.state().theme);
             capture(
                 gpu,
                 &mut compositor,

@@ -63,7 +63,7 @@
 //! tables were transcribed verbatim and the narrower rule is pinned; the wider
 //! claim in §2.2 is reported as a map defect rather than improvised around.
 
-use super::{Color, EditorColors, SyntaxColors, Theme, Typography};
+use super::{Color, EditorColors, SyntaxColors, SyntaxEmphasis, Theme, Typography};
 
 /// An opaque colour from 8-bit sRGB channels.
 ///
@@ -205,6 +205,7 @@ pub fn platinum() -> Theme {
         is_dark: false,
         editor: platinum_editor(),
         syntax: platinum_syntax(),
+        emphasis: SyntaxEmphasis::none(),
         typography: Typography::default(),
     }
 }

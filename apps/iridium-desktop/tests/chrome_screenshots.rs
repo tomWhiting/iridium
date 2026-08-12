@@ -101,7 +101,9 @@ use iridium_desktop::search::SearchOverlay;
 use iridium_desktop::tab_strip::{TabItem, TabStripContent};
 use iridium_desktop::units::u32_to_f32;
 use iridium_editor::commands::palette::CommandMru;
-use iridium_editor::render::{FrameCompositor, FrameTarget, HighlightContext, HighlightSource};
+use iridium_editor::render::{
+    FrameCompositor, FrameTarget, HighlightContext, HighlightSource, RunStyle,
+};
 use iridium_editor::theme::{Color, Theme};
 use iridium_editor::{Editor, KeyCode, KeyEvent, Language, Modifiers, Position};
 
@@ -126,7 +128,7 @@ static FONT: &[u8] = include_bytes!("../../../examples/web/public/fonts/JetBrain
 struct NoHighlights;
 
 impl HighlightSource for NoHighlights {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         None
     }
 

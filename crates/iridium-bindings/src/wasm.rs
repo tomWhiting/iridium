@@ -30,8 +30,8 @@ use iridium_editor::{
         KeyboardHandler, Modifiers, SearchAction,
     },
     render::{
-        FrameCompositor, FrameTarget, HighlightContext, HighlightSource, SpanRun, Viewport,
-        WebSurface, flatten_spans, snap_down,
+        FrameCompositor, FrameTarget, HighlightContext, HighlightSource, RunStyle, SpanRun,
+        Viewport, WebSurface, flatten_spans, snap_down,
         units::{pixel_to_index, u32_to_f32},
     },
     theme::Color,
@@ -2967,7 +2967,7 @@ struct WebHighlightSource<'a> {
 }
 
 impl HighlightSource for WebHighlightSource<'_> {
-    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         if self.highlights.is_active() && !self.highlights.index().is_empty() {
             // Calculate viewport for efficient span query (T020)
             // Only query spans in the visible range instead of iterating all spans
@@ -3083,7 +3083,7 @@ fn build_rich_spans_viewport<'a>(
     content_start_byte: usize,
     foreground: Color,
     syntax_theme: &HashMap<String, Color>,
-) -> Vec<(&'a str, Color)> {
+) -> Vec<(&'a str, RunStyle)> {
     let queried: Vec<WebSpan> = spans.collect();
 
     // Snapped, not merely clamped: these offsets are document bytes while
@@ -3106,7 +3106,7 @@ fn build_rich_spans_viewport<'a>(
             let color = run.payload.map_or(foreground, |highlight_type| {
                 color_for_highlight_type(syntax_theme, foreground, highlight_type)
             });
-            (&content[run.start..run.end], color)
+            (&content[run.start..run.end], RunStyle::plain(color))
         })
         .collect()
 }
@@ -3136,7 +3136,7 @@ fn build_rich_spans_from_ts<'a>(
     spans: &[JsHighlightSpan],
     foreground: Color,
     syntax_theme: &HashMap<String, Color>,
-) -> Vec<(&'a str, Color)> {
+) -> Vec<(&'a str, RunStyle)> {
     let runs: Vec<SpanRun<&str>> = spans
         .iter()
         .map(|span| SpanRun {
@@ -3152,7 +3152,7 @@ fn build_rich_spans_from_ts<'a>(
             let color = run.payload.map_or(foreground, |highlight_type| {
                 color_for_highlight_type(syntax_theme, foreground, highlight_type)
             });
-            (&content[run.start..run.end], color)
+            (&content[run.start..run.end], RunStyle::plain(color))
         })
         .collect()
 }

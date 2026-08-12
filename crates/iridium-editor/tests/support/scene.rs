@@ -2,7 +2,7 @@
 //! nothing to say.
 
 use iridium_editor::Editor;
-use iridium_editor::render::{HighlightContext, HighlightSource};
+use iridium_editor::render::{HighlightContext, HighlightSource, RunStyle};
 use iridium_editor::theme::{Color, Theme};
 
 /// A highlight source that never has spans.
@@ -13,7 +13,7 @@ use iridium_editor::theme::{Color, Theme};
 pub struct NoHighlights;
 
 impl HighlightSource for NoHighlights {
-    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, Color)>> {
+    fn resolve<'a>(&mut self, _context: &HighlightContext<'a>) -> Option<Vec<(&'a str, RunStyle)>> {
         None
     }
 

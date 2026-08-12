@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use iridium_editor::Editor;
-use iridium_editor::render::{HighlightContext, HighlightSource, ViewportConfig};
+use iridium_editor::render::{HighlightContext, HighlightSource, RunStyle, ViewportConfig};
 use iridium_editor::theme::{Color, Theme};
 
 use super::super::HighlightCache;
@@ -40,7 +40,7 @@ fn runs_for_line<'a>(
     theme: &Theme,
     syntax_theme: &'a HashMap<String, Color>,
     viewport: &'a ViewportConfig,
-) -> Vec<(&'a str, Color)> {
+) -> Vec<(&'a str, RunStyle)> {
     let context = HighlightContext {
         content: &source[line_start_byte..line_end_byte],
         content_start_byte: line_start_byte,
@@ -116,7 +116,7 @@ fn a_span_straddling_the_covered_window_edge_resolves_like_the_whole_document() 
         assert!(
             from_window
                 .iter()
-                .any(|(_, colour)| *colour == theme.syntax.string),
+                .any(|(_, style)| style.color == theme.syntax.string),
             "line {line}: the straddling string really does paint as a string"
         );
     }
@@ -160,13 +160,13 @@ fn content_outside_the_covered_window_carries_no_spans() {
     assert!(
         from_whole
             .iter()
-            .any(|(_, colour)| *colour != theme.editor.foreground),
+            .any(|(_, style)| style.color != theme.editor.foreground),
         "the whole-document derive colours line 300"
     );
     assert!(
         from_window
             .iter()
-            .all(|(_, colour)| *colour == theme.editor.foreground),
+            .all(|(_, style)| style.color == theme.editor.foreground),
         "the windowed derive never derived spans 110 lines past its cover"
     );
 }

@@ -6,11 +6,12 @@
 use glyphon::cosmic_text::{BidiParagraphs, LineEnding, LineIter};
 use glyphon::{
     Attrs, AttrsList, Buffer, BufferLine, Cache, Color as GlyphonColor, Family, FontSystem,
-    Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds,
-    TextRenderer as GlyphonTextRenderer, Viewport, fontdb,
+    Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds,
+    TextRenderer as GlyphonTextRenderer, Viewport, Weight, fontdb,
 };
 use wgpu::{Device, MultisampleState, Queue, TextureFormat};
 
+use super::style::{RunSlant, RunStyle};
 use super::units::index_to_f32;
 use crate::editor::IridiumError;
 use crate::theme::Color;
@@ -441,11 +442,48 @@ impl TextRenderer {
     /// * `text` - The text content to set
     /// * `color` - The text color
     pub fn set_text(&mut self, buffer: &mut Buffer, text: &str, color: Color) {
-        let attrs = Attrs::new()
-            .family(Family::Monospace)
-            .color(Self::to_glyphon_color(color));
+        // Through the same construction the rich path uses, with the style
+        // left plain. `Weight(400)` and `Style::Normal` are precisely what
+        // `Attrs::new()` already defaults to, so this is byte-identical to
+        // naming family and colour alone — and it stays identical if the
+        // shared construction ever grows a field.
+        let attrs = Self::span_attrs(RunStyle::plain(color));
 
         buffer.set_text(&mut self.font_system, text, &attrs, Shaping::Advanced, None);
+    }
+
+    /// The attributes every span in this crate is drawn with, from one place.
+    ///
+    /// ⚠️ **Both rich setters must build attributes identically**, and this is
+    /// how that is guaranteed rather than asserted:
+    /// [`Self::set_rich_text_diffed`] reshapes a line only when its attributes
+    /// differ from the previous frame's, so two constructions that drifted by
+    /// a single field would make the first diffed frame after any full rebuild
+    /// reshape every line — a performance cliff whose only symptom is that the
+    /// editor got slower.
+    ///
+    /// The family stays monospace for every run. Weight and slant are the
+    /// variations a face may ask for; a *different family* is not, because the
+    /// column geometry this crate lays out assumes one advance width and a
+    /// proportional run would silently break the caret.
+    fn span_attrs(style: RunStyle) -> Attrs<'static> {
+        Attrs::new()
+            .family(Family::Monospace)
+            .color(Self::to_glyphon_color(style.color))
+            .weight(Weight(style.weight.0))
+            .style(match style.slant {
+                RunSlant::Upright => Style::Normal,
+                RunSlant::Italic => Style::Italic,
+            })
+    }
+
+    /// The attributes a line's [`AttrsList`] defaults to: monospace, and
+    /// nothing said about colour, weight or slant.
+    ///
+    /// Kept beside [`Self::span_attrs`] because the two are read together —
+    /// a span is only added to a line when it differs from these.
+    const fn default_attrs() -> Attrs<'static> {
+        Attrs::new().family(Family::Monospace)
     }
 
     /// Sets the text content with multiple styled spans.
@@ -453,25 +491,20 @@ impl TextRenderer {
     /// # Arguments
     ///
     /// * `buffer` - The buffer to update
-    /// * `spans` - Iterator of (text, color) pairs
+    /// * `spans` - Iterator of (text, style) pairs
     pub fn set_rich_text<'a>(
         &mut self,
         buffer: &mut Buffer,
-        spans: impl Iterator<Item = (&'a str, Color)>,
+        spans: impl Iterator<Item = (&'a str, RunStyle)>,
     ) {
         let rich_text: Vec<(&str, Attrs)> = spans
-            .map(|(text, color)| {
-                let attrs = Attrs::new()
-                    .family(Family::Monospace)
-                    .color(Self::to_glyphon_color(color));
-                (text, attrs)
-            })
+            .map(|(text, style)| (text, Self::span_attrs(style)))
             .collect();
 
         buffer.set_rich_text(
             &mut self.font_system,
             rich_text,
-            &Attrs::new().family(Family::Monospace),
+            &Self::default_attrs(),
             Shaping::Advanced,
             None,
         );
@@ -507,18 +540,18 @@ impl TextRenderer {
     /// their caches.
     pub fn set_rich_text_diffed<'a>(
         buffer: &mut Buffer,
-        spans: impl Iterator<Item = (&'a str, Color)>,
+        spans: impl Iterator<Item = (&'a str, RunStyle)>,
     ) -> usize {
-        let default_attrs = Attrs::new().family(Family::Monospace);
+        let default_attrs = Self::default_attrs();
 
         // Concatenate the spans into one string with byte ranges, exactly as
         // `Buffer::set_rich_text` does before splitting into lines.
         let mut string = String::new();
-        let mut span_ranges: Vec<(Color, std::ops::Range<usize>)> = Vec::new();
-        for (text, color) in spans {
+        let mut span_ranges: Vec<(RunStyle, std::ops::Range<usize>)> = Vec::new();
+        for (text, style) in spans {
             let start = string.len();
             string.push_str(text);
-            span_ranges.push((color, start..string.len()));
+            span_ranges.push((style, start..string.len()));
         }
 
         let string_start = string.as_ptr() as usize;
@@ -531,12 +564,12 @@ impl TextRenderer {
             let line_range = line_start..line_start + line.len();
 
             let mut attrs_list = AttrsList::new(&default_attrs);
-            while let Some((color, span_range)) = span_ranges.get(span_idx) {
+            while let Some((style, span_range)) = span_ranges.get(span_idx) {
                 // start..end is the intersection of this line and this span.
                 let start = line_range.start.max(span_range.start);
                 let end = line_range.end.min(span_range.end);
                 if start < end {
-                    let attrs = default_attrs.clone().color(Self::to_glyphon_color(*color));
+                    let attrs = Self::span_attrs(*style);
                     // Only add attrs if they don't match the defaults — the
                     // rule `set_rich_text` applies.
                     if attrs != attrs_list.defaults() {
@@ -1077,6 +1110,7 @@ impl TextRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style::RunWeight;
 
     #[test]
     #[allow(clippy::float_cmp)]
@@ -1085,6 +1119,63 @@ mod tests {
         assert_eq!(config.font_size, DEFAULT_FONT_SIZE);
         assert_eq!(config.line_height, DEFAULT_LINE_HEIGHT);
         assert_eq!(config.font_family, "monospace");
+    }
+
+    /// ⭐ The identity the retained-shaping cache rests on.
+    ///
+    /// Before styles existed, a span's attributes were monospace plus a
+    /// colour. `set_rich_text_diffed` reshapes a line only when its
+    /// attributes differ from the previous frame's, so if a *plain* run now
+    /// produced anything else — a weight, a slant, anything — the first
+    /// diffed frame after every full rebuild would reshape every line in the
+    /// viewport, and the only symptom would be that the editor got slower.
+    ///
+    /// Asserted against a hand-built `Attrs` rather than against
+    /// `span_attrs`'s own output, because comparing a function to itself
+    /// proves nothing about what it produces.
+    #[test]
+    fn a_plain_run_still_asks_for_exactly_monospace_and_a_colour() {
+        let colour = Color::new(0.2, 0.4, 0.6, 1.0);
+        let before = Attrs::new()
+            .family(Family::Monospace)
+            .color(TextRenderer::to_glyphon_color(colour));
+
+        assert_eq!(
+            TextRenderer::span_attrs(RunStyle::plain(colour)),
+            before,
+            "a plain run's attributes drifted from the colour-only ones"
+        );
+    }
+
+    /// And the other half: a style that asks for something must actually
+    /// reach the attributes. A `RunStyle` the renderer silently dropped
+    /// would be a decorative API — the whole defect this type exists to
+    /// avoid — and it would look exactly like the assertion above passing.
+    #[test]
+    fn weight_and_slant_reach_the_attributes() {
+        let colour = Color::new(0.2, 0.4, 0.6, 1.0);
+        let plain = TextRenderer::span_attrs(RunStyle::plain(colour));
+
+        let bold = TextRenderer::span_attrs(RunStyle::plain(colour).bold());
+        assert_ne!(bold, plain, "bold was dropped on the way to the shaper");
+        assert_eq!(bold.weight, Weight(RunWeight::BOLD.0));
+
+        let italic = TextRenderer::span_attrs(RunStyle::plain(colour).italic());
+        assert_ne!(italic, plain, "italic was dropped on the way to the shaper");
+        assert_eq!(italic.style, Style::Italic);
+
+        // And the two are independent: a bold run must not also lean.
+        assert_eq!(bold.style, Style::Normal);
+        assert_eq!(italic.weight, Weight(RunWeight::NORMAL.0));
+    }
+
+    /// An arbitrary weight survives the trip rather than being rounded to
+    /// one of the two named ones.
+    #[test]
+    fn a_weight_between_the_named_ones_reaches_the_shaper_intact() {
+        let colour = Color::new(0.2, 0.4, 0.6, 1.0);
+        let attrs = TextRenderer::span_attrs(RunStyle::plain(colour).with_weight(RunWeight(600)));
+        assert_eq!(attrs.weight, Weight(600));
     }
 
     #[test]

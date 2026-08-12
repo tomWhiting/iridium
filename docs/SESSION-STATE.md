@@ -1193,6 +1193,37 @@ rather than what was staged.
   did not happen.** Tom `dm:c9255b2a-5731-4d17-8124-e3bfa2224186`. This seat
   is "Doug".
 - `du -sk` on the lane tree at lane open and lane close.
+- ⚠️ **"Landed" is a claim about the remote, and it does not leave this seat
+  without the number that licenses it.** Say **committed** until it is pushed.
+
+  ⭐ **The rule is the receipt, not the vocabulary.** On 12 Aug 2026 eleven
+  commits sat on local `main` — back through `ad449ea8`, across a compaction —
+  while the reports for them all said "landed". Waffles found it; nothing here
+  would have. A vocabulary rule cannot catch that, because it is enforced by
+  the same person who forgot, at exactly the moment they forgot. So a lane
+  close carries the measurement inline, the way an absence claim carries its
+  search:
+
+  > **landed @ `<sha>`** — `git fetch && git rev-list --count origin/main..HEAD`
+  > = 0, measured `<when>`.
+
+  Then the word cannot be written without the number beside it, and the gap
+  cannot accumulate silently regardless of anyone's habits. If the number is
+  not 0 the honest word is **committed**, and the count says how far behind.
+
+  ⭐ **And there is a third place, found the same day.** Tom reported `⌘O`
+  doing nothing. The binding was correct, pushed, and green; the bundle at
+  `/Applications/iridium.app` was dated **9 Aug 11:55** while the commands
+  landed **12 Aug 13:38**, and `strings` on the binary he was running found
+  `file.save` but no `file.open` at all. **Committed, pushed and installed are
+  three different places, and one word was being used for all three.** So a
+  lane close that changes anything a face shows carries the install too:
+
+  > **installed** — bundle mtime `<when>`, and `strings <bundle> | grep <a
+  > string only this change introduces>` finds it.
+
+  The grep matters more than the date: a timestamp says the file was written,
+  and only the string says *this* change is in it.
 
 ## The six gates
 

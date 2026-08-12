@@ -1020,20 +1020,40 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ---
 
-## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
+## ⚠️ LIVE STATE — read this first
 
-`origin/main = 5b20f5c4`, **0 unpushed**, verified from the remote. Ten gates
-green. Working tree clean apart from untracked `.claude/skills/`.
+`origin/main = f7a05574`, **0 unpushed**, verified from the remote at fetch.
+Ten gates green (`✅ all 10 gates passed`, 5,584 tests). Working tree clean
+apart from untracked `.claude/skills/`.
 
 **#113 steps 4–5 wait on Tom's grammar ruling. #108 is CODE-COMPLETE — all
-four steps landed — and now waits on Tom's hands.** Nothing is half-done and
-nothing is in flight.
+four steps landed — and waits on Tom's hands. #109 is CLOSED.** Nothing is
+half-done and nothing is in flight.
 
-⛔ **Both open threads are blocked on Tom, and neither should be guessed at.**
+⛔ **Both #108 and #113 are blocked on Tom, and neither should be guessed at.**
 He was messaged on 13 Aug with both: the grammar ruling, and a request to
 build #108 and click one menu item. If a tick finds this and no answer, work
-something else — the backlog is #109, #110, #58, #87, #88, #90, #91, #92, #93,
+something else — the backlog is #110, #58, #87, #88, #90, #91, #92, #93,
 #95, #96, #99, #43→#44→#45.
+
+### ✅ #109 CLOSED — `f7a05574`, ten gates green
+
+The capture ratchet read **compiled** queries, so its coverage was a function
+of which of the fourteen grammars happen to be linked while reading as a check
+over what the tree vendors. Six names sat behind it unmapped; two more mapped
+to the *wrong* category, which the ratchet is structurally blind to. Full
+write-up, the D-1 ruling and all six mutations:
+`docs/IN-FLIGHT-109-capture-ratchet.md`.
+
+⭐ **The task's own measured list was wrong**, in the way it warned about: it
+named `diff.minus` / `diff.plus` as used by `diff`, which writes both only
+inside `;; TODO:` comments. A naive scan had read comment prose as captures.
+
+📌 **The law this earned:** *a fix can remove the evidence its own gate was
+reading.* Deleting the scan's comment-skipping arm leaves **both** the oracle
+and the ratchet green — the ratchet because `diff.plus` now maps. The guard for
+a lexer rule has to sit at the lexer, and a module doc of mine claiming the
+oracle covered it has been corrected.
 
 ⚠️ **#108 needs Tom's hands before it can be called done.** Steps 2–3 are
 proven to compile, link and be present in the binary (`strings` finds

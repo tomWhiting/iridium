@@ -125,6 +125,13 @@ required-features = ["render"]
 name = "left_inset"
 required-features = ["render"]
 
+# The evidence that a weight and a slant become different glyphs rather than
+# different attributes on the same ones — a real compose, read back, compared
+# against a plain-versus-plain control.
+[[test]]
+name = "run_weight_reaches_the_glyphs"
+required-features = ["render"]
+
 [[bench]]
 name = "rendering"
 harness = false

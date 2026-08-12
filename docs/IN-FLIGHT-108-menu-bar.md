@@ -220,15 +220,58 @@ next caller, and a doc comment predicting the trap is not a guard.*
 
 ---
 
+## ✅ Steps 2 and 3 — landed `08e981c4`
+
+The `AppKit` half. `apps/iridium-desktop/src/app/menubar.rs` holds it, with a
+`#[cfg(target_os = "macos")] mod platform` in the shape `dialog.rs` set.
+
+The path a click takes, which is M-3 as ruled:
+
+```
+NSMenuItem → IridiumMenuTarget → EventLoopProxy → user_event → run_chosen_command
+```
+
+⭐ **The proxy is the load-bearing choice.** It both enqueues *and* wakes, and
+with `ControlFlow::Wait` the loop is asleep precisely when somebody reaches for
+a menu. `run.rs` builds it with `with_user_event()` and hands it over, because
+only an `EventLoop` can make a proxy — an `ActiveEventLoop`, which is all
+`resumed` sees, cannot.
+
+Three things worth carrying:
+
+- ⭐ **The target is leaked, deliberately.** `NSMenuItem`'s target is a *weak*
+  reference. A target dropped at the end of `install` leaves every item
+  pointing at freed memory and the first click is a crash. It lives as long as
+  the menu bar does, which is the process.
+- **A tag indexes the command table, not a title.** Titles are shown to a
+  person and may be reworded; a tag is an index this code set itself.
+- ⛔ **No proxy, no menu bar** — not a menu bar whose items do nothing. Every
+  session `cargo test` builds has no proxy and so has no menu, rather than
+  drawn-and-dead furniture.
+
+`setAutoenablesItems(false)`: `AppKit`'s own validation would ask an object
+that always says yes, so the flag would decide nothing while looking like it
+decided something.
+
+### ⚠️ What is proven, and what is not
+
+| | |
+| --- | --- |
+| ✅ proven | compiles; **links**; `strings` finds `IridiumMenuTarget` and `iridiumMenuAction:` in the binary; all 10 gates green |
+| ❌ **not proven** | that the menus appear; that a click runs anything; that the leak is enough to keep the target alive at click time |
+
+A bad selector or a dead target crashes at **click** time, not at install, so
+even launching the app proves less than it looks like it would. **Only Tom's
+hands close this**, and that is the honest statement of the boundary.
+
+---
+
 ## What is left
 
-- **Step 2** — Cargo features `NSMenu`/`NSMenuItem`, the `define_class!`
-  target, building the menus from `menubar::menus()`, installing after winit's
-  application menu.
-- **Step 3** — `EventLoopProxy` wiring per M-3.
-- **Step 4** — the enablement push per M-2.
-- **Slice B** — key equivalents, after D-1's condition is met.
-
-Steps 2–4 are the AppKit half and **cannot be covered by the ten gates**. They
-are proven by a live session, which means a build Tom runs. That is the honest
-statement of this task's test boundary, and D-1 exists because of it.
+- **Step 4** — the enablement push per M-2: `install_menubar` keeps the
+  `Retained<NSMenuItem>` handles, and `about_to_wait` calls `setEnabled` where
+  the answer changed. Until it lands every row ships enabled, and a row that
+  cannot run reports so through the existing refusal — honest, where an
+  ungrounded grey row would not be.
+- **Slice B** — key equivalents, once D-1's condition is met (the action path
+  exercised in a live session).

@@ -1022,12 +1022,20 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
 
-`origin/main = 23aecd08`, **0 unpushed**, verified from the remote. Ten gates
+`origin/main = 08e981c4`, **0 unpushed**, verified from the remote. Ten gates
 green. Working tree clean apart from untracked `.claude/skills/`.
 
-**#113 steps 4–5 still wait on Tom's grammar ruling; #108 is now the live
-thread** — M-1..M-4 and D-1 ruled, step 1 landed, steps 2–4 are the AppKit
-half. See the #108 section below.
+**#113 steps 4–5 still wait on Tom's grammar ruling; #108 is the live thread**
+— M-1..M-4 and D-1 ruled, **steps 1, 2 and 3 landed**. Only step 4 (the
+enablement push) is left, plus slice B.
+
+⚠️ **#108 needs Tom's hands before it can be called done.** Steps 2–3 are
+proven to compile, link and be present in the binary (`strings` finds
+`IridiumMenuTarget` and `iridiumMenuAction:`) — and **nothing more**. Whether
+the menus appear, and whether a click runs the command, cannot be tested here:
+it needs a running `NSApplication`. A bad selector or a dead target crashes at
+*click* time, not install, so even launching proves less than it looks like.
+Say this plainly when reporting; do not let "10 gates green" stand in for it.
 
 **#113 is open; steps 1, 2 and 3 have landed** — every step that is needed
 whichever way Tom rules the grammar. Everything about it lives in

@@ -45,6 +45,7 @@ impl ApplicationHandler for DesktopApp {
                     self.follow_system_appearance(appearance == WinitTheme::Dark);
                 }
                 self.sync_top_inset();
+                self.sync_left_inset();
                 self.sync_kernel_viewport();
                 self.refresh_title();
             },

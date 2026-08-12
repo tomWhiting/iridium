@@ -22,7 +22,7 @@ use winit::window::Window;
 
 use super::config;
 use super::files::language_of;
-use super::state::{DesktopApp, DesktopDocument, UNTITLED};
+use super::state::{DesktopApp, DesktopDocument, ExplorerFocus, ExplorerPlacement, UNTITLED};
 use super::theme::ThemeSource;
 use super::title::TITLE;
 use crate::command_palette::CommandPalette;
@@ -359,6 +359,10 @@ impl DesktopApp {
             mru: CommandMru::default(),
             menu: None,
             explorer,
+            explorer_placement: ExplorerPlacement::default(),
+            // An explorer opened at startup is the one the user asked for, so
+            // it starts with the keys. A closed one is refocused when it opens.
+            explorer_focus: ExplorerFocus::Panel,
             history: HistoryPanel::new(),
             history_open: false,
             prompt: None,

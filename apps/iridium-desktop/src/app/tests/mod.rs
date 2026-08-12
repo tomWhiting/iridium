@@ -7,6 +7,7 @@ mod config;
 mod panels;
 mod project;
 mod saving;
+mod sidebar;
 mod support;
 mod tabs;
 mod theme;

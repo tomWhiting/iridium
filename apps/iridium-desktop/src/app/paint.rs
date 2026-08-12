@@ -13,7 +13,8 @@ use iridium_editor::render::FrameTarget;
 
 use super::startup::Shell;
 use super::state::DesktopApp;
-use crate::overlay::{PanelContent, StripContent};
+use crate::overlay::{PanelAnchor, PanelContent, StripContent};
+use crate::units::u32_to_f32;
 
 impl DesktopApp {
     /// Composes and presents one frame: the document through the compositor,
@@ -162,6 +163,11 @@ impl DesktopApp {
     /// A window too small for an honest panel composes none; the panels' keys
     /// keep working regardless, so `Escape` is never trapped behind a resize.
     fn panel_contents(&mut self) -> Vec<PanelContent> {
+        // Taken before the shell is borrowed below, and `None` unless the
+        // explorer is placed as a sidebar *and* this window can hold one —
+        // the same one answer the left reserve is computed from, so the band
+        // that is reserved and the panel that is drawn cannot disagree.
+        let sidebar = self.explorer_sidebar_fit();
         let Some(shell) = &mut self.shell else {
             return Vec::new();
         };
@@ -171,6 +177,11 @@ impl DesktopApp {
         else {
             return Vec::new();
         };
+        // The same measurement the top reserve is made from, so a sidebar's
+        // top edge and the document's agree rather than being two numbers.
+        let strip = shell
+            .overlay
+            .tab_strip_height(u32_to_f32(shell.surface.height()));
         let Some(editor) = self.workspace.active_editor() else {
             return Vec::new();
         };
@@ -183,7 +194,18 @@ impl DesktopApp {
             panels.push(self.history.content(editor, theme, fit));
         }
         if let Some(explorer) = self.explorer.as_mut() {
-            panels.push(explorer.content(theme, fit));
+            let mut content = explorer.content(theme, sidebar.unwrap_or(fit));
+            // ⭐ The anchor is set here rather than in the panel, and that is
+            // the whole of what the explorer knows about being a sidebar:
+            // nothing. Its rows, its keys and its filter are the same code in
+            // both placements, so there is nothing to keep in step.
+            if let Some(sidebar) = sidebar {
+                content.anchor = PanelAnchor::Left {
+                    top: strip,
+                    interior_rows: sidebar.max_interior_rows,
+                };
+            }
+            panels.push(content);
         }
         if self.palette_open {
             panels.push(self.palette.content(editor, &self.mru, theme, fit));

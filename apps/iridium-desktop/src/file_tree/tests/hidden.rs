@@ -28,10 +28,7 @@ use crate::overlay::PanelFit;
 /// [`FIT`] is 40 columns and deliberately kept that way — it is the narrow
 /// case, and one of the tests below is about what a panel that cannot hold
 /// both decides to keep.
-const WIDE: PanelFit = PanelFit {
-    content_columns: 60,
-    max_interior_rows: 20,
-};
+const WIDE: PanelFit = PanelFit::popover(60, 20);
 
 /// A project whose root holds two dotfiles among ordinary ones.
 fn project() -> TempDir {

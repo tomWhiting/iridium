@@ -329,14 +329,7 @@ mod tests {
 
     /// The composed rows as plain text at a generous size.
     fn rows_text(panel: &mut HistoryPanel, editor: &Editor) -> Vec<String> {
-        let content = panel.content(
-            editor,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 12,
-            },
-        );
+        let content = panel.content(editor, &Theme::dark(), PanelFit::popover(60, 12));
         content
             .rows
             .iter()
@@ -479,14 +472,7 @@ mod tests {
     fn the_selected_row_is_flagged_for_the_painter() {
         let editor = linear_history();
         let mut panel = open_panel();
-        let content = panel.content(
-            &editor,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 12,
-            },
-        );
+        let content = panel.content(&editor, &Theme::dark(), PanelFit::popover(60, 12));
         let selected: Vec<usize> = content
             .rows
             .iter()

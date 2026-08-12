@@ -56,10 +56,7 @@ fn a_large_directory_fills_the_window_rather_than_stopping_at_the_palettes_cap()
     }
 
     let mut explorer = opened(&directory);
-    let tall = PanelFit {
-        content_columns: 40,
-        max_interior_rows: 26,
-    };
+    let tall = PanelFit::popover(40, 26);
     let rows = explorer.content(&Theme::dark(), tall).rows.len();
 
     // One query row plus twenty-five list rows: the window's own limit, less
@@ -89,10 +86,7 @@ fn a_short_window_still_bounds_the_panel_below_its_own_ceiling() {
     }
 
     let mut explorer = opened(&directory);
-    let short = PanelFit {
-        content_columns: 40,
-        max_interior_rows: 6,
-    };
+    let short = PanelFit::popover(40, 6);
     assert_eq!(explorer.content(&Theme::dark(), short).rows.len(), 6);
 }
 
@@ -238,10 +232,7 @@ fn the_window_follows_the_selection_past_the_bottom_and_back() {
     }
 
     let mut explorer = opened(&directory);
-    let narrow = PanelFit {
-        content_columns: 40,
-        max_interior_rows: 5,
-    };
+    let narrow = PanelFit::popover(40, 5);
 
     for _ in 0..20 {
         explorer.handle_key(&press(KeyCode::Down));
@@ -460,10 +451,7 @@ fn a_panel_too_narrow_for_both_keeps_the_field_and_drops_the_hint() {
     std::fs::write(directory.path().join("a.txt"), "a").expect("the fixture was written");
 
     let mut explorer = opened(&directory);
-    let narrow = PanelFit {
-        content_columns: BROWSE_HINT.chars().count() + 2,
-        max_interior_rows: 20,
-    };
+    let narrow = PanelFit::popover(BROWSE_HINT.chars().count() + 2, 20);
 
     let row = query_row(&mut explorer, narrow);
     assert!(

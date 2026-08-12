@@ -65,10 +65,7 @@ pub(in crate::file_tree) fn meta(key: KeyCode) -> KeyEvent {
 }
 
 /// A window big enough for everything these tests compose.
-pub(in crate::file_tree) const FIT: PanelFit = PanelFit {
-    content_columns: 40,
-    max_interior_rows: 20,
-};
+pub(in crate::file_tree) const FIT: PanelFit = PanelFit::popover(40, 20);
 
 /// How long a test waits for a directory read before calling it hung.
 pub(in crate::file_tree) const PATIENCE: Duration = Duration::from_secs(10);

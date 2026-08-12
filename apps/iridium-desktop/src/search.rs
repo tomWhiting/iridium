@@ -644,14 +644,7 @@ mod tests {
 
     /// The panel's rows as plain text at a generous width.
     fn rows_text(overlay: &SearchOverlay, editor: &Editor) -> Vec<String> {
-        let content = overlay.content(
-            editor,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 12,
-            },
-        );
+        let content = overlay.content(editor, &Theme::dark(), PanelFit::popover(60, 12));
         content.rows.iter().map(super::PanelRow::text).collect()
     }
 
@@ -839,14 +832,7 @@ mod tests {
         let (mut overlay, mut editor) = open_over("ab ab");
         type_text(&mut overlay, &mut editor, "ab");
         overlay.handle_key(&press(KeyCode::Home), &mut editor);
-        let content = overlay.content(
-            &editor,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 12,
-            },
-        );
+        let content = overlay.content(&editor, &Theme::dark(), PanelFit::popover(60, 12));
         let caret = content.caret.expect("the focused field has a caret");
         assert_eq!(caret.row, 0);
         assert_eq!(
@@ -863,12 +849,9 @@ mod tests {
         let content = overlay.content(
             &editor,
             &Theme::dark(),
-            PanelFit {
-                // Label 8 + field floor 8 + gap 1 leaves 6: the count "1 of 2"
-                // fits, the toggles do not.
-                content_columns: 23,
-                max_interior_rows: 12,
-            },
+            // Label 8 + field floor 8 + gap 1 leaves 6: the count "1 of 2"
+            // fits, the toggles do not.
+            PanelFit::popover(23, 12),
         );
         let row = content.rows[0].text();
         assert!(row.contains("1 of 2"), "{row:?}");
@@ -880,14 +863,7 @@ mod tests {
         let (mut overlay, mut editor) = open_over("aaa");
         overlay.handle_key(&press(KeyCode::Tab), &mut editor);
         type_text(&mut overlay, &mut editor, "b");
-        let content = overlay.content(
-            &editor,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 40,
-                max_interior_rows: 1,
-            },
-        );
+        let content = overlay.content(&editor, &Theme::dark(), PanelFit::popover(40, 1));
         assert_eq!(content.rows.len(), 1);
         assert!(
             content.rows[0].text().starts_with("Replace"),

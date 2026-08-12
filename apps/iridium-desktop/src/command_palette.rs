@@ -500,15 +500,7 @@ mod tests {
 
     /// The composed rows as plain text at a generous size.
     fn rows_text(panel: &mut CommandPalette, editor: &Editor, mru: &CommandMru) -> Vec<String> {
-        let content = panel.content(
-            editor,
-            mru,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 13,
-            },
-        );
+        let content = panel.content(editor, mru, &Theme::dark(), PanelFit::popover(60, 13));
         content
             .rows
             .iter()
@@ -669,15 +661,7 @@ mod tests {
     fn the_query_is_shown_in_the_input_row_with_the_caret_after_it() {
         let (mut panel, editor, mru) = open_palette();
         type_text(&mut panel, &editor, &mru, "fold");
-        let content = panel.content(
-            &editor,
-            &mru,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 13,
-            },
-        );
+        let content = panel.content(&editor, &mru, &Theme::dark(), PanelFit::popover(60, 13));
         assert!(
             content.rows[0].text().starts_with("> fold"),
             "the query is visible: {:?}",
@@ -695,15 +679,7 @@ mod tests {
     #[test]
     fn one_result_row_is_marked_selected() {
         let (mut panel, editor, mru) = open_palette();
-        let content = panel.content(
-            &editor,
-            &mru,
-            &Theme::dark(),
-            PanelFit {
-                content_columns: 60,
-                max_interior_rows: 13,
-            },
-        );
+        let content = panel.content(&editor, &mru, &Theme::dark(), PanelFit::popover(60, 13));
         let selected: Vec<usize> = content
             .rows
             .iter()

@@ -32,9 +32,7 @@ use super::panel::{FileExplorer, PROMPT};
 use super::rows::{RowShape, depths, edited_name_column, edited_row, entry_row};
 use crate::line::{LineBuilder, skip_chars};
 use crate::overlay::scroll_for;
-use crate::overlay::{
-    EXPLORER_MAX_VISIBLE_ROWS, PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span,
-};
+use crate::overlay::{PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span};
 
 /// What the label at the top of an editing session says after its verb.
 const EDIT_HINT: &str = "⌘S to apply    esc to stop";
@@ -141,8 +139,7 @@ impl FileExplorer {
     /// [`follow_selection`]: Self::follow_selection
     fn edit_content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
         let total = self.row_count();
-        let ceiling = EXPLORER_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.saturating_sub(1).max(1));
-        let visible = total.clamp(1, ceiling);
+        let visible = total.clamp(1, fit.max_browse_rows);
         self.follow_selection(total, visible);
 
         let cursor = self.mode.cursor();
@@ -229,12 +226,13 @@ impl FileExplorer {
     /// The query row, then the visible slice of whichever list is showing.
     fn browse_content(&mut self, theme: &Theme, fit: PanelFit) -> PanelContent {
         let total = self.row_count();
-        // At least one row, so a tree whose root has not listed yet still
-        // says "Reading…" rather than composing an empty panel; and never
-        // more than the panel's own limit or the window's, less the query
-        // row that is always drawn.
-        let ceiling = EXPLORER_MAX_VISIBLE_ROWS.min(fit.max_interior_rows.saturating_sub(1).max(1));
-        let visible = total.clamp(1, ceiling);
+        // At least one row, so a tree whose root has not listed yet still says
+        // "Reading…" rather than composing an empty panel; and never more than
+        // the placement affords. ⭐ `max_browse_rows` has already given up the
+        // query row and applied whichever ceiling the placement carries — this
+        // screen deliberately does not know whether it is a popover or a
+        // sidebar, which is what keeps the two from drifting apart.
+        let visible = total.clamp(1, fit.max_browse_rows);
         self.follow_selection(total, visible);
 
         let mut rows = Vec::with_capacity(visible + 1);

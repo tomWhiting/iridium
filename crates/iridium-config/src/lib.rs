@@ -62,6 +62,7 @@ pub mod problem;
 pub mod settings;
 pub mod suggest;
 pub mod template;
+mod template_keys;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub mod theme;
@@ -71,4 +72,4 @@ pub use keys::KEYMAP_NAME;
 pub use load::UserConfig;
 pub use location::{CONFIG_DIRECTORY, CONFIG_FILE, config_path, user_config_path};
 pub use problem::{Problem, Section};
-pub use template::{Created, create_if_absent, default_config};
+pub use template::{Created, FaceKeys, create_if_absent, default_config};

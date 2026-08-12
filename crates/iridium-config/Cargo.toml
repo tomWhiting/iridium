@@ -29,6 +29,26 @@ path = "src/lib.rs"
 # the kernel's answers — this crate only turns a file into them.
 iridium-editor.workspace = true
 
+# ⭐ **For the template, and for nothing else.** The file this crate writes on a
+# first run has to list *every* binding, and 42 of them belong to the file
+# explorer, whose default keys live in that panel rather than in the kernel.
+# The panel's *commands* are registered in the kernel — #91 put them there — but
+# which key runs each one is the panel's answer, and a template that could not
+# ask it would ship a menu missing a third of its entries.
+#
+# ⚠️ **This adds no crate to any build.** Both consumers of this crate,
+# `apps/iridium` and `apps/iridium-desktop`, already depend on `iridium-panel`
+# (`grep iridium-panel apps/*/Cargo.toml`), so the edge is a graph edge and not
+# a compilation. There is no cycle: `iridium-panel` deliberately takes its user
+# layer as a `Keymap` argument rather than reading a configuration file, so it
+# does not and will not depend on this crate.
+#
+# The alternative — having each face contribute the panel's layer to the
+# template — was rejected: two callers would each have to remember, and a face
+# that forgot would write a file that looked complete and was not. That is the
+# defect class #116 was.
+iridium-panel.workspace = true
+
 # The file format. `toml` rather than JSON because a configuration file is
 # written by hand and read by eye: comments survive, trailing commas are not a
 # class of error, and a section heading is a section heading.

@@ -212,7 +212,7 @@ impl DesktopApp {
             ));
             return Flow::Running;
         };
-        if let Err(error) = iridium_config::create_if_absent(&path) {
+        if let Err(error) = crate::commands::create_config_if_absent(&path) {
             // Reported, unlike at startup. There it is a courtesy nobody
             // asked for; here somebody pressed a key and is owed an answer.
             self.message = Some(Message::error(format!(

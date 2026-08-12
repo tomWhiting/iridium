@@ -1152,6 +1152,56 @@ looked whole. A receipt has to name the *artefact*, not the *command*.
 4. Tell Tom, because it changes what he can try: the desktop face is current,
    the terminal face on his box is from 3 August.
 
+### 5a. ✅ CLOSED — all four steps done, 13 Aug 2026
+
+**1 and 2, the ground.** `install.sh` builds `-p iridium-desktop` through
+`bundle.sh` and nothing else; `bundle.sh` builds the same one target and
+assembles the `.app`. Neither has ever named `apps/iridium`. And the 3 Aug
+binary was explained by `install.sh`'s own migration branch: a pre-existing
+`~/.local/bin/iridium` that is not the shim was `mv`'d to `iridium-tui`, and
+**`mv` preserves the mtime**, so the 3 Aug 15:23 stamp is the date the *hand
+installed* terminal binary was built, not the date it was moved (9 Aug).
+⭐ **An installer gap, not a regression** — nothing broke, the path was never
+there.
+
+**3, the fix.** `apps/iridium-desktop/bundle/install.sh`:
+
+- ⭐ **Builds the terminal face in the same run**, after `bundle.sh` and
+  **before anything is replaced**, so a terminal face that fails to compile
+  leaves the installed desktop face untouched instead of half swapped.
+- Installs it to `$BINDIR/iridium-tui` — where the shim's own `--tui` already
+  looked, so the launcher needed no change at all.
+- ⭐ **Both commands are placed by RENAME**, via a new `place()`: write to
+  `<dest>.incoming.$$`, then `mv` within the directory. A running binary
+  cannot be written to (ETXTBSY) and a running shell script is read from disk
+  as it executes; a rename swaps the directory entry and leaves any live
+  process on the inode it already opened. This is why an open terminal editor
+  needs no refusal the way a live `iridium-desktop` does.
+- The old preserve-and-refuse branch is gone. It moved a non-shim `iridium`
+  aside to `iridium-tui` *because nothing else produced that file*. Something
+  does now — this checkout, one line earlier — so moving a stale copy of the
+  same program on top of a fresh one would lose the fresh one. It is reported
+  as `superseded` instead. **The terminal face is installed first precisely so
+  that word is true when it is printed.**
+- Every receipt line now names the artefact: `installed … (the desktop face)`,
+  `(the terminal face — …)`, `(the command)`.
+
+**4, the proof.** Re-run, exit 0. Measured either side of it:
+
+| | before | after |
+|---|---|---|
+| `~/.local/bin/iridium-tui` | 14,156,752 · **3 Aug 15:23** | 14,933,888 · **13 Aug 00:59** |
+| `strings` · the sidebar-refusal sentence | **0** | **1** |
+| `strings` · `iridium-panel/src/explorer` | **0** | **5** |
+
+`file` says `Mach-O 64-bit executable arm64`; `iridium --tui --help` runs it
+and exits 0; no `.incoming` file was left behind.
+
+⚠️ `iridium-tui/src/frame/file_explorer` is **0** in the binary and that is
+**not** a miss — nothing in that module panics, so rustc embeds no `file!()`
+string for it. The refusal sentence is the load-bearing marker: it is a string
+literal, it exists in exactly one file in the tree, and it landed this session.
+
 **The commands, kept for re-running after the fix:**
 
 ```bash

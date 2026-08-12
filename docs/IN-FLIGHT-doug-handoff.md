@@ -1022,10 +1022,10 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
 
-`origin/main = 479555d4`, **0 unpushed**, verified from the remote. Ten gates
+`origin/main = dd764572`, **0 unpushed**, verified from the remote. Ten gates
 green. Working tree clean apart from untracked `.claude/skills/`.
 
-**#113 is open and step 1 has landed.** Everything about it lives in
+**#113 is open; steps 1 and 2 have landed.** Everything about it lives in
 `docs/IN-FLIGHT-113-modality.md` — six ground findings with `file:line`, seven
 rulings, a five-step build order, and the step-1 write-up. **Read that file, not
 this section**, which exists only to say where the thread is.
@@ -1045,9 +1045,11 @@ that already exist*, but it decides which muscle memory works, so it is his.
 **Steps 1–3 are needed whichever way he rules**, which is why the fork is not
 blocking anything.
 
-**Next: step 2** — a minimal built-in modal keymap, off by default, normal and
-insert only. First point where resolver, mode, statusline and typing gate are
-exercised end to end.
+**Next: step 3 — counts.** `with_count_prefix` appears **zero times** in the
+default keymap, so `3j` is not a feature that is off, it is one that was never
+wired. The guarding test is named for the requirement and gets written first:
+**`three_of_a_verb_is_one_undo_step`** — the count cannot be "run the action N
+times" at the dispatch layer, because that produces N history entries.
 
 ---
 

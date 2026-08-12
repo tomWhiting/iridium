@@ -492,3 +492,68 @@ working directory", const becomes `"docs/CONTROL-ANCHOR.txt"`. Then cwd becomes
 load-bearing and one question tests both facts. Residual risk named: a harness
 with no meaningful cwd would then always fail — which is itself worth knowing
 before a long run rather than after.
+
+---
+
+## The eight stashes — CLEARED 12 Aug 2026, on Tom's instruction
+
+Tom, 12 Aug 2026: *"Yes, so happy for you to clear the stashes."* That is the
+instruction the standing rule required — the stashes were never to be touched
+without one naming them.
+
+⭐ **The SHAs are recorded here BEFORE the drop, and that is the point of this
+section.** `git stash clear` removes the stash reflog, so the entries can no
+longer be named as `stash@{n}` — but the commit objects survive until git
+prunes unreachable objects (`gc.pruneExpire`, **two weeks** by default). Within
+that window any of these can be recovered by SHA:
+
+```
+git show --no-ext-diff <sha>          # look at one
+git stash apply <sha>                 # put one back
+```
+
+⚠️ **After roughly 26 Aug 2026 these SHAs are of historical interest only.**
+Said plainly because a list of hashes reads as a permanent safety net and is
+not one.
+
+| stash | SHA | contents |
+| --- | --- | --- |
+| `{0}` | `015c05d3cfdf2a8613727e9e791f8819a5370ea7` | `.claude` session files only |
+| `{1}` | `63bc71e10fc0a5abb50a01babf654dca276a7efa` | `.claude` session files only |
+| `{2}` | `769ddcee00f5c3d00c8bea4da425c0612a0a2559` | **the only one with code — 26 files, and it is a rustfmt run** |
+| `{3}` | `cb2c9b1d3647f224c6cf504fc5bfc8fbafaaf222` | `.claude` session files only |
+| `{4}` | `727f91660b9c7c3a69e337c5e77d94b2b10c8c86` | `.claude` session files only |
+| `{5}` | `ef0a5ca3538a12bcd0a29a39d0c9f48e29644c45` | `.claude` session files only |
+| `{6}` | `7a22a2dd9cfeee4a463759a4f4c0b47c793443b9` | `.claude` session files only |
+| `{7}` | `d8bdfb9494b390a8271433f8ee608b1fd722f785` | `.claude` session files only |
+
+All eight dated **11–12 January 2026**, all auto-named `WIP on …`, all from the
+old `001-iridium-editor` / `vk/*-phase-N` branches. `{2}` could not have been
+applied in any case: its two largest files, `input/keyboard.rs` and
+`history/undo_tree.rs`, no longer exist — both were split into directories
+since — and the `fmt` gate is green, so its result is already true of the tree.
+
+## Installed and verified — 12 Aug 2026 18:25
+
+Tom closed the app, so `bundle/install.sh` could run (it refuses while
+`iridium-desktop` is up, by design).
+
+⚠️ `/Applications/iridium.app` and `/Applications/Iridium.app` are **one
+bundle, not two** — same inode, `1159653437`. Checked, because the installer
+prints the lowercase name and the earlier measurement used the capital.
+
+`strings` receipt against the installed binary, positive controls included so a
+zero would mean absence rather than a bad pattern:
+
+| pattern | hits |
+| --- | --- |
+| `tab to edit these rows` | 1 (control) |
+| `file.save` | 1 (control) |
+| `file.saveAs` | **1** — #111 |
+| `file.new` | **1** — #111 |
+| `hidden (` | **1** — #112b |
+| `Save As` / `New File` | 1 / 1 |
+
+Before the install every one of the new patterns was **0** against the same
+three controls at 1/1/2. Committed, pushed **and installed** — three different
+places, all three now true.

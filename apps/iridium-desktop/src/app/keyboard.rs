@@ -172,7 +172,7 @@ impl DesktopApp {
             },
             // The panel asks; the host owns the placement — see
             // [`DesktopApp::toggle_explorer_placement`].
-            ExplorerOutcome::TogglePlacement => self.toggle_explorer_placement(),
+            ExplorerOutcome::ToggleSidebar => self.toggle_sidebar(),
             // The panel stays open. What failed is one operation inside it,
             // not the panel, and closing over an error would take away the
             // thing the user was in the middle of.

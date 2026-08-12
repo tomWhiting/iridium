@@ -67,23 +67,31 @@ pub const HISTORY_TOGGLE_PANEL: CommandId = CommandId::from_static("history.togg
 /// business knowing whether the host has one.
 pub const EXPLORER_TOGGLE_PANEL: CommandId = CommandId::from_static("explorer.togglePanel");
 
-/// Move the file explorer between a floating panel and a sidebar.
+/// Show the file explorer as a sidebar, or put it away.
 ///
 /// Bound to `Ctrl+Alt+B` by the default keymap and to `⌘B` by the desktop
 /// face's ⌘ layer — the spelling VS Code and Zed both use for the sidebar, so a
 /// hand that has used either arrives knowing it.
 ///
-/// ⭐ **A placement, not a second panel.** The same explorer is drawn either
-/// way, with the same rows, keys, filter and edit mode; what changes is where
-/// it sits, how much of the window it may fill, and whether it holds key focus.
-/// Two ids — "open the sidebar", "open the panel" — would be two things to bind
-/// and two states to reconcile when both were somehow on.
+/// ⭐ **An on/off switch for the sidebar, not a cycle through the
+/// placements.** Pressing it twice puts the explorer up and then away, which is
+/// what `⌘B` does everywhere else it exists. It first read as "move to the
+/// other placement", so a second press moved the panel back to the middle of
+/// the window instead of dismissing it — Tom, 12 Aug 2026: *"when you command-B
+/// a second time, it just alternates between that and the central version …
+/// that's an issue"*. The capability is unchanged; what changed is that the key
+/// names a **state** rather than a **transition**, which is the only kind of
+/// toggle a hand can predict.
+///
+/// The floating panel remains reachable: closing the sidebar with this key
+/// leaves the explorer's placement back at the floating panel that
+/// [`EXPLORER_TOGGLE_PANEL`] opens, so the pair covers both without a third id.
 ///
 /// ⚠️ **The kernel names it and knows nothing else about it.** Whether a face
 /// *has* two placements is the face's business: the browser face has one
 /// document and no window furniture to speak of, and a face with nowhere to put
 /// a column is free to report this unimplemented rather than pretending.
-pub const EXPLORER_TOGGLE_PLACEMENT: CommandId = CommandId::from_static("explorer.togglePlacement");
+pub const EXPLORER_TOGGLE_SIDEBAR: CommandId = CommandId::from_static("explorer.toggleSidebar");
 
 /// Swap the editor between its light and dark themes.
 ///
@@ -152,9 +160,9 @@ pub static HOST: &[CommandMeta] = &[
     )
     .with_aliases(&["files", "file tree", "explorer", "open file"]),
     CommandMeta::described(
-        EXPLORER_TOGGLE_PLACEMENT,
+        EXPLORER_TOGGLE_SIDEBAR,
         "Toggle Explorer Sidebar",
-        "Moves the file explorer between a floating panel and a column beside the document.",
+        "Shows the file explorer as a column beside the document, or puts it away.",
         CommandCategory::GENERAL,
     )
     .with_aliases(&["sidebar", "side bar", "dock explorer", "file tree sidebar"]),

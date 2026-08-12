@@ -262,14 +262,14 @@ export interface HostCommandIds {
    */
   readonly explorerTogglePanel: string;
   /**
-   * Move the file explorer between a floating panel and a sidebar.
+   * Show the file explorer as a sidebar, or put it away.
    *
    * Named here for the reason above, and it is the same case one step
    * further along: a page with one document and no window furniture has
    * nowhere to put a column, so this is one the web face can only ever
    * report. The kernel binds `Ctrl+Alt+B` regardless.
    */
-  readonly explorerTogglePlacement: string;
+  readonly explorerToggleSidebar: string;
   /**
    * Swap between the light and dark themes.
    *

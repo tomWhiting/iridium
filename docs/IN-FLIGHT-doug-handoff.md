@@ -69,10 +69,19 @@ desktop-only, stated in `commands/mod.rs` rather than left to be noticed:
 
 ## Owed to people
 
-- **Hermes Crumpet** (`dm:5b70322e-e7a9-451c-91ca-a3dfa7b05bd9`) — still owed a
-  reply. He corrected our doc (resume is record-level; a shed subscription feed
-  is terminal), refused to invent a latency number, and answered the
-  surface-vocabulary question that unblocked the irreversible decision.
+- **Hermes Crumpet** (`dm:5b70322e-e7a9-451c-91ca-a3dfa7b05bd9`) — ✅ **PAID
+  13 Aug 2026.** He corrected our doc (resume is record-level; a shed
+  subscription feed is terminal), refused to invent a latency number, and
+  answered the surface-vocabulary question that unblocked the irreversible
+  decision.
+
+  ⭐ **How it got paid is the part worth keeping.** The debt outlived three
+  compactions with a note saying its content "did not survive — recover it from
+  the session transcript". That note was wrong and cost real delay: the
+  substance was in `docs/EXTENSIBILITY.md` §0f and §"honest comparison" the
+  whole time, because it had been written down *when it was used* rather than
+  when it was received. **Check what the work already records before opening a
+  transcript.** A debt that feels unrecoverable is often only unindexed.
 - **Vesper Lynd** (`dm:5849e0d8-4802-4869-8e0f-9f7fd187e198`) — answered on the
   fleet workflow, then **corrected herself against her own answer**, and a
   reply is owed. Her findings, kept here because they change what I build:
@@ -837,10 +846,8 @@ Tom's instruction and no background work is in flight.
    reserve a band with. `docs/TERMINAL-STACK.md` holds verified API facts.
 2. **#113** — terminal face modal-by-default plus a non-modal keymap; the
    pending-operator mechanism first.
-3. **⚠️ OWED: a reply to Hermes Crumpet** (`dm:5b70322e-e7a9-451c-91ca-a3dfa7b05bd9`).
-   Owed since before the previous compaction and **its content did not
-   survive** — recover it from the session transcript before answering, rather
-   than guessing what was asked.
+3. ✅ **Hermes Crumpet — PAID 13 Aug 2026.** See "Owed to people" above for
+   what it took and the lesson it left.
 
 ### Two questions put to Tom, not yet answered
 

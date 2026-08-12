@@ -65,6 +65,23 @@ use crate::commands::{
 };
 use crate::verbs::{Availability, ResolvedVerb, Row, resolve};
 
+/// A command chosen from the menu bar, on its way to the event loop.
+///
+/// ⭐ **The whole reason this type exists is that an `AppKit` action cannot
+/// touch [`DesktopApp`].** The callback fires while `run_app(&mut app)` holds
+/// the app for the loop's lifetime, so the item hands the id to an
+/// `EventLoopProxy` instead — which both enqueues it *and* wakes a
+/// `ControlFlow::Wait` loop that would otherwise be asleep — and the command
+/// runs on the loop's next turn, on the same kernel-first path a chord, a
+/// palette entry and a context-menu row take.
+///
+/// Declared here rather than beside the `AppKit` code so `run.rs` and the
+/// event handler can name it without a `cfg`.
+///
+/// [`DesktopApp`]: crate::app::DesktopApp
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuCommand(pub iridium_editor::CommandId);
+
 /// One menu of the bar, resolved against a live session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Menu {

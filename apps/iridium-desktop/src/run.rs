@@ -27,6 +27,7 @@ use iridium_config::theme::ThemeChoice;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::app::{DesktopApp, Options};
+use crate::menubar::MenuCommand;
 
 /// What an invocation looks like, shown for a command line that is not one.
 pub const USAGE: &str = "\
@@ -95,7 +96,14 @@ pub fn main() -> ExitStatus {
         Err(error) => return fail(&format!("iridium-desktop: {error}\n")),
     };
 
-    let event_loop = match EventLoop::new() {
+    // ⭐ **`with_user_event` rather than `EventLoop::new`, for exactly one
+    // reason**: the macOS menu bar. An `AppKit` menu action fires while
+    // `run_app` holds the app, so it cannot touch it; the item sends the
+    // command id through an [`EventLoopProxy`] instead, which both enqueues it
+    // *and* wakes the loop — and with `ControlFlow::Wait` the loop is asleep
+    // whenever nothing is happening, which is precisely when somebody reaches
+    // for a menu.
+    let event_loop = match EventLoop::<MenuCommand>::with_user_event().build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
             return fail(&format!(
@@ -104,6 +112,10 @@ pub fn main() -> ExitStatus {
         },
     };
     event_loop.set_control_flow(ControlFlow::Wait);
+    // The proxy is made here because only an `EventLoop` can make one — an
+    // `ActiveEventLoop`, which is all `resumed` gets, cannot. The app holds it
+    // until `resumed` installs the bar and then hands it to the menu target.
+    app.attach_menu_proxy(event_loop.create_proxy());
 
     match event_loop.run_app(&mut app) {
         // A failure inside the loop had no way out but the field; see

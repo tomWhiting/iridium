@@ -369,6 +369,11 @@ impl DesktopApp {
             history_open: false,
             prompt: None,
             message,
+            // Attached by `run.rs` once the event loop exists, because that
+            // is the only thing that can make a proxy. A session built
+            // without one — every session `cargo test` builds — has no menu
+            // bar at all rather than a dead one.
+            menu_proxy: None,
             latency: LatencyMonitor::from_env(),
             // A `--theme` on the command line is an explicit choice, so it
             // pins from the first frame: the window never reads the system

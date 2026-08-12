@@ -92,6 +92,7 @@ mod handler;
 mod host_commands;
 mod keyboard;
 mod menu;
+mod menubar;
 mod paint;
 mod panel_mouse;
 mod pointer;

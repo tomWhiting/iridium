@@ -19,6 +19,7 @@ use iridium_editor::Editor;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::workspace::{DocumentId, Workspace};
 use iridium_file::TextFile;
+use winit::event_loop::EventLoopProxy;
 use winit::keyboard::ModifiersState;
 
 use super::startup::Shell;
@@ -29,6 +30,7 @@ use crate::file_tree::FileExplorer;
 use crate::highlight::HighlightCache;
 use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
+use crate::menubar::MenuCommand;
 use crate::mouse::Pointer;
 use crate::overlay::{PaintedFrame, PanelKind};
 use crate::prompt::{Message, Prompt};
@@ -213,6 +215,15 @@ pub struct DesktopApp {
     pub(super) prompt: Option<Prompt>,
     /// What the last input had to say, shown on the strip until the next key.
     pub(super) message: Option<Message>,
+    /// The channel the macOS menu bar hands a chosen command back through.
+    ///
+    /// ⭐ **`None` means no menu bar is installed at all**, not a menu bar
+    /// whose items do nothing. An `AppKit` action cannot touch this struct —
+    /// `run_app` holds it for the loop's lifetime — so a proxy is the only way
+    /// a menu item reaches a command, and a menu that cannot run what it
+    /// offers is furniture. `run.rs` attaches one; the test suite builds
+    /// sessions without, and those sessions correctly have no menu bar.
+    pub(super) menu_proxy: Option<EventLoopProxy<MenuCommand>>,
     /// Keydown-to-present measurement, armed by `IRIDIUM_LATENCY`; one
     /// branch per event when it is not. See [`crate::latency`].
     pub(super) latency: LatencyMonitor,

@@ -571,3 +571,72 @@ git stash show --stat --no-ext-diff 769ddcee… -> 26 files changed, 619 inserti
 ```
 
 So the table above is usable as written, for about two weeks.
+
+---
+
+## ⛔ My "read-only run 1" ruling was half a mechanism — measured 12 Aug 2026
+
+I ruled `permission "deny"` for the first fleet run and justified it as a
+*mechanism* rather than a promise. Measured against the document:
+
+```
+worker iridium_build      (kind norn)  -> 0 permission fields
+worker iridium_oversight  (kind acp)   -> permission "deny"
+```
+
+⚠️ **`permission` is an ACP field. The checker refuses it on a norn seam
+outright** — `crates/aion-awl/src/checker/harness.rs`, `fn check_norn`:
+*"Norn's argv is the adapter's, so there is no `command` to declare and no
+`cwd` and no permission policy: those are ACP's, and one written here would
+configure nothing."*
+
+⇒ **The permission gate governs the seam that reviews, not the seam that
+writes.** The builder is ungoverned by the document. My ruling is therefore
+accurate about the oversight seam and was, as stated, wrong about the fleet.
+
+Restated honestly: **run 1 is read-only by mechanism on the oversight seam and
+by instruction on the builder.** Those are not the same guarantee and must not
+be written as though they were.
+
+### What follows from that, done rather than noted
+
+1. **The build brief now names every banned command individually** — `git
+   stash`, `git checkout`, `git checkout --`, `git restore`, `git reset`, `git
+   clean`, `git worktree`, `git add -A`, `git rebase` — with the one sanctioned
+   restore (`git show HEAD:<path> > <path>`), the note that `git mv` is
+   permitted, and an instruction to stop and report rather than reason around
+   any of them. That brief is now the *only* control on the builder, so it
+   carries the whole list rather than a category.
+2. It also warns that this is a **live checkout a person is working in**: stage
+   nothing, revert nothing you did not write, never operate on "all changes".
+3. Run 1's task must be one that needs no writes, and the check afterwards is
+   `git status --porcelain` — **a measurement, not a promise.**
+
+### The other correction: `env_pass`
+
+Changed from my own `PATH, HOME, TMPDIR` to add **`USER` and `LOGNAME`**, on
+Vesper's measurement: without them a scrubbed-environment agent could not find
+its login and answered *"Not logged in"* rather than failing. ⭐ I excluded them
+reasoning "minimal is safer on a shared box" — but minimal is only safer when
+what is excluded is a *risk*, and these are not secrets. Their absence produces
+a **plausible wrong answer instead of a refusal**, which is the failure class
+this entire day has been about. Ruling reversed on evidence.
+
+### ⭐ And the anchor file was carrying the wrong project's string
+
+`docs/CONTROL-ANCHOR.txt` was created with market-mirror's line verbatim —
+`mm-fleet-control-anchor-…` — because I copied it from Vesper's description.
+
+The relative-path fix I gave her makes the working directory load-bearing, so a
+misplaced agent opens a *different* file. **It only catches that if the two
+files answer differently.** With an identical string in both trees the misplaced
+agent reads the wrong file, returns the right line and passes. Right and
+plausible-wrong coincided again — one level above the defect the fix addressed,
+and created by the copy rather than by the design. Caught by Vesper before any
+run.
+
+Now `iridium-control-anchor-dcf26d-2026-08-12`, and the file states the rule:
+**one distinct string per repository, never a shared one.** Verified byte-exact
+with `od -c`; `grep -rn mm-fleet-control-anchor` over the repo returns nothing.
+
+`aion awl check workflows/iridium_loop.awl` → `ok (2 steps)`.

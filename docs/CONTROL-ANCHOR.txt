@@ -1,13 +1,12 @@
-mm-fleet-control-anchor-3f7a2c-2026-08-11
+iridium-control-anchor-dcf26d-2026-08-12
 
 ⛔ THE FIRST LINE OF THIS FILE IS LOAD-BEARING AND MUST NOT BE EDITED.
 
-It is the control anchor for the `mm_fleet_loop` workflow
-(`~/.aion/authoring/mm_fleet_loop.awl`, Vesper Lynd's). Before the workflow
-attempts any fleet work, it asks *both* agent seams — the builder and the
-oversight seam — to read this file's first line and return it verbatim. Both
-must return the string above. Anything else and the whole run is refused as
-`unmeasured`; no plan is made, no code is written, no gate is run.
+It is the control anchor for `workflows/iridium_loop.awl`. Before that workflow
+attempts any work, it asks *both* agent seams — the builder and the oversight
+seam — to read this file's first line and return it verbatim. Both must return
+the string above. Anything else and the whole run is refused as `unmeasured`;
+no plan is made, no code is written, no gate is run.
 
 ⭐ WHY A QUESTION WHOSE ANSWER IS ALREADY KNOWN.
 
@@ -22,9 +21,27 @@ pipeline from a dead one. It is asked first, before anything that costs hours.
 Because both seams must answer, it also proves they are pointed at the *same*
 tree, which is the other way this can be wrong without looking wrong.
 
-The string is not a secret and does not need to be. What it establishes is
-reachability, not authenticity: the threat it guards against is a
-misconfiguration, not a forgery.
+⛔⛔ THE PATH IS READ RELATIVE TO THE AGENT'S WORKING DIRECTORY, AND THAT IS
+WHY THIS STRING MUST BE UNIQUE TO THIS REPOSITORY.
+
+An absolute path resolves identically from anywhere, so an absolute read proves
+only that the seam is alive and can reach one named file — standing in the
+wrong tree stays invisible to it. Reading `docs/CONTROL-ANCHOR.txt` *relatively*
+makes the working directory load-bearing: an agent in the wrong project opens a
+different file.
+
+⚠️ **But that only catches anything if the two files answer differently.** This
+file first carried another project's anchor string, copied verbatim when it was
+created — and with the same line in both trees an agent that landed in the
+wrong project would have read the wrong file, returned the right string, and
+passed. Right and plausible-wrong coincided again, one level above the defect
+the relative read was introduced to fix. Caught by Vesper Lynd, 12 Aug 2026,
+before any run.
+
+**So: one distinct string per repository, never a shared one.** It is not a
+secret and does not need to be. What it establishes is *which tree you are
+standing in*, not who you are — the threat is a misconfiguration, not a
+forgery.
 
 Editing, moving or reflowing the first line disarms the guard — and disarms it
 silently, because a run with a broken control step refuses rather than

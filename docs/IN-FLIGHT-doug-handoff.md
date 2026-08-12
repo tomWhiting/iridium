@@ -773,8 +773,31 @@ market-mirror's returns one per leg, and right that it is a script change
 rather than a document one (`ci.sh` takes nothing or `--verdict`, so a leg
 selector is not expressible today).
 
-**Not doing it before run 1.** The first run has not happened; adding
-attribution to a seam nobody has used yet is optimising ahead of evidence.
-The `!!! <name> FAILED` lines are already on stderr in `--verdict` mode, so
-the detail *is* crossing the seam — the open question is whether the judgment
-seat sees stderr at all, which is hers. Asked.
+**Not doing it before run 1** — and she agrees with the sequencing. But she
+then measured the thing I had guessed at, and the answer is **both branches,
+at different seats**. `mm_fleet_loop.awl` splits the channels on purpose:
+
+| seat | fed from | sees |
+| --- | --- | --- |
+| **reviewer** | the legs' **stderr** | the `!!! <name> FAILED (exit N)` naming |
+| **decider** — the seat whose reply routes CONTINUE/DONE | the legs' **stdout**, plus the reviewer's prose | the tokens, nothing else |
+
+So my guess was right for the reviewer and wrong where it matters. Per-leg
+calls buy the reviewer structure rather than information — the stderr already
+names which leg died. ⛔ **The cost is at the decider.** With one token for ten
+legs its only structured input carries one bit, ran/didn't, and *all*
+attribution reaches it through another agent's prose with nothing to check
+that prose against. Hers gets two tokens and can catch a reviewer blaming the
+wrong leg; mine cannot, because there is nothing to disagree with.
+
+⭐ **WHAT TO WATCH IN RUN 1, and this is the whole reason to hold rather than
+guess** (Vesper's, and it is the right instrument): does the decider's reply
+ever attribute a failure to a **named leg**? If it names one, it can only have
+got that from the reviewer's prose — and that is the cost observed live rather
+than predicted. If it never needs leg identity at all, the selector is work
+correctly not done.
+
+**A law from her framing, worth keeping:** *a summary is only checkable if the
+seat reading it also holds something the summary did not produce.* Two tokens
+are not redundancy with the prose; they are the only thing the prose can be
+wrong against.

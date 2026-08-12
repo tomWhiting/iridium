@@ -56,6 +56,10 @@ had asserted the opposite of in `docs/DESKTOP-WALKTHROUGH.md` the day before.
   Configuration") in the palette.
 - **#106** — `iridium` is now on the PATH and opens the GUI. The terminal face
   was **preserved**, not overwritten: `install.sh` moves it to `iridium-tui`.
+  ⚠️ **Superseded 13 Aug 2026 (#116).** Preserving was not installing: the
+  moved binary was never rebuilt again, so the terminal face went ten days
+  stale while the installer reported success. `install.sh` now **builds and
+  installs** it — see `IN-FLIGHT-doug-handoff.md` §5a.
 - **#107** — Open File / Open Folder / Set Project. **STILL OPEN.**
 
 ### ⚠️ THE LESSON, AND IT IS NOT "READ MORE CAREFULLY"

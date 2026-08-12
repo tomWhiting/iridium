@@ -225,3 +225,135 @@ fn every_binding_in_the_modal_keymap_is_reachable() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Counts.
+//
+// A numeric prefix is only reachable in a mode where digits are not text, which
+// is why these live here and not with the default keymap: `with_count_prefix`
+// appears nowhere in the non-modal keymap, so nothing there can absorb a digit.
+// ---------------------------------------------------------------------------
+
+/// Types a decimal count, digit by digit, as a user would.
+fn type_count(
+    handler: &mut KeyboardHandler,
+    count: u32,
+    document: &mut Document,
+    cursor: &mut CursorState,
+) {
+    for digit in count.to_string().chars() {
+        let result = press_at(handler, KeyCode::Char(digit), document, cursor);
+        assert!(
+            matches!(result, KeyResult::Handled),
+            "the digit `{digit}` was not absorbed into a count"
+        );
+    }
+}
+
+#[test]
+fn a_count_repeats_a_horizontal_motion() {
+    let mut document = Document::new("abcdefgh");
+    let mut cursor = CursorState::at(Position::new(0, 0));
+    let mut handler = modal_handler();
+
+    type_count(&mut handler, 3, &mut document, &mut cursor);
+    press_at(&mut handler, KeyCode::Char('l'), &mut document, &mut cursor);
+
+    assert_eq!(cursor.primary.head, Position::new(0, 3));
+}
+
+#[test]
+fn a_count_is_a_hop_size_for_a_vertical_motion() {
+    let mut document = Document::new("a\nb\nc\nd\ne");
+    let mut cursor = CursorState::at(Position::new(0, 0));
+    let mut handler = modal_handler();
+
+    type_count(&mut handler, 3, &mut document, &mut cursor);
+    press_at(&mut handler, KeyCode::Char('j'), &mut document, &mut cursor);
+
+    assert_eq!(cursor.primary.head, Position::new(3, 0));
+}
+
+#[test]
+fn three_of_a_verb_is_one_undo_step() {
+    // The requirement the count mechanism exists to satisfy, and the reason it
+    // is not "run the action three times" at the dispatch layer: `3l` must be a
+    // single entry in the history, so undoing it returns the caret to where it
+    // started rather than to two thirds of the way along.
+    let mut document = Document::new("abcdefgh");
+    let mut cursor = CursorState::at(Position::new(0, 0));
+    let mut handler = modal_handler();
+
+    type_count(&mut handler, 3, &mut document, &mut cursor);
+    let result = handler.handle_key(
+        &KeyEvent::new(KeyCode::Char('l'), Modifiers::none()),
+        &document,
+        &cursor,
+        &UndoTree::new(),
+        &EditorConfig::default(),
+        &CaretScopes::none(),
+    );
+
+    let KeyResult::Command(command) = result else {
+        panic!("a counted motion must produce exactly one command, got {result:?}");
+    };
+    command.apply(&mut document, &mut cursor).expect("applies");
+    assert_eq!(cursor.primary.head, Position::new(0, 3));
+
+    command
+        .inverse()
+        .apply(&mut document, &mut cursor)
+        .expect("inverts");
+    assert_eq!(
+        cursor.primary.head,
+        Position::new(0, 0),
+        "undoing a counted motion must undo the whole count, not part of it"
+    );
+}
+
+#[test]
+fn a_count_larger_than_the_document_stops_at_the_boundary() {
+    // ⚠️ This guards the *clamping* and nothing else. Measured: with the early
+    // break in `apply_repeated_motion` removed, this test still passes — in 174
+    // seconds rather than microseconds. The break itself is guarded by
+    // `a_repeated_motion_stops_calling_the_motion_once_it_stops_moving`, which
+    // counts calls instead of waiting on a clock.
+    let mut document = Document::new("abc");
+    let mut cursor = CursorState::at(Position::new(0, 0));
+    let mut handler = modal_handler();
+
+    type_count(&mut handler, 900_000_000, &mut document, &mut cursor);
+    press_at(&mut handler, KeyCode::Char('l'), &mut document, &mut cursor);
+
+    assert_eq!(cursor.primary.head, Position::new(0, 3));
+}
+
+#[test]
+fn a_count_is_spent_by_the_motion_it_prefixed() {
+    // A count that survived its motion would silently multiply the next one.
+    let mut document = Document::new("abcdefgh");
+    let mut cursor = CursorState::at(Position::new(0, 0));
+    let mut handler = modal_handler();
+
+    type_count(&mut handler, 3, &mut document, &mut cursor);
+    press_at(&mut handler, KeyCode::Char('l'), &mut document, &mut cursor);
+    press_at(&mut handler, KeyCode::Char('l'), &mut document, &mut cursor);
+
+    assert_eq!(cursor.primary.head, Position::new(0, 4));
+    assert_eq!(handler.pending_count(), None);
+}
+
+#[test]
+fn a_digit_is_text_in_insert_mode() {
+    // The other half of "a count is only reachable where digits are not text":
+    // the same keystroke that starts a count in normal mode must reach the
+    // document in insert mode.
+    let mut document = Document::new("");
+    let mut cursor = CursorState::at(Position::new(0, 0));
+    let mut handler = modal_handler();
+
+    press_at(&mut handler, KeyCode::Char('i'), &mut document, &mut cursor);
+    press_at(&mut handler, KeyCode::Char('3'), &mut document, &mut cursor);
+
+    assert_eq!(document.text(), "3");
+}

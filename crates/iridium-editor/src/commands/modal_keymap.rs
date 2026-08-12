@@ -81,11 +81,23 @@ const fn letter(key: char) -> StrokePattern {
 pub fn minimal_modal_keymap() -> Keymap {
     let mut keymap = Keymap::new("modal-minimal");
 
-    // Normal mode: the four motions that already exist in every grammar.
-    keymap.push(KeyBinding::new(letter('h'), &[], CURSOR_CHAR_LEFT).in_mode(NORMAL));
-    keymap.push(KeyBinding::new(letter('j'), &[], CURSOR_LINE_DOWN).in_mode(NORMAL));
-    keymap.push(KeyBinding::new(letter('k'), &[], CURSOR_LINE_UP).in_mode(NORMAL));
-    keymap.push(KeyBinding::new(letter('l'), &[], CURSOR_CHAR_RIGHT).in_mode(NORMAL));
+    // Normal mode: the four motions that already exist in every grammar, each
+    // accepting a numeric prefix. Declaring the prefix is what lets the resolver
+    // absorb a digit at all — and it is only ever safe in a mode where digits
+    // are not text, which is why no binding in the non-modal default declares
+    // one.
+    for (key, command) in [
+        ('h', CURSOR_CHAR_LEFT),
+        ('j', CURSOR_LINE_DOWN),
+        ('k', CURSOR_LINE_UP),
+        ('l', CURSOR_CHAR_RIGHT),
+    ] {
+        keymap.push(
+            KeyBinding::new(letter(key), &[], command)
+                .in_mode(NORMAL)
+                .with_count_prefix(),
+        );
+    }
 
     // The two ways in, and the one way out.
     keymap.push(KeyBinding::enter_mode(letter('i'), &[], INSERT).in_mode(NORMAL));

@@ -38,43 +38,54 @@ impl KeyboardHandler {
     ) -> KeyResult {
         let document = ctx.document;
         let cursor = ctx.cursor;
+        // The numeric prefix a key sequence carried, or 1. Only a keymap that
+        // declares `with_count_prefix` on a binding can ever make this anything
+        // else — no binding in the non-modal default does, so every arm below
+        // behaves exactly as it did before counts existed unless a modal keymap
+        // asked for one.
+        let count = ctx.args.repeat_count();
+        // The same figure as a hop size for the motions that take one as a
+        // parameter rather than repeating. Saturating rather than wrapping: a
+        // count larger than a `usize` is one hop off the end of the document,
+        // which every vertical motion already clamps.
+        let hops = usize::try_from(count).unwrap_or(usize::MAX);
         match action {
             // ----- Navigation and selection -----
-            Action::CharLeft => {
-                Self::apply_motion(cursor, false, |sel| motions::char_left(document, sel.head))
-            },
-            Action::CharLeftSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::char_left(document, sel.head))
-            },
-            Action::CharRight => {
-                Self::apply_motion(cursor, false, |sel| motions::char_right(document, sel.head))
-            },
-            Action::CharRightSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::char_right(document, sel.head))
-            },
-            Action::WordLeft => {
-                Self::apply_motion(cursor, false, |sel| motions::word_left(document, sel.head))
-            },
-            Action::WordLeftSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::word_left(document, sel.head))
-            },
-            Action::WordRight => {
-                Self::apply_motion(cursor, false, |sel| motions::word_right(document, sel.head))
-            },
-            Action::WordRightSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::word_right(document, sel.head))
-            },
-            Action::LineStart => Self::apply_motion(cursor, false, |sel| {
-                motions::line_start_smart(document, sel.head)
+            Action::CharLeft => Self::apply_repeated_motion(cursor, false, count, |head| {
+                motions::char_left(document, head)
             }),
-            Action::LineStartSelect => Self::apply_motion(cursor, true, |sel| {
-                motions::line_start_smart(document, sel.head)
+            Action::CharLeftSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
+                motions::char_left(document, head)
+            }),
+            Action::CharRight => Self::apply_repeated_motion(cursor, false, count, |head| {
+                motions::char_right(document, head)
+            }),
+            Action::CharRightSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
+                motions::char_right(document, head)
+            }),
+            Action::WordLeft => Self::apply_repeated_motion(cursor, false, count, |head| {
+                motions::word_left(document, head)
+            }),
+            Action::WordLeftSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
+                motions::word_left(document, head)
+            }),
+            Action::WordRight => Self::apply_repeated_motion(cursor, false, count, |head| {
+                motions::word_right(document, head)
+            }),
+            Action::WordRightSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
+                motions::word_right(document, head)
+            }),
+            Action::LineStart => Self::apply_motion(cursor, false, |head| {
+                motions::line_start_smart(document, head)
+            }),
+            Action::LineStartSelect => Self::apply_motion(cursor, true, |head| {
+                motions::line_start_smart(document, head)
             }),
             Action::LineEnd => {
-                Self::apply_motion(cursor, false, |sel| motions::line_end(document, sel.head))
+                Self::apply_motion(cursor, false, |head| motions::line_end(document, head))
             },
             Action::LineEndSelect => {
-                Self::apply_motion(cursor, true, |sel| motions::line_end(document, sel.head))
+                Self::apply_motion(cursor, true, |head| motions::line_end(document, head))
             },
             Action::DocumentStart => {
                 Self::apply_motion(cursor, false, |_| motions::document_start())
@@ -88,14 +99,14 @@ impl KeyboardHandler {
             Action::DocumentEndSelect => {
                 Self::apply_motion(cursor, true, |_| motions::document_end(document))
             },
-            Action::LineUp => self.vertical_motion(document, cursor, false, Up),
-            Action::LineUpSelect => self.vertical_motion(document, cursor, true, Up),
-            Action::LineDown => self.vertical_motion(document, cursor, false, Down),
-            Action::LineDownSelect => self.vertical_motion(document, cursor, true, Down),
-            Action::PageUp => self.page_motion(document, cursor, false, Up),
-            Action::PageUpSelect => self.page_motion(document, cursor, true, Up),
-            Action::PageDown => self.page_motion(document, cursor, false, Down),
-            Action::PageDownSelect => self.page_motion(document, cursor, true, Down),
+            Action::LineUp => self.vertical_motion(document, cursor, false, Up, hops),
+            Action::LineUpSelect => self.vertical_motion(document, cursor, true, Up, hops),
+            Action::LineDown => self.vertical_motion(document, cursor, false, Down, hops),
+            Action::LineDownSelect => self.vertical_motion(document, cursor, true, Down, hops),
+            Action::PageUp => self.page_motion(document, cursor, false, Up, hops),
+            Action::PageUpSelect => self.page_motion(document, cursor, true, Up, hops),
+            Action::PageDown => self.page_motion(document, cursor, false, Down, hops),
+            Action::PageDownSelect => self.page_motion(document, cursor, true, Down, hops),
             Action::SelectAll => Self::handle_select_all(document, cursor),
             Action::CollapseToPrimary => Self::handle_collapse_to_primary(cursor),
 

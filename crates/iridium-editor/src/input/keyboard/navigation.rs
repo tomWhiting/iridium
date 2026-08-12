@@ -17,31 +17,86 @@ use super::motions::{self, VerticalDirection};
 use super::types::KeyResult;
 
 impl KeyboardHandler {
-    /// Applies `motion` to every cursor and emits the resulting selection
+    /// Applies `motion` to every cursor once and emits the resulting selection
     /// command.
     ///
     /// `extend` keeps each selection's anchor (the selecting variant of a
     /// motion) instead of collapsing onto the new head. Cursors that converge
     /// are merged by [`motions::apply_to_all`], and an unchanged cursor state
     /// yields [`KeyResult::Handled`] rather than a no-op command.
+    ///
+    /// # Once, and only once
+    ///
+    /// This is the helper for motions a count **cannot** repeat, and the
+    /// distinction is not stylistic. `line_start_smart` *toggles* between the
+    /// first non-whitespace column and column zero, so applying it twice returns
+    /// the caret to where it started; the document and line boundaries are
+    /// absolute, so applying them twice is the same as applying them once.
+    /// Repeating either would be wrong in one case and pointless in the other.
+    /// See [`Self::apply_repeated_motion`] for the ones a count does repeat.
     pub(super) fn apply_motion<F>(cursor: &CursorState, extend: bool, motion: F) -> KeyResult
     where
-        F: Fn(&Selection) -> Position,
+        F: Fn(Position) -> Position,
     {
-        let new_cursor = motions::apply_to_all(cursor, extend, |_, sel| motion(sel));
+        let new_cursor = motions::apply_to_all(cursor, extend, |_, sel| motion(sel.head));
         Self::create_selection_command(cursor, &new_cursor)
     }
 
-    /// Moves every cursor one line up or down, honouring the sticky columns, and
-    /// emits the resulting selection command.
+    /// Applies `motion` to every cursor `count` times and emits **one** selection
+    /// command for the whole journey.
+    ///
+    /// One command, not `count` of them: `3l` is a single entry in the undo
+    /// history, and undoing it returns the caret to where it was before the
+    /// three, not to two thirds of the way through. That is the difference
+    /// between honouring a count here and running the action three times at the
+    /// dispatch layer.
+    ///
+    /// # Why the loop stops early
+    ///
+    /// A motion that returns the position it was given has reached a boundary,
+    /// and no number of further repeats can pass it. Breaking there is what
+    /// bounds `999999999h` by the size of the document rather than by the number
+    /// the user typed — without an arbitrary cap on counts, which would be a
+    /// limit nobody could predict from the outside.
+    pub(super) fn apply_repeated_motion<F>(
+        cursor: &CursorState,
+        extend: bool,
+        count: u32,
+        motion: F,
+    ) -> KeyResult
+    where
+        F: Fn(Position) -> Position,
+    {
+        let new_cursor = motions::apply_to_all(cursor, extend, |_, sel| {
+            let mut head = sel.head;
+            for _ in 0..count {
+                let next = motion(head);
+                if next == head {
+                    break;
+                }
+                head = next;
+            }
+            head
+        });
+        Self::create_selection_command(cursor, &new_cursor)
+    }
+
+    /// Moves every cursor `lines` lines up or down, honouring the sticky
+    /// columns, and emits the resulting selection command.
+    ///
+    /// A vertical count is a *parameter*, not a repetition:
+    /// [`motions::vertical_move_by`] takes the hop size and clamps it to the
+    /// document, so `3j` costs exactly what `j` costs and a count larger than
+    /// the document is one clamped hop rather than a loop.
     pub(super) fn vertical_motion(
         &mut self,
         document: &Document,
         cursor: &CursorState,
         extend: bool,
         direction: VerticalDirection,
+        lines: usize,
     ) -> KeyResult {
-        let new_cursor = self.move_vertically(document, cursor, extend, direction, 1);
+        let new_cursor = self.move_vertically(document, cursor, extend, direction, lines.max(1));
         Self::create_selection_command(cursor, &new_cursor)
     }
 
@@ -58,8 +113,9 @@ impl KeyboardHandler {
         cursor: &CursorState,
         extend: bool,
         direction: VerticalDirection,
+        pages: usize,
     ) -> KeyResult {
-        let lines = self.page_rows.max(1);
+        let lines = self.page_rows.max(1).saturating_mul(pages.max(1));
         let new_cursor = self.move_vertically(document, cursor, extend, direction, lines);
         Self::create_selection_command(cursor, &new_cursor)
     }

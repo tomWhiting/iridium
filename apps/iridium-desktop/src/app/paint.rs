@@ -14,7 +14,7 @@ use iridium_editor::render::FrameTarget;
 use super::startup::Shell;
 use super::state::DesktopApp;
 use crate::file_tree;
-use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelKind, StripContent};
+use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelFit, PanelKind, StripContent};
 use crate::units::u32_to_f32;
 
 impl DesktopApp {
@@ -216,18 +216,12 @@ impl DesktopApp {
             panels.push((PanelKind::History, self.history.content(editor, theme, fit)));
         }
         if let Some(explorer) = self.explorer.as_mut() {
-            // ⭐ The anchor is chosen here rather than in the panel, and that
-            // is the whole of what the explorer knows about being a sidebar:
-            // nothing. Its rows, its keys and its filter are the same code in
-            // both placements, so there is nothing to keep in step — and since
-            // the panel moved to `iridium-panel` it is not merely that it does
-            // not look, it is that it structurally cannot. `PanelAnchor` does
-            // not exist over there.
-            let anchor = sidebar.map_or(PanelAnchor::Top, |sidebar| PanelAnchor::Left {
-                top: strip,
-                interior_rows: sidebar.max_interior_rows,
-            });
-            let content = file_tree::content(explorer, theme, sidebar.unwrap_or(fit), anchor);
+            let content = file_tree::content(
+                explorer,
+                theme,
+                sidebar.unwrap_or(fit),
+                explorer_anchor(sidebar, strip),
+            );
             panels.push((PanelKind::Explorer, content));
         }
         if self.palette_open {
@@ -244,6 +238,27 @@ impl DesktopApp {
         apply_hover(&mut panels, self.hover);
         panels
     }
+}
+
+/// Which anchor the explorer hangs from, given the sidebar band the window
+/// afforded — `None` when the placement is a popover or the window is too
+/// small for a band — and `strip_top`, the tab strip's height in pixels.
+///
+/// ⭐ **This is the whole of what the explorer knows about being a sidebar:
+/// nothing.** Its rows, its keys and its filter are the same code in both
+/// placements, so there is nothing to keep in step — and since the panel moved
+/// to [`iridium_panel::explorer`] it is not merely that it does not look, it
+/// is that it structurally cannot. `PanelAnchor` does not exist over there.
+///
+/// A free function for the same reason [`apply_hover`] is one: `panel_contents`
+/// returns an empty vector without a `Shell`, so the choice made inside it is
+/// unreachable from a headless test. Pulled out, the decision that can actually
+/// be wrong is the decision a test can read.
+fn explorer_anchor(sidebar: Option<PanelFit>, strip_top: f32) -> PanelAnchor {
+    sidebar.map_or(PanelAnchor::Top, |sidebar| PanelAnchor::Left {
+        top: strip_top,
+        interior_rows: sidebar.max_interior_rows,
+    })
 }
 
 /// Marks the hovered row on whichever composed panel the pointer is over.
@@ -271,8 +286,8 @@ fn apply_hover(panels: &mut [(PanelKind, PanelContent)], hover: Option<(PanelKin
 mod tests {
     use iridium_editor::theme::Color;
 
-    use super::{PanelAnchor, PanelContent, PanelKind, apply_hover};
-    use crate::overlay::{PanelRow, Span};
+    use super::{PanelAnchor, PanelContent, PanelKind, apply_hover, explorer_anchor};
+    use crate::overlay::{PanelFit, PanelRow, Span};
 
     /// A one-row panel with nothing hovered.
     fn panel() -> PanelContent {
@@ -286,6 +301,33 @@ mod tests {
             caret: None,
             hovered: None,
         }
+    }
+
+    /// The tab strip's height on the standard test window, in pixels.
+    const STRIP: f32 = 39.2;
+
+    #[test]
+    fn a_popover_hangs_from_the_top_and_never_from_the_left_edge() {
+        assert_eq!(explorer_anchor(None, STRIP), PanelAnchor::Top);
+    }
+
+    #[test]
+    fn a_sidebar_hangs_from_the_left_edge_below_the_tab_strip() {
+        // ⚠️ **Both fields matter and they come from different places.** The
+        // band's top edge is the strip's height — passed rather than derived,
+        // because a sidebar bottom-aligned to clear the strip would collect
+        // every pixel of slack *above* itself — and its height is the band's
+        // interior rows, not the rows the panel happened to compose. A short
+        // tree in a tall window would otherwise leave the document indented
+        // past nothing.
+        let band = PanelFit::sidebar(24, 30);
+        assert_eq!(
+            explorer_anchor(Some(band), STRIP),
+            PanelAnchor::Left {
+                top: STRIP,
+                interior_rows: band.max_interior_rows,
+            }
+        );
     }
 
     #[test]

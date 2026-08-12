@@ -123,24 +123,33 @@ fn every_vendored_capture_maps_to_a_highlight_type() {
     );
 }
 
-/// The six colours #70 ruled, pinned to the ruling rather than to a comment.
+/// The three CSS selector categories #70 ruled, pinned to the ruling rather
+/// than to a comment.
 ///
-/// `every_vendored_capture_maps_to_a_highlight_type` only insists these six map
-/// to *something* — it would stay green if `title.markup` silently became
-/// `Comment` and markdown headings started rendering grey and recessive. This
-/// says which, so a later refactor that collapses arms has to disagree with the
+/// `every_vendored_capture_maps_to_a_highlight_type` only insists these map to
+/// *something* — it would stay green if `selector.pseudo` silently became
+/// `Comment` and every `:hover` started rendering grey and recessive. This says
+/// which, so a later refactor that collapses arms has to disagree with the
 /// decision out loud instead of by accident.
 ///
 /// ⚠️ `selector.class` and `selector.id` differ deliberately. Unifying them
 /// reads as tidier and hides the specificity distinction a stylesheet author is
 /// actively reasoning about, so if a future change makes these two equal, this
 /// test is the thing that should stop it.
+///
+/// ⭐ **#70 ruled six, and this pins three.** The other three —
+/// `title.markup`, `link_text.markup`, `link_uri.markup` on `Keyword`,
+/// `Function` and `String` — were superseded on 12 Aug 2026, out loud, exactly
+/// as this test was built to force. They were *category* rulings that read as
+/// *colour* rulings, which was harmless while a capture could carry nothing but
+/// a colour and became a defect the moment it could also carry weight. The
+/// colours those three render survived the change untouched, and
+/// `the_markup_slots_render_exactly_as_they_did_before_they_had_slots` in
+/// `iridium_editor::syntax` is what proves that half; what follows below is
+/// what replaced the category half.
 #[test]
-fn the_six_ruled_capture_colours_are_the_ones_that_were_ruled() {
+fn the_ruled_selector_categories_are_the_ones_that_were_ruled() {
     for (name, expected) in [
-        ("title.markup", HighlightType::Keyword),
-        ("link_uri.markup", HighlightType::String),
-        ("link_text.markup", HighlightType::Function),
         ("selector.class", HighlightType::Type),
         ("selector.id", HighlightType::Constant),
         ("selector.pseudo", HighlightType::Attribute),
@@ -148,7 +157,7 @@ fn the_six_ruled_capture_colours_are_the_ones_that_were_ruled() {
         assert_eq!(
             HighlightType::from_capture_name(name),
             Some(expected),
-            "@{name} no longer carries the colour #70 ruled for it"
+            "@{name} no longer carries the category #70 ruled for it"
         );
     }
 
@@ -158,6 +167,112 @@ fn the_six_ruled_capture_colours_are_the_ones_that_were_ruled() {
         "a class and an id must not render identically — that is the \
          specificity distinction the ruling deliberately kept"
     );
+}
+
+/// Every capture name the vendored markdown queries write, and the category it
+/// was ruled onto.
+///
+/// Both spellings appear: Zed's markdown queries suffix the family
+/// (`title.markup`) and the vendored `gitcommit` query uses the nvim/helix
+/// prefix form (`markup.heading`). Two names for one concept must reach one
+/// category or a heading in a commit message and a heading in a README style
+/// differently, which no theme author would ever think to look for.
+#[test]
+fn every_markup_capture_carries_the_category_it_was_ruled_onto() {
+    for (name, expected) in [
+        ("title.markup", HighlightType::MarkupHeading),
+        ("markup.heading", HighlightType::MarkupHeading),
+        ("emphasis.markup", HighlightType::MarkupEmphasis),
+        ("emphasis.strong.markup", HighlightType::MarkupStrong),
+        ("strikethrough.markup", HighlightType::MarkupStrikethrough),
+        ("text.literal.markup", HighlightType::MarkupCode),
+        ("link_text.markup", HighlightType::MarkupLink),
+        ("link_uri.markup", HighlightType::MarkupUrl),
+        ("markup.link.url", HighlightType::MarkupUrl),
+        ("punctuation.list_marker.markup", HighlightType::MarkupList),
+        ("punctuation.markup", HighlightType::MarkupPunctuation),
+        ("punctuation.embedded.markup", HighlightType::MarkupFence),
+    ] {
+        assert_eq!(
+            HighlightType::from_capture_name(name),
+            Some(expected),
+            "@{name} no longer carries the category ruled for it"
+        );
+    }
+}
+
+/// ⭐ The property the split exists for, asserted as a property rather than as
+/// a list of pairs.
+///
+/// The defect was not that markup wore the wrong colours — it wore reasonable
+/// ones. It was that markup captures *were* code captures: `title.markup` and
+/// `keyword` resolved to one value, so "headings are bold" could not be said in
+/// a theme without bolding every `fn` and `let` in every language. That is
+/// invisible in review, ships silently, and gets blamed on the theme author six
+/// weeks later.
+///
+/// Written as "no markup capture shares a category with any code capture"
+/// rather than as twelve equalities, so it keeps holding when a category is
+/// added: a new markup capture quietly given `Keyword` fails here without
+/// anyone remembering to extend a list.
+#[test]
+fn the_markup_captures_have_slots_no_code_capture_shares() {
+    const MARKUP: &[&str] = &[
+        "title.markup",
+        "markup.heading",
+        "emphasis.markup",
+        "emphasis.strong.markup",
+        "strikethrough.markup",
+        "text.literal.markup",
+        "link_text.markup",
+        "link_uri.markup",
+        "markup.link.url",
+        "punctuation.list_marker.markup",
+        "punctuation.markup",
+        "punctuation.embedded.markup",
+    ];
+
+    // Ordinary code captures, one per family, spelled as the grammars spell
+    // them. These are the values a markup category must never be equal to.
+    const CODE: &[&str] = &[
+        "keyword",
+        "keyword.control",
+        "string",
+        "string.escape",
+        "number",
+        "boolean",
+        "comment",
+        "comment.doc",
+        "function",
+        "function.method",
+        "variable",
+        "type",
+        "operator",
+        "punctuation.bracket",
+        "punctuation.delimiter",
+        "punctuation.special",
+        "property",
+        "constant",
+        "lifetime",
+        "attribute",
+        "tag",
+        "embedded",
+        "error",
+    ];
+
+    for &markup in MARKUP {
+        let category = HighlightType::from_capture_name(markup)
+            .unwrap_or_else(|| panic!("@{markup} must map to a category"));
+        for &code in CODE {
+            assert_ne!(
+                Some(category),
+                HighlightType::from_capture_name(code),
+                "@{markup} and @{code} are the same category again, so a theme \
+                 cannot style one without styling the other — which is the \
+                 whole defect the markup split removed"
+            );
+        }
+    }
 }
 
 #[test]

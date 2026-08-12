@@ -1,14 +1,14 @@
 # #117 — the other seven panel key tables
 
-**Started 13 Aug 2026. Two of seven panels done. Read "Where this stands".**
+**Started 13 Aug 2026. Three of seven panels done. Read "Where this stands".**
 
 ## Where this stands — 13 Aug 2026
 
 | # | panel | state |
 | --- | --- | --- |
 | 1 | desktop command palette | ✅ **DONE** — the split `3d491f8e`, the conversion `56bd0e2f` |
-| 2 | desktop history overlay | 🔨 **CODE COMPLETE, UNCOMMITTED** — see below |
-| 3 | TUI command palette | not started |
+| 2 | desktop history overlay | ✅ **DONE** — `9b666e00`, ten gates green on the commit, pushed |
+| 3 | TUI command palette | 🔨 **in progress — see "Panel 3 needed a seam first"** |
 | 4 | TUI history panel | not started |
 | 5 | TUI search | not started |
 | 6 | desktop context menu | not started |
@@ -155,6 +155,59 @@ One asymmetry noted and **deliberately left alone**: the desktop layer's
 latched, ⌘⌥H closes the panel but would not have opened it. That is
 **pre-#117 behaviour reproduced exactly**, which is what a conversion is for;
 changing it is a keymap ruling, not a conversion.
+
+## 🔨 Panel 3 needed a seam first — the terminal face did not read `[keys]`
+
+Re-measured before writing any code: `apps/iridium/src` had **zero** references
+to `UserConfig`, `keys::keymap`, `user_config_path`, `create_config_if_absent`
+or `FaceKeys`. It touched `iridium_config` only for `::theme`. #91's handoff had
+already recorded this — "a real gap in that face" — and it makes the panel
+conversion worthless on its own: a `Keymap` with **no user layer ever pushed
+onto it** passes every test a conversion writes and changes nothing for anybody.
+
+📌 **A panel conversion in a face that cannot read the file is a table nobody
+can reach.** The panel is the last mile; the face has to have a road.
+
+### Step 4a — `apps/iridium` reads the user's bindings. DONE.
+
+`app/config.rs` (new): `install_user_bindings` maps `Editor::push_keymap`'s
+error onto `Refusal` and hands it to `iridium_config::install`, which drops one
+refused binding at a time — so a typo costs its own line and no other.
+`summary` produces the one line the strip shows.
+
+`App::new` now delegates to `App::with_config(options, user, path)`, pushed
+**after** this face's own layer so the user's bindings win.
+
+**The seam is why the tests are worth anything.** Measured, M3 — the install
+call removed from the constructor:
+
+| # | mutation | result |
+| --- | --- | --- |
+| M3 | `with_config` never installs the user's bindings | ✅ **2 failed, 100 passed** |
+
+The two that failed are the two driven through `App`. ⛔ **All five tests inside
+`config.rs` itself passed**, because they exercise the helper against a bare
+`Editor` — exactly the shape that would have let this regress. The first version
+of this work had only those five.
+
+### ⚖️ Ruling taken, not asked: this face reads the file and does not write it
+
+`create_if_absent` writes a file listing the layers the **calling** face hands
+over, and no face can reach another's. A second writer therefore makes the
+contents of `config.toml` depend on which binary the user ran first — a
+desktop-less file for somebody who started in the terminal, with nothing on the
+face of it to say so. That is worse than the gap it closes.
+
+So the desktop stays the sole writer. **The consequence is a real and separate
+defect**: the terminal layer's own chords (`Ctrl+Alt+D` and the rest) never
+appear in the written file, which is exactly what #118 promised would not
+happen. It needs a ruling — probably that the template should carry every face's
+layer regardless of who writes it — and is logged rather than guessed at.
+
+Revert cost if the ruling goes the other way: one commit, confined to
+`apps/iridium`.
+
+---
 
 ### The gates, first pass — `fmt` failed, as it did for the palette
 

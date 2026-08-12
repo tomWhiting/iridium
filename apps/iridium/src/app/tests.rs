@@ -116,6 +116,90 @@ fn frame(app: &mut App, columns: usize, rows: usize) -> Vec<String> {
     (0..rows).map(|row| row_text(surface.back(), row)).collect()
 }
 
+/// A session started with `bindings` as the user's configuration.
+fn with_bindings(bindings: Vec<iridium_editor::KeyBinding>) -> App {
+    App::with_config(
+        Options::default(),
+        iridium_config::UserConfig {
+            bindings,
+            ..iridium_config::UserConfig::default()
+        },
+        None,
+    )
+    .expect("the session opened")
+}
+
+/// ⭐ **The terminal face reads `[keys]`.** Until this landed, `apps/iridium`
+/// touched `iridium_config` only for themes, so a binding somebody wrote worked
+/// in the desktop app and did nothing here.
+///
+/// ⚠️ Asserted by **pressing the key and reading the document**, not by looking
+/// at the keymap. A layer that is installed but outranked, or installed on an
+/// `Editor` this session does not own, satisfies an inspection and fails the
+/// user — and the version of this test that inspected a bare `Editor` went on
+/// passing with the wiring removed from the constructor entirely.
+#[test]
+fn a_binding_from_the_users_file_runs_in_this_face() {
+    let binding = iridium_editor::KeyBinding::parse(
+        "f9",
+        iridium_editor::commands::builtin::EDIT_DELETE_TO_LINE_END,
+    )
+    .expect("the fixture is a key sequence");
+
+    let mut unbound = unnamed();
+    for character in "hello".chars() {
+        unbound.handle_input(&press(KeyCode::Char(character)));
+    }
+    unbound.handle_input(&press(KeyCode::Home));
+    unbound.handle_input(&press(KeyCode::F9));
+    assert_eq!(
+        unbound.editor().content(),
+        "hello",
+        "F9 must do nothing without the user's file, or this proves nothing"
+    );
+
+    let mut app = with_bindings(vec![binding]);
+    for character in "hello".chars() {
+        app.handle_input(&press(KeyCode::Char(character)));
+    }
+    app.handle_input(&press(KeyCode::Home));
+    app.handle_input(&press(KeyCode::F9));
+    assert_eq!(
+        app.editor().content(),
+        "",
+        "the user's `f9` binding did not reach this face"
+    );
+}
+
+/// A file with a bad line in it says so on the way in, rather than dropping the
+/// binding in silence.
+#[test]
+fn a_refused_binding_is_reported_on_the_message_line() {
+    let bad = iridium_editor::KeyBinding::parse(
+        "f10",
+        iridium_editor::CommandId::new("nobody.registered"),
+    )
+    .expect("the fixture is a key sequence");
+
+    let mut app = with_bindings(vec![bad]);
+    let rows = frame(&mut app, 80, 10);
+    assert!(
+        rows.iter().any(|row| row.contains("1 problem")),
+        "a refused binding must reach the strip, got {rows:?}"
+    );
+}
+
+/// And a clean configuration says nothing at all — the strip is for news.
+#[test]
+fn a_clean_configuration_leaves_the_message_line_alone() {
+    let mut app = with_bindings(Vec::new());
+    let rows = frame(&mut app, 80, 10);
+    assert!(
+        !rows.iter().any(|row| row.contains("problem")),
+        "nothing was wrong and the strip said otherwise: {rows:?}"
+    );
+}
+
 #[test]
 fn opening_a_file_loads_its_text_and_its_language() {
     let directory = TempDir::new("app-open");

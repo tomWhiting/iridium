@@ -172,6 +172,69 @@ parameter at ~20 call sites).
 Tom named opening the terminal editor *on a directory* as the case that shapes
 that design rather than following it.
 
+## ⛔ BLOCKED ON TOM — does the git ban bind the harness, or only the agent?
+
+Vesper built per-lane **git worktree** isolation for the swarm, then enumerated
+its git commands against our ban list before delivering, and reported the
+collision herself rather than deciding it was fine:
+
+- **`git worktree`** — 7 occurrences. It *is* the mechanism; she cannot replace it.
+- **`git add -A`** — 2 occurrences, sealing a lane's work into a commit.
+
+Her reading, offered as a reading and explicitly **not** as a ruling: the ban
+constrains the *builder* (the agent with hands in the tree), and both commands
+are issued by the *harness* — `git worktree add` creates a separate tree and
+never touches the base working tree; `git add -A` runs inside the lane's own
+worktree. She then refused to apply her own reading, on the grounds that
+deciding a ban "obviously doesn't mean the harness" is exactly the
+vocabulary-rule failure we were both guarding against. That refusal is correct
+and should be said back to her.
+
+**What I ruled myself (does not need Tom):** `git add -A` is replaced with
+explicit paths regardless of who issues it. She said she can. It costs nothing
+and the rule is about indiscriminate staging, not about the caller.
+
+**What is Tom's, and why I did not decide it:** the rule as I carry it says
+*"in this checkout"* — a constraint on **where**, not on **who** — and
+`git worktree add` is issued against this repo and does write `.git/worktrees/`
+metadata into it. So the literal reading bans it for the harness too. I will
+not narrow one of Tom's standing bans on my own inference; that is the whole
+point of the "name each banned command individually" rule.
+
+⭐ **But the question is not urgent, and that matters.** The worktree layer is
+for **`mm_fleet_swarm`**. What I asked for and accepted is **`mm_fleet_loop`**,
+which is *sequential and single-writer* — it never has two builders, so it
+needs no worktree isolation at all. **There is no collision for the document I
+actually want.** The ruling is only needed on the day a swarm is wanted, and it
+should be got before that day rather than on it.
+
+**A third option worth putting to both of them:** isolation does not require
+`git worktree` specifically — N independent *clones* give the same guarantee,
+slower, without issuing a banned command against Tom's repo. Worth asking
+whether her layer needs worktrees as such or just N independent trees.
+
+## #112 part B — hidden files: the seams, found and verified
+
+Ground already located, so the next sitting does not have to re-find it:
+
+| what | where |
+| --- | --- |
+| the one place children are produced | `crates/iridium-explorer/src/tree.rs:379`, `TreeSource::children` — returns cached ids from `Listing::Present(children)` |
+| the entry's name to test | `NodeInfo.name` (`node.rs:146`), plus `path`, `kind`, `error`, `is_loading` |
+| where a hint already lives | `compose.rs:51`, `BROWSE_HINT = "tab to edit these rows"`, right-aligned in the query row while the field is empty, `HINT_GAP = 2` |
+| the browse key table | `keys.rs:56`, `match (chord(event.modifiers), event.key)` |
+| the chords the panel distinguishes | `panel.rs`, `enum Chord { Plain, Ctrl, Meta, CtrlAlt, MetaAlt, Other }` — **plain characters go to the query field**, so the toggle must be a chord |
+
+**Plan.** `show_hidden: bool` on `FileTree` with a setter, filtered inside
+`children()` so `Tree`'s index invariants hold (see the trap above — filtering
+*after* `Tree` corrupts `index_of`/`select`/`expand`/`collapse`). Toggle on
+`⌘.` / `Ctrl+.` — `.` is unshifted so the panel's Shift-blindness is harmless,
+and `⌘H` is unusable because macOS eats it. The count of dropped entries goes
+in the browse hint, which is the established place for "this key exists".
+
+⚠️ **The hint is the honesty half, not decoration.** Hiding by default without
+saying so is the lie `ignores.rs` warns about; "6 hidden (⌘.)" is not.
+
 ## Next work, in order
 
 1. **#112** parts B, sidebar, terminal — above. This is the first task big

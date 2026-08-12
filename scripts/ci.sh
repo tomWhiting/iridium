@@ -25,7 +25,17 @@ set -u
 
 cd "$(dirname "$0")/.." || exit 2
 
+# How many gates this script is supposed to run.
+#
+# ⭐ ONE TRANSCRIPTION, NOT TWO. This number used to be typed into both summary
+# lines as a literal `10`, which made every run's final sentence a claim nobody
+# checked: add a gate and forget one of the strings and the script reports ten
+# while eleven ran. It is now a variable, and `ran` below is what it is checked
+# against — so the summary is a measurement rather than a copy of an intention.
+GATES=10
+
 failed=0
+ran=0
 run() {
     name=$1
     shift
@@ -45,6 +55,11 @@ run() {
         printf '!!! %s FAILED (exit %d)\n\n' "$name" "$status"
         failed=$((failed + 1))
     fi
+    # ⚠️ Incremented *after* the gate returns, never before. A gate that takes
+    # the shell down with it — a signal, an out-of-memory kill — must not be
+    # counted as having run, because the whole point of the count below is to
+    # notice that it did not.
+    ran=$((ran + 1))
 }
 
 # Tests first: a compile error surfaces here with the clearest message.
@@ -63,10 +78,31 @@ run "clippy/wasm" cargo clippy -p iridium-bindings --no-default-features --featu
 
 run "fmt" cargo fmt --all --check
 
+# ⛔ THE CENSUS COMES BEFORE THE VERDICT, AND IT HAS TO.
+#
+# A run that ended early looks exactly like a clean one from here: `failed` is
+# still 0 because the gates that would have failed never ran, and the line
+# below would print `✅ all 10 gates passed` over a script that got through
+# four. **A partial census reads as a green one**, which is the failure this
+# whole file exists to prevent — see the alias story at the top, which is the
+# same defect wearing a different hat.
+#
+# So a short count is neither green nor red. It exits **3**, distinct from the
+# 1 a real failure uses and the 2 a bad working directory uses, so that a
+# caller — a person, or a workflow leg reading the exit status — can tell
+# "some gates failed" from "we do not know what the gates would have said".
+# The `!!!` lines above still name whatever did fail before the truncation;
+# what is refused here is *summing them into a verdict*.
+if [ "$ran" -ne "$GATES" ]; then
+    printf '⛔ UNMEASURED — %d of %d gates ran; believe neither the passes nor the failures\n' \
+        "$ran" "$GATES"
+    exit 3
+fi
+
 # ⭐ Every gate runs even after one fails — the point is the whole picture, not
 # the first stumble. The count is what decides the exit status.
 if [ "$failed" -ne 0 ]; then
-    printf '⛔ %d of 10 gates FAILED\n' "$failed"
+    printf '⛔ %d of %d gates FAILED\n' "$failed" "$GATES"
     exit 1
 fi
-printf '✅ all 10 gates passed\n'
+printf '✅ all %d gates passed\n' "$GATES"

@@ -227,7 +227,31 @@ Each step is checkable on its own, and the first two are strictly refactor.
    free-standing — 43 of the 198 tests — so the explorer moves **as one piece**
    or not at all. Better to know that before starting than halfway through.
 
-2b. **Hoist to `iridium-panel`** — `row` (the vocabulary of R1b) and `explorer`
+2b. ✅ **The vocabulary — DONE.** `crates/iridium-panel` exists and holds
+   `row` (`Span`, `PanelRow`, `PanelCaret`, `PanelFit`, and the two
+   visible-row ceilings) and `line` (`LineBuilder`, `highlighted_spans`,
+   `match_color`, `skip_chars`). It depends on `iridium-editor` with default
+   features **off** and on `unicode-segmentation`, and on nothing else — no
+   renderer, no device, no window, which is the property that lets the terminal
+   face depend on it.
+
+   `PanelAnchor`, `PanelContent` and `StripContent` stayed behind, because an
+   anchor is a statement about a window. The desktop's `overlay` re-exports the
+   moved names and `crate::line` is now an eight-line re-export, so all eight
+   consumers still read exactly as they did.
+
+   **The census, both directions:** file-tree 198 across all seven modules,
+   unchanged. Desktop lib **529 → 525**, and the new crate has **4** — `line.rs`
+   carried a test module and it moved with its code. 525 + 4 = 529, and the
+   `test/workspace` gate runs both. Ten gates green.
+
+   ⚠️ **What the census means from here on.** When the explorer follows, the
+   desktop's count *will* drop by roughly 198 and the panel crate's will rise by
+   the same. A seat reading only the desktop number would see that as loss. The
+   invariant is the **sum across the workspace**, and the per-module rows are
+   what say the sum was preserved for the right reason.
+
+2c. **Hoist the explorer** — `explorer`
    (the tree, filter, keys, oil buffer, edit keys, plan, confirm, apply) plus
    `project`'s two root functions. `PanelAnchor`, `PanelContent` and the
    painters stay in the desktop; `overlay` re-exports the rest. Desktop

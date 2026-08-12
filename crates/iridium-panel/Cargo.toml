@@ -1,0 +1,27 @@
+[package]
+name = "iridium-panel"
+description = "The row vocabulary Iridium's panels are composed in, in every face"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "iridium_panel"
+path = "src/lib.rs"
+
+# The kernel's theme, and nothing else from it. A span carries a colour, and a
+# colour is the theme's to name — but no renderer, no device and no window
+# reaches this crate, which is what lets the terminal face depend on it.
+[dependencies]
+iridium-editor = { workspace = true, default-features = false }
+
+# Grapheme clusters, for the one place a row is truncated. A row cut between a
+# base character and its combining mark is a row that renders as a different
+# character, which is why this is counted in clusters rather than in `char`s.
+unicode-segmentation.workspace = true

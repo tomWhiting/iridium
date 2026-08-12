@@ -198,39 +198,3 @@ pub(super) const SIDEBAR_MAX_FRACTION: f32 = 0.5;
 /// Below this a panel shows nothing honestly — a list a dozen characters
 /// wide answers no question.
 pub(super) const PANEL_MIN_COLUMNS: usize = 20;
-
-/// The most content rows a panel's list shows at once, matching the terminal
-/// face's `MAX_VISIBLE_ROWS`.
-///
-/// This is the cap for a panel that *answers a question* — the command palette
-/// and the undo tree, where the row wanted is nearly always in the first few
-/// and a longer list is further to read rather than more to see. A panel that
-/// is **browsed** wants a different number; see
-/// [`EXPLORER_MAX_VISIBLE_ROWS`].
-pub const PANEL_MAX_VISIBLE_ROWS: usize = 12;
-
-/// The most content rows the file explorer shows at once.
-///
-/// ⭐ **Separate from [`PANEL_MAX_VISIBLE_ROWS`] because the two panels are
-/// used differently, not because one number was wrong.** The palette is
-/// queried: you type three characters and take the top row, and a thirty-row
-/// palette is thirty rows to skim past. The explorer is *browsed* — Tom's
-/// words on 12 Aug 2026 were that it "probably also needs to be taller as
-/// well" — and a browser that shows a dozen entries of a directory holding
-/// sixty is a browser that hides most of what you opened it to look at.
-///
-/// **Twelve was leaving most of the window unused, and that was measured
-/// rather than assumed.** [`fit_for`] gives a panel `1 - TOP_ANCHOR_FRACTION`
-/// of the window height less its padding, and a row costs
-/// `font_size × line_height` = `14 × 1.4` logical pixels. A 1440×900 laptop
-/// therefore affords **39** interior rows, and the panel was drawing twelve of
-/// them.
-///
-/// Thirty rather than "as many as fit", deliberately. `fit.max_interior_rows`
-/// already clamps this on any window too short for it — that is what protects
-/// a small window, and it means this constant is only ever an upper *taste*
-/// bound. What it buys is that the panel stays a popover with a window around
-/// it on a large display instead of silently becoming a full-height column.
-/// The full-height column is a real thing Tom asked for, and it is the
-/// **sidebar**, which is a placement rather than a bigger number.
-pub const EXPLORER_MAX_VISIBLE_ROWS: usize = 30;

@@ -31,6 +31,10 @@ iridium-editor = { workspace = true, features = ["syntax", "render"] }
 # it is projected through. Both native-only, both shared with the terminal
 # face when it grows the same panel.
 iridium-explorer.workspace = true
+
+# The row vocabulary every panel here composes in, shared with the terminal
+# face so the file explorer is one implementation rather than two.
+iridium-panel.workspace = true
 iridium-tree.workspace = true
 
 # The file layer shared with the terminal face: atomic saves, staleness by

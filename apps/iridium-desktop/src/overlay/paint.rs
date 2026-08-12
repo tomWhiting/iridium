@@ -17,7 +17,9 @@ use wgpu::{
     RenderPassDescriptor, StoreOp, TextureFormat,
 };
 
-use super::content::{PanelAnchor, PanelContent, PanelFit, Span, StripContent};
+use iridium_panel::{PanelFit, Span};
+
+use super::content::{PanelAnchor, PanelContent, StripContent};
 use super::geometry::{GridMetrics, PanelGeometry, fit_for, panel_geometry, sidebar_fit_for};
 use super::metrics::{
     CARET_WIDTH, PAD_X, PAD_Y, STRIP_PAD_X, STRIP_PAD_Y, TAB_CLOSE_ALPHA, TAB_INACTIVE_ALPHA,

@@ -90,8 +90,13 @@ mod paint;
 #[cfg(test)]
 mod tests;
 
-pub use content::{PanelAnchor, PanelCaret, PanelContent, PanelFit, PanelRow, Span, StripContent};
+pub use content::{PanelAnchor, PanelContent, StripContent};
+// Re-exported rather than re-declared: the vocabulary left this face for
+// `iridium-panel` so the file explorer could reach the terminal one, and every
+// builder here still composes against `crate::overlay::Span` as it always did.
 pub use geometry::{GridMetrics, PanelGeometry, PanelRect, panel_geometry};
-pub use metrics::{EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS};
+pub use iridium_panel::{
+    EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,
+};
 pub use paint::OverlayPainter;
 pub(crate) use paint::scroll_for;

@@ -24,7 +24,7 @@ use iridium_editor::{
 
 use ModifierState::{Any, Forbidden, Required};
 
-use super::ids::{FILE_SAVE, FILE_SAVE_FORCE};
+use super::ids::{FILE_OPEN, FILE_SAVE, FILE_SAVE_FORCE, PROJECT_OPEN};
 
 /// Shorthand for a modifier pattern, in the field order of [`ModifierPattern`].
 const fn pattern(
@@ -47,6 +47,19 @@ const CTRL: ModifierPattern = pattern(Any, Required, Forbidden, Forbidden, Any);
 /// `Ctrl+Alt` while composing a character, and a forced save is not something
 /// to do by accident while typing `@`.
 const CTRL_ALT: ModifierPattern = pattern(Any, Required, Required, Forbidden, Forbidden);
+
+/// A bare `Ctrl` chord with `Shift` absent — the unshifted half of a pair
+/// whose shifted spelling is a *different verb*.
+///
+/// [`CTRL`] ignores `Shift`, which is right for `Ctrl+S`, a verb that owns its
+/// key either way. It is wrong for `Ctrl+O`, because `Ctrl+⇧O` opens a folder
+/// rather than a file: with `Shift` spelled [`Any`] the unshifted row would
+/// match the shifted chord too, and whichever of the two outranked the other
+/// would swallow it outright.
+const CTRL_NO_SHIFT: ModifierPattern = pattern(Forbidden, Required, Forbidden, Forbidden, Any);
+
+/// A `Ctrl+⇧` chord: the shifted half of [`CTRL_NO_SHIFT`].
+const CTRL_SHIFT: ModifierPattern = pattern(Required, Required, Forbidden, Forbidden, Any);
 
 /// A bare ⌘ chord: `Shift` ignored — ⌘C copies with or without it, exactly as
 /// the default keymap's `Ctrl+C` does — `Ctrl` and `Alt` absent.
@@ -239,6 +252,49 @@ pub(super) const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (
         StrokePattern::new(KeyCode::Char('w'), META_NO_SHIFT),
         WORKSPACE_CLOSE_TAB,
+    ),
+    // ----- The two ways in that have keys, added 12 Aug 2026 -----
+    //
+    // `⌘O` opens a file, `⌘⇧O` opens a folder as the project. Both are what
+    // VS Code and Zed bind on macOS, so a hand arriving from either already
+    // knows them. `project.set` gets no chord and is on the palette-only
+    // list; [`ids`](super::ids) carries the reasoning for that.
+    //
+    // Two spellings each, per `FILE_SAVE`'s precedent at the top of this
+    // table: one id, a `Ctrl` row and a `⌘` row.
+    //
+    // The unshifted rows forbid `Shift` rather than ignoring it, following
+    // `⌘K` and `⌘⇧K` above — one letter carrying two verbs, split the way the
+    // kernel splits `Ctrl+K` from `Ctrl+Shift+K`.
+    //
+    // ⚠️ **This is explicitness, not necessity, and the difference was
+    // measured rather than assumed.** Spelling `Shift` as [`Any`] on the file
+    // rows was tried on 12 Aug 2026 and `⌘⇧O` still reached `project.open`:
+    // the folder rows declare `Shift` [`Required`], which outranks a loose
+    // pattern inside a layer — the same mechanism `MAC_CHORDS` below leans on
+    // deliberately. So the forbid is not what makes these four rows work.
+    // What it does is stop them depending on rank order to work, which is a
+    // thing to state plainly rather than a hazard to claim.
+    //
+    // Nothing else binds this key in any layer: `Char('o')` and `Char('O')`
+    // over the kernel's default keymap and every source file of both native
+    // faces returns nothing, re-checked 12 Aug 2026 immediately before these
+    // rows were written.
+    (
+        StrokePattern::new(KeyCode::Char('o'), CTRL_NO_SHIFT),
+        FILE_OPEN,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('o'), META_NO_SHIFT),
+        FILE_OPEN,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('o'), CTRL_SHIFT),
+        PROJECT_OPEN,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char('o'), META_SHIFT),
+        PROJECT_OPEN,
     ),
 ];
 

@@ -97,6 +97,7 @@ pub mod app;
 pub mod command_palette;
 pub mod commands;
 pub mod context_menu;
+pub mod dialog;
 pub mod file_tree;
 pub mod highlight;
 pub mod history_overlay;

@@ -69,6 +69,42 @@ pollster = "0.4.0"
 # Error types for what can go wrong before a window exists.
 thiserror.workspace = true
 
+# The macOS open panel, for `file.open` and `project.open` — see `dialog`.
+#
+# ⭐ **These add no crate to the build.** `cargo tree -p iridium-desktop -i
+# objc2-app-kit` (9 Aug 2026) shows both major versions already compiled in:
+# 0.2.2 under winit, 0.3.2 under arboard. So this is a new *edge* to a crate
+# that is already there, and the 0.3 line is chosen to match arboard rather
+# than winit for exactly that reason. `rfd` — the usual answer — would have
+# brought its own stack to reach the identical `NSOpenPanel`.
+#
+# `default-features = false` because the default set is every AppKit header
+# there is. `NSOpenPanel` is gated on `NSPanel`/`NSResponder`/`NSSavePanel`/
+# `NSWindow`, and `runModal` and `NSModalResponseOK` — the two halves of
+# reading the answer — are gated on `NSApplication` besides. `objc2-foundation`
+# follows from `NSURL`, which is what a chosen file comes back as.
+[target.'cfg(target_os = "macos")'.dependencies]
+# `MainThreadMarker` — the runtime proof that AppKit is being called from the
+# thread it insists on. Named directly rather than through
+# `objc2_foundation`'s re-export, which is deprecated and would be a warning
+# against a `-D warnings` gate.
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+	"std",
+	"NSApplication",
+	"NSOpenPanel",
+	"NSPanel",
+	"NSResponder",
+	"NSSavePanel",
+	"NSWindow",
+] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+	"std",
+	"NSArray",
+	"NSString",
+	"NSURL",
+] }
+
 [dev-dependencies]
 # The file crate's test fixtures: the self-removing temporary directory the
 # save tests write into.

@@ -15,11 +15,12 @@ use iridium_editor::commands::builtin::{
 use iridium_editor::workspace::Node;
 use iridium_file::TextFile;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::config;
 use super::state::{DesktopApp, Flow};
 use crate::commands;
+use crate::dialog::{self, Chosen, Want};
 use crate::file_tree::FileExplorer;
 use crate::project::{self, ExplorerRoot};
 use crate::prompt::Message;
@@ -65,6 +66,12 @@ impl DesktopApp {
             self.toggle_explorer()
         } else if command == &VIEW_TOGGLE_THEME {
             self.toggle_theme()
+        } else if command == &commands::FILE_OPEN {
+            self.open_file_from_chooser()
+        } else if command == &commands::PROJECT_OPEN {
+            self.open_project_from_chooser()
+        } else if command == &commands::PROJECT_SET {
+            self.set_project_to_explorer_root()
         } else if command == &commands::COMMANDS_LIST {
             self.show_command_reference()
         } else if command == &commands::CONFIG_EDIT {
@@ -230,21 +237,146 @@ impl DesktopApp {
         Flow::Running
     }
 
-    /// Swaps between the light and dark presets, repainting everything.
+    /// Where a chooser opens, and where the explorer would root: one answer,
+    /// asked once.
     ///
-    /// ⚠️ **Three places hold a theme, and all three have to move together.**
-    /// The workspace's setter reaches every open editor including background
-    /// tabs, so documents opened later inherit the new one; the compositor
-    /// keeps its own copy because the clear colour and the retained shaped
-    /// buffers are built from it; and the overlay reads the theme it is handed
-    /// at paint time, so it needs nothing. Setting only the workspace leaves
-    /// the window's clear colour frozen on the old preset — a dark page behind
-    /// light text — which is the shape of the bug 6e22cbe fixed once already.
+    /// Reused rather than re-derived, and that is the point of it being a
+    /// method rather than a line inside each caller. "Where is this session"
+    /// already has an answer — the project when one is set, the active file's
+    /// directory otherwise, the working directory or home below that — and it
+    /// is tested. A chooser computing its own would be a second answer to the
+    /// same question, free to disagree the moment either one moved.
+    fn chooser_start(&self) -> PathBuf {
+        self.explorer_root().path
+    }
+
+    /// Puts the reason on the strip, or says nothing, for the two outcomes of
+    /// a chooser that produced no path.
     ///
-    /// Before the window exists there is no compositor to update, and that is
-    /// not a failure: `Shell::open` takes the workspace's theme as its
-    /// argument, so a toggle pressed against a headless session is picked up
-    /// when the window opens.
+    /// ⭐ **The two are not one case, and this is the whole reason
+    /// [`Chosen`] has three variants instead of being an `Option<PathBuf>`.**
+    /// Cancelling is a decision, and a face that announced it back would nag
+    /// whoever simply changed their mind. Having no chooser at all is a
+    /// missing feature, and a build that showed nothing for it would leave
+    /// somebody pressing `⌘O` at a window that never answers. One channel
+    /// that could only carry the first would be a defect.
+    fn report_no_choice(&mut self, outcome: &Chosen) {
+        if let Chosen::Unsupported(reason) = outcome {
+            self.message = Some(Message::error(*reason));
+        }
+    }
+
+    /// Picks a file with the system chooser and opens it in a new tab.
+    ///
+    /// ⚠️ The chooser is **application-modal**: it does not return until the
+    /// panel closes, and nothing this face schedules ticks meanwhile — the
+    /// explorer's background reader poll included. That is correct for a
+    /// picker, and it is why this runs from the command dispatcher and never
+    /// from a paint path.
+    fn open_file_from_chooser(&mut self) -> Flow {
+        let start = self.chooser_start();
+        match dialog::choose(Want::File, Some(&start)) {
+            Chosen::Path(path) => self.open_file(&path),
+            outcome => self.report_no_choice(&outcome),
+        }
+        Flow::Running
+    }
+
+    /// Picks a folder with the system chooser and makes it this session's
+    /// project.
+    fn open_project_from_chooser(&mut self) -> Flow {
+        // Asked **before** the panel goes up rather than after. Adopting a
+        // project rebuilds the explorer, and a rebuild throws away rows that
+        // have been edited and not applied — the same loss
+        // [`toggle_explorer`](Self::toggle_explorer) refuses, for the same
+        // reason. Refusing after the choice was made would waste the choice
+        // as well.
+        if self
+            .explorer
+            .as_ref()
+            .is_some_and(FileExplorer::has_unapplied_edits)
+        {
+            self.message = Some(Message::error(
+                "the file explorer has unapplied edits — esc twice in it to throw them away",
+            ));
+            return Flow::Running;
+        }
+        let start = self.chooser_start();
+        match dialog::choose(Want::Directory, Some(&start)) {
+            Chosen::Path(path) => self.adopt_project(path),
+            outcome => self.report_no_choice(&outcome),
+        }
+        Flow::Running
+    }
+
+    /// Makes `path` this session's project, moving an open explorer with it.
+    ///
+    /// The panel is **rebuilt** rather than left where it was. From here on
+    /// [`explorer_root`](Self::explorer_root) answers with the project, so a
+    /// panel still rooted elsewhere would be a panel disagreeing with the
+    /// session about where the work is — and the disagreement would surface
+    /// only on the next toggle, which is the worst moment to discover it.
+    ///
+    /// Whether a search there may read past what is open is
+    /// [`crate::project`]'s decision, taken by `chosen_root`, not restated
+    /// here.
+    fn adopt_project(&mut self, path: PathBuf) {
+        let root = project::chosen_root(path);
+        self.project = Some(root.path.clone());
+        if self.explorer.is_none() {
+            return;
+        }
+        match FileExplorer::open(root.path, root.crawl) {
+            Ok(explorer) => self.explorer = Some(explorer),
+            // Dropped rather than left on the old root, and the failure is
+            // named. A panel still showing the previous project after the
+            // session moved is the quieter of the two wrongs and much the
+            // harder one to notice.
+            Err(error) => {
+                self.explorer = None;
+                self.message = Some(Message::error(format!("the file explorer: {error}")));
+            },
+        }
+    }
+
+    /// Pins this session's project to the folder the explorer is showing.
+    ///
+    /// The answer to the question `⌘↓` leaves open: walking into a folder
+    /// re-roots the *panel*, and the panel is dropped when it closes, so the
+    /// walk is forgotten on the next toggle —
+    /// `the_project_root_survives_closing_and_reopening_the_panel` asserts
+    /// that deliberately. This writes the walk down instead of changing what
+    /// `⌘↓` means, so both behaviours are kept rather than one traded away.
+    ///
+    /// Nothing is rebuilt and nothing is thrown away: the panel is *already*
+    /// rooted where this pins, so unapplied edits in it survive untouched.
+    /// That is why this refuses nothing where
+    /// [`open_project_from_chooser`](Self::open_project_from_chooser) must.
+    fn set_project_to_explorer_root(&mut self) -> Flow {
+        let Some(explorer) = self.explorer.as_ref() else {
+            self.message = Some(Message::error(
+                "no file explorer is open — ⌘⌥E opens one, and this pins the folder it shows",
+            ));
+            return Flow::Running;
+        };
+        let root = explorer.root_path();
+        // `root_path` answers with an empty path for a tree whose root it
+        // cannot read back. Pinning that would set the session's project to
+        // nothing at all and report success for having done it.
+        if root.as_os_str().is_empty() {
+            self.message = Some(Message::error(
+                "the file explorer cannot say which folder it is showing",
+            ));
+            return Flow::Running;
+        }
+        self.message = Some(Message::notice(format!(
+            "project set to {}",
+            root.display()
+        )));
+        self.project = Some(root);
+        Flow::Running
+    }
+
     /// Opens the file explorer, or closes it if it is already open.
     ///
     /// A toggle, exactly as the kernel names it. Closing **drops** the panel

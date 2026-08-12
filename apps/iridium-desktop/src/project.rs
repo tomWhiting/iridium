@@ -29,21 +29,17 @@
 
 use std::path::{Path, PathBuf};
 
+// ⭐ **The *choice* moved; the guess stayed.** "Somebody walked into this
+// folder — may a search read past it?" is answered the same way in every
+// face and lives in [`iridium_panel::explorer::root`]. What is below is the
+// other question — nobody said where to open, so where? — which consults the
+// active tab, the working directory and the home directory, and is this
+// face's to answer.
+use iridium_panel::explorer::is_filesystem_root;
+pub use iridium_panel::explorer::{ExplorerRoot, chosen_root};
+
 /// The directory git keeps its state in — the marker for "this is a project".
 const GIT_DIRECTORY: &str = ".git";
-
-/// Where the explorer opens, and how far a search there may reach.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExplorerRoot {
-    /// The directory to show.
-    pub path: PathBuf,
-    /// Whether a query may read directories nobody has opened.
-    ///
-    /// `false` is not a degraded mode so much as an honest one: the filter
-    /// still narrows everything that has been read, and the panel says that
-    /// is what it is doing.
-    pub crawl: bool,
-}
 
 /// Chooses where the explorer opens.
 ///
@@ -93,27 +89,6 @@ pub fn explorer_root(
     }
 }
 
-/// The root someone picked by hand, and how far a search there may reach.
-///
-/// **A chosen directory earns the crawl**, and that is the whole difference
-/// between this and [`explorer_root`]. The rule there is that a directory
-/// *this code guessed* is not worth reading past, because nothing bounds it
-/// and nobody asked. A person walking into a folder has bounded it themselves
-/// — that is what walking into it means — and a search that then refused to
-/// look inside would be answering a question nobody asked instead of the one
-/// they did.
-///
-/// The one exception is the top of the filesystem, which no `.gitignore`
-/// bounds and which nobody navigates to on purpose. It is shown, and it is
-/// not searched past.
-#[must_use]
-pub fn chosen_root(path: PathBuf) -> ExplorerRoot {
-    ExplorerRoot {
-        crawl: !is_filesystem_root(&path),
-        path,
-    }
-}
-
 /// The nearest ancestor of `directory`, itself included, that holds a `.git`.
 ///
 /// Walks up and stops at the first hit, which is what makes a file inside a
@@ -134,21 +109,13 @@ fn project_root(directory: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Whether `path` is the top of a filesystem — `/`, or a Windows drive root.
-///
-/// Asked as "has no parent" rather than compared against `/`, so it is right
-/// on every platform and right for a UNC path without knowing what one is.
-fn is_filesystem_root(path: &Path) -> bool {
-    path.parent().is_none()
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
 
     use iridium_file::test_support::TempDir;
 
-    use super::{ExplorerRoot, chosen_root, explorer_root};
+    use super::{ExplorerRoot, explorer_root};
 
     /// A directory holding a `.git`, so it reads as a project.
     fn repository(name: &str) -> TempDir {
@@ -263,27 +230,6 @@ mod tests {
         );
         assert_eq!(chosen.path, PathBuf::from("/h"));
         assert!(!chosen.crawl);
-    }
-
-    #[test]
-    fn a_directory_someone_walked_into_is_searched_past() {
-        // The difference between a guess and a choice. `explorer_root` will
-        // not read past a directory nothing bounds; a person who navigated
-        // into one has bounded it by navigating into it, and a search that
-        // then refused to look would be answering a question nobody asked.
-        let chosen = chosen_root(PathBuf::from("/Users/someone/Documents"));
-        assert!(chosen.crawl);
-        assert_eq!(chosen.path, PathBuf::from("/Users/someone/Documents"));
-    }
-
-    #[test]
-    fn walking_up_to_the_top_of_the_filesystem_still_does_not_search_it() {
-        // Nobody navigates to `/` on purpose, no ignore file bounds it, and
-        // the whole reason this module exists is that rooting there sends a
-        // search across the disk. A choice does not make that a good idea.
-        let chosen = chosen_root(PathBuf::from("/"));
-        assert!(!chosen.crawl);
-        assert_eq!(chosen.path, PathBuf::from("/"));
     }
 
     #[test]

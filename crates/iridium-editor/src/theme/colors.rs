@@ -257,7 +257,99 @@ pub struct SyntaxColors {
     pub error: Color,
 }
 
+/// One of [`SyntaxColors`]' fourteen fields, named so it can be passed around.
+///
+/// # Why this exists
+///
+/// Roughly forty highlight categories resolve onto fourteen colours, and that
+/// map lives in `crate::syntax::slot_of`. Reading it — "what colour is a
+/// `KeywordControl`?" — was always possible. **Writing through it was not**,
+/// and that is what an imported VS Code theme needs: a `TextMate` scope names a
+/// category, and the imported colour has to land in whatever field that
+/// category is painted from.
+///
+/// Without a name for the field, the import would need its own copy of the
+/// forty-onto-fourteen map — a second answer to a question that already has
+/// one, which would drift the first time a category was added. With it, both
+/// directions are the same map read two ways: `slot_of` says which slot, and
+/// [`SyntaxColors::slot`] / [`SyntaxColors::slot_mut`] read or write it.
+///
+/// Not `#[non_exhaustive]`: a field added to `SyntaxColors` should fail to
+/// compile here until somebody decides which categories paint from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SyntaxSlot {
+    /// [`SyntaxColors::keyword`].
+    Keyword,
+    /// [`SyntaxColors::string`].
+    String,
+    /// [`SyntaxColors::number`].
+    Number,
+    /// [`SyntaxColors::comment`].
+    Comment,
+    /// [`SyntaxColors::function`].
+    Function,
+    /// [`SyntaxColors::variable`].
+    Variable,
+    /// [`SyntaxColors::type_name`].
+    TypeName,
+    /// [`SyntaxColors::operator`].
+    Operator,
+    /// [`SyntaxColors::punctuation`].
+    Punctuation,
+    /// [`SyntaxColors::property`].
+    Property,
+    /// [`SyntaxColors::constant`].
+    Constant,
+    /// [`SyntaxColors::tag`].
+    Tag,
+    /// [`SyntaxColors::attribute`].
+    Attribute,
+    /// [`SyntaxColors::error`].
+    Error,
+}
+
 impl SyntaxColors {
+    /// The colour in one slot.
+    #[must_use]
+    pub const fn slot(&self, slot: SyntaxSlot) -> Color {
+        match slot {
+            SyntaxSlot::Keyword => self.keyword,
+            SyntaxSlot::String => self.string,
+            SyntaxSlot::Number => self.number,
+            SyntaxSlot::Comment => self.comment,
+            SyntaxSlot::Function => self.function,
+            SyntaxSlot::Variable => self.variable,
+            SyntaxSlot::TypeName => self.type_name,
+            SyntaxSlot::Operator => self.operator,
+            SyntaxSlot::Punctuation => self.punctuation,
+            SyntaxSlot::Property => self.property,
+            SyntaxSlot::Constant => self.constant,
+            SyntaxSlot::Tag => self.tag,
+            SyntaxSlot::Attribute => self.attribute,
+            SyntaxSlot::Error => self.error,
+        }
+    }
+
+    /// The colour in one slot, to write through.
+    pub const fn slot_mut(&mut self, slot: SyntaxSlot) -> &mut Color {
+        match slot {
+            SyntaxSlot::Keyword => &mut self.keyword,
+            SyntaxSlot::String => &mut self.string,
+            SyntaxSlot::Number => &mut self.number,
+            SyntaxSlot::Comment => &mut self.comment,
+            SyntaxSlot::Function => &mut self.function,
+            SyntaxSlot::Variable => &mut self.variable,
+            SyntaxSlot::TypeName => &mut self.type_name,
+            SyntaxSlot::Operator => &mut self.operator,
+            SyntaxSlot::Punctuation => &mut self.punctuation,
+            SyntaxSlot::Property => &mut self.property,
+            SyntaxSlot::Constant => &mut self.constant,
+            SyntaxSlot::Tag => &mut self.tag,
+            SyntaxSlot::Attribute => &mut self.attribute,
+            SyntaxSlot::Error => &mut self.error,
+        }
+    }
+
     /// Creates dark theme syntax colors.
     #[must_use]
     pub fn dark() -> Self {

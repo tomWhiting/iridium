@@ -16,13 +16,15 @@ pub mod classic;
 mod colors;
 mod emphasis;
 mod fonts;
+mod slot;
 mod vscode;
 #[cfg(test)]
 mod wcag;
 
-pub use colors::{Color, EditorColors, SyntaxColors};
+pub use colors::{Color, EditorColors, SyntaxColors, SyntaxSlot};
 pub use emphasis::{Emphasis, SyntaxEmphasis};
 pub use fonts::Typography;
+pub use slot::slot_of;
 pub use vscode::{VsCodeTheme, VsCodeTokenColor};
 
 use serde::{Deserialize, Serialize};

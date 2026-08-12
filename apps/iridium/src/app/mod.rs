@@ -166,7 +166,24 @@ impl App {
             editor.set_theme(theme::load(&choice).map_err(StartupError::Theme)?);
         }
 
+        // ⭐ **The one `is_dir` that decides what the argument was** (R5). The
+        // command line is a pure function over its arguments and cannot ask the
+        // filesystem, so the path arrives whole and is told apart here.
+        //
+        // A path that does not exist is a FILE, not an empty project: "created
+        // on save if it does not exist" is what the usage promises, and a typo
+        // that opened a project nobody has would lose the name they typed.
+        let project = options
+            .path
+            .as_deref()
+            .filter(|path| path.is_dir())
+            .map(std::path::Path::to_path_buf);
+
         let file = match options.path {
+            // A directory names no file to read, so the buffer starts empty and
+            // unnamed — saving it asks for a name, exactly as `iridium` with no
+            // argument does.
+            Some(_) if project.is_some() => None,
             Some(path) => {
                 let (file, text) = TextFile::open(&path).map_err(StartupError::File)?;
                 editor.set_content(&text);
@@ -209,6 +226,14 @@ impl App {
 
         if let Some(line) = options.line {
             app.goto(line);
+        }
+        // ⚠️ **After the line, not before.** Opening the tree makes the panel
+        // modal, and `goto` moves the document's caret — running it second
+        // would leave the caret where the panel's own key handling had not put
+        // it. The order is what makes `iridium +40 ~/project` land on line 40
+        // of the empty buffer behind the tree rather than nowhere.
+        if let Some(directory) = project {
+            app.open_explorer(iridium_panel::explorer::chosen_root(directory));
         }
         Ok(app)
     }
@@ -487,16 +512,38 @@ impl App {
             return Flow::Running;
         }
         let root = self.explorer_root();
+        self.open_explorer(root);
+        self.resync_after_band_change(band);
+        Flow::Running
+    }
+
+    /// Puts the file explorer on screen, rooted here.
+    ///
+    /// ⭐ **Opened as a popover, including at startup**, and that is a ruling
+    /// rather than a default. The panel is modal in this face — every key goes
+    /// to it, printable characters included — and a popover is what a modal
+    /// picker looks like: it appears, you choose, it closes. A band down the
+    /// left edge looks *persistent*, and a persistent panel that nonetheless
+    /// swallows every keystroke would be furniture making a promise the input
+    /// routing does not keep.
+    ///
+    /// ⚠️ **That changes with #113**, which is where the terminal face's
+    /// modality is decided — and R6 says it must not be decided as a side
+    /// effect of this task. When a non-modal keymap exists, a session started
+    /// on a directory should come up as a sidebar and stay there past the first
+    /// file it opens. Until then the honest placement is the one that matches
+    /// how keys actually behave.
+    ///
+    /// The failure is named rather than swallowed: whether it came from a
+    /// chord or from the command line, a panel that silently did not appear is
+    /// indistinguishable from one that is broken.
+    fn open_explorer(&mut self, root: iridium_panel::explorer::ExplorerRoot) {
         match FileExplorerPanel::open(root.path, root.crawl) {
             Ok(explorer) => self.explorer = Some(explorer),
-            // Named rather than swallowed: the key was consumed, and a silent
-            // failure is indistinguishable from a dead key.
             Err(error) => {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));
             },
         }
-        self.resync_after_band_change(band);
-        Flow::Running
     }
 
     /// Writes the kernel's viewport again when the left band's width moved.

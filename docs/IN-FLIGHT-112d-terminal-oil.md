@@ -579,8 +579,46 @@ Each step is checkable on its own, and the first two are strictly refactor.
    | `GutterArea::origin` forced to `0` | `the_gutter_paints_after_the_band_and_not_underneath_it`, alone |
    | `Placement::close`'s leftover-row loop dropped | `every_row_the_band_reserved_is_painted_even_past_the_last_file` + the flush-edge test |
    | `SidebarBox::fitted(columns, rows)` instead of `band_rows` | `a_band_stops_at_the_rows_it_was_given…` + the flush-edge test |
-6. **`iridium <dir>`** — R5. The CLI learns what a directory is, the session
-   takes it as its project, and the tree is up when the editor is.
+6. ✅ **`iridium <dir>`** — R5. **LANDED 13 Aug 2026.** The session takes a
+   directory as its project and the tree is up when the editor is.
+
+   ⭐ **The CLI does not learn what a directory is, and that is deliberate.**
+   `cli.rs` is a pure function over its arguments — that is what lets every rule
+   in it be tested with no fixture on disk, the non-UTF-8 path included. Telling
+   a file from a directory needs the filesystem, so the path is carried whole
+   and `App::new` does the one `is_dir` that decides.
+
+   **A path that does not exist is a FILE.** "Created on save if it does not
+   exist" is what the usage promises, and a typo that silently became an empty
+   project would throw away the name the user typed. Guarded by
+   `a_path_that_does_not_exist_is_a_file_and_never_an_empty_project`.
+
+   **The root is `chosen_root`, not a guess.** The user named the directory, so
+   it earns the crawl — no `.git` walk, no home fallback, none of the guessing
+   `explorer_root` does for the case where nobody said. R5 warned those two
+   functions might need moving; they did not. `project.rs`'s own module doc
+   already records the ruling — *the choice moved, the guess stayed* — and the
+   choice is exactly what a named directory needs.
+
+   ⚠️ **It opens as a POPOVER, not a sidebar, and that is a ruling.** The panel
+   is modal in this face: every key goes to it, printable characters included. A
+   popover is what a modal picker looks like — it appears, you choose, it
+   closes. A band down the left edge looks *persistent*, and a persistent panel
+   that nonetheless swallows every keystroke is furniture making a promise the
+   input routing does not keep. When **#113** gives the terminal a non-modal
+   keymap, a session started on a directory should come up as a sidebar and stay
+   there past the first file it opens. R6 says #113 must not be decided as a
+   side effect of this task, and this does not decide it.
+
+   ⚠️ **One test had to be rewritten, not just updated.**
+   `a_file_that_cannot_be_read_is_reported_before_the_terminal_opens` passed a
+   *directory*, on the reasoning that reading one fails everywhere. A directory
+   is now a project, so that path succeeds — and the test asserts only that
+   *some* error came back, so **it would have gone on passing for the wrong
+   reason** if the fixture had been left alone. It now uses a file with its read
+   bit off, and is `#[cfg(unix)]` because permissions are.
+
+   Census: apps/iridium **92 → 94**.
 
 ---
 

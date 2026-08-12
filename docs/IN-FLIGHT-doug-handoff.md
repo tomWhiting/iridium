@@ -1022,7 +1022,7 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
 
-`origin/main = a6ac25b1`, **0 unpushed**, verified from the remote. Ten gates
+`origin/main = aab56e96`, **0 unpushed**, verified from the remote. Ten gates
 green. Working tree clean apart from untracked `.claude/skills/`.
 
 **#113 is open; steps 1, 2 and 3 have landed** — every step that is needed
@@ -1053,8 +1053,23 @@ already landed rather than with nothing.
 
 **Do not pick the grammar in this seat.** It decides which muscle memory works
 and there is no evidence about his hands. If a tick finds this note and no
-answer, the honest move is to work something else on the backlog rather than
-guess — #108 (the menu bar) is the natural pick, being the other half of #107.
+answer, work something else rather than guess.
+
+## #108 — ground read, no code, `docs/IN-FLIGHT-108-menu-bar.md`
+
+Picked up while #113 waits. The task existed as one paragraph marked *"treat
+this paragraph as unchecked"*, and **its central claim is false**: winit
+**does** build and install an `NSMenu` menubar by default, containing only the
+application menu (About/Services/Hide/Show All/Quit). So #108 is *adding menus
+to a menubar already on screen*, not building one — and replacing winit's menu
+would lose Quit and Hide for nothing. `OPEN-DIALOG-GROUND.md` now carries a
+correction at that section rather than the old claim.
+
+Four decisions named and **not** ruled: M-1 which menus and which ids (a ruled
+table, not a registry sweep — fifty commands flat is not a way in); M-2 greying
+out via `validateMenuItem:`; M-3 how an AppKit callback reaches `DesktopApp`
+(almost certainly enqueue an id for the event loop, not reach into state); M-4
+the terminal face gets no menu bar and its way in stays the palette.
 
 ---
 

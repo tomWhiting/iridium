@@ -243,6 +243,26 @@ worker iridium_build
   /// joining it would take that project's dispatches.
   harness
     kind norn
+    /// ⚠️ **REQUIRED since aion #222 (`1deff0eef`), and REFUSED before it.**
+    /// A norn harness declares its working directory at exact parity with
+    /// `acp`, which has required one since #204. The defect it closes: a norn
+    /// agent inherited its directory from wherever the worker process happened
+    /// to be started, and nothing recorded which one — not the document, not
+    /// argv, not the logs. An agent could read and edit the wrong tree with no
+    /// way to tell afterwards.
+    ///
+    /// The value is not new. It is the same one the `acp` seam below has always
+    /// declared; what changed is that it is now written where the checker can
+    /// see it.
+    ///
+    /// ⛔ **If this line makes the document refuse to check, the binary is
+    /// older than the document.** Measured on this box 12 Aug 2026: aion 0.14.1
+    /// rejects it with "`cwd` configures the `acp` harness, and this section
+    /// declares `kind norn`". That is not a fault in this line — it is the
+    /// engine predating the requirement. Rebuild and reinstall aion from
+    /// `1deff0eef` or later; do not delete this line to make an old binary
+    /// happy, because the new one refuses its absence.
+    cwd "/Users/tom/Developer/ablative/libs/iridium"
     /// Robo Doug's value: this loop is strictly sequential, one build per
     /// pass, so a second slot is capacity the shape can never use.
     concurrency 1

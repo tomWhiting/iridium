@@ -866,3 +866,52 @@ Tom's instruction and no background work is in flight.
    detail — it loses *disagreement*, which is the worse and less obvious loss.
 5. **A stale question in a handoff is worse than no question.** The next seat
    reads it as live and asks it again.
+
+---
+
+## 12 Aug 2026, ~20:30 — Tom's two defects on the shipped sidebar
+
+He used it and reported both in one message. Full write-up in
+`docs/IN-FLIGHT-112c-sidebar.md` under "After Tom used it"; the pushed shas are
+**`db360125`** (scroll limit) and **`57257d8b`** (the key). Ten gates green from
+`ci.sh`'s own `✅ all 10 gates passed`.
+
+⚠️ **Not installed.** `install.sh` refused at exit 1 — *"iridium-desktop is
+running; quit it first, pid 28391"* — which is the refusal working as designed.
+The swap is armed on his next quit; nothing is installed until the `strings`
+grep says so.
+
+### The two laws this pair earned
+
+6. **A key must name a state, not a transition.** A transition-named key has to
+   be *counted* — press it twice and you are back where you started, which is
+   the opposite of what a toggle promises. `explorer.togglePlacement` did
+   exactly what its name said and was wrong for exactly that reason.
+7. **A quantity read between frames must not be derived from what one frame
+   happened to contain.** The consumer feeds its own answer back in, and the
+   two disagree forever. This is not "an approximation that drifts" — it is a
+   closed loop, and it presents as motion with no input.
+
+### The shape both defects shared, again
+
+Neither was findable by reading. The first needed a *second press*; the second
+needed a *second frame*. Both are the same law as #3 above — a value's coverage
+is a fact about its call sites — one turn of the crank further along: a value's
+**correctness** can likewise be a fact about the second time it is asked.
+
+### Named, not fixed — the honest remainder of the scroll work
+
+The wrap model is half-built. `max_scroll_y` is now self-consistent with the
+scroll offset, the viewport window and the caret anchor (one row per
+fold-visible document line), but the *painter* still wraps, so:
+
+- the tail rows of a wrapped line at the very end of a document sit below the
+  window and cannot be scrolled to;
+- scrolling through a wrapped region moves content further than the wheel
+  delta, because the window origin advances one row per document line while the
+  content it drops occupied more.
+
+`docs/SOFT-WRAP-DESIGN.md` is the replacement and already names
+`extra_wrap_lines` among the things it deletes. ⚠️ **Do not "fix" either of
+these by re-deriving a total from the shaped window** — that is the loop above,
+returning.

@@ -1190,6 +1190,7 @@ dependencies = [
  "iridium-editor",
  "iridium-explorer",
  "iridium-file",
+ "iridium-panel",
  "iridium-tree",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -1249,6 +1250,14 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+]
+
+[[package]]
+name = "iridium-panel"
+version = "0.1.0"
+dependencies = [
+ "iridium-editor",
+ "unicode-segmentation",
 ]
 
 [[package]]

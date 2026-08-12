@@ -66,6 +66,9 @@ pub struct Keymap {
     /// Modes in which a printable key no binding claimed must **not** insert
     /// itself. See [`Keymap::silence_typing_in`].
     silent_modes: Vec<ModeName>,
+    /// The mode a session using this keymap begins in, if it names one. See
+    /// [`Keymap::set_initial_mode`].
+    initial_mode: Option<ModeName>,
 }
 
 impl Keymap {
@@ -78,6 +81,7 @@ impl Keymap {
             index: HashMap::new(),
             wildcard_index: Vec::new(),
             silent_modes: Vec::new(),
+            initial_mode: None,
         }
     }
 
@@ -169,6 +173,27 @@ impl Keymap {
     #[must_use]
     pub fn silent_modes(&self) -> &[ModeName] {
         &self.silent_modes
+    }
+
+    /// Declares the mode a session using this keymap begins in.
+    ///
+    /// A modal keymap that silences typing in `normal` but does not say a
+    /// session *starts* in `normal` is only half a keymap: it works if whoever
+    /// installs it happens to remember the name, and fails silently — as a
+    /// document that types normally and answers to no motion — if they do not.
+    /// The two facts belong together, so they live together.
+    ///
+    /// Declaring it does not apply it. Which mode a face is in, and when, is the
+    /// face's business; this is the keymap telling it what to ask for.
+    pub fn set_initial_mode(&mut self, mode: Option<ModeName>) {
+        self.initial_mode = mode;
+    }
+
+    /// The mode a session using this keymap begins in, or `None` for a keymap
+    /// that names no mode at all.
+    #[must_use]
+    pub const fn initial_mode(&self) -> Option<&ModeName> {
+        self.initial_mode.as_ref()
     }
 
     /// Returns the binding that matches `presses` exactly, or `None`.
@@ -419,6 +444,12 @@ struct KeymapData {
     /// deserializes, and so a keymap that silences nothing writes nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     silent_modes: Vec<ModeName>,
+    /// The mode a session using this keymap begins in.
+    ///
+    /// Defaulted and skipped when absent for the same reason as
+    /// [`Self::silent_modes`]: a keymap with no modes writes nothing about them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    initial_mode: Option<ModeName>,
 }
 
 impl From<Keymap> for KeymapData {
@@ -427,6 +458,7 @@ impl From<Keymap> for KeymapData {
             name: keymap.name.into_owned(),
             bindings: keymap.bindings,
             silent_modes: keymap.silent_modes,
+            initial_mode: keymap.initial_mode,
         }
     }
 }
@@ -439,6 +471,7 @@ impl From<KeymapData> for Keymap {
             index: HashMap::new(),
             wildcard_index: Vec::new(),
             silent_modes: data.silent_modes,
+            initial_mode: data.initial_mode,
         };
         keymap.rebuild_index();
         keymap

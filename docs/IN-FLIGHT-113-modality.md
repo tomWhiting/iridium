@@ -276,6 +276,56 @@ in yet.
 
 ---
 
+## ✅ Step 2 LANDED — the minimal modal keymap
+
+`commands/modal_keymap.rs`: two modes, **seven bindings**, `hjkl` + `i` + `a` +
+`Escape`. **Nothing installs it.** No face pushes it and the setting that would
+choose one does not exist yet — D-5 says the default flips last.
+
+⭐ **A keymap now declares the mode a session begins in**, alongside the modes it
+silences. `Keymap::set_initial_mode` / `initial_mode`, and
+`KeymapStack::initial_mode` over them. This was not in the map and is the one
+thing step 2 added to the mechanism: a keymap that silences typing in `normal`
+but does not say a session *starts* in `normal` is only half a keymap — it works
+if whoever installs it happens to remember the name, and fails **silently** if
+they do not, as a document that types normally and answers to no motion.
+
+⚠️ **The stack resolves the two declarations by opposite rules, deliberately.**
+Silencing is `all` — any layer that silences a mode silences it. The initial
+mode is the **highest** layer that names one. A safety property and a single
+value are not the same kind of fact, and each is written where it is decided.
+
+**Eleven tests**, all driving the real `KeyboardHandler` against a real
+`Document` rather than asserting the table was typed out correctly. Every
+binding is exercised, plus `every_binding_in_the_modal_keymap_is_reachable`
+(the hint index's own oracle, applied to catch a mode-scoped binding a mode-free
+one in the default layer would outrank) and `the_default_keymap_alone_names_no_mode`.
+
+⭐ **Both declarations proven load-bearing by mutation:**
+
+| sabotage | what failed |
+| --- | --- |
+| `silence_typing_in(NORMAL)` removed | 3 tests — the swallowed letter, and both round trips through insert |
+| `set_initial_mode(NORMAL)` removed | **6** — including every motion test |
+
+The second is the failure the doc comment predicts: with no initial mode the
+session is in no mode, so no mode-scoped binding matches and typing is not
+silenced. The keymap is fully installed and completely inert.
+
+**Two of my own test bugs, worth recording because both would have passed for
+the wrong reason in a different shape:**
+
+1. Reachability is settled by **pointer identity**, so pushing `modal.clone()`
+   and then iterating the original's bindings reported every one unreachable.
+   The bindings must be read back out of the stack.
+2. A keymap validated against `builtin_registry()` rather than
+   `default_registry()` fails on `history.togglePanel` — the default keymap
+   binds host commands the built-in table alone does not know. That is already
+   written down as a statement rather than a quirk, in
+   `the_default_keymap_does_not_validate_against_the_builtins_alone`.
+
+---
+
 ## What #113 does not do
 
 - **The desktop face.** D-5. It defaults to `standard` and this task does not

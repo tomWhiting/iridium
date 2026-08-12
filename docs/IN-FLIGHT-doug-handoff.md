@@ -443,3 +443,52 @@ harness
 
 `binary` omitted — `norn` is on PATH. `command` is Vesper's to measure. `args`
 omitted.
+
+---
+
+## #112c sidebar — design map written, ground verified: `docs/IN-FLIGHT-112c-sidebar.md`
+
+⭐ **The hard half is already built and has never been called.**
+`FrameCompositor::set_left_inset` (`compositor/insets.rs:56`) exists, and its
+own documentation names this exact case — *"a sidebar, a file tree"* — and
+promises that the gutter, change bars, content column and **both directions of
+hit-testing** follow it. `grep -rn "set_left_inset" apps/` returns nothing.
+Task #50 landed the mechanism and nobody has drawn in the band since.
+
+⚠️ **The trap, which is the whole design:** `EXPLORER_MAX_VISIBLE_ROWS = 30` is
+a property of the **popover**, not of the explorer — `overlay.rs` already says
+so in as many words. A sidebar that inherits it stops drawing two thirds down a
+tall window, which is *the same defect part A just fixed, one layer up*. So the
+row ceiling has to move with the placement while the composition, keys and
+buffer must not — and getting that line in the right place is the design.
+
+Four rulings taken (placement not second panel; pushes rather than floats;
+fixed width first; persistence deliberately deferred to the config work and
+named so it is not dropped). Six-step build order, steps 1–2 testable with no
+window.
+
+## ⭐ A gap in Vesper's control step, found while reading her document
+
+Her `mm_fleet_loop.awl` now has its harness sections — configured for
+**market-mirror**: `permission "allow-once"`, `cwd
+"…/prototyping/market-mirror"`. Correct for her project, so **an iridium run
+needs my own copy**, not an edit of hers. That is the next fleet step.
+
+But reading it turned up something in the control step itself. `control_brief`
+says *"Read the file at the **absolute** path given below"*, and the path is
+`repo + "/docs/CONTROL-ANCHOR.txt"`.
+
+> **The control step proves both seams are alive, obedient, and can reach the
+> `repo` path. It does NOT prove the harness `cwd` agrees with `repo`.**
+
+An agent whose `cwd` is market-mirror, handed an absolute iridium path, returns
+the right anchor and **passes** — while every later *relative* operation happens
+in the wrong project. That is precisely the `git -C` defect Vesper hit herself
+yesterday morning (a command that moves the repo but not the shell's cwd),
+one level up and inside the very step built to catch this class.
+
+Fix offered: make the anchor read **relative** — brief says "relative to your
+working directory", const becomes `"docs/CONTROL-ANCHOR.txt"`. Then cwd becomes
+load-bearing and one question tests both facts. Residual risk named: a harness
+with no meaningful cwd would then always fail — which is itself worth knowing
+before a long run rather than after.

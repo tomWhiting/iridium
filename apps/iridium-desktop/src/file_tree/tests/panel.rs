@@ -35,6 +35,67 @@ fn the_panel_opens_with_the_root_expanded_and_its_children_indented() {
     assert!(rows[2].starts_with("    a.txt"), "{:?}", rows[2]);
 }
 
+/// ⭐ A directory of forty files fills the window rather than stopping at
+/// twelve.
+///
+/// The explorer shared [`PANEL_MAX_VISIBLE_ROWS`] with the command palette
+/// until 12 Aug 2026, and twelve is right for a panel that is *queried* and
+/// wrong for one that is *browsed*: a browser showing a dozen entries of a
+/// folder holding forty hides most of what it was opened to look at.
+///
+/// The fit here is deliberately taller than the old cap and shorter than the
+/// new one, which is what makes this test discriminate in both directions: it
+/// fails against the old shared constant for showing twelve, and it fails
+/// against an explorer that ignored [`PanelFit`] for showing thirty.
+#[test]
+fn a_large_directory_fills_the_window_rather_than_stopping_at_the_palettes_cap() {
+    let directory = TempDir::new("panel-tall");
+    for index in 0..40 {
+        std::fs::write(directory.path().join(format!("f{index:02}.txt")), "x")
+            .expect("the fixture was written");
+    }
+
+    let mut explorer = opened(&directory);
+    let tall = PanelFit {
+        content_columns: 40,
+        max_interior_rows: 26,
+    };
+    let rows = explorer.content(&Theme::dark(), tall).rows.len();
+
+    // One query row plus twenty-five list rows: the window's own limit, less
+    // the query row, because that is smaller than the explorer's ceiling.
+    assert_eq!(
+        rows, 26,
+        "the panel drew {rows} rows into a window that affords 26"
+    );
+    assert!(
+        rows > crate::overlay::PANEL_MAX_VISIBLE_ROWS + 1,
+        "the explorer is still capped at the palette's height"
+    );
+}
+
+/// And the window still wins when it is the smaller of the two.
+///
+/// The pair matters: raising a ceiling is only safe if the clamp underneath it
+/// is the thing that actually protects a short window, and a test that only
+/// checked the tall case would pass just as well against a panel that had
+/// stopped consulting [`PanelFit`] at all.
+#[test]
+fn a_short_window_still_bounds_the_panel_below_its_own_ceiling() {
+    let directory = TempDir::new("panel-short");
+    for index in 0..40 {
+        std::fs::write(directory.path().join(format!("f{index:02}.txt")), "x")
+            .expect("the fixture was written");
+    }
+
+    let mut explorer = opened(&directory);
+    let short = PanelFit {
+        content_columns: 40,
+        max_interior_rows: 6,
+    };
+    assert_eq!(explorer.content(&Theme::dark(), short).rows.len(), 6);
+}
+
 #[test]
 fn escape_and_the_toggle_chord_both_close_the_panel() {
     let directory = TempDir::new("panel-close");

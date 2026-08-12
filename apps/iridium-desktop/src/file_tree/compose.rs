@@ -50,6 +50,16 @@ const EDIT_HINT: &str = "⌘S to apply    esc to stop";
 /// here and still pass.
 pub(super) const BROWSE_HINT: &str = "tab to edit these rows";
 
+/// How the query row spells the key that reveals dot-prefixed entries.
+///
+/// The `⌘` glyph unconditionally, as [`EDIT_HINT`] already does: this face is
+/// built and shipped for macOS, and `Ctrl+.` is bound beside it for a keyboard
+/// without a command key rather than as a second platform to write hints for.
+///
+/// `pub(super)` for the same reason as [`BROWSE_HINT`] — a test that spells
+/// the string out itself proves only that two copies were typed the same way.
+pub(super) const HIDDEN_KEY: &str = "⌘.";
+
 /// The blank columns kept between the query caret and [`BROWSE_HINT`].
 ///
 /// Two, which is the gap the editing label puts after its verb. One would
@@ -304,27 +314,54 @@ impl FileExplorer {
             .collect();
         line.push(&shown, theme.editor.foreground);
         let caret_column = prompt_chars + caret - scroll;
-        if self.query.text().is_empty() && self.tab_would_edit() {
-            Self::push_browse_hint(&mut line, theme, width, caret_column);
+        if self.query.text().is_empty() {
+            self.push_hints(&mut line, theme, width, caret_column);
         }
         (PanelRow::new(line.finish()), Some(caret_column))
     }
 
-    /// Right-aligns [`BROWSE_HINT`], or draws nothing at all.
+    /// Right-aligns whatever the query row has to say, or nothing at all.
     ///
     /// Narrow wins over informative: a hint that had to be truncated, or that
     /// sat against the caret, reads as damage rather than as help. A panel
-    /// that cannot hold both keeps the field, which is the half that does
+    /// that cannot hold one keeps the field, which is the half that does
     /// something.
-    fn push_browse_hint(line: &mut LineBuilder, theme: &Theme, width: usize, caret_column: usize) {
-        let Some(start) = width.checked_sub(BROWSE_HINT.chars().count()) else {
+    ///
+    /// ⭐ **When only one of the two fits, the hidden count is the one that
+    /// stays.** [`BROWSE_HINT`] advertises a feature, and the worst case of
+    /// losing it is that `Tab` stays undiscovered for another session. The
+    /// count is the sentence that keeps hiding entries from being a lie about
+    /// the disk — `iridium-explorer`'s own rule — and dropping it for want of
+    /// two columns would leave the panel quietly showing less than `ls` with
+    /// nothing on screen admitting it.
+    fn push_hints(&self, line: &mut LineBuilder, theme: &Theme, width: usize, caret_column: usize) {
+        let hidden = self.hidden_on_screen();
+        let hidden_hint = (hidden > 0).then(|| format!("{hidden} hidden ({HIDDEN_KEY})"));
+        let tab_hint = self.tab_would_edit().then_some(BROWSE_HINT);
+        let both = match (hidden_hint.as_deref(), tab_hint) {
+            (Some(count), Some(tab)) => Some(format!("{count}{:gap$}{tab}", "", gap = HINT_GAP)),
+            _ => None,
+        };
+
+        // Widest first, and the count before the tab hint: the first that fits
+        // is drawn and the rest are not tried.
+        let Some(text) = [both.as_deref(), hidden_hint.as_deref(), tab_hint]
+            .into_iter()
+            .flatten()
+            .find(|text| Self::hint_fits(text, width, caret_column))
+        else {
             return;
         };
-        if start < caret_column + HINT_GAP {
-            return;
-        }
+        let start = width.saturating_sub(text.chars().count());
         line.pad_to(start, theme.editor.line_number);
-        line.push(BROWSE_HINT, theme.editor.line_number);
+        line.push(text, theme.editor.line_number);
+    }
+
+    /// Whether `text` can be right-aligned without touching the caret.
+    fn hint_fits(text: &str, width: usize, caret_column: usize) -> bool {
+        width
+            .checked_sub(text.chars().count())
+            .is_some_and(|start| start >= caret_column + HINT_GAP)
     }
 
     /// Whether `Tab` would open an editing session on the rows showing now.
@@ -397,7 +434,8 @@ impl FileExplorer {
                 // it, so the disclosure points down — and no folder is drawn
                 // at all unless something under it matched.
                 has_children: self.files.info(row.id).is_some_and(|info| {
-                    info.kind.is_expandable() && !self.files.listed_children(row.id).is_empty()
+                    info.kind.is_expandable()
+                        && self.files.visible_children(row.id).next().is_some()
                 }),
                 expanded: true,
                 selected: index == self.filtered && row.is_selectable(),

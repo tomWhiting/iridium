@@ -182,6 +182,22 @@ impl Palette {
         self.overlay_error
     }
 
+    /// An overlay row's style for a run coloured by a shared panel builder.
+    ///
+    /// ⭐ **The one place a [`Span`](iridium_panel::Span)'s colour becomes a
+    /// terminal colour.** The builders in [`iridium_panel`] compose against the
+    /// theme and hand back runs carrying theme colours; this face decides what
+    /// a terminal can do with one. Routed through [`solid`] like everything
+    /// else here, so a fully transparent colour becomes the terminal's own
+    /// foreground rather than a black that fights whatever the user's palette
+    /// actually is.
+    ///
+    /// The background is the panel's, never the span's: a shared builder
+    /// colours text, and a row's backdrop is the face's furniture.
+    pub fn overlay_span(&self, color: ThemeColor) -> Style {
+        self.overlay.with_foreground(solid(color))
+    }
+
     /// The style of text carrying a syntax highlight.
     ///
     /// The highlight-to-appearance mapping is the kernel's

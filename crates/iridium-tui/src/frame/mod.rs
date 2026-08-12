@@ -42,6 +42,7 @@
 
 mod command_palette;
 mod field;
+mod file_explorer;
 mod geometry;
 mod gutter;
 mod highlight;
@@ -67,6 +68,7 @@ use self::units::whole_cells;
 use crate::cell::{CellBuffer, Color, Style};
 
 pub use self::command_palette::{CommandPalette, PaletteOutcome};
+pub use self::file_explorer::{ExplorerAction, FileExplorerPanel};
 pub use self::geometry::{CellPosition, Chrome, FrameLayout};
 pub use self::history_panel::{HistoryOutcome, HistoryPanel};
 pub use self::line::{LineLayout, PlacedCluster};

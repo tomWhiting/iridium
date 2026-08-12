@@ -1020,7 +1020,38 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ---
 
-## ⚠️ LIVE STATE at the SECOND 13 Aug compaction — read this first
+## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
+
+`origin/main = 479555d4`, **0 unpushed**, verified from the remote. Ten gates
+green. Working tree clean apart from untracked `.claude/skills/`.
+
+**#113 is open and step 1 has landed.** Everything about it lives in
+`docs/IN-FLIGHT-113-modality.md` — six ground findings with `file:line`, seven
+rulings, a five-step build order, and the step-1 write-up. **Read that file, not
+this section**, which exists only to say where the thread is.
+
+⭐ **The handoff's standing instruction about #113 was aimed at the wrong gap.**
+It said *the pending-operator mechanism before any modal keymap is authored*.
+The mechanism that actually blocked modality is that **typing is not a
+binding** — self-insert happens after resolution declines a key, so a normal
+mode cannot switch typing off by binding, nor by suppression. That is what step
+1 fixed. The pending-operator question is downstream of a grammar choice that
+may make it unnecessary altogether.
+
+⚠️ **One question is with Tom and steps 2–3 do not wait on it:** Vim
+(operator × motion) or Helix (selection-first). Priced in D-1 of the map. My
+lean is selection-first because it makes the modal keymap *data over commands
+that already exist*, but it decides which muscle memory works, so it is his.
+**Steps 1–3 are needed whichever way he rules**, which is why the fork is not
+blocking anything.
+
+**Next: step 2** — a minimal built-in modal keymap, off by default, normal and
+insert only. First point where resolver, mode, statusline and typing gate are
+exercised end to end.
+
+---
+
+## LIVE STATE at the SECOND 13 Aug compaction — #112 closed
 
 `origin/main = 25cf95e1`, **0 unpushed**, working tree clean apart from
 untracked `.claude/skills/` (must NOT be committed). Both faces installed and

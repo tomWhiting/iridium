@@ -266,12 +266,52 @@ hands close this**, and that is the honest statement of the boundary.
 
 ---
 
-## What is left
+## ✅ Step 4 — landed `5b20f5c4`
 
-- **Step 4** — the enablement push per M-2: `install_menubar` keeps the
-  `Retained<NSMenuItem>` handles, and `about_to_wait` calls `setEnabled` where
-  the answer changed. Until it lands every row ships enabled, and a row that
-  cannot run reports so through the existing refusal — honest, where an
-  ungrounded grey row would not be.
-- **Slice B** — key equivalents, once D-1's condition is met (the action path
-  exercised in a live session).
+M-2 as ruled. `about_to_wait` is the hook, `menu_availability` is the answer,
+and the push is skipped entirely when the answer has not moved — enabledness
+is a pure function of `Availability` and whether a command writes, and the
+registry does not change mid-session, so the common case is one comparison.
+
+`inert` is read off `press`'s own branch order (prompt, context menu, palette,
+history) so the bar and the keyboard cannot disagree about what modal means.
+⚠️ **Explorer focus is deliberately not modality** — it is a focus, the active
+editor is still well defined, and greying the bar because a side panel holds
+the caret would be greying on a technicality.
+
+The installed items live in a **thread-local**, not on `DesktopApp`: there is
+one menu bar per process (`NSApp.mainMenu` is global), and
+`Retained<NSMenuItem>` is main-thread-only, so a call from elsewhere finds an
+empty list and does nothing — the correct answer rather than a forgettable
+check.
+
+Six tests, in `app/tests/menubar.rs`. The one that matters walks **all four**
+panels, building a real `Prompt` and `ContextMenu` rather than stand-ins, and
+clears each afterwards so a panel that greys the bar and never un-greys it
+fails there rather than in a session.
+
+📌 One test was **cut before it landed**: it asserted an invariant and then the
+branch that only runs when that invariant is false, so it could only pass. *A
+test that cannot fail proves nothing about the thing it names.*
+
+---
+
+## ⛔ What is left — and it is not code
+
+**All four steps have landed.** #108 is code-complete and **cannot be closed
+from this seat.**
+
+| | |
+| --- | --- |
+| ✅ proven | 10 gates green; links; `IridiumMenuTarget` and `iridiumMenuAction:` in the binary; the availability decision has 6 tests |
+| ❌ **unproven** | the menus appear · a click runs anything · the leaked target is alive at click time · greying reaches the items |
+
+**The next step is Tom building it and clicking one menu item.** He was asked
+on 13 Aug (Meridian) and has not answered. A bad selector or dead target
+crashes at *click* time, so launching it here would prove almost nothing.
+
+- **Slice B** — key equivalents, and it is gated on exactly that: D-1 said no
+  chords until the action path has been exercised in a live session. If Tom
+  confirms a click works, turning them on is `setKeyEquivalent` per row plus a
+  modifier mask read from the same `KeyHint` already resolved into
+  `ResolvedVerb::hint`. **Do not do it before he confirms.**

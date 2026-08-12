@@ -60,6 +60,7 @@
 pub mod commands;
 pub mod prompt;
 
+mod config;
 mod document;
 mod view;
 
@@ -151,6 +152,32 @@ impl App {
     /// are reported rather than ignored so that they cannot become silent if
     /// those tables change.
     pub fn new(options: Options) -> Result<Self, StartupError> {
+        // Bound rather than inlined: `with_config` borrows the path, and a
+        // temporary built inside the call would not outlive it.
+        let path = iridium_config::user_config_path();
+        Self::with_config(options, iridium_config::UserConfig::read(), path.as_deref())
+    }
+
+    /// Starts a session from `options` and an *already-read* configuration.
+    ///
+    /// ⭐ **The seam exists so the wiring can be tested.** [`Self::new`] reads
+    /// the file this process's environment names, which a test cannot choose
+    /// without setting environment variables shared with every other test in
+    /// the binary. A test that could only assert against a bare [`Editor`]
+    /// would go on passing if this constructor stopped installing the user's
+    /// bindings altogether — which is precisely the wiring worth guarding.
+    ///
+    /// `path` is used only to name the file in the message; the bindings come
+    /// from `user`, already read from wherever it was.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub(crate) fn with_config(
+        options: Options,
+        user: iridium_config::UserConfig,
+        path: Option<&std::path::Path>,
+    ) -> Result<Self, StartupError> {
         let mut editor = Editor::with_defaults();
 
         for meta in commands::command_metas() {
@@ -161,6 +188,14 @@ impl App {
         editor
             .push_keymap(commands::keymap())
             .map_err(StartupError::Keymap)?;
+
+        // ⭐ **After this face's layer, so the user's bindings win.** The stack
+        // resolves highest layer first, and a user who rebinds a chord this
+        // face also binds means the one they wrote — which is the whole point
+        // of the file. See `config` for why this face reads it and does not
+        // write it.
+        let problems = config::install_user_bindings(&mut editor, user.bindings);
+        let config_message = config::summary(&problems, path).map(Message::error);
 
         if let Some(choice) = options.theme {
             editor.set_theme(theme::load(&choice).map_err(StartupError::Theme)?);
@@ -218,7 +253,9 @@ impl App {
             history: HistoryPanel::new(),
             history_open: false,
             prompt: None,
-            message: None,
+            // A configuration problem is the first thing the session has to
+            // say. Nothing else has run yet, so nothing is being overwritten.
+            message: config_message,
             clipboard: String::new(),
             columns: 0,
             rows: 0,

@@ -1,0 +1,165 @@
+# The rich-text lane — verified ground and the plan
+
+Written 12 Aug 2026. Everything under "Ground" was read off this machine —
+the crates in this tree and the vendored cosmic-text source — not recalled.
+
+## Where this came from
+
+Waffles brought a scoping question on 11 Aug: a GitHub-grade markdown renderer
+in the editor, mermaid included, keeping the feel iridium has now — and, from
+the manifold side, a surface whose chrome *is* editor-drawn decoration
+(chevrons, sigils, spacing) over the same lines you edit. Two hats, possibly
+one engine.
+
+The scoping answer went back the same day. **Tom released both layers on
+12 Aug** through Waffles' docket round: his standard is no short sell and no
+holding the fancy half back, so L1 and L2 both go rather than L1-then-wait.
+Design calls during the lane route to Waffles, not to Tom.
+
+⭐ **L1 is still built before L2, and that is dependency order, not a hold.**
+L2 consumes L1's style payload; there is no arrangement in which L2 lands
+first. Backlog item: **#90**.
+
+## Ground
+
+### The seam everything goes through
+
+`HighlightSource::resolve` (`render/compositor/highlight.rs:54`) returns
+`Option<Vec<(&'a str, Color)>>`. Both faces implement it. That tuple is the
+whole of what a face can say about how text should look, and widening it is
+what L1 *is*.
+
+Below it, four setters in `render/text.rs` build cosmic-text attributes:
+`set_text` (:443), `set_rich_text` (:457), `set_rich_text_diffed` (:508),
+`set_text_diffed` (:594). Every one of them constructs
+`Attrs::new().family(Family::Monospace).color(…)` — family hardcoded, colour
+the only variable. Six such constructions in the file.
+
+⚠️ `set_rich_text_diffed`'s doc states the constraint that governs any change
+here: it must stay **byte-for-byte faithful** to what `set_rich_text` builds,
+or the first diffed frame after a full rebuild spuriously reshapes every line.
+A style payload has to reach both by the same construction.
+
+### What cosmic-text actually supports (`cosmic-text-0.15.0/src/attrs.rs:228`)
+
+`Attrs` carries `color_opt`, `family`, `stretch`, `style` (Normal/Italic/
+Oblique), `weight`, `metadata`, `cache_key_flags`, **`metrics_opt`**,
+`letter_spacing_opt`, `font_features`.
+
+- **Weight and italic are free** — `Attrs::weight` and `Attrs::style`, already
+  per-span through the `AttrsList` both rich setters build.
+- ⭐ **`metrics_opt: Option<CacheMetrics>` is per-span font size *and* line
+  height** (`:106-109`, `Attrs::metrics` at `:305`). **The shaper can already
+  lay out a heading larger than its body text.** This materially revises the
+  L2 estimate given on 11 Aug: variable line height is not blocked by
+  cosmic-text at all, only by iridium's own scalar assumption below.
+- ⛔ **There is no underline and no strikethrough.** The only occurrence of
+  either word in the whole crate is a `//TODO: underline` in cosmic-text's own
+  syntect example. Decorations are not a shaping concern — they have to be
+  drawn as quads, which the two quad pipelines can already do, positioned from
+  `layout_runs` glyph geometry.
+
+### The uniform grid, and what rests on it
+
+`line_height` is `font_size * line_height_factor`, one scalar
+(`render/text.rs:311`). `char_width` is one measured advance, cached
+(`:325`). 40 files mention the first, 24 the second.
+
+What divides or multiplies by them:
+
+| site | use |
+|---|---|
+| `compositor/frame.rs:71-75` | viewport virtualisation, `scroll_y / line_height` |
+| `compositor/placement.rs:34` | `max_scroll_y`, `total_visual * line_height` |
+| `compositor/placement.rs:96,127` | **hit test**, `(x - offset) / char_width` |
+| `compositor/placement.rs:163,208` | inverse hit test |
+| `render/cursor.rs:265-271` | every caret and selection quad |
+| `render/gutter.rs:239-` | gutter width and line-number alignment |
+
+⚠️ The hit test is the dangerous one. glyphon shapes proportionally and would
+draw proportional text *correctly*; only the caret would land wrong. A wrong
+thing that looks right is the worst failure shape available here.
+
+### Decoration machinery that already exists
+
+- Per-line background colours — `line_backgrounds_mut: HashMap<usize, Color>`
+  (`compositor/settings.rs:188`).
+- Gutter change bars, gutter band, selection, caret — all quads.
+- `RoundedQuadRenderer` (`render/rounded.rs`) — real SDF arcs, hairlines, soft
+  shadows; the desktop face draws its entire chrome with it in a second
+  `LoadOp::Load` pass.
+- Arbitrary per-visual-line gutter *text* — `set_custom_gutter_lines`
+  (`settings.rs:205`), correctly in the retained-shape key.
+- **Folds** — the only existing mechanism that swaps a block of text for
+  something else, done at extraction (`compositor/shaping.rs:175-187`,
+  appends `" ... }"`).
+
+### The manifold hat already half-exists
+
+`file_tree/rows.rs` draws `▸`/`▾` chevrons, two-space-per-level indent and
+`+`/`✗` change markers as coloured spans over an editable buffer. Its own doc
+(`:59-70`) names the exact wall L1 removes: *"the overlay's `Span` carries text
+and a colour and nothing else … there is no line-through attribute to set"* —
+which is why a row marked for deletion wears a `✗` instead of being struck
+through.
+
+### Markdown, measured
+
+- `tree_sitter_md::LANGUAGE` is linked (`iridium-syntax/src/grammar.rs:90`) —
+  the **block** grammar only. There is no `"markdown-inline"` arm anywhere.
+- So `markdown-inline/highlights.scm` — `emphasis`, `strong_emphasis`,
+  `code_span`, `strikethrough`, inline links, images — **can never run**.
+  `**bold**` produces no span today.
+- Block captures do work: headings (`title.markup`), list markers, table
+  pipes, fence delimiters, block-quote markers, reference-definition links.
+- Markdown sections map onto the `@class` text object, so heading navigation
+  already works (`query/textobject.rs:25`).
+- ⛔ **Injections are vendored and consumed by nothing.** `QueryKind::Injections`
+  exists (`iridium-lang/src/query/kind.rs:28`) and dozens of `injections.scm`
+  ship, but the only references outside the enum are in tests — one test
+  comment says so outright. A ` ```rust ` fence inside markdown is not
+  highlighted as Rust, in any face.
+- No mermaid anything. No image or texture path in `render/` at all: grepping
+  it for image/texture returns two hits, both the word "image" in a float-
+  conversion doc comment.
+
+## The plan
+
+### L1 — style on the run path that already exists
+
+1. A `RunStyle` in `render` — colour, weight, italic. Colour stays mandatory;
+   the rest default to "same as body", so an unstyled run is byte-identical to
+   today's output and the diffing setters do not spuriously reshape.
+2. Widen `HighlightSource::resolve` to carry it, and both faces' resolvers with
+   it.
+3. Thread it through all four setters in `text.rs` by one shared construction,
+   so `set_rich_text` and `set_rich_text_diffed` cannot drift.
+4. Add it to `ShapeKey` — or rather, confirm `highlight_generation` already
+   covers it, since style arrives by the same channel as colour. **Check, do
+   not assume**: a style change that moves no key shows stale text.
+5. Underline and strikethrough as quads off `layout_runs`, once there is a
+   caller that wants them.
+6. Link the markdown-inline grammar; make something consume the injection
+   queries. Both independently valuable — injections fix code fences
+   everywhere, not only in markdown.
+
+### L2 — variable line height and advance
+
+Replace `visual_line * line_height` with a cumulative per-visual-line layout
+table (offset, height), and re-derive hit testing from `layout_runs` glyph
+positions instead of the `char_width` division. Every site in the table above
+consumes it, both faces and the minimap included.
+
+⚠️ **The risk is to the feel, not to the shaping.** Retained shaping keyed on
+15 inputs and per-line diffing are what make a keystroke reshape one line;
+every cache key and geometry readback has to be re-derived against the layout
+table, and the failure mode of getting it subtly wrong is caret drift and
+jitter — precisely what Tom asked to protect. That is the real content of the
+L2 estimate.
+
+### L3 — not in this lane
+
+Images, mermaid, rendered tables. Needs L2 first (a block's height is not a
+line height), a sampled-texture pipeline beside the two quad pipelines, a
+mermaid rasteriser, and a decision about what the caret does inside a block.
+Not released; named here so it is not mistaken for dropped.

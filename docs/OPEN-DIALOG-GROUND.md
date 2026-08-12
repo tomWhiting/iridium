@@ -5,18 +5,41 @@ read out of the crates on this machine, not recalled.
 
 ---
 
-## ⛔ STOP FIRST — read this before doing anything (11 Aug 2026)
+## ✅ DONE — landed `ad449ea8`, 12 Aug 2026
 
-**Tom asked for the work to stop, in his own words, mid-turn: *"I need you to
-just stop for a bit. I thought you already stopped."*** The `/loop` was
-stopped with `ScheduleWakeup(stop: true)`; no wakeup and no Monitor is armed.
+⚠️ **The stop that used to head this file is lifted and no longer applies.**
+Tom placed it on 11 Aug (*"I need you to just stop for a bit"*) and released
+the work on 12 Aug through Waffles' docket round. It is recorded here rather
+than deleted because a reader arriving at this file mid-history needs to know
+which state it was written in — but it is **not** in force, and nothing here
+should stop anyone.
 
-**Do not resume #107, or any other backlog item, on your own.** The stop is
-still in force until Tom says otherwise. A summary of the session is not
-permission, and neither is this file — it exists so that *when* he says go,
-nothing has to be re-derived.
+**Everything the "three things left" section below asked for is built**, plus
+the tests and the defect it named. Ten gates green at the commit.
 
-## State of the tree, measured 11 Aug 2026
+| what | where |
+|---|---|
+| the chooser | `apps/iridium-desktop/src/dialog.rs`, 3 tests |
+| the three ids and their palette rows | `commands/ids.rs` |
+| `⌘O` / `Ctrl+O`, `⌘⇧O` / `Ctrl+⇧O` | `commands/keymap.rs` |
+| `project.set` on the palette-only list | `commands/tests.rs` |
+| all three dispatched | `app/host_commands.rs` |
+| the stranded `toggle_theme` doc block | fixed |
+
+Two tests were added: `the_open_chords_resolve_through_the_stack_to_the_verbs_they_name`
+and `the_letter_o_is_still_a_letter`.
+
+⚠️ **One claim in the section below turned out to be false, and the correction
+matters more than the claim did.** Forbidding `Shift` on the unshifted rows is
+*not* required to stop `⌘O` swallowing `⌘⇧O`: spelling it `Any` was tried and
+`⌘⇧O` still reached `project.open`, because the folder rows declare `Shift`
+`Required` and that outranks a loose pattern within the layer — the mechanism
+`MAC_CHORDS` already leans on deliberately. The forbid is explicitness, not
+necessity. The code comment and the test's own doc both say so now.
+
+**Still open: the menu bar**, tracked as **#108**. See the foot of this file.
+
+## State of the tree when the three steps were still outstanding (11 Aug 2026)
 
 `git log`, `git status`, `cargo check` and `cargo test` were all run to write
 this section; none of it is remembered.

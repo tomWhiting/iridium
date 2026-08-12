@@ -33,19 +33,36 @@ Landed, ten gates green at each, all unpushed:
 | `f46b2cf7` | #107 closed in the docs, this file created |
 | `2054a497` | **L1a** — `RunStyle` through the whole seam |
 | `bf832da7` | the taxonomy finding below |
+| `4efce7de` | **L1b** — ten markup categories, no visual change |
 
-**Next step, concretely: markup needs its own `HighlightType` slots.**
-`title.markup`, `link_uri.markup` and `link_text.markup` currently map onto
-`Keyword`, `String` and `Function` in
-`crates/iridium-syntax/src/highlight/capture.rs` — see the reordering section
-below for why that blocks everything after it. Give them slots, map the slots
-in `crates/iridium-editor/src/syntax.rs`'s `highlight_to_color`, and hold the
-new arms with the existing
-`the_six_ruled_capture_colours_are_the_ones_that_were_ruled` test's discipline.
+**Next step, concretely: style per category in the theme.** The categories
+exist now, so `SyntaxColors` (a fixed struct of fourteen colours,
+`crates/iridium-editor/src/theme/colors.rs:229`) is the thing standing between
+a theme and "headings are bold". Widen it to carry a `RunStyle` per category
+rather than a `Color`, keeping the JSON `#[serde(default)]` shape so an
+existing theme file still loads and still means what it meant. This is #87's
+work and lands with it, not beside it.
 
-Then: style-per-slot in the theme (`SyntaxColors` → styles, alongside #87),
-then the markdown-inline grammar and the injection queries, then L2's
+⚠️ Two constraints on that step, both measured:
+
+- `highlight_to_color` (`crates/iridium-editor/src/syntax.rs`) is called by the
+  desktop resolver **and** by the TUI palette
+  (`crates/iridium-tui/src/frame/palette.rs:187`) precisely so the two native
+  faces cannot drift. Whatever replaces it keeps that property or the point of
+  it is gone.
+- `markup_emphasis_borrows_a_slot_that_is_still_plain_ink` will start failing
+  the moment markup gets its own fields, and **that is the signal, not a
+  breakage** — it exists to say "the borrowing is over". Delete it in the same
+  commit that gives markup real fields, never before.
+
+Then: the markdown-inline grammar and the injection queries, then L2's
 cumulative layout table.
+
+⚠️ **#109 is not part of this lane and must not be folded into it.** The
+unmapped-capture ratchet turns out to be blind to every grammarless language,
+which is why four inline markup captures went unmapped and unreported. Its fix
+needs a diff/git colour ruling and a source-text capture scan — one coherent
+commit of its own, with the fix and the gate landing together.
 
 ⚠️ Working tree carries an untracked `.claude/skills/` that is unrelated to
 any of this and must not be committed.
@@ -157,7 +174,11 @@ through.
 
 ### ⭐ The finding that reorders L1 (measured 12 Aug, after L1a landed)
 
-**Markup captures ride on code slots today, so no theme can style a heading
+✅ **Acted on in `4efce7de`.** Kept below because it is the reasoning behind
+the ten markup categories, and a category set with no recorded argument is one
+the next person collapses.
+
+**Markup captures rode on code slots, so no theme could style a heading
 without styling unrelated code.** From `iridium-syntax/src/highlight/capture.rs`:
 
 | capture | maps onto | the comment's own reason |
@@ -183,7 +204,24 @@ it is also the only arrangement in which the two faces cannot drift, since
 both read one theme. This lines up with **#87** (theme system) rather than
 competing with it: #87 gains style-per-slot instead of colour-per-slot.
 Revert cost if that is wrong: the taxonomy work stands either way; only the
-`SyntaxColors` → `SyntaxStyles` widening would be undone.
+`SyntaxColors` → `SyntaxStyles` widening would be undone. Ratified by Waffles
+on 12 Aug, in the same terms — a capture that is inherently bold is an
+authority the theme cannot revoke.
+
+⭐ **What the split found on its way through.** The vendored queries write ten
+markup capture names, in two conventions: Zed's suffix form (`title.markup`)
+in the markdown queries, and the nvim/helix prefix form (`markup.heading`,
+`markup.link.url`) in the vendored `gitcommit` query. Both had to reach one
+category — two spellings landing in different categories would style a heading
+in a commit message differently from a heading in a README, which no theme
+author would ever think to look for.
+
+Four of the ten — `emphasis.markup`, `emphasis.strong.markup`,
+`text.literal.markup`, `strikethrough.markup` — mapped to **nothing at all**,
+and nothing reported it. They live in `markdown-inline`, which has no grammar
+linked, and `every_vendored_capture_maps_to_a_highlight_type` skips any
+language whose query does not compile. That is **#109**, a gate defect rather
+than a rendering one, and deliberately not folded into this lane.
 
 ### L1 — style on the run path that already exists
 

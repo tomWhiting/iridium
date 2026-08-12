@@ -10,8 +10,7 @@
 
 use iridium_editor::workspace::NodeId;
 
-use super::state::{DesktopApp, DesktopDocument, Flow, UNTITLED};
-use crate::highlight::HighlightCache;
+use super::state::{DesktopApp, Flow};
 use crate::prompt::{Deed, Message, Prompt};
 use crate::tab_strip::{TabHit, TabItem, TabStripContent};
 
@@ -55,24 +54,16 @@ impl DesktopApp {
     /// a frame that paints nothing. A fresh untitled buffer is what a window
     /// with no file has always shown, so this is the state the session
     /// started in rather than a new one invented for the occasion.
-    fn ensure_a_tab_is_open(&mut self) {
+    pub(super) fn ensure_a_tab_is_open(&mut self) {
         if self.workspace.tab_count() > 0 {
             return;
         }
-        if self
-            .workspace
-            .open_with(
-                "",
-                UNTITLED,
-                None,
-                DesktopDocument {
-                    scroll_y: 0.0,
-                    file: None,
-                    syntax: HighlightCache::new(),
-                },
-            )
-            .is_none()
-        {
+        // The same construction `file.new` uses, deliberately: what a blank
+        // document *is* — its label, its empty text, its absent file — is one
+        // decision, and two copies of it would drift the moment either moved.
+        // The parent is `None` because there is no tab left to be in a group
+        // with.
+        if self.open_untitled(None).is_none() {
             // Unreachable: `open_with` refuses only a parent that is not a
             // group, and none is passed. A window with no tab cannot be
             // typed into, so it is said out loud rather than left blank.

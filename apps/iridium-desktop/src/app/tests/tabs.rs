@@ -17,6 +17,69 @@ use crate::tab_strip::TabHit;
 // Tabs
 // =========================================================================
 
+/// `⌘N` makes a blank document beside what is open, and asks nothing.
+///
+/// Genuinely absent until 12 Aug 2026: an untitled buffer appeared only when
+/// the last tab closed, so there was no way to start writing something new
+/// without first finding a file to open. Additive, so there is nothing to
+/// confirm — the same change of stakes that let a drop stop asking.
+#[test]
+fn the_new_file_chord_opens_a_blank_tab_beside_what_is_open() {
+    let directory = TempDir::new("desktop-new-file");
+    let (mut app, _path) = open(&directory, "a.txt", "first");
+    type_into(&mut app, "x");
+
+    assert_eq!(app.press(&meta(KeyCode::Char('n'))), Flow::Running);
+
+    assert!(app.prompt.is_none(), "an additive verb asks nothing");
+    assert_eq!(app.workspace.tab_count(), 2);
+    assert_eq!(app.test_editor().content(), "");
+    assert_eq!(front(&app), None, "a new file has no file yet");
+    assert!(
+        !app.is_dirty(),
+        "an empty buffer that was never on disk is clean"
+    );
+
+    // And the edited one is still there, still edited, one chord away.
+    assert_eq!(app.press(&ctrl_shift(KeyCode::Char('['))), Flow::Running);
+    assert_eq!(app.test_editor().content(), "xfirst");
+}
+
+/// The blank tab a new file makes is the same one the session falls back to.
+///
+/// Two constructions would be two ideas of what a blank document *is* — its
+/// label above all — free to disagree the moment either moved. This asserts
+/// they agree by comparing the labels rather than by reading the code.
+#[test]
+fn a_made_blank_tab_and_a_fallback_blank_tab_are_the_same_thing() {
+    let directory = TempDir::new("desktop-new-file-label");
+    let (mut app, _path) = open(&directory, "a.txt", "first");
+
+    assert_eq!(app.press(&meta(KeyCode::Char('n'))), Flow::Running);
+    let made = app
+        .workspace
+        .active()
+        .and_then(|tab| app.workspace.node(tab))
+        .map(|node| node.label().to_owned());
+
+    // Close both tabs, which drives the session onto its fallback.
+    assert_eq!(app.press(&ctrl_w()), Flow::Running);
+    assert_eq!(app.press(&ctrl_w()), Flow::Running);
+    assert_eq!(app.press(&press(KeyCode::Char('y'))), Flow::Running);
+    assert_eq!(app.workspace.tab_count(), 1);
+    let fallback = app
+        .workspace
+        .active()
+        .and_then(|tab| app.workspace.node(tab))
+        .map(|node| node.label().to_owned());
+
+    assert_eq!(
+        made, fallback,
+        "the two blank documents are labelled differently"
+    );
+    assert!(made.is_some());
+}
+
 /// A drop opens a *second* tab and leaves the first one alone.
 ///
 /// This is the assertion the whole workspace conversion exists for. Under

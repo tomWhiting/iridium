@@ -19,7 +19,8 @@ use iridium_editor::{
 };
 
 use super::ids::{
-    COMMAND_COUNT, COMMANDS, FILE_OPEN, FILE_SAVE, FILE_SAVE_FORCE, PROJECT_OPEN, command_metas,
+    COMMAND_COUNT, COMMANDS, FILE_NEW, FILE_OPEN, FILE_SAVE, FILE_SAVE_AS, FILE_SAVE_FORCE,
+    PROJECT_OPEN, command_metas,
 };
 use super::keymap::{BINDING_COUNT, BINDINGS, MAC_CHORDS, keymap};
 
@@ -153,6 +154,77 @@ fn the_open_chords_resolve_through_the_stack_to_the_verbs_they_name() {
     ];
     for &(modifiers, expected) in cases {
         resolves_to(&stack, KeyCode::Char('o'), modifiers, expected);
+    }
+}
+
+/// The `S` key carries three verbs, and each modifier set must reach its own.
+///
+/// ⚠️ **`Ctrl+⇧S` and `⌘⇧S` saved until 12 Aug 2026** — not by anyone's
+/// decision, but because the two save rows spelled `Shift` `Any` and nothing
+/// else claimed the shifted chord. Resolved through the whole stack rather
+/// than read off the table, because the layer underneath binds the same key
+/// under looser patterns and a row proves nothing on its own.
+#[test]
+fn the_three_save_chords_each_reach_their_own_verb() {
+    let stack = session_stack();
+    let alt_held = |meta: bool| Modifiers {
+        shift: false,
+        ctrl: !meta,
+        alt: true,
+        meta,
+        alt_graph: false,
+    };
+    let cases: &[(Modifiers, &CommandId)] = &[
+        (held(false, false, true), &FILE_SAVE),
+        (ctrl_held(false), &FILE_SAVE),
+        (held(true, false, true), &FILE_SAVE_AS),
+        (ctrl_held(true), &FILE_SAVE_AS),
+        (alt_held(true), &FILE_SAVE_FORCE),
+        (alt_held(false), &FILE_SAVE_FORCE),
+    ];
+    for &(modifiers, expected) in cases {
+        resolves_to(&stack, KeyCode::Char('s'), modifiers, expected);
+    }
+}
+
+/// `⌘N` and `Ctrl+N` make a file; `⌘⇧N` is left free on purpose.
+///
+/// The shifted half is where a new *window* goes on every platform this face
+/// runs on, and claiming it now would mean taking it back later from whoever
+/// had learned it. Same reasoning as `⌘W` leaving `⌘⇧W` alone.
+#[test]
+fn the_new_file_chords_resolve_and_leave_the_shifted_one_free() {
+    let stack = session_stack();
+    for modifiers in [held(false, false, true), ctrl_held(false)] {
+        resolves_to(&stack, KeyCode::Char('n'), modifiers, &FILE_NEW);
+    }
+    for modifiers in [held(true, false, true), ctrl_held(true)] {
+        let mut resolver = KeymapResolver::new();
+        let outcome = resolver.resolve(&stack, KeyPress::new(KeyCode::Char('n'), modifiers));
+        assert_ne!(
+            outcome.command().map(CommandId::as_str),
+            Some(FILE_NEW.as_str()),
+            "the shifted chord is held open for a new window, not a new file"
+        );
+    }
+}
+
+/// A bare `n` still types an `n`, and a bare `s` an `s`.
+///
+/// The six rows above all require a modifier, but that is a claim about the
+/// patterns and this is the check on it — the same check
+/// [`the_letter_o_is_still_a_letter`] makes, for the same reason: binding a
+/// bare letter by accident is how an editor stops being able to write it.
+#[test]
+fn the_letters_n_and_s_are_still_letters() {
+    let stack = session_stack();
+    for (key, claimed) in [
+        (KeyCode::Char('n'), FILE_NEW.as_str()),
+        (KeyCode::Char('s'), FILE_SAVE.as_str()),
+    ] {
+        let mut resolver = KeymapResolver::new();
+        let outcome = resolver.resolve(&stack, KeyPress::new(key, held(false, false, false)));
+        assert_ne!(outcome.command().map(CommandId::as_str), Some(claimed));
     }
 }
 
@@ -563,6 +635,12 @@ fn the_save_ids_are_the_terminal_faces_ids() {
     // nothing else would notice the two crates drifting apart.
     assert_eq!(FILE_SAVE.as_str(), "file.save");
     assert_eq!(FILE_SAVE_FORCE.as_str(), "file.saveForce");
+    // The two this face contributes alone, spelled as the terminal face
+    // *would* spell them when it takes them. See the module doc for why
+    // neither is there yet — one needs a chord a terminal can report, the
+    // other is a different verb on a face with one buffer.
+    assert_eq!(FILE_SAVE_AS.as_str(), "file.saveAs");
+    assert_eq!(FILE_NEW.as_str(), "file.new");
 }
 
 /// Every single-stroke binding of the default keymap that `stroke` could

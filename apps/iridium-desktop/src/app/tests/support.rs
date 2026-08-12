@@ -88,6 +88,18 @@ pub(super) fn meta(key: KeyCode) -> KeyEvent {
     )
 }
 
+/// A `⌘⇧<key>` chord.
+pub(super) fn meta_shift(key: KeyCode) -> KeyEvent {
+    chord(
+        key,
+        Modifiers {
+            meta: true,
+            shift: true,
+            ..Modifiers::none()
+        },
+    )
+}
+
 /// Writes a second fixture and returns its path.
 pub(super) fn fixture(directory: &TempDir, name: &str, text: &str) -> PathBuf {
     let path = directory.path().join(name);

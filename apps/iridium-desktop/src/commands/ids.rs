@@ -11,6 +11,10 @@ use iridium_editor::{CommandCategory, CommandId, CommandMeta};
 pub const FILE_SAVE: CommandId = CommandId::from_static("file.save");
 /// Write the document to its file even though the file changed on disk.
 pub const FILE_SAVE_FORCE: CommandId = CommandId::from_static("file.saveForce");
+/// Ask where to write the document, starting from the name it already has.
+pub const FILE_SAVE_AS: CommandId = CommandId::from_static("file.saveAs");
+/// Open a fresh untitled buffer in a new tab.
+pub const FILE_NEW: CommandId = CommandId::from_static("file.new");
 /// Pick a file with the system chooser and open it in a tab.
 pub const FILE_OPEN: CommandId = CommandId::from_static("file.open");
 /// Pick a folder with the system chooser and make it this session's project.
@@ -38,6 +42,32 @@ pub static COMMANDS: &[CommandMeta] = &[
         CommandCategory::from_static("File"),
     )
     .with_aliases(&["overwrite", "force write", "w!"]),
+    // ----- The two Tom asked for on 12 Aug 2026 -----
+    //
+    // ⚠️ `save_as` was **already built, complete and tested** — the prompt, the
+    // atomic write, the language that follows the new name, all of it — and
+    // nothing led to it for a document that had a name. `⌘S` reaches it only
+    // for an *unnamed* buffer, because for a named one it must write rather
+    // than ask. So the whole verb was reachable from exactly one state and
+    // invisible from every other, which is why the honest description of this
+    // row is a door, not a feature.
+    //
+    // `file.new` is the other half of the same complaint and was genuinely
+    // absent: an untitled buffer appeared only when the last tab closed.
+    CommandMeta::described(
+        FILE_SAVE_AS,
+        "Save As…",
+        "Asks where to write the document, starting from the name it already has.",
+        CommandCategory::from_static("File"),
+    )
+    .with_aliases(&["save copy", "rename", "write as", "saveas", "w"]),
+    CommandMeta::described(
+        FILE_NEW,
+        "New File",
+        "Opens a fresh untitled buffer in a new tab beside what is already open.",
+        CommandCategory::from_static("File"),
+    )
+    .with_aliases(&["new", "new buffer", "new tab", "blank", "enew"]),
     // ----- The three ways in, added 9 Aug 2026 -----
     //
     // ⚠️ Before these, the only way to open anything was to name it on the

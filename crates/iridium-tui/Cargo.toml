@@ -15,6 +15,11 @@ workspace = true
 # The kernel. No GPU: the terminal face uses the pure layout half of `render`.
 iridium-editor = { path = "../iridium-editor", default-features = false, features = ["syntax"] }
 
+# The file explorer, whole, and the row vocabulary it composes in. Shared with
+# the GPU face so a rename means one thing in both — see `iridium_panel` for
+# why that had to be a crate rather than a module in a face.
+iridium-panel.workspace = true
+
 # Terminal driver, input parsing, and the bridge between them.
 # See docs/TERMINAL-STACK.md for the verified API surface of all three.
 termina.workspace = true
@@ -24,3 +29,9 @@ terminput-termina.workspace = true
 # Cell width. A cell is not a character; see docs/TERMINAL-FACE-PLAN.md.
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+
+# The explorer panel's tests open real directories on a real reader thread,
+# because the panel's whole job is showing what is on a disk and a fixture that
+# faked one would be testing something else.
+[dev-dependencies]
+iridium-file = { workspace = true, features = ["test-support"] }

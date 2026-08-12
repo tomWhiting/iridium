@@ -95,6 +95,20 @@ impl FloatingBox {
         buffer.set_str(self.left + self.width - 1, row, "│", style);
     }
 
+    /// Draws a hairline rule across one interior row, joining both sides.
+    ///
+    /// The shared builders in [`iridium_panel`] emit a separator row to say
+    /// "a group ends here" and say nothing about what a separator looks like,
+    /// because that is furniture and furniture is a face's. Here it is `├──┤`,
+    /// which is the same light box-drawing weight as the surrounding border —
+    /// so it reads as part of the panel rather than as content that happens to
+    /// be dashes.
+    ///
+    /// The row must already be blanked; this writes over it.
+    pub(in crate::frame) fn rule_row(&self, buffer: &mut CellBuffer, row: usize, style: Style) {
+        self.border(buffer, row, '├', '┤', style);
+    }
+
     /// Paints one horizontal border row.
     fn border(&self, buffer: &mut CellBuffer, row: usize, first: char, last: char, style: Style) {
         let mut line = String::with_capacity(self.width * 3);

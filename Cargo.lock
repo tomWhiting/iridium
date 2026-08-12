@@ -1298,6 +1298,8 @@ name = "iridium-tui"
 version = "0.1.0"
 dependencies = [
  "iridium-editor",
+ "iridium-file",
+ "iridium-panel",
  "termina",
  "terminput",
  "terminput-termina",

@@ -640,3 +640,62 @@ Now `iridium-control-anchor-dcf26d-2026-08-12`, and the file states the rule:
 with `od -c`; `grep -rn mm-fleet-control-anchor` over the repo returns nothing.
 
 `aion awl check workflows/iridium_loop.awl` → `ok (2 steps)`.
+
+---
+
+## STATE AT COMPACTION — 12 Aug 2026 ~18:55
+
+`origin/main = d9ae8de8`, **0 unpushed**, verified at fetch. Working tree clean
+except untracked `.claude/skills/`, which must NOT be committed.
+
+Closed today: #111, #112a, #112b, #114. Stashes cleared (SHAs + proven recovery
+path above). Installed and receipted.
+
+### ⚠️ Fleet run 1 — the operational fact not yet written anywhere else
+
+Before `aion run workflows/iridium_loop.awl` can do anything, **two workers must
+be serving**, on queues `iridium_build` (norn) and `iridium_oversight` (acp).
+
+⛔ **The norn worker MUST be launched with its working directory inside this
+repository**, and nothing in the document can make that so:
+
+- `cwd` is an **ACP-only** field; the checker refuses it on a norn harness.
+- So the build seam's working directory is *the worker process's launch
+  directory*, which appears in no document anywhere.
+- The relative anchor read is therefore the **only** instrument that can ever
+  catch a norn seam standing in the wrong tree — it will refuse the run, which
+  is correct, but the fix is at the launch, not in the file.
+
+A green control step proves the two seams' working directories **coincide**. It
+does not make them coincide, and nothing in the document can.
+
+Run 1's task must need no writes; the check afterwards is `git status
+--porcelain` — a measurement, not a promise.
+
+⚠️ Worker launch takes a `--liminal-address <host:port>`. **Banned ports remain
+banned**: not 3000, 3030, 8000, 8080. Pick something obscure (12223, 14567).
+`:8080` is aion's own server, already running — talking to it is fine, starting
+anything there is not.
+
+### Suggestion sent to Vesper on Tom's "one generic document" direction
+
+She measured that only two settings are frozen into the document and can't be
+supplied per run: the acp `command` and `cwd`. I added a third from this side:
+**the anchor string must be per-repository**, so a generic document needs
+`control_expect` as an *input* rather than a const. The check then reads "does
+the tree I am standing in answer with the string the operator named for it",
+which is still generic. **Three inputs, one document.**
+
+### Next work, in order
+
+1. **#112c sidebar** — `docs/IN-FLIGHT-112c-sidebar.md` has the verified ground,
+   four rulings and a six-step build order. Steps 1–2 (a sidebar `PanelFit`
+   constructor; the row ceiling becoming a field of the fit rather than a module
+   constant read directly by `compose.rs`) are pure composition and testable
+   with no window. **`set_left_inset` exists and has never had a caller** — the
+   X-axis audit landed in #50.
+2. **#112d the terminal face** — its own design map, not an assumption that it
+   is the same panel with a different painter. Tom named opening the terminal
+   editor *on a directory* as the case that shapes it.
+3. **#113** the pending-operator mechanism before any modal keymap is authored.
+4. Fleet run 1, once workers are served per the launch note above.

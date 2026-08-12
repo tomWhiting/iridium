@@ -1022,10 +1022,11 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — #113 IS IN FLIGHT, read this first
 
-`origin/main = dd764572`, **0 unpushed**, verified from the remote. Ten gates
+`origin/main = a6ac25b1`, **0 unpushed**, verified from the remote. Ten gates
 green. Working tree clean apart from untracked `.claude/skills/`.
 
-**#113 is open; steps 1 and 2 have landed.** Everything about it lives in
+**#113 is open; steps 1, 2 and 3 have landed** — every step that is needed
+whichever way Tom rules the grammar. Everything about it lives in
 `docs/IN-FLIGHT-113-modality.md` — six ground findings with `file:line`, seven
 rulings, a five-step build order, and the step-1 write-up. **Read that file, not
 this section**, which exists only to say where the thread is.
@@ -1045,11 +1046,15 @@ that already exist*, but it decides which muscle memory works, so it is his.
 **Steps 1–3 are needed whichever way he rules**, which is why the fork is not
 blocking anything.
 
-**Next: step 3 — counts.** `with_count_prefix` appears **zero times** in the
-default keymap, so `3j` is not a feature that is off, it is one that was never
-wired. The guarding test is named for the requirement and gets written first:
-**`three_of_a_verb_is_one_undo_step`** — the count cannot be "run the action N
-times" at the dispatch layer, because that produces N history entries.
+⛔ **Steps 4 and 5 are BLOCKED on Tom's ruling, and this is the first point
+where that is true.** Step 4 *is* the grammar. Steps 1–3 were built
+grammar-agnostic precisely so this moment would arrive with three useful things
+already landed rather than with nothing.
+
+**Do not pick the grammar in this seat.** It decides which muscle memory works
+and there is no evidence about his hands. If a tick finds this note and no
+answer, the honest move is to work something else on the backlog rather than
+guess — #108 (the menu bar) is the natural pick, being the other half of #107.
 
 ---
 

@@ -1,5 +1,9 @@
 # Doug — in-flight state, 12 Aug 2026
 
+> ⬇️ **THE LIVE STATE IS THE LAST SECTION OF THIS FILE**, dated 13 Aug.
+> Everything above it is history kept for its reasoning, not a description of
+> where things stand.
+
 Written because a `/compact` keeps arriving and everything not in a file is
 lost when one does. Rewritten after the install landed; the previous head
 described an action that has since finished.
@@ -1445,3 +1449,78 @@ A count of **1 or more** is the terminal receipt. **Zero means the terminal
 face on this box is older than `bb9d1a13` and `Ctrl+Alt+E` will do nothing** —
 in which case find what actually builds and installs the `iridium` TUI binary,
 because `bundle/install.sh` may only ever have installed the desktop one.
+
+
+---
+
+# ⬇️ LIVE STATE — 13 Aug 2026, end of the #91 tick
+
+## Where the tree is
+
+`origin/main = 111d72fa`, `git rev-list --count origin/main..HEAD` = **0**,
+working tree clean apart from untracked `.claude/skills/` (which must never be
+committed). All ten gates green on the code commit, read from `ci.sh`'s own
+markers with exit 0.
+
+Commits this tick: `2c452389` (#91 design map) · `111d72fa` (#91 build).
+
+## Closed this tick
+
+- **#110** — VS Code `fontStyle` imports. Closed `eb92c47c` last tick; reported
+  to Tom only in *this* tick's message, because one-message-per-tick held it.
+- **#91** — the file explorer's keys go through `[keys]`. `111d72fa`.
+  28 verbs registered as mode-scoped commands, 42 default bindings across four
+  modes, the panel resolving against its own `KeymapStack`, the desktop face
+  feeding it the user's layer at all three construction sites and on reload.
+  Full account: `docs/IN-FLIGHT-91-panel-keys.md`.
+
+## New, and worth carrying
+
+- **#117 opened** — the other **seven** panel key tables (desktop palette,
+  context menu, menubar, history overlay; terminal search, history panel,
+  palette). The mechanism is built; this is application, not design. ⛔ Each
+  conversion must carry D-4 (spell shift `Any`, and add a shift ratchet per
+  panel) — mutation M2 measured that **nothing else catches it**.
+- **`CommandMeta` gained a mode** (`scoped`, `mode()`, `is_palette_entry()`).
+  `palette_order` and `palette::search` now filter on it. Anything that lists
+  commands for a human must use `palette_order`; anything validating a keymap
+  must use `commands()`, which still returns everything.
+- **Measured**: `apps/iridium/src` references `iridium_config` exactly twice,
+  both `::theme`. **The terminal face does not read `[keys]` at all.** Its
+  explorer runs the defaults. That is a real gap in that face, not in #91.
+
+## 📌 Two laws earned this tick
+
+1. **A conversion is exactly as safe as the suite that existed before it.**
+   Both defects I introduced in #91 were caught by things already present —
+   one by the *compiler* (a method went dead), one by a test written weeks
+   earlier. Nothing written *for* the conversion found either.
+2. **A mutation that fires only the ratchet is the ratchet's justification.**
+   M2 (shift forbidden instead of ignored) failed 2 tests and passed 229. That
+   is the measurement that turns "we should guard this" into "nothing else
+   does".
+
+## ⛔ Still blocked on Tom, still not to be guessed at
+
+- **#108** — menu bar is CODE-COMPLETE. He must build it and click one menu
+  item. Slice B (key equivalents) is gated on that confirmation by D-1. **Do
+  not turn key equivalents on before he confirms.**
+- **#113** — terminal modality, steps 4 and 5, blocked on the **Vim-vs-Helix
+  grammar ruling**. ⛔ **Do not pick the grammar in this seat.**
+- Also outstanding with him: the bold-by-default preset look (Waffles' docket),
+  and the older sidebar-flush-at-x=0 question.
+
+He was messaged on 13 Aug with #109, #110 and #91. If a tick finds this and no
+answer, **work something else** — the backlog is #58, #87, #88, #90, #92, #93,
+#95, #96, #99, #117, #43→#44→#45.
+
+## What the next tick should probably take
+
+**#58** is the strongest candidate: its 4b/5 are UNBLOCKED with Tom's key
+rulings already in hand, and #91 has just given those three keys a real home —
+`Tab`, `Ctrl+D`, `Ctrl+Enter` and `⌘S` are now bindings in
+`explorer/keymap.rs` rather than chords in a `match`, which is exactly the
+shape #91's task description said #58 wanted.
+
+⚠️ Its fixture note still stands and still costs a red run: **row 0 must be the
+folder the panel is showing**, or every plan returns `Refused`.

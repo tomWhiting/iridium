@@ -368,3 +368,18 @@ subject of #69 was never one test — it is the harness running GPU work in
 parallel, and every pixel-identity test in the tree shares the defect.
 
 ⛔ Still no change to any test, harness or assertion, for the reason §8 gives.
+
+### 9a. Kinship: this is a serialization-dependence audit
+
+⭐ Waffles named the family on 12 Aug: the branch where the band vanishes under
+serialisation is the **same shape** as beamr's serialization-dependence audit
+(Meridian task #56 in that lane) — a result that looks like a property of the
+thing under test and is actually a property of how the test was run. Naming it
+here so the two lanes share the method rather than each inventing one.
+
+The transferable method, stated once: when a comparison fails intermittently
+and more than one independent comparand fails together, the shared execution
+context is a candidate mechanism with at least as much standing as anything
+inside the test. Vary the execution context first, because that experiment is
+cheap and its negative result is what licenses trusting every per-test rubric
+built on top.

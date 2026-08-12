@@ -36,8 +36,37 @@ Landed, ten gates green at each, all unpushed:
 | `4efce7de` | **L1b** — ten markup categories, no visual change |
 | `a830d8a6` | **L1c** — `Theme::emphasis`, both native faces wired |
 
-**Next step, concretely: prove a weight reaches the screen, then turn the
-presets on.**
+| `b7dd6c7c` | **L1c evidence** — a weight really does draw different glyphs |
+
+✅ **PUSHED.** `origin/main` is at `cc40ea00` as of 12 Aug 2026, verified by
+`git fetch` and `git rev-list --count origin/main..HEAD` = 0. Eleven commits
+had accumulated locally before that; Waffles caught the gap. ⚠️ **Say
+"committed" until it is pushed.** "Landed" was doing work in reports that the
+repository state did not support — the gates were green on one machine.
+
+**Next step 1: the #69 serialisation experiment, and it blocks trusting the
+rubric.** See §9 of `docs/IN-FLIGHT-69-flaky-gutter.md`. Re-run
+`scripts/ci.sh` with the GPU test binaries serialised (`--test-threads=1`, or
+serialise the four). If the contiguous band survives, §7's rubric holds and
+there is a gutter-toggle regression. If it vanishes, **#69 was never about one
+test** — every pixel-identity test in the tree shares a parallel-GPU confound,
+and the whole document was calibrated on it. The downside branch invalidates
+more than #69, which is why this runs before the rubric is trusted further.
+
+**Next step 2 is NOT mine to take.** Turning "headings are bold" on in the two
+shipped presets is a **look ruling** and goes on Tom's docket through Waffles.
+The mechanism and the evidence are both landed; do not flip the presets on a
+seat's own judgement. `the_shipped_presets_say_nothing_about_emphasis_yet` is
+what holds that line, and it is updated with the ruling in the same commit that
+flips them.
+
+**Next step 3: the markdown-inline grammar and the injection queries** — what
+makes `**bold**` and `*italic*` produce spans at all, since `MarkupStrong` and
+`MarkupEmphasis` are dormant until then. Then L2's cumulative layout table.
+
+---
+
+**How L1c was arrived at, kept because the sequencing is the lesson:**
 
 L1c deliberately left both shipped presets empty. Turning "headings are bold"
 on is an **outcome** claim, not a mechanism claim: a weight only reaches the

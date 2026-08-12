@@ -30,6 +30,7 @@
 //! - **Any renderer, device, or window.** Nothing in this crate can fail to
 //!   compile for want of a GPU.
 
+pub mod explorer;
 pub mod line;
 pub mod row;
 

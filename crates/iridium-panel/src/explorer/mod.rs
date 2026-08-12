@@ -1,0 +1,43 @@
+//! The file explorer's shared half: the rename pipeline that turns an edited
+//! list of rows into operations, orders them so nothing is destroyed on the
+//! way, and carries them out.
+//!
+//! # Why this is here and not in a face
+//!
+//! ⭐ **A rename means the same thing in both editors.** The desktop face and
+//! the terminal face show the same directory in the same oil buffer, and the
+//! only thing that differs is how the rows reach a screen. Two copies of this
+//! pipeline would let the two faces disagree about what a rename *does* — and
+//! the disagreement would be found by the person using them, because nothing
+//! compiles both faces' copies at once.
+//!
+//! # The three stages, in order
+//!
+//! - [`plan`] — pure. Turns edited rows into validated [`Operation`]s, or into
+//!   every [`Refusal`] that stops them. Touches no disk.
+//! - [`order`] — pure. Puts those operations in an order that cannot destroy
+//!   anything: names vacated before they are moved into, cycles broken through
+//!   a temporary, deletes last.
+//! - [`apply`] — the only module here that writes anything. Decides nothing;
+//!   re-checks everything.
+//!
+//! # What is deliberately still in the desktop face
+//!
+//! The rows as loaded (`buffer`), what a key does to them (`edit_keys`), what
+//! is shown before any of it happens (`confirm`), and the panel itself. Those
+//! follow; this slice is the part that could move without a single import
+//! rewrite, which is what makes it the honest first proof that the hoist's
+//! mechanics work.
+
+pub mod apply;
+pub mod order;
+pub mod plan;
+
+#[cfg(test)]
+mod apply_tests;
+
+#[cfg(test)]
+mod plan_tests;
+
+pub use apply::{Failure, apply};
+pub use plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan};

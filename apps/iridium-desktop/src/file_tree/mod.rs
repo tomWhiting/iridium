@@ -30,13 +30,6 @@
 //! - `compose` — what reaches the screen.
 //! - `filter` — narrowing the rows to what a query matches, without losing
 //!   the hierarchy the matches live in.
-//! - `apply` — carrying a plan out against the filesystem. The only module
-//!   here that writes anything.
-//! - `plan` — turning an edited list of rows into validated operations, or
-//!   into every reason it will not. Pure; touches no disk.
-//! - `order` — putting those operations in an order that cannot destroy
-//!   anything on the way: names vacated before they are moved into, cycles
-//!   through a temporary, deletes last.
 //! - `buffer` — the rows as loaded and as they now read, and the one place a
 //!   row's origin is captured from the node it was drawn from.
 //! - `confirm` — what is shown before any of it happens.
@@ -47,8 +40,14 @@
 //! - `rows` — composing one row: indent, disclosure, name, error.
 //! - `tests` — the panel's own suite, against real directories and the real
 //!   reader thread.
+//!
+//! # What is no longer here
+//!
+//! `plan`, `order` and `apply` — the rename pipeline — now live in
+//! [`iridium_panel::explorer`], because a rename means the same thing in both
+//! faces and two copies of it could disagree about what one *does*. They are
+//! re-exported below, so the modules that stayed read exactly as they did.
 
-mod apply;
 mod buffer;
 mod compose;
 mod confirm;
@@ -56,14 +55,9 @@ mod edit_keys;
 mod filter;
 mod keys;
 mod mode;
-mod order;
 mod panel;
-mod plan;
 mod rows;
 mod session;
-
-#[cfg(test)]
-mod apply_tests;
 
 #[cfg(test)]
 mod buffer_tests;
@@ -78,9 +72,14 @@ mod edit_keys_tests;
 mod mode_tests;
 
 #[cfg(test)]
-mod plan_tests;
-
-#[cfg(test)]
 mod tests;
+
+// ⭐ **Hoisted to `iridium-panel`, and re-exported here rather than
+// rewritten at every call site.** A rename means the same thing in both
+// faces, so the pipeline that decides what one *is* belongs in the crate both
+// faces depend on. The nine modules that stayed still read `super::plan::…`
+// and `super::apply::…`, which is the point: the hoist moved code, not
+// meaning. See [`iridium_panel::explorer`].
+pub(crate) use iridium_panel::explorer::{apply, plan};
 
 pub use panel::{ExplorerOutcome, FileExplorer};

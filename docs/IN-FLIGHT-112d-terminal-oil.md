@@ -251,16 +251,39 @@ Each step is checkable on its own, and the first two are strictly refactor.
    invariant is the **sum across the workspace**, and the per-module rows are
    what say the sum was preserved for the right reason.
 
-2c. **Hoist the explorer** — `explorer`
-   (the tree, filter, keys, oil buffer, edit keys, plan, confirm, apply) plus
+2c. **Hoist the explorer — first slice landed 12 Aug 2026.** `plan`, `order`,
+   `apply` and the two test files are now `iridium-panel::explorer`, behind a
+   `pub(crate) use iridium_panel::explorer::{apply, plan};` in the desktop's
+   `file_tree/mod.rs`. **Not one import was rewritten in the nine modules that
+   stayed** — they still read `super::plan::…`, which is the proof that the
+   hoist moved code and not meaning.
+
+   **Census, both directions:** desktop lib **553 → 510** (−43), panel crate
+   **4 → 47** (+43). 30 of those are `plan_tests` and 13 `apply_tests`, which
+   is the whole of what moved. Sum 557 either way; `test/workspace` runs both.
+   Ten gates green.
+
+   ⚠️ **`buffer` cannot follow yet, and the reason is a rule rather than a
+   preference.** `buffer.rs` is an `impl FileExplorer` block, and an inherent
+   impl may only be written in the crate that defines the type. It moves when
+   `FileExplorer` moves, not before — so the doc's earlier "start with the ten
+   that import nothing" was one file optimistic: `buffer` imports nothing from
+   the desktop *crate* but is welded to a desktop type.
+
+   `iridium-panel` gained `iridium-file` as a **dev-dependency** only. `apply`
+   writes to a real disk and its tests build real directories; a fixture that
+   faked one would be testing something else.
+
+   Still to come in 2c: `filter` (pure, imports nothing — the next easy one),
+   then the coupled set — `panel`, `buffer`, `keys`, `edit_keys`, `mode`,
+   `session`, `confirm`, `rows`, `compose` — plus `project`'s two root
+   functions. `PanelAnchor`, `PanelContent` and the painters stay behind.
+
+   **The scope 2c was written against, unchanged:** the whole explorer — the
+   tree, filter, keys, oil buffer, edit keys, plan, confirm, apply — plus
    `project`'s two root functions. `PanelAnchor`, `PanelContent` and the
    painters stay in the desktop; `overlay` re-exports the rest. Desktop
-   behaviour must not change: the census is the proof.
-
-   ⭐ **Start with the ten modules that import nothing** — `apply`, `buffer`,
-   `filter`, `order`, `plan` and their tests, 85 of the 198 — because they move
-   without a single import rewrite, and a hoist proven on them is a hoist whose
-   *mechanics* are no longer in question when the coupled nine follow.
+   behaviour must not change: the census is the proof, and it has held once.
 3. **The TUI paints it** into a `FloatingBox`, at the *queried* ceiling, reached
    by the same command id the desktop uses. The smallest slice that puts a file
    tree in a terminal.

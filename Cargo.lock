@@ -1257,6 +1257,7 @@ name = "iridium-panel"
 version = "0.1.0"
 dependencies = [
  "iridium-editor",
+ "iridium-file",
  "unicode-segmentation",
 ]
 

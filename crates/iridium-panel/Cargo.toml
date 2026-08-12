@@ -25,3 +25,9 @@ iridium-editor = { workspace = true, default-features = false }
 # base character and its combining mark is a row that renders as a different
 # character, which is why this is counted in clusters rather than in `char`s.
 unicode-segmentation.workspace = true
+
+# The rename pipeline's tests build real directories and rename real files:
+# the whole point of `apply` is that it touches a disk, and a fixture that
+# faked one would be testing something else.
+[dev-dependencies]
+iridium-file = { workspace = true, features = ["test-support"] }

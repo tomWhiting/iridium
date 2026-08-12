@@ -326,6 +326,62 @@ the wrong reason in a different shape:**
 
 ---
 
+## ✅ Step 3 LANDED — counts
+
+`3l`, `3j`, `3w` work. `with_count_prefix()` on the modal keymap's four motion
+bindings, and `ctx.args.repeat_count()` consumed in `run_action`.
+
+⚠️ **Not every motion is countable, and the split is measured rather than
+tasteful.** `line_start_smart` **toggles** between the first non-whitespace
+column and column zero (`motions.rs:198`), so applying it twice returns the
+caret to where it started; the document and line boundaries are absolute, so
+applying them twice is the same as once. Repeating either would be wrong in one
+case and pointless in the other. The two helpers now say which is which by
+name:
+
+| helper | motions | how the count applies |
+| --- | --- | --- |
+| `apply_motion` | line start/end, document start/end | **not at all** — once, and only once |
+| `apply_repeated_motion` | char and word, both directions | composed `count` times |
+| `vertical_motion` / `page_motion` | line and page, both directions | a **hop size**, not a repetition — `vertical_move_by` already took one and clamps |
+
+**D-4 satisfied, and named for it.** `three_of_a_verb_is_one_undo_step` presses
+`3` then `l`, asserts exactly **one** `Command` comes back, applies it, then
+applies its inverse and asserts the caret is back at column 0 — not two thirds
+of the way along. That is the whole reason the count is not "run the action
+three times" at the dispatch layer.
+
+⭐ **The early break, and a false claim of my own caught by measuring it.**
+`apply_repeated_motion` stops as soon as the motion returns the position it was
+given, which bounds `999999999l` by the document rather than by the number
+typed — no arbitrary cap nobody could predict from outside. I wrote in the test
+comment that without the break the test "would never finish."
+
+**That was wrong, and the sabotage run proved it.** With the break removed the
+test *passes*, in **174 seconds** instead of microseconds. It guards the
+clamping and nothing else — *a test that can only pass proves nothing about the
+thing it claims to guard.* A wall-clock assertion would close that gap and open
+a worse one, so the real guard counts calls:
+`a_repeated_motion_stops_calling_the_motion_once_it_stops_moving` asserts
+exactly **4** invocations on a three-character line, and fails at 1,000,000
+in 0.28s without the break.
+
+**Nothing about the shipped faces changes**, by construction rather than by
+care: `repeat_count()` is 1 unless a binding declared `with_count_prefix`, and
+no binding in the non-modal default declares one — a count is only ever
+reachable in a mode where digits are not text, which
+`a_digit_is_text_in_insert_mode` pins from the other side.
+
+⭐ **Both halves proven load-bearing by mutation:**
+
+| sabotage | what failed |
+| --- | --- |
+| the repeat loop ignores the count | 4 tests |
+| the bindings stop declaring `with_count_prefix` | 5 — the four above plus the vertical hop, since no digit is absorbed at all |
+| the early break removed | the call-counting guard, at 1,000,000 vs 4 |
+
+---
+
 ## What #113 does not do
 
 - **The desktop face.** D-5. It defaults to `standard` and this task does not

@@ -1,7 +1,138 @@
 # Extensibility — where Iridium already stands, and what is missing
 
-A thinking note, not a plan. Nothing here is scheduled; Tom's instruction stands
-that the extension protocol must not block the faces.
+⚠️ **This was a thinking note until 12 Aug 2026. It now carries rulings — see
+§0, which is the part that binds.** Everything after §0 is the survey the
+rulings were taken against, unchanged except where a ruling supersedes it.
+
+Tom's standing instruction is unchanged and is the root of all of it: **the
+extension protocol must not block the faces.**
+
+---
+
+## 0. RULINGS — 12 Aug 2026
+
+Tom ruled on a proposal I put to him after taking the manifold ground from
+Waffles. Recorded here rather than in a lane doc because these govern the
+kernel and every face, not one stint.
+
+### 0a. The doctrine the rest hangs from — Waffles, ratified
+
+- **The kernel absorbs mechanisms, never features.** "Doesn't care what is
+  beyond it" is a *testable property*: the kernel neither reads nor depends on
+  anything above it, and keeps working unchanged when everything above is
+  replaced wholesale.
+- **Opinion lives in composition, and composition is data.** Tiers of
+  increasing opinion; the lowest layer is the dumbest. A shipped default keymap
+  is an opinion expressed as replaceable data the kernel never reads.
+- ⭐ **Strongly opinionated in defaults, strictly unopinionated in the kernel,
+  is not a compromise between "more out of the box" and "small core" — it is
+  the only architecture that delivers both at once.**
+- **The deleted-default test** (sibling of Vesper's deleted-checker). A default
+  has become a *coupling* when any of: the kernel behaves differently when it
+  is absent; another component addresses the default's internals instead of the
+  kernel's doors; replacing it requires touching anything beyond the data that
+  declared it.
+- **The dimension-cost test.** The cost of shipping the N+1th keymap, mode or
+  opinion must not grow with N. The moment adding an opinion requires editing
+  the kernel — or editing the *other* opinions — it is a monolith with extra
+  steps.
+- **Ship as many opinions as wanted; keep every one of them deletable.**
+
+### 0b. Ruled in — three mechanisms
+
+1. **The pending-operator mechanism lands in the kernel *before* any modal
+   keymap is authored.** Operator-pending is *deferred selection*: `dw` is
+   mechanically `vwd`, and every editing command here is already
+   selection-first ("cursors with a selection delete the selection"). So the
+   kernel needs one generic mechanism — *the next motion extends a selection
+   rather than moving the caret; when it resolves, run this command and
+   collapse* — and the whole operator × motion × text-object cross-product
+   becomes **data**.
+   ⚠️ Authoring the keymap first would bake the cross-product in by
+   enumeration, which fails the dimension-cost test: one binding per operator
+   per motion, growing multiplicatively. **The scaffolding to refuse is a "Vim
+   emulation" module** — that is a feature wearing a kernel's clothes.
+   ⭐ Text objects fall out free: `TextObject`/`Variant`/`find`/`jump`/`regions`
+   already exist in `iridium-syntax`, so `dif` is operator `delete` × text
+   object `function.inside` — the thing NeoVim needs a plugin for.
+2. **Modal is available in every face, defaulted on only in the terminal.** The
+   mechanism is face-independent, so availability everywhere costs nothing, and
+   turning it on for the desktop becomes one config line rather than a port.
+3. **Composite commands are data** — an ordered list of command ids with args,
+   so "define a new verb out of existing ones" needs no interpreter and does
+   not wait on the extension boundary.
+
+### 0c. Ruled in — what ships in the box
+
+Tom's answer to "how far does out-of-the-box go". Every item ships as a
+**bundled participant**: registered through the same registry an external
+extension would use, with **no private back door**, so "shipped" and
+"deletable" are the same sentence.
+
+- Everything the editor has today — selection, multi-cursor, motions, undo
+  tree, folding.
+- **The oil-style surface, including as a sidebar.** Tom: the surface should be
+  insertable *as a sidebar*, not only as a full-window mode — and it belongs in
+  the terminal face too, large, especially when opened on a directory. See
+  #112.
+- **Search and replace with strong regex *and* glob support.** Named as
+  important; the engine exists and has had no UI in any face.
+- The fuzzy file finder, which he considers already good.
+- The tree-sitter surface — highlighting, folding, text objects.
+
+### 0d. The synchronous path — Tom's refinement, and the sharper rule
+
+The rule is **not** "extensions are never in the input path". It is:
+
+> ⭐ **The typing path is never *asked a question*; it only announces.**
+
+- **Key → command resolution is pure data and pure synchrony.** No extension
+  participates, ever. This is what makes out-of-process extensions viable at
+  all: a participant never has to answer *during* resolution. **The moment a
+  plugin gets to decide what a key means, an embedded interpreter becomes
+  unavoidable** and the whole boundary collapses.
+- **What an extension produces arrives later, as ordinary reversible commands
+  through the registry** — diagnostics, formatting, lint marks, git signs. This
+  is the NeoVim property worth copying: typing never waits, and everything else
+  catches up.
+- ⚠️ **The honest exception, stated so it is not discovered as a bug.** Some
+  operations legitimately want to block — format-before-write is the obvious
+  one, since writing unformatted defeats it. Those are *user-initiated,
+  non-typing* commands where a brief visible wait is acceptable. So the line is
+  **"never block the typing path"**, and the input path and the command path
+  are separately governed.
+
+### 0e. Delegated to this seat, and decided — the event stream waits
+
+Tom left the timing to me. **Decision: the event stream is the next stint, not
+this one, and what this stint owes instead is the declarative-surface
+vocabulary.**
+
+The reasoning, so it can be argued with:
+
+- **The irreversible decision is not the event stream.** §3 item 1 below
+  already names it: the declarative surface vocabulary is *"the decision to take
+  before any extension API is published, because it is the one that cannot be
+  changed later."* An event stream added later is purely additive; a surface
+  vocabulary published wrong is not.
+- **An event stream with no consumer is scaffolding**, and scaffolding is a
+  last resort. Designing an event vocabulary before anything consumes it means
+  guessing which events matter.
+- ⭐ **What makes deferring it safe is that the bundled participants become its
+  design pressure.** The oil sidebar, the search-and-replace UI and the modal
+  keymap are three real consumers. Building them as registry participants first
+  means the event vocabulary is **discovered from three cases rather than
+  guessed from none** — and the surface vocabulary is discovered the same way.
+- **The pre-declared falsifier, so this is not a vibe:** if any bundled
+  participant in this stint *cannot* be expressed without an event hook, the
+  deferral was wrong and the event stream is built then, not argued about.
+
+⚠️ **The constraint that makes the deferral safe, and it is not optional:**
+nothing may bypass the command registry — no private back door for a bundled
+participant, however convenient. If that holds, everything above is additive.
+If it breaks once, the deferral becomes a trap.
+
+---
 
 It builds on **Waffles' seam (30 Jul)**, recorded in `SESSION-STATE.md`, which
 this note agrees with and does not relitigate: *liminal for anything crossing a

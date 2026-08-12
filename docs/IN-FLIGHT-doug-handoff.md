@@ -1017,3 +1017,74 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
    caught up with a checkout that had. Committed, pushed and installed are
    three different places — and this is the same law arriving from the
    direction of somebody else's repository.
+
+---
+
+## ⚠️ LIVE STATE at the 13 Aug compaction — read this first
+
+### 1. ⛔ AN INSTALL IS RUNNING IN THE BACKGROUND RIGHT NOW
+
+`pgrep -x iridium-desktop` returned **nothing** for the first time in days — Tom
+quit his editor, so `bundle/install.sh` stopped refusing. I started it
+immediately, because the window closes the moment he relaunches.
+
+- Background task id: **`bl29wptz1`**
+- Log: `<scratchpad>/install.log` and `<scratchpad>/../tasks/bl29wptz1.output`
+- Started from `origin/main = e1235bc5`.
+
+**WHAT THE NEXT SEAT MUST DO:**
+
+1. Read the log and check the exit status. Do **not** assume it worked —
+   *a channel that can only carry success is a defect*, and a background task
+   notification is exactly such a channel.
+2. ⭐ **Say "installed" only with the `strings` receipt.** Committed, pushed and
+   installed are three different places. The receipt is a grep for a string
+   unique to this build in `/Applications/iridium.app/Contents/MacOS/`.
+3. If Tom relaunched mid-build the script will have refused. **Do not kill his
+   app to force it.** Wait for the next window.
+
+This clears the #115 install owed since before the previous compaction, plus
+everything landed since — including the whole of #112d steps 2c and 3.
+
+### 2. ⚠️ OWED: a Meridian message to Tom (`dm:c9255b2a-…`)
+
+Owed from the previous tick, deferred only by the one-message-per-tick rule.
+He does not yet know any of this landed. What to tell him, all of it already
+committed and verifiable:
+
+- **The file explorer is face-independent.** `e82f0ef7` — seven modules out of
+  the desktop into `iridium-panel`, census ±142 exactly balanced.
+- **There is a file tree in the terminal.** `Ctrl+Alt+E`, `ecb44392` +
+  `bb9d1a13`. The terminal's whole contribution is a poll, a paint and one
+  enum translation.
+- Two tests that could only pass, found by sabotage and replaced (`1d582a65`,
+  and the cells-versus-characters one in `ecb44392`).
+- The install — whatever §1 turns out to say. Say it plainly either way.
+
+### 3. #112d step 5 — the ground, already read
+
+The left band. R4 has the ruling; this is the verified X axis under it.
+
+`crates/iridium-tui/src/frame/geometry.rs::layout` is the whole of it:
+
+```rust
+let gutter_width = gutter::width(total_lines, show_line_numbers).min(columns);
+let text_width = columns - gutter_width;
+let text = TextArea { origin: gutter_width, width: text_width, scroll };
+let viewport = Viewport { width: cell_units(text_width), .. };
+```
+
+With a band of `W` columns the three measures become `origin: W + gutter_width`,
+`width: columns - W - gutter_width`, and the viewport follows the new
+`text_width`. ⚠️ **`gutter::width` is the only gutter function that exists** —
+it returns a *width*, never an origin, so whatever paints the gutter must be
+checked for an assumed column zero before the band is added.
+
+⚠️ **Zero is a value the band writes, not a case it skips** — R4 says this
+explicitly, and it is the same rule `sync_left_inset` carries in the desktop.
+
+`Chrome` is `Copy` and already carries `search: Option<&SearchOverlay>`. The
+band wants only a **width**, not the panel: `SearchOverlay::rows(below_status)`
+is the precedent — the chrome carries what the geometry needs and nothing more.
+
+**Not started. No files touched for step 5.** The tree is clean at `e1235bc5`.

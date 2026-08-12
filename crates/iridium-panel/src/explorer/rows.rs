@@ -13,7 +13,7 @@ use iridium_explorer::{EntryKind, FileTree, NodeId};
 
 use super::plan::EditedRow;
 use crate::line::{highlighted_spans, match_color};
-use crate::overlay::{PanelRow, Span};
+use crate::row::{PanelRow, Span};
 
 /// One indent level, in characters.
 const INDENT: usize = 2;

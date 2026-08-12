@@ -35,7 +35,7 @@ use iridium_editor::theme::{Color, Theme};
 use super::plan::{EditedRow, Operation, Plan, Refusal};
 use super::rows::truncate;
 use crate::line::LineBuilder;
-use crate::overlay::{PanelRow, Span};
+use crate::row::{PanelRow, Span};
 
 /// The column the path starts at, so the verbs form a left rail and the names
 /// line up down the panel instead of stepping in and out.

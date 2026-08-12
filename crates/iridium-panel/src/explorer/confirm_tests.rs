@@ -13,7 +13,7 @@ use iridium_editor::theme::Theme;
 
 use super::confirm::{plan_rows, refusal_rows};
 use super::plan::{EditedRow, Operation, Plan, Refusal, RowOrigin};
-use crate::overlay::PanelRow;
+use crate::row::PanelRow;
 
 /// The folder the panel is showing.
 const ROOT: &str = "/project";

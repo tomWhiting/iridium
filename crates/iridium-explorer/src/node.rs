@@ -109,6 +109,23 @@ pub struct Node {
     ///
     /// The root is never ignored: it is the thing the user asked to look at.
     pub ignored: bool,
+    /// Whether the entry's own name marks it hidden.
+    ///
+    /// ⭐ **The Unix convention, and only that: a leading `.` in the final
+    /// path component.** Windows keeps hiddenness in a file attribute instead,
+    /// and reading it is a `metadata` call per entry — a syscall the listing
+    /// does not otherwise make, on the worker's hot path, to answer a question
+    /// about a platform this crate does not build for. A dotfile is hidden on
+    /// Windows too, so the rule is right there and merely incomplete.
+    ///
+    /// A fact about the *name*, decided once when the path is set, and
+    /// therefore never stale: whether it is acted on is
+    /// [`FileTree::show_hidden`](crate::FileTree::show_hidden)'s question, and
+    /// that can change under a keystroke while this cannot.
+    ///
+    /// `.` and `..` are not a special case — [`std::fs::read_dir`] never
+    /// yields them.
+    pub hidden: bool,
 }
 
 impl Node {
@@ -123,6 +140,7 @@ impl Node {
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
+        let hidden = name.starts_with('.');
         Self {
             path,
             name,
@@ -130,6 +148,7 @@ impl Node {
             parent,
             listing: Listing::Absent,
             ignored,
+            hidden,
         }
     }
 }
@@ -150,4 +169,11 @@ pub struct NodeInfo<'a> {
     pub error: Option<&'a str>,
     /// Whether the children have been asked for and not yet arrived.
     pub is_loading: bool,
+    /// Whether the name marks this entry hidden — see [`Node::hidden`].
+    ///
+    /// A property of the entry, **not** an answer to "is this row on screen".
+    /// A face that has turned hidden entries on is drawing rows this is `true`
+    /// for, and telling them apart — dimmed, or marked — is the reason this is
+    /// exposed at all.
+    pub is_hidden: bool,
 }

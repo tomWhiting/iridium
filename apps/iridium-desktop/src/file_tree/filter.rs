@@ -20,12 +20,22 @@
 //!
 //! # It walks only what has been read
 //!
-//! [`FileTree::listed_children`] posts nothing. That is deliberate and it is
+//! [`FileTree::visible_children`] posts nothing. That is deliberate and it is
 //! the difference between a filter and a crawl: sweeping with the frame-path
 //! accessor would request a directory read for every unlisted folder the walk
 //! touched, so one keystroke on a large project would queue thousands of
 //! reads. Widening the reach is a separate, bounded mechanism — not a side
 //! effect of typing.
+//!
+//! # It searches what the tree would show, not what the disk holds
+//!
+//! ⚠️ **The `visible_children` in the paragraph above is load-bearing beyond
+//! its cost.** A search that reached hidden entries while the tree withheld
+//! them would offer a row `Enter` opens and `reveal` cannot find — the reveal
+//! walk expands ancestors and then asks the tree for the node's index, and a
+//! node the projection never built has none. The selection would land nowhere
+//! and the query would already have been thrown away. So the filter's reach
+//! and the tree's rows are read from one accessor rather than two.
 //!
 //! # Every ancestor of a hit is already listed
 //!
@@ -215,7 +225,11 @@ fn walk(files: &FileTree, pattern: &Pattern) -> Vec<Visit> {
             positions: found.map(|hit| hit.positions).unwrap_or_default(),
         });
 
-        for &child in files.listed_children(id).iter().rev() {
+        // Reversed so they pop in listing order. Collected first because the
+        // iterator borrows `files` and the push needs nothing from it — and
+        // because `rev` wants a slice, which a filter is not.
+        let children: Vec<NodeId> = files.visible_children(id).collect();
+        for &child in children.iter().rev() {
             stack.push((child, depth + 1, Some(index)));
         }
     }

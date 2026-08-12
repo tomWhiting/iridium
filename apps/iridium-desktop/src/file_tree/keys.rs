@@ -21,6 +21,7 @@
 //! | `←` `→` | Collapse and expand — the unfiltered tree only |
 //! | `⌘↓`, `Ctrl+↓` | Make the selected folder the root |
 //! | `⌘↑`, `Ctrl+↑` | Make the folder above the root the root |
+//! | `⌘.`, `Ctrl+.` | Show dot-prefixed entries, or stop showing them |
 //! | `Home` `End` | First and last row |
 //! | `Backspace`, any printable key | Edit the query |
 //! | `Tab` | Edit the rows as text |
@@ -89,6 +90,13 @@ impl FileExplorer {
             // `Enter` only adds a second way in, and takes nothing away.
             (Chord::Meta | Chord::Ctrl, KeyCode::Down) => self.root_at_selection(),
             (Chord::Meta | Chord::Ctrl, KeyCode::Up) => self.root_above(),
+            // `.` for dotfiles, which is the mnemonic every file manager that
+            // has this key already uses. **Not `⌘H`**, which macOS takes to
+            // hide the application before any window sees it — a binding the
+            // user would experience as the editor vanishing. `.` is also
+            // unshifted on every layout this face runs on, which matters
+            // because [`Chord`] deliberately does not distinguish Shift.
+            (Chord::Meta | Chord::Ctrl, KeyCode::Char('.')) => self.toggle_hidden(),
             (Chord::Plain, KeyCode::Home) => {
                 self.move_to_first();
                 ExplorerOutcome::Handled

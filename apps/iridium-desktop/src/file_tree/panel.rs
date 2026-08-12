@@ -388,6 +388,75 @@ impl FileExplorer {
         self.files.info(id).map(|info| info.path)
     }
 
+    /// Shows dot-prefixed entries, or stops showing them.
+    ///
+    /// # The refresh and the selection are both obligations, not tidying
+    ///
+    /// [`FileTree::set_show_hidden`] changes what the source answers and
+    /// nothing else; the projection is already built, so without the
+    /// [`refresh`](Tree::refresh) the rows would go on showing what was true
+    /// before the key was pressed until an unrelated directory read happened
+    /// to land.
+    ///
+    /// ⚠️ **And a refresh drops a selection whose row is gone**, which is
+    /// exactly what hiding does to a dotfile somebody had selected — that is
+    /// [`Tree::refresh`]'s documented behaviour and it is the right one, since
+    /// the alternative is a selection pointing at whatever moved into the
+    /// index. The panel is the layer that knows what to do about it: put the
+    /// selection back where the row *was*, clamped to the rows that remain, so
+    /// hiding leaves the user next to what they were looking at rather than
+    /// with no selection at all. Re-selecting by index is safe here and only
+    /// here, because the index in question was read from this same tree one
+    /// statement earlier.
+    ///
+    /// A filtered view is rebuilt for the same reason and is *not* offered the
+    /// held node: the node may be one that just became invisible, and
+    /// [`refilter`](Self::refilter) would leave the selection on a row the
+    /// tree can no longer reveal.
+    pub(super) fn toggle_hidden(&mut self) -> ExplorerOutcome {
+        let showing = self.files.show_hidden();
+        if !self.files.set_show_hidden(!showing) {
+            return ExplorerOutcome::Handled;
+        }
+        let was = self.tree.selected();
+        self.tree.refresh(&mut self.files);
+        if self.tree.selected().is_none()
+            && let Some(index) = was
+            && let Some(last) = self.tree.len().checked_sub(1)
+        {
+            self.tree.select(index.min(last));
+        }
+        if self.is_filtering() {
+            self.refilter(None);
+        }
+        ExplorerOutcome::Handled
+    }
+
+    /// How many entries the rows on screen are not showing.
+    ///
+    /// Summed over the *drawn* rows rather than over the arena, and the scope
+    /// is the whole point: this is the number of rows that would appear if the
+    /// key were pressed, which is the one claim a user can check against what
+    /// is in front of them. An arena-wide count would grow as the crawl read
+    /// directories nobody has opened, and would name files that pressing the
+    /// key does not reveal.
+    ///
+    /// ⚠️ **Expanded rows only, and that filter is the claim.** A folder the
+    /// crawl has read but nobody has opened has hidden children in the arena
+    /// and no rows on screen either way — counting it would promise rows that
+    /// pressing the key does not produce, and the number would move as
+    /// background reads landed under a panel nobody had touched.
+    ///
+    /// Costs one arena lookup and one listing scan per expanded row.
+    pub(super) fn hidden_on_screen(&self) -> usize {
+        self.tree
+            .rows()
+            .iter()
+            .filter(|row| row.expanded)
+            .map(|row| self.files.hidden_children(row.id))
+            .sum()
+    }
+
     /// Re-reads the query text and rebuilds the view from it.
     ///
     /// The only place a regular expression is compiled, and the only place

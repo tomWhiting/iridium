@@ -80,6 +80,23 @@
 //! prevent is the tree wandering into ten thousand object files on its own
 //! initiative.
 //!
+//! # Hidden entries, and the one rule that keeps them honest
+//!
+//! [`FileTree::show_hidden`] is the single exception to the paragraph above:
+//! a dot-prefixed entry is read, interned and crawled like any other, and
+//! withheld from [`TreeSource::children`](iridium_tree::TreeSource::children)
+//! on the way out. It is off by default.
+//!
+//! ⭐ That is a viewer setting rather than the lie `ignores` warns about **for
+//! exactly one reason: the viewer can say so.**
+//! [`FileTree::hidden_children`] reports how many entries a node is
+//! withholding, and a face is expected to draw that count beside the key that
+//! clears it. Hiding something and reporting the hiding is a filter; hiding it
+//! silently is a tree that disagrees with `ls` and never mentions it.
+//!
+//! Nothing is discarded, so the flag is instant in both directions and no
+//! directory is re-read when it moves.
+//!
 //! # Panics
 //!
 //! None. Every id is bounds-checked against the arena and an unknown one is

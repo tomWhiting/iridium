@@ -45,6 +45,24 @@ pub struct FileTree {
     /// How many directories the crawl has asked for, against
     /// [`CRAWL_LIMIT`].
     crawled: usize,
+    /// Whether dot-prefixed entries are handed out as children.
+    ///
+    /// ⚠️ **The one piece of *policy* in this arena, and it is kept here
+    /// rather than in a face for a reason that is not convenience.** Every
+    /// other place it could live is downstream of
+    /// [`TreeSource::children`], and `iridium-tree` addresses its rows by
+    /// index — a face that dropped rows after the projection was built would
+    /// leave `index_of`, `select`, `expand` and `collapse` all disagreeing
+    /// about which row is which. Filtering at the source means the projection
+    /// is built from the truth it is going to be asked about.
+    ///
+    /// `false` by default: the dotfiles under any real project root are
+    /// machinery — `.git`, `.venv`, editor droppings — and a listing that
+    /// opens with twenty of them buries the source. **What must never happen
+    /// is hiding them silently**, which is why
+    /// [`hidden_children`](Self::hidden_children) exists: a face is expected
+    /// to say how many it is not showing.
+    show_hidden: bool,
     worker: Worker,
 }
 
@@ -89,6 +107,7 @@ impl FileTree {
             pending: 0,
             frontier: VecDeque::new(),
             crawled: 0,
+            show_hidden: false,
             worker,
         };
         tree.request(NodeId(0));
@@ -119,7 +138,90 @@ impl FileTree {
                 _ => None,
             },
             is_loading: matches!(entry.listing, Listing::Requested),
+            is_hidden: entry.hidden,
         })
+    }
+
+    /// Whether dot-prefixed entries are being handed out as children.
+    #[must_use]
+    pub const fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
+    /// Sets whether dot-prefixed entries are handed out, and reports whether
+    /// that is a change.
+    ///
+    /// ⚠️ **A `true` obliges the caller to call
+    /// [`Tree::refresh`](iridium_tree::Tree::refresh).** What this changes is
+    /// what [`TreeSource::children`] answers, and a projection already built
+    /// from the old answer does not rebuild itself — the rows would keep
+    /// showing what was true before the toggle until something else happened
+    /// to land a directory read. The return value exists so the caller can do
+    /// that refresh *only* when it is owed, because refreshing rebuilds every
+    /// visible row.
+    ///
+    /// Nothing is re-read and nothing is discarded: hidden entries were always
+    /// interned, listed and crawled, and only ever withheld on the way out.
+    /// Toggling is therefore instant in both directions and cannot leave the
+    /// arena in a state where something is missing.
+    pub const fn set_show_hidden(&mut self, show: bool) -> bool {
+        let changed = self.show_hidden != show;
+        self.show_hidden = show;
+        changed
+    }
+
+    /// Whether `node`'s own name marks it hidden, whatever is being shown.
+    ///
+    /// `false` for an id this tree never issued.
+    #[must_use]
+    pub fn is_hidden(&self, node: NodeId) -> bool {
+        self.nodes.get(node.0).is_some_and(|entry| entry.hidden)
+    }
+
+    /// `node`'s children that a face should draw, in listing order.
+    ///
+    /// ⭐ **The accessor for anything that shows or searches**, and the reason
+    /// [`show_hidden`](Self::show_hidden) can be one flag rather than a rule
+    /// each caller re-implements. [`listed_children`](Self::listed_children)
+    /// is the raw listing and is right only for maintenance that must see
+    /// every node — reloading a directory the user edited, for instance, where
+    /// a hidden entry left out is a stale row kept.
+    ///
+    /// Posts nothing, for the same reason `listed_children` does not.
+    pub fn visible_children(&self, node: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        let show = self.show_hidden;
+        self.listed_children(node)
+            .iter()
+            .copied()
+            .filter(move |&child| show || !self.is_hidden(child))
+    }
+
+    /// How many of `node`'s children are being withheld right now.
+    ///
+    /// ⭐ **The honesty half of the flag.** `iridium-explorer`'s own rule is
+    /// that a listing never lies about the disk — see [`crate::ignores`], which
+    /// says a tree hiding `target/` would be doing exactly that. Withholding
+    /// dotfiles is a departure from it, and the thing that makes it a
+    /// *viewer setting* rather than a lie is that the viewer can say so. A
+    /// face is expected to draw this number and the key that clears it.
+    ///
+    /// Zero while [`show_hidden`](Self::show_hidden) is on, and zero for a
+    /// node whose listing has not landed — in both cases nothing is being
+    /// withheld.
+    ///
+    /// Counted rather than stored, because the answer is a pure function of a
+    /// listing that is written once: a cached copy could only ever be a second
+    /// thing to keep in step, and counting a directory's children costs one
+    /// pass over a vector a face is about to draw anyway.
+    #[must_use]
+    pub fn hidden_children(&self, node: NodeId) -> usize {
+        if self.show_hidden {
+            return 0;
+        }
+        self.listed_children(node)
+            .iter()
+            .filter(|&&child| self.is_hidden(child))
+            .count()
     }
 
     /// Whether any directory read is still outstanding.
@@ -177,6 +279,13 @@ impl FileTree {
     ///
     /// Borrowed rather than cloned, because a walk visits every node and the
     /// clone in `children` exists only to satisfy that trait's signature.
+    ///
+    /// ⚠️ **The raw listing: [`show_hidden`](Self::show_hidden) is not applied
+    /// here.** That is right for maintenance — re-reading the directories an
+    /// edit touched has to reach a hidden one, or a row nobody can see stays
+    /// stale and a later session acts on it — and wrong for anything that
+    /// draws or searches, which would offer the user a file the tree has no
+    /// row for. [`visible_children`](Self::visible_children) is that accessor.
     #[must_use]
     pub fn listed_children(&self, node: NodeId) -> &[NodeId] {
         match self.nodes.get(node.0).map(|entry| &entry.listing) {
@@ -376,12 +485,20 @@ impl TreeSource for FileTree {
     /// disk. A face that would rather show a spinner has
     /// [`NodeInfo::is_loading`](crate::NodeInfo::is_loading) to tell the two
     /// empties apart.
+    ///
+    /// # Hidden entries are withheld here and nowhere else
+    ///
+    /// [`show_hidden`](FileTree::show_hidden) is applied on this path because
+    /// it is the only one the projection is built from. The root is never
+    /// subject to it — it is returned as the answer to `None` rather than as
+    /// anybody's child — so opening `~/.config` shows the folder you asked
+    /// for, and only its dot-prefixed *contents* are affected.
     fn children(&mut self, parent: Option<&Self::Id>) -> Vec<Self::Id> {
         let Some(&node) = parent else {
             return vec![self.root];
         };
         match self.nodes.get(node.0).map(|entry| &entry.listing) {
-            Some(Listing::Present(children)) => children.clone(),
+            Some(Listing::Present(_)) => self.visible_children(node).collect(),
             Some(Listing::Absent) => {
                 self.request(node);
                 Vec::new()

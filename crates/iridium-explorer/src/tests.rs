@@ -368,3 +368,119 @@ fn an_ignored_directory_is_listed_but_never_crawled_into() {
     assert!(settle(&mut tree), "the manual read never landed");
     assert!(tree.node_at(&root.join("build/artefact.txt")).is_some());
 }
+
+#[test]
+fn dot_prefixed_entries_are_withheld_from_the_projection_and_counted() {
+    let directory = TempDir::new("explorer-hidden");
+    for name in [".env", ".npmrc", "main.rs"] {
+        std::fs::write(directory.path().join(name), "x").expect("the fixture was written");
+    }
+    std::fs::create_dir(directory.path().join(".cache")).expect("the fixture directory was made");
+
+    let mut tree = opened(&directory);
+    let root = tree.root();
+
+    assert!(
+        !tree.show_hidden(),
+        "hidden entries are off until asked for"
+    );
+    assert_eq!(
+        names(&mut tree, root),
+        vec!["main.rs".to_owned()],
+        "the projection was handed a dot-prefixed entry"
+    );
+    // The honesty half. A tree that shows one of four entries and says
+    // nothing is a tree that disagrees with `ls` and never mentions it.
+    assert_eq!(
+        tree.hidden_children(root),
+        3,
+        "the count a face draws must be the number of rows the key would add"
+    );
+
+    assert!(
+        tree.set_show_hidden(true),
+        "turning it on from off is a change, and the caller owes a refresh"
+    );
+    assert_eq!(
+        names(&mut tree, root),
+        vec![
+            ".cache".to_owned(),
+            ".env".to_owned(),
+            ".npmrc".to_owned(),
+            "main.rs".to_owned(),
+        ],
+        "everything on the disk appears once the flag is on, in listing order"
+    );
+    assert_eq!(
+        tree.hidden_children(root),
+        0,
+        "nothing is being withheld, so nothing may be claimed to be"
+    );
+}
+
+#[test]
+fn nothing_is_discarded_while_it_is_withheld() {
+    // ⭐ The property that makes the flag instant in both directions: hidden
+    // entries are interned and listed like any other and only ever filtered on
+    // the way out. If they were dropped at listing time, turning the flag on
+    // would need a re-read — and until it landed the panel would show a
+    // directory it had already claimed to have finished reading.
+    let directory = TempDir::new("explorer-hidden-arena");
+    std::fs::write(directory.path().join(".env"), "x").expect("the fixture was written");
+
+    let tree = opened(&directory);
+    let root = tree.root();
+
+    assert_eq!(
+        tree.listed_children(root).len(),
+        1,
+        "the arena keeps what the projection withholds"
+    );
+    assert_eq!(
+        tree.visible_children(root).count(),
+        0,
+        "and the drawing accessor withholds what the arena keeps"
+    );
+    assert!(
+        tree.node_at(&directory.path().join(".env")).is_some(),
+        "a withheld entry still has an id, which is what a reload needs to find it"
+    );
+}
+
+#[test]
+fn a_root_that_is_itself_hidden_is_still_the_thing_you_asked_to_look_at() {
+    let directory = TempDir::new("explorer-hidden-root");
+    let root_path = directory.path().join(".config");
+    std::fs::create_dir(&root_path).expect("the fixture directory was made");
+    std::fs::write(root_path.join("settings.toml"), "x").expect("the fixture was written");
+
+    let mut tree = FileTree::open(root_path).expect("the reader thread ran");
+    assert!(settle(&mut tree), "the root listing never arrived");
+    let root = tree.root();
+
+    // The root is the answer to `children(None)`, never anybody's child, so
+    // the filter never sees it — which is why opening `~/.config` works with
+    // the flag off.
+    assert_eq!(tree.children(None), vec![root]);
+    assert!(
+        tree.info(root).expect("the root exists").is_hidden,
+        "the name is still dot-prefixed and a face may want to say so"
+    );
+    assert_eq!(
+        names(&mut tree, root),
+        vec!["settings.toml".to_owned()],
+        "the contents of a hidden folder are ordinary entries"
+    );
+}
+
+#[test]
+fn setting_the_flag_to_what_it_already_says_is_not_a_change() {
+    // The return value is what a face refreshes on, and a refresh rebuilds
+    // every visible row. A key pressed twice must cost one rebuild, not two.
+    let directory = TempDir::new("explorer-hidden-idempotent");
+    let mut tree = opened(&directory);
+
+    assert!(!tree.set_show_hidden(false), "off was already off");
+    assert!(tree.set_show_hidden(true), "off to on is a change");
+    assert!(!tree.set_show_hidden(true), "on was already on");
+}

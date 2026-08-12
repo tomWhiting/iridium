@@ -1,60 +1,19 @@
-//! Commands that belong to a panel rather than to the editor.
+//! The file explorer's vocabulary — its four screens and the verbs on each.
 //!
-//! A panel command is a real, registered, bindable command that is only
-//! meaningful while the panel owning it is open and on a particular screen.
-//! *Move Down* in the file explorer is the archetype: it is a verb a user should
-//! be able to rebind, and it is not a thing the editor can be asked to do.
+//! The first panel converted onto this mechanism (#91), and therefore the one
+//! the others are written against. [`super`] carries the argument for why panel
+//! commands are registered at all and why they carry a mode; this file is the
+//! explorer's answer to it.
 //!
-//! # Why they are registered at all
+//! # Four modes, because there are four screens
 //!
-//! Because `[keys]` validates. `Keymap::validate` reports
-//! [`KeymapError::UnknownCommand`](crate::commands::KeymapError) for a binding
-//! naming a command no registry holds, and `iridium-config` turns that into a
-//! diagnostic quoting the offending line. Before this table existed, a user
-//! writing
-//!
-//! ```toml
-//! [keys]
-//! "ctrl+j" = "explorer.moveDown"
-//! ```
-//!
-//! was told their command did not exist — which was true, and was the whole
-//! defect. Registering the id is what makes that line *work*, while leaving a
-//! genuine typo reported exactly as before.
-//!
-//! # Why they carry a mode
-//!
-//! [`CommandMeta::scoped`] states it once and two things follow: a `[keys]` line
-//! binding one is scoped to that mode, and a command palette does not list it.
-//! Both are the same fact — the command belongs to a context — and neither is
-//! something a user should have to write down a second time.
-//!
-//! # ⚠️ Nothing here is bound by the default keymap, and that is not an omission
-//!
-//! The kernel's default keymap binds editor commands. A key that only means
-//! something inside the file explorer is bound by **the file explorer**, whose
-//! default keymap lives with the panel in `iridium-panel` — the crate that knows
-//! what its own screens are. `every_registered_command_is_bound_except_the_typing_fall_through`
-//! therefore skips mode-scoped commands, and the panel carries the matching
-//! assertion for its own vocabulary.
-//!
-//! Reading it the other way round is the useful test of the split: the kernel
-//! owns the **names**, so that one verb has one id in every face, and the panel
-//! owns the **keys**, so that a face with different screens is not forced to
-//! pretend it has the explorer's.
-//!
-//! # How one runs
-//!
-//! Exactly like a host command, and for the same reason: nothing here appears in
-//! [`BUILTIN`](super::BUILTIN) and nothing here has a `KeyboardAction`. The
-//! panel resolves the key against its own stack and acts; `Editor::run_command`
-//! reports
-//! [`CommandRunError::Unimplemented`](crate::input::CommandRunError::Unimplemented),
-//! which is the kernel saying this one is not its to run.
+//! Browsing, editing the rows as text, confirming a plan, and reading a
+//! refusal. They are separate modes rather than flags on one because the
+//! screens disagree about what a printable character *means* — browsing it
+//! narrows the list, editing it is somebody typing a filename — and a single
+//! mode would make every binding re-ask which screen it was on.
 
-use crate::commands::{
-    CommandCategory, CommandId, CommandMeta, CommandRegistry, ModeName, RegistryError,
-};
+use crate::commands::{CommandCategory, CommandId, CommandMeta, ModeName};
 
 /// The mode the file explorer is in while it is browsing a tree.
 ///
@@ -175,12 +134,12 @@ pub const EXPLORER_CONFIRM_CANCEL: CommandId = CommandId::from_static("explorer.
 /// Dismiss the refusals and go back to the rows.
 pub const EXPLORER_REFUSED_DISMISS: CommandId = CommandId::from_static("explorer.refused.dismiss");
 
-/// Every panel command, in declaration order.
+/// Every file explorer command, in declaration order.
 ///
 /// Grouped by mode, and within a mode in the order the panel's own
 /// documentation tables list them, so that a reader comparing the two is
 /// comparing like with like.
-static PANEL: &[CommandMeta] = &[
+pub(super) static EXPLORER: &[CommandMeta] = &[
     // Browsing.
     CommandMeta::scoped(
         EXPLORER_DISMISS,
@@ -383,82 +342,3 @@ static PANEL: &[CommandMeta] = &[
         EXPLORER_REFUSED_MODE,
     ),
 ];
-
-/// The number of panel commands the kernel names.
-///
-/// Derived from [`PANEL`], so it cannot disagree with the table.
-pub const PANEL_COMMAND_COUNT: usize = PANEL.len();
-
-/// Returns every panel command's metadata, in declaration order.
-///
-/// Prefer [`panel_command_metas`] when a borrow will do; this clones.
-#[must_use]
-pub fn panel_commands() -> Vec<CommandMeta> {
-    PANEL.to_vec()
-}
-
-/// Borrows every panel command's metadata, in declaration order.
-#[must_use]
-pub const fn panel_command_metas() -> &'static [CommandMeta] {
-    PANEL
-}
-
-/// Registers every panel command into `registry`.
-///
-/// # Errors
-///
-/// [`RegistryError::DuplicateId`] if `registry` already holds one of these ids,
-/// which means a face claimed an id the kernel had already named.
-pub fn register_panel_commands(registry: &mut CommandRegistry) -> Result<(), RegistryError> {
-    registry.register_all(panel_commands())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{PANEL, PANEL_COMMAND_COUNT};
-    use std::collections::BTreeSet;
-
-    #[test]
-    fn every_panel_command_names_a_mode() {
-        // The defining property of this table, and the one that keeps these
-        // commands out of a palette. A row that forgot would be offered as a
-        // global entry that cannot do anything.
-        for meta in PANEL {
-            assert!(
-                meta.mode().is_some(),
-                "`{}` is in the panel table and names no mode",
-                meta.id()
-            );
-            assert!(
-                !meta.is_palette_entry(),
-                "`{}` would be offered by a command palette",
-                meta.id()
-            );
-        }
-    }
-
-    #[test]
-    fn the_ids_are_distinct() {
-        let ids: BTreeSet<&str> = PANEL.iter().map(|meta| meta.id().as_str()).collect();
-        assert_eq!(
-            ids.len(),
-            PANEL_COMMAND_COUNT,
-            "two rows of the panel table share an id"
-        );
-    }
-
-    /// ⚠️ The id is what a user writes in `config.toml`, so it is a published
-    /// surface: an id and the mode it is scoped to must agree, or a `[keys]`
-    /// line binds a command into a screen it does not belong to.
-    #[test]
-    fn an_id_sits_under_the_mode_it_is_scoped_to() {
-        for meta in PANEL {
-            let mode = meta.mode().expect("every panel command names a mode");
-            assert!(
-                meta.id().as_str().starts_with(mode.as_str()),
-                "`{}` is scoped to mode `{mode}`, which its id does not name",
-                meta.id()
-            );
-        }
-    }
-}

@@ -20,7 +20,34 @@ The mechanism is built and proven. This is application, not design — see
 
 ---
 
-## ⛔ WHERE THIS STOPPED — resume here
+## ⛔ CORRECTION TO THE SECTION BELOW — read this first
+
+The plan below said the palette *vocabulary* was in the working tree. **It was
+taken back out**, for a reason worth recording.
+
+`git mv` stages the rename immediately, so committing the in-flight doc also
+committed `panel.rs` → `panel/explorer.rs` **without** the `panel/mod.rs` that
+makes the module tree valid — a HEAD that did not compile, created by a command
+that looked like it only touched a document.
+
+📌 **`git mv` is not a filesystem move. It stages.** A later `git commit` of an
+unrelated path carries it.
+
+The fix chosen was to land the **split only** — structural, no behaviour change,
+no new vocabulary — rather than to commit twelve registered `palette.*` commands
+that nothing resolves. So:
+
+- `panel/mod.rs` declares `explorer` alone; `TABLES` has one entry.
+- **`panel/palette.rs` is written and correct, and is parked at**
+  `<scratchpad>/palette_vocab.rs`. It is reproduced verbatim in the appendix at
+  the foot of this file, because a scratchpad does not survive the session.
+- `builtin/mod.rs` re-exports no `PALETTE_*` names yet.
+
+To resume: put the appendix back as `panel/palette.rs`, add `mod palette;`, add
+it to `TABLES`, add the thirteen names to `builtin/mod.rs`'s re-export list —
+**and convert the desktop palette in the same commit.**
+
+## WHERE THIS STOPPED — resume here
 
 **Working tree at compaction: `origin/main = 6b1567f6` plus UNCOMMITTED changes.
 Nothing pushed. The changes are on disk and survive; this file says what they
@@ -162,3 +189,43 @@ Cheapest first, and each is independent:
 These are conventional keys — arrows, Enter, Escape — that nobody has asked to
 retune. Tom's 8 Aug request named the oil case, which #91 delivered. The value
 here is uniformity and the `[keys]` listing, not a complaint being answered.
+
+
+---
+
+# Appendix — the command palette's vocabulary, ready to paste back
+
+Goes at `crates/iridium-editor/src/commands/builtin/panel/palette.rs`. Written,
+compiled and passing the five `panel/tests.rs` assertions before it was parked;
+held back only because nothing resolves it yet.
+
+Twelve verbs under one mode `palette`:
+
+| id | title |
+| --- | --- |
+| `palette.dismiss` | Close Command Palette |
+| `palette.accept` | Run Selected Command |
+| `palette.selectPrevious` | Select Previous Command |
+| `palette.selectNext` | Select Next Command |
+| `palette.selectPageUp` | Select A Page Up |
+| `palette.selectPageDown` | Select A Page Down |
+| `palette.caretLeft` | Move Caret Left In Query |
+| `palette.caretRight` | Move Caret Right In Query |
+| `palette.caretHome` | Move Caret To Query Start |
+| `palette.caretEnd` | Move Caret To Query End |
+| `palette.queryBackspace` | Delete In Query |
+| `palette.queryDelete` | Delete Forward In Query |
+
+Every one is `CommandMeta::scoped(..., CommandCategory::GENERAL, PALETTE_MODE)`.
+`PALETTE_MODE` is `ModeName::from_static("palette")`.
+
+⚠️ **`palette.open` is deliberately not among them.** Opening the palette is
+something the editor can be asked from anywhere, so it stays the mode-free host
+command in `builtin::host`. The same chord doing both — `⌘K` opens it and closes
+it again — is *two* commands, which is exactly what the two modes make possible;
+rebinding either leaves the other alone. This is the same shape as
+`explorer.togglePanel` against the explorer's verbs, and it is the trap #91
+called "a command the panel merely answers rather than owns" — except here the
+close **is** a palette verb, so the palette owns both halves and the trap does
+not apply. Confirm that by checking no method goes dead when the old table is
+deleted; the compiler is what caught it last time.

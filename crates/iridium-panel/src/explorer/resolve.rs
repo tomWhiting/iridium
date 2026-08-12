@@ -203,7 +203,6 @@ pub(super) const fn types_text(modifiers: Modifiers) -> bool {
 /// make it unreachable from anywhere the user could press it.
 fn panel_mode_of(id: &CommandId) -> Option<ModeName> {
     panel_command_metas()
-        .iter()
         .find(|meta| meta.id() == id)
         .and_then(|meta| meta.mode().cloned())
 }

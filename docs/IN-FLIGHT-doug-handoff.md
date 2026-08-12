@@ -1001,7 +1001,10 @@ market-mirror document.
 
 ### The law this exchange earned
 
-9. **A checkout and an installed binary are two places, and an ordering
+(Numbered 10: law 9 is already taken by *a window follows the selection when the
+selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.md`.)
+
+10. **A checkout and an installed binary are two places, and an ordering
    argument that prices only the first is incomplete.** The engine-vs-document
    merge order was ruled and correct; what bit was that `~/.cargo/bin` had not
    caught up with a checkout that had. Committed, pushed and installed are

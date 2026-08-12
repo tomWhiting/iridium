@@ -274,10 +274,23 @@ Each step is checkable on its own, and the first two are strictly refactor.
    writes to a real disk and its tests build real directories; a fixture that
    faked one would be testing something else.
 
-   Still to come in 2c: `filter` (pure, imports nothing — the next easy one),
-   then the coupled set — `panel`, `buffer`, `keys`, `edit_keys`, `mode`,
-   `session`, `confirm`, `rows`, `compose` — plus `project`'s two root
-   functions. `PanelAnchor`, `PanelContent` and the painters stay behind.
+   **`filter` followed in the same tick**, and it is the one that cost a
+   decision. It reaches `iridium_explorer::{FileTree, NodeId}`, so
+   `iridium-panel` now depends on `iridium-explorer` — which is native by
+   nature, a browser having no directory to read. ⚠️ **That narrows the panel
+   crate to native targets, deliberately.** Both faces that depend on it are
+   native; the web face composes its panels in TypeScript and never links it;
+   `iridium-bindings` does not depend on `iridium-panel` at all, so the wasm
+   gate is untouched. Recorded in the manifest so the day that changes, it
+   changes loudly. Census flat — `filter` carries no tests of its own — which
+   is the right proof that nothing was lost on the way.
+
+   Still to come in 2c: the coupled set — `panel`, `buffer`, `keys`,
+   `edit_keys`, `mode`, `session`, `confirm`, `rows`, `compose` — plus
+   `project`'s two root functions. `PanelAnchor`, `PanelContent` and the
+   painters stay behind. ⭐ **`panel` goes first of those, not last**: every
+   one of the nine is either an `impl FileExplorer` or imports the type, so
+   nothing else in the set can move ahead of it.
 
    **The scope 2c was written against, unchanged:** the whole explorer — the
    tree, filter, keys, oil buffer, edit keys, plan, confirm, apply — plus

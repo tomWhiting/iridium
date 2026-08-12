@@ -28,8 +28,6 @@
 //!   refusal is showing, or a confirmation is. Reached *before* `keys`'
 //!   table, because that table gives every printable character to the filter.
 //! - `compose` — what reaches the screen.
-//! - `filter` — narrowing the rows to what a query matches, without losing
-//!   the hierarchy the matches live in.
 //! - `buffer` — the rows as loaded and as they now read, and the one place a
 //!   row's origin is captured from the node it was drawn from.
 //! - `confirm` — what is shown before any of it happens.
@@ -43,7 +41,7 @@
 //!
 //! # What is no longer here
 //!
-//! `plan`, `order` and `apply` — the rename pipeline — now live in
+//! `plan`, `order` and `apply` — the rename pipeline — and `filter` now live in
 //! [`iridium_panel::explorer`], because a rename means the same thing in both
 //! faces and two copies of it could disagree about what one *does*. They are
 //! re-exported below, so the modules that stayed read exactly as they did.
@@ -52,7 +50,6 @@ mod buffer;
 mod compose;
 mod confirm;
 mod edit_keys;
-mod filter;
 mod keys;
 mod mode;
 mod panel;
@@ -80,6 +77,6 @@ mod tests;
 // faces depend on. The nine modules that stayed still read `super::plan::…`
 // and `super::apply::…`, which is the point: the hoist moved code, not
 // meaning. See [`iridium_panel::explorer`].
-pub(crate) use iridium_panel::explorer::{apply, plan};
+pub(crate) use iridium_panel::explorer::{apply, filter, plan};
 
 pub use panel::{ExplorerOutcome, FileExplorer};

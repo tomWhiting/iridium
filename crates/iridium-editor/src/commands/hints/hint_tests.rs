@@ -170,7 +170,11 @@ fn no_label_in_the_default_keymap_leaks_the_round_trippable_form() {
 
     for id in index.command_ids() {
         for hint in index.hints_for(id.as_str()) {
-            for style in [KeyLabelStyle::Portable, KeyLabelStyle::MacGlyphs] {
+            for style in [
+                KeyLabelStyle::Portable,
+                KeyLabelStyle::MacGlyphsCommandAsCtrl,
+                KeyLabelStyle::MacGlyphsCommandAsMeta,
+            ] {
                 let label = hint.label(style);
                 assert!(
                     !label.contains('~'),
@@ -181,15 +185,28 @@ fn no_label_in_the_default_keymap_leaks_the_round_trippable_form() {
     }
 }
 
+/// ⭐ The two mac conventions are opposites, and this is the test that says
+/// so in one place.
+///
+/// The kernel's default keymap binds Select All to `ctrl`. A face that
+/// forwards Command as `ctrl` (the web) must show that as ⌘A; a face that
+/// forwards Command as `meta` and physical Control as `ctrl` (the desktop)
+/// must show the same binding as ⌃A, because on that face it really is the
+/// Control key.
+///
+/// ⚠️ Asserting **both** rather than one: a single style with the other
+/// implied is exactly the state that let the desktop face ship every chord
+/// with the glyphs swapped, found 13 Aug 2026.
 #[test]
-fn mac_labels_render_the_kernels_ctrl_as_command() {
+fn the_two_mac_styles_disagree_about_which_glyph_ctrl_wears() {
     let index = KeyHintIndex::build(&default_keymap_stack());
 
     let hint = index
         .primary_hint(SELECTION_SELECT_ALL.as_str())
         .expect("select all is bound by default");
 
-    assert_eq!(hint.label(KeyLabelStyle::MacGlyphs), "⌘A");
+    assert_eq!(hint.label(KeyLabelStyle::MacGlyphsCommandAsCtrl), "⌘A");
+    assert_eq!(hint.label(KeyLabelStyle::MacGlyphsCommandAsMeta), "⌃A");
 }
 
 #[test]
@@ -210,7 +227,7 @@ fn a_multi_stroke_label_separates_chords_with_a_space() {
         index
             .primary_hint(skip.as_str())
             .unwrap()
-            .label(KeyLabelStyle::MacGlyphs),
+            .label(KeyLabelStyle::MacGlyphsCommandAsCtrl),
         "⌘K ⌘D"
     );
 }

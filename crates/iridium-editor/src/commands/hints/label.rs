@@ -26,14 +26,29 @@ pub enum KeyLabelStyle {
     /// Named modifiers joined by `+`, chords by a space: `Ctrl+K Ctrl+D`.
     #[default]
     Portable,
-    /// macOS glyphs, unseparated: `⌘K ⌘D`.
+    /// macOS glyphs, unseparated (`⌘K ⌘D`), for a face that forwards the
+    /// Command key as the kernel's **`ctrl`**.
     ///
-    /// The kernel's `ctrl` renders as `⌘` because every face in this repository
-    /// forwards the macOS Command key as `ctrl` — see the key translation in the
-    /// web controller, which sends `e.metaKey || e.ctrlKey` as `ctrl` and never
-    /// forwards `meta` at all. A future face that maps Command to the kernel's
-    /// `meta` instead would need a third style rather than a change here.
-    MacGlyphs,
+    /// The web face: its controller sends `e.metaKey || e.ctrlKey` as `ctrl`
+    /// and never forwards `meta` at all, so `ctrl` is what a ⌘ press arrives
+    /// as and `⌘` is what it must be shown as.
+    MacGlyphsCommandAsCtrl,
+    /// macOS glyphs, unseparated, for a face that forwards the Command key as
+    /// the kernel's **`meta`** and physical Control as `ctrl`.
+    ///
+    /// The desktop face: winit reports ⌘ as `SUPER`, and `keys::
+    /// kernel_modifiers` puts it in `meta`, leaving `ctrl` for the physical
+    /// Control key that #104 made reachable.
+    ///
+    /// ⚠️ **The two mac variants are spelled out rather than one being called
+    /// `MacGlyphs`.** There used to be exactly one, named that, documented as
+    /// assuming the web face's convention and adding "a future face that maps
+    /// Command to the kernel's `meta` would need a third style". That face
+    /// arrived, took the style whose name did not warn it, and shipped every
+    /// chord in its context menu and palette with ⌘ and ⌃ **exactly swapped**
+    /// — found 13 Aug 2026. A name that states its assumption is what stops
+    /// the next one.
+    MacGlyphsCommandAsMeta,
 }
 
 impl KeyLabelStyle {
@@ -42,7 +57,7 @@ impl KeyLabelStyle {
         match self {
             Self::Portable => "+",
             // macOS convention runs the glyphs together: ⌥⇧⌘K.
-            Self::MacGlyphs => "",
+            Self::MacGlyphsCommandAsCtrl | Self::MacGlyphsCommandAsMeta => "",
         }
     }
 
@@ -60,11 +75,21 @@ impl KeyLabelStyle {
                 ("Meta", ModifierSlot::Meta),
                 ("AltGr", ModifierSlot::AltGraph),
             ],
-            Self::MacGlyphs => [
+            Self::MacGlyphsCommandAsCtrl => [
                 ("⌃", ModifierSlot::Meta),
                 ("⌥", ModifierSlot::Alt),
                 ("⇧", ModifierSlot::Shift),
                 ("⌘", ModifierSlot::Ctrl),
+                ("AltGr", ModifierSlot::AltGraph),
+            ],
+            // The same glyphs in the same ⌃⌥⇧⌘ order; only which kernel
+            // modifier each one names differs, and that is the whole point of
+            // there being two.
+            Self::MacGlyphsCommandAsMeta => [
+                ("⌃", ModifierSlot::Ctrl),
+                ("⌥", ModifierSlot::Alt),
+                ("⇧", ModifierSlot::Shift),
+                ("⌘", ModifierSlot::Meta),
                 ("AltGr", ModifierSlot::AltGraph),
             ],
         }

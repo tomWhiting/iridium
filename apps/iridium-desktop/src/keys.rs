@@ -17,11 +17,23 @@
 //! - **Named keys past the kernel's vocabulary are dropped.** F13 and the
 //!   media keys have no [`KeyCode`]; only the kernel may grow that enum.
 //!
-//! Cmd maps to `meta` — the kernel's `Modifiers` already carries the bit, and
-//! `KeyLabelStyle::MacGlyphs` already labels it ⌘ — Ctrl to `ctrl`, Option to
-//! `alt`, Shift to `shift`. The `alt_graph` bit stays `false`: winit's
-//! [`ModifiersState`] does not report `AltGraph`, and the kernel documents the
-//! bit as "hosts that can observe it set it".
+//! Cmd maps to `meta` — the kernel's `Modifiers` already carries the bit —
+//! Ctrl to `ctrl`, Option to `alt`, Shift to `shift`. The `alt_graph` bit
+//! stays `false`: winit's [`ModifiersState`] does not report `AltGraph`, and
+//! the kernel documents the bit as "hosts that can observe it set it".
+//!
+//! ⚠️ **Which means this face reads its chords with
+//! [`KeyLabelStyle::MacGlyphsCommandAsMeta`], never the other mac style.**
+//! This paragraph used to claim the label style "already labels it ⌘"; it did
+//! not, and had never been checked. The only mac style at the time was written
+//! for the web face, which forwards Command as the kernel's `ctrl`, so it
+//! spelled `ctrl` as ⌘ and `meta` as ⌃ — and this face, which does the
+//! opposite, showed **every chord in its context menu and command palette with
+//! ⌘ and ⌃ swapped**. Found 13 Aug 2026 while building the menu bar, by a test
+//! that resolved a chord and read what came back rather than trusting a
+//! sentence.
+//!
+//! [`KeyLabelStyle::MacGlyphsCommandAsMeta`]: iridium_editor::KeyLabelStyle::MacGlyphsCommandAsMeta
 
 use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use winit::keyboard::{Key, ModifiersState, NamedKey};

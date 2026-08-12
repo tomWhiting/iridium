@@ -158,7 +158,7 @@ pub fn resolve(
             hint: editor
                 .key_hints()
                 .primary_hint(verb.id.as_str())
-                .map(|hint| hint.label(KeyLabelStyle::MacGlyphs).to_owned()),
+                .map(|hint| hint.label(KeyLabelStyle::MacGlyphsCommandAsMeta).to_owned()),
             enabled: availability.allows(meta.mutates_document()),
         }));
     }
@@ -241,24 +241,59 @@ mod tests {
         );
     }
 
+    /// ⭐ **Two halves of one fact, asserted together so neither can drift
+    /// alone.** [`crate::keys::kernel_modifiers`] forwards the macOS Command
+    /// key as the kernel's `meta`, so a chord this face binds with `meta` is a
+    /// chord pressed with ⌘ — and the label shown for it has to say ⌘.
+    ///
+    /// ⚠️ This caught a **shipped defect**, found while building the menu bar
+    /// on 13 Aug 2026. `KeyLabelStyle::MacGlyphsCommandAsMeta` was written for the web
+    /// face, which forwards Command as the kernel's `ctrl`, so it spelled
+    /// `ctrl` as ⌘ and `meta` as ⌃. The desktop face arrived later, forwards
+    /// Command as `meta`, and used the same style — so **every chord it
+    /// displayed wore the wrong glyph**: the context menu and the palette
+    /// showed ⌃A for what is really ⌘A, and ⌘ for chords that need physical
+    /// Control. `keys.rs` even asserted the opposite in prose.
+    ///
+    /// The premise is asserted rather than assumed: if this face ever stops
+    /// forwarding Command as `meta`, the first assertion fails and says so,
+    /// instead of the second one failing and pointing at the wrong file.
+    /// Select All is bound with `META` in `commands/keymap.rs`.
+    #[test]
+    fn a_chord_pressed_with_command_wears_the_command_glyph() {
+        assert!(
+            crate::keys::kernel_modifiers(winit::keyboard::ModifiersState::SUPER).meta,
+            "this face forwards Cmd as the kernel's `meta`; the rest of this rests on it"
+        );
+        let rows = resolve(
+            &editor(),
+            &[verb(SELECTION_SELECT_ALL, "Select All")],
+            Availability::OPEN,
+        );
+        let hint = rows[0]
+            .as_ref()
+            .and_then(|row| row.hint.clone())
+            .expect("select all is bound in this face");
+        assert!(
+            hint.contains('⌘'),
+            "`{hint}` is what this face shows for ⌘A"
+        );
+        assert!(
+            !hint.contains('⌃'),
+            "`{hint}` puts the Control glyph on a chord pressed with Command"
+        );
+    }
+
     /// The chord is read from the keymap, never typed here, and it is read in
     /// the style a mac hand reads.
     ///
-    /// ⚠️ **This deliberately does not assert which glyph.** The first draft
-    /// asserted `⌘`, on the assumption that this face maps the command key
-    /// onto the kernel's ctrl — and it failed, because Select All is `⌃A`
-    /// here: since #104 both keys are reachable and which one a verb wears is
-    /// the keymap's business, not this module's. A test that named the glyph
-    /// would be pinning a binding from the wrong file.
+    /// What is asserted is the property that separates the label styles, and
+    /// so is the thing that could regress: the mac styles spell every modifier
+    /// as a glyph, `Portable` spells them as words joined by `+`, and the
+    /// round-trippable form spells an ignored modifier as `~name`. All three
+    /// satisfy "is a non-empty string"; only one satisfies this.
     ///
-    /// What is asserted is the property that actually separates the two label
-    /// styles, and so is the thing that could regress: [`KeyLabelStyle::
-    /// MacGlyphs`] spells every modifier as a glyph, while `Portable` spells
-    /// them as words joined by `+` and the round-trippable form spells an
-    /// ignored modifier as `~name`. Any of the three would satisfy "is a
-    /// non-empty string"; only one satisfies this.
-    ///
-    /// [`KeyLabelStyle::MacGlyphs`]: iridium_editor::KeyLabelStyle::MacGlyphs
+    /// Which glyph is the neighbouring test's business, not this one's.
     #[test]
     fn the_chord_comes_from_the_keymap_and_wears_mac_glyphs() {
         let rows = resolve(

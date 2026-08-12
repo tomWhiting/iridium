@@ -33,8 +33,18 @@ pub struct KeyHint {
     wildcard: bool,
     /// The human-readable label, e.g. `Ctrl+K`.
     label: String,
-    /// The same sequence in macOS glyphs, e.g. `⌘K`.
-    mac_label: String,
+    /// The same sequence in macOS glyphs for a face that forwards Command as
+    /// the kernel's `ctrl`, e.g. `⌘K`.
+    mac_label_command_as_ctrl: String,
+    /// The same sequence in macOS glyphs for a face that forwards Command as
+    /// the kernel's `meta`.
+    ///
+    /// ⚠️ Both are rendered because the kernel cannot know which convention
+    /// the face reading it uses, and a face picking the wrong one shipped ⌘
+    /// and ⌃ swapped through two panels — see [`KeyLabelStyle`]. Two short
+    /// strings per binding is the price of that not being possible by
+    /// accident.
+    mac_label_command_as_meta: String,
     /// The round-trippable text form, e.g. `ctrl+~altgraph+k`.
     binding_text: String,
 }
@@ -42,14 +52,21 @@ pub struct KeyHint {
 impl KeyHint {
     /// Describes `binding`, which must have been found in layer `layer`.
     ///
-    /// Both label forms are rendered once, here, rather than on demand: a
+    /// Every label form is rendered once, here, rather than on demand: a
     /// palette re-reads them on every filter keystroke, and the host must never
     /// re-derive a chord's spelling for itself.
     pub(super) fn new(binding: &KeyBinding, layer: usize) -> Self {
         let sequence = binding.sequence().to_vec();
         Self {
             label: label::render(&sequence, KeyLabelStyle::Portable),
-            mac_label: label::render(&sequence, KeyLabelStyle::MacGlyphs),
+            mac_label_command_as_ctrl: label::render(
+                &sequence,
+                KeyLabelStyle::MacGlyphsCommandAsCtrl,
+            ),
+            mac_label_command_as_meta: label::render(
+                &sequence,
+                KeyLabelStyle::MacGlyphsCommandAsMeta,
+            ),
             binding_text: binding.display_sequence(),
             wildcard: binding.has_capture_stroke(),
             mode: binding.mode().cloned(),
@@ -91,7 +108,8 @@ impl KeyHint {
     pub fn label(&self, style: KeyLabelStyle) -> &str {
         match style {
             KeyLabelStyle::Portable => &self.label,
-            KeyLabelStyle::MacGlyphs => &self.mac_label,
+            KeyLabelStyle::MacGlyphsCommandAsCtrl => &self.mac_label_command_as_ctrl,
+            KeyLabelStyle::MacGlyphsCommandAsMeta => &self.mac_label_command_as_meta,
         }
     }
 

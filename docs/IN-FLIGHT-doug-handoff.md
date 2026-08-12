@@ -1022,19 +1022,51 @@ selection moves, not when a frame happens*, in `docs/IN-FLIGHT-115-panel-mouse.m
 
 ## ⚠️ LIVE STATE — read this first
 
-`origin/main = f7a05574`, **0 unpushed**, verified from the remote at fetch.
-Ten gates green (`✅ all 10 gates passed`, 5,584 tests). Working tree clean
-apart from untracked `.claude/skills/`.
+`origin/main = eb92c47c`, **0 unpushed**, verified from the remote at fetch.
+Ten gates green (`✅ all 10 gates passed`). Working tree clean apart from
+untracked `.claude/skills/`.
 
 **#113 steps 4–5 wait on Tom's grammar ruling. #108 is CODE-COMPLETE — all
-four steps landed — and waits on Tom's hands. #109 is CLOSED.** Nothing is
-half-done and nothing is in flight.
+four steps landed — and waits on Tom's hands. #109 and #110 are CLOSED.**
+Nothing is half-done and nothing is in flight.
 
 ⛔ **Both #108 and #113 are blocked on Tom, and neither should be guessed at.**
 He was messaged on 13 Aug with both: the grammar ruling, and a request to
 build #108 and click one menu item. If a tick finds this and no answer, work
-something else — the backlog is #110, #58, #87, #88, #90, #91, #92, #93,
-#95, #96, #99, #43→#44→#45.
+something else — the backlog is #58, #87, #88, #90, #91, #92, #93, #95, #96,
+#99, #43→#44→#45.
+
+### ✅ #110 CLOSED — `eb92c47c`, ten gates green
+
+An imported VS Code theme's `fontStyle` was parsed from day one and read by
+nothing. Full write-up, five rulings and five mutations:
+`docs/IN-FLIGHT-110-vscode-fontstyle.md`.
+
+⭐ **Two defects found underneath it, both worse than the task recorded.**
+
+1. **Four scope rows were unreachable, and each clobbered a broader field.**
+   First-match prefix order put `keyword.operator` below `keyword`, so an
+   imported theme's operator colour was written into the **keyword** field —
+   every keyword wearing the operator colour, in any theme whose operator rule
+   came after its keyword rule. Now longest-prefix-wins, which is `TextMate`'s
+   own rule.
+2. ⛔ **The stub `HighlightType` had drifted, and it was mine from #109.** Four
+   `Diff*` variants went into the real enum and not into `syntax_stubs`, so a
+   parser-free build refused a theme file the full build accepts. Found only
+   because moving `slot_of` made the ungated half depend on it and
+   `test/kernel` stopped compiling. **`EVERY_CATEGORY_NAME` in
+   `theme/emphasis.rs` now gates it** — both feature configurations run one
+   list of serde names through the deserializer, which is the only mechanism
+   available when no build can see both enums.
+
+⚠️ **The count assertion in `the_category_list_is_complete_and_distinct` is
+43.** Adding a `HighlightType` variant means updating that number *and* the
+stub — which is the point of the assertion existing.
+
+📌 **The law:** *a mutation that fails to fail is as informative as one that
+succeeds — it is either the wrong mutation or the wrong test.* Chasing one that
+did nothing exposed that the empty-`fontStyle` cancel test used two scopes whose
+category sets are disjoint, so it was testing nothing.
 
 ### ✅ #109 CLOSED — `f7a05574`, ten gates green
 

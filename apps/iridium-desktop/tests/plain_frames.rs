@@ -125,9 +125,15 @@ fn compositor(gpu: &Gpu) -> FrameCompositor {
     compositor
 }
 
-/// One compose through the desktop face's own resolver, blink pinned, GPU
+/// One compose through the desktop face's own resolver, blink pinned off, GPU
 /// work waited for — the per-frame assembly `App::redraw` performs, minus
 /// the window.
+///
+/// ⚠️ **Pinned off, not reset.** See `docs/IN-FLIGHT-69-flaky-gutter.md` §10:
+/// a reset only holds for the 500 ms half-interval after it, so under load the
+/// caret's 40 pixels appear in one frame of a comparison and not the other.
+/// This crate's frames are compared the same way the kernel's are, so it
+/// carries the same defect and takes the same fix.
 fn compose(
     compositor: &mut FrameCompositor,
     editor: &Editor,
@@ -136,7 +142,7 @@ fn compose(
     tgt: &Target,
 ) {
     let mut highlights = cache.resolver(&editor.state().theme);
-    compositor.reset_blink();
+    compositor.set_cursor_blink_enabled(false);
     if let Err(error) = compositor.compose(
         editor,
         editor.fold_state(),

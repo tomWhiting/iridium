@@ -68,9 +68,18 @@ pub fn target_sized(gpu: &Gpu, width: u32, height: u32) -> Target {
 /// The wait is not politeness: these tests read the between-frames caches the
 /// compositor fills, and a frame still in flight has not filled them.
 ///
-/// The blink reset is what makes two frames of the same document comparable.
-/// Without it the caret's phase depends on wall-clock time, so an otherwise
-/// identical pair of frames differs in a handful of pixels, intermittently.
+/// Pinning the blink *off* is what makes two frames of the same document
+/// comparable. Without it the caret's phase depends on wall-clock time, so an
+/// otherwise identical pair of frames differs by exactly the caret's 40 pixels,
+/// intermittently.
+///
+/// ⚠️ **This line used to call `reset_blink`, and that was not enough.** A
+/// reset moves the cycle's origin to now; the phase is still derived from
+/// `Instant::now()` when `compose` runs, so the guarantee lasts only as long as
+/// the half-interval that follows — 500 ms. Under load it does not. Repeated
+/// here as well as in [`super::gpu::compositor_sized`] on purpose: this
+/// function accepts any compositor, including one a test built for itself, and
+/// a guarantee that depends on the caller having remembered is not one.
 pub fn compose(
     compositor: &mut FrameCompositor,
     editor: &Editor,
@@ -79,7 +88,7 @@ pub fn compose(
     gpu: &Gpu,
     target: &Target,
 ) {
-    compositor.reset_blink();
+    compositor.set_cursor_blink_enabled(false);
     if let Err(error) = compositor.compose(
         editor,
         editor.fold_state(),

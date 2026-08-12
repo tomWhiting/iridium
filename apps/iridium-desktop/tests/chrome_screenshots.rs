@@ -305,6 +305,14 @@ fn shot_compositor(gpu: &Gpu, theme: &Theme) -> Result<FrameCompositor, String> 
         "the vendored test font holds no readable face"
     );
     compositor.set_theme(theme.clone());
+    // ⭐ #69's other victim. A shot is a picture of a moment, and the caret's
+    // visibility is a function of the moment: with the blink live, the same
+    // scene photographed twice shows a caret in one shot and not the other,
+    // for no reason a reader of the two images could ever recover. Pinned off,
+    // the caret is in every shot at its real position — which is also the more
+    // useful picture, because a screenshot of an editor with no visible caret
+    // reads as an editor with no cursor.
+    compositor.set_cursor_blink_enabled(false);
     Ok(compositor)
 }
 

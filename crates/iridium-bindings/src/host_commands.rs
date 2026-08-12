@@ -36,7 +36,7 @@
 //! reach it.
 
 use iridium_editor::commands::builtin::{
-    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_PLACEMENT, HISTORY_TOGGLE_PANEL,
+    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_SIDEBAR, HISTORY_TOGGLE_PANEL,
     PALETTE_OPEN, VIEW_TOGGLE_THEME,
 };
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ pub struct HostCommandIds {
     /// happened.
     pub explorer_toggle_panel: String,
     /// Move the file explorer between a panel and a sidebar —
-    /// [`EXPLORER_TOGGLE_PLACEMENT`].
+    /// [`EXPLORER_TOGGLE_SIDEBAR`].
     ///
     /// Exported for the same reason `explorer_toggle_panel` is: the kernel's
     /// default keymap binds `Ctrl+Alt+B`, so the chord is consumed in the
@@ -69,7 +69,7 @@ pub struct HostCommandIds {
     /// nothing happened. A page with one document and no window furniture has
     /// nowhere to put a column, which makes this the second of the two the web
     /// face can only ever report.
-    pub explorer_toggle_placement: String,
+    pub explorer_toggle_sidebar: String,
     /// Swap between the light and dark themes — [`VIEW_TOGGLE_THEME`].
     ///
     /// The browser *can* implement this one: the web face holds a `Theme` and
@@ -99,7 +99,7 @@ pub fn host_command_ids() -> HostCommandIds {
         palette_open: PALETTE_OPEN.as_str().to_owned(),
         history_toggle_panel: HISTORY_TOGGLE_PANEL.as_str().to_owned(),
         explorer_toggle_panel: EXPLORER_TOGGLE_PANEL.as_str().to_owned(),
-        explorer_toggle_placement: EXPLORER_TOGGLE_PLACEMENT.as_str().to_owned(),
+        explorer_toggle_sidebar: EXPLORER_TOGGLE_SIDEBAR.as_str().to_owned(),
         view_toggle_theme: VIEW_TOGGLE_THEME.as_str().to_owned(),
         config_reload: CONFIG_RELOAD.as_str().to_owned(),
     }
@@ -119,7 +119,7 @@ mod tests {
             ids.palette_open.as_str(),
             ids.history_toggle_panel.as_str(),
             ids.explorer_toggle_panel.as_str(),
-            ids.explorer_toggle_placement.as_str(),
+            ids.explorer_toggle_sidebar.as_str(),
             ids.view_toggle_theme.as_str(),
             ids.config_reload.as_str(),
         ])
@@ -163,7 +163,7 @@ mod tests {
             concat!(
                 r#"{"paletteOpen":"palette.open","historyTogglePanel":"history.togglePanel","#,
                 r#""explorerTogglePanel":"explorer.togglePanel","#,
-                r#""explorerTogglePlacement":"explorer.togglePlacement","#,
+                r#""explorerToggleSidebar":"explorer.toggleSidebar","#,
                 r#""viewToggleTheme":"view.toggleTheme","configReload":"config.reload"}"#
             )
         );

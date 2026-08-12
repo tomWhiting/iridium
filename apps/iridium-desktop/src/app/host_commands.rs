@@ -9,7 +9,7 @@
 use iridium_config::UserConfig;
 use iridium_editor::CommandId;
 use iridium_editor::commands::builtin::{
-    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_PLACEMENT, HISTORY_TOGGLE_PANEL,
+    CONFIG_RELOAD, EXPLORER_TOGGLE_PANEL, EXPLORER_TOGGLE_SIDEBAR, HISTORY_TOGGLE_PANEL,
     PALETTE_OPEN, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB,
 };
 use iridium_editor::workspace::Node;
@@ -68,8 +68,8 @@ impl DesktopApp {
             Flow::Running
         } else if command == &EXPLORER_TOGGLE_PANEL {
             self.toggle_explorer()
-        } else if command == &EXPLORER_TOGGLE_PLACEMENT {
-            self.toggle_explorer_placement()
+        } else if command == &EXPLORER_TOGGLE_SIDEBAR {
+            self.toggle_sidebar()
         } else if command == &VIEW_TOGGLE_THEME {
             self.toggle_theme()
         } else if command == &commands::FILE_OPEN {
@@ -432,22 +432,41 @@ impl DesktopApp {
         Flow::Running
     }
 
-    /// Moves the explorer between a floating panel and a sidebar.
+    /// Puts the explorer up as a sidebar, or puts it away.
     ///
-    /// ⭐ **It opens one if none is open**, rather than reporting that there is
-    /// nothing to move. Someone pressing the sidebar chord wants a sidebar, and
-    /// answering "no file explorer is open" to that is a refusal on a
-    /// technicality — the placement is remembered whether or not a panel is up,
-    /// so the two verbs compose.
-    pub(super) fn toggle_explorer_placement(&mut self) -> Flow {
-        self.explorer_placement = match self.explorer_placement {
-            ExplorerPlacement::Popover => ExplorerPlacement::Sidebar,
-            ExplorerPlacement::Sidebar => ExplorerPlacement::Popover,
-        };
-        // A panel that has just become a sidebar keeps the keys until `Escape`
-        // hands them back; one that has just become a popover *is* focused by
-        // definition, and setting the flag anyway keeps the two in step for
-        // whenever it becomes a sidebar again.
+    /// ⭐ **An on/off switch, and the second press is the whole point.** This
+    /// read as "move to the other placement" first, so `⌘B` twice left the
+    /// explorer floating in the middle of the window rather than gone — Tom,
+    /// 12 Aug 2026: *"when you command-B a second time, it just alternates
+    /// between that and the central version … that's an issue"*. A key that
+    /// names a **state** is one a hand can predict; a key that names a
+    /// **transition** has to be counted.
+    ///
+    /// So there are three cases, and only the first is new: a sidebar on screen
+    /// goes away, a floating panel becomes a sidebar, and nothing at all
+    /// becomes a sidebar. The last is deliberate — someone pressing the sidebar
+    /// chord wants a sidebar, and answering "no file explorer is open" to that
+    /// is a refusal on a technicality.
+    ///
+    /// ⚠️ **The placement is only given back once the panel has actually
+    /// gone.** Closing is refused while the oil buffer holds unapplied edits,
+    /// and a placement moved ahead of a refused close would leave a sidebar
+    /// drawn on screen while every measure downstream had been told it was a
+    /// popover.
+    pub(super) fn toggle_sidebar(&mut self) -> Flow {
+        if self.explorer.is_some() && self.explorer_placement == ExplorerPlacement::Sidebar {
+            let flow = self.toggle_explorer();
+            if self.explorer.is_none() {
+                // Back to the floating panel `⌘⌥E` opens, which is what keeps
+                // both placements reachable from two keys instead of three:
+                // this one is the sidebar's switch, that one is the panel's.
+                self.explorer_placement = ExplorerPlacement::Popover;
+            }
+            return flow;
+        }
+        self.explorer_placement = ExplorerPlacement::Sidebar;
+        // A panel the user just asked for takes the keys, and keeps them until
+        // `Escape` hands them back.
         self.explorer_focus = ExplorerFocus::Panel;
         if self.explorer.is_none() {
             return self.toggle_explorer();

@@ -15,7 +15,7 @@
 //! | Key | Action |
 //! |---|---|
 //! | `Ctrl+Alt+E`, `⌘⌥E` | Close |
-//! | `Ctrl+Alt+B`, `⌘B` | Move between a floating panel and a sidebar |
+//! | `Ctrl+Alt+B`, `⌘B` | Show this panel as a sidebar, or put it away |
 //! | `Escape` | Clear the query, or close when there is none |
 //! | `Enter` | Open a file; toggle or reveal a folder |
 //! | `↑` `↓`, `Ctrl+P` `Ctrl+N` | Move the selection |
@@ -62,7 +62,7 @@ impl FileExplorer {
             // does not name never reaches the host command it belongs to. `⌘B`
             // without `⌥` because that is what VS Code and Zed both bind.
             (Chord::CtrlAlt | Chord::Meta, KeyCode::Char('b' | 'B')) => {
-                ExplorerOutcome::TogglePlacement
+                ExplorerOutcome::ToggleSidebar
             },
             // A query is the first thing `Escape` takes back, and the panel
             // the second. Closing a panel someone has just typed into throws

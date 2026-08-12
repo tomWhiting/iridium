@@ -57,19 +57,20 @@ pub enum ExplorerOutcome {
     /// only way to hand it back is to close; a sidebar sits beside it and
     /// merely stops taking keystrokes.
     Dismissed,
-    /// The panel should move to the other placement — a floating panel becomes
-    /// a sidebar and back.
+    /// The sidebar's on/off switch was pressed: show this panel as a column
+    /// beside the document, or put it away if it is already one.
     ///
     /// ⚠️ **A request, not a decision, and it has to be one.** The placement
     /// lives on the host, because closing the panel *drops* it and a placement
-    /// stored here would be forgotten every time. So this is the panel saying
-    /// which key was pressed and nothing more — exactly as [`Self::Closed`]
-    /// does, and for the same reason.
+    /// stored here would be forgotten every time — which is also why the panel
+    /// cannot tell which of the two things this key means at the moment it is
+    /// pressed. So this is the panel saying which key was pressed and nothing
+    /// more, exactly as [`Self::Closed`] does and for the same reason.
     ///
     /// The panel has to bind the chord at all because it consumes every key it
     /// is handed: a chord it did not name would be swallowed by the catch-all
     /// and never reach the host command it belongs to.
-    TogglePlacement,
+    ToggleSidebar,
     /// This file should be opened in a tab. The host decides what that
     /// means; the panel does not touch the workspace.
     Open(PathBuf),

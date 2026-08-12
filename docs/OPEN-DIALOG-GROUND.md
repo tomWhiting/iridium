@@ -218,7 +218,15 @@ verbs, so they belong in `BINDINGS` (which must override nothing).
   `project.set` reads to find the folder to pin.
 - `EXPLORER_TOGGLE_PANEL` handling — `app/host_commands.rs:64`.
 
-## Menu bar — NOT started, and it is the other half of the ask
+## Menu bar — ⚠️ THIS SECTION WAS WRONG; see `docs/IN-FLIGHT-108-menu-bar.md`
+
+⛔ **"winit does not do menus" is false, measured 13 Aug 2026.** winit builds an
+`NSMenu` menubar and installs it by default (`with_default_menu`, on unless
+switched off; this app never switches it off). It contains **only** the
+application menu — About, Services, Hide, Show All, Quit — which is why there is
+no File or Edit menu. #108 is therefore *adding menus to a menubar that is
+already on screen*, not building one. The rest of this section is kept as
+written because it is what the reasoning above was done against.
 
 winit does **not** do menus. Options are `muda` (new dependency, not in the
 tree) or `NSMenu` directly via the objc2-app-kit already present. The same

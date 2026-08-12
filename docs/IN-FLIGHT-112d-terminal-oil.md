@@ -211,7 +211,23 @@ Each step is checkable on its own, and the first two are strictly refactor.
    ⭐ **The per-module breakdown, not just the total, and that is the point.**
    A total can be held level by a suite that stopped running and another that
    grew; the seven numbers cannot. **198 in, 198 out, and each row unchanged.**
-2. **Hoist to `iridium-panel`** — `row` (the vocabulary of R1b) and `explorer`
+2a. ✅ **The cut in `overlay.rs` — DONE `e9ae4245`.** It was 2,324 lines against
+   this project's 1,000-line hard limit *and* the file the hoist has to cut
+   through: the vocabulary was in the same file as the wgpu render pass, which
+   can never leave this face. Split by what a defect **is** —
+   `metrics` 236, `content` 246, `geometry` 360, `paint` 785, `tests` 664,
+   `mod` 97 — every file now under the 800 target. **`content.rs` is the piece
+   that moves**, and it has no wgpu, no window and no device in it, which is
+   why the cut is there rather than at a convenient line number.
+
+   ⚠️ **A slice-one hoist of "the modules that import nothing" is not
+   available, and that was measured.** `buffer.rs` imports
+   `super::panel::FileExplorer`, and `panel.rs` is the central type every other
+   module hangs off. Only `plan`, `apply`, `order` and `filter` are genuinely
+   free-standing — 43 of the 198 tests — so the explorer moves **as one piece**
+   or not at all. Better to know that before starting than halfway through.
+
+2b. **Hoist to `iridium-panel`** — `row` (the vocabulary of R1b) and `explorer`
    (the tree, filter, keys, oil buffer, edit keys, plan, confirm, apply) plus
    `project`'s two root functions. `PanelAnchor`, `PanelContent` and the
    painters stay in the desktop; `overlay` re-exports the rest. Desktop

@@ -9,14 +9,8 @@
 | `origin/main` | `4b100747` — steps 4a and 4b, ten gates green on `cd096186`, pushed and verified |
 | local `HEAD` | panel 5, the TUI history panel — see below for whether it is committed |
 
-**Next: panel 6 — the TUI search overlay** (`crates/iridium-tui/src/frame/
-search/`). ⚠️ **Audit it for the suppression defect first**: it *does* have a
-query field, so it is in the dangerous class — grep for
-`map_or(Resolved::Unclaimed` and check whether an unclaimed printable key
-becomes text. If it does, it needs the `Suppressed` variant the terminal
-palette carries, and a red test proven to fail first. It also needs a kernel
-vocabulary, which the history panel did not: check whether `SEARCH_MODE` and
-search verbs exist in `commands/builtin/panel/` before assuming they do.
+**Next: panel 6 — the TUI search overlay.** Ground verified 13 Aug; the design
+is in "Panel 6 — the design, ruled before building" below, with its build order.
 
 After that: the desktop context menu. ⛔ The desktop menubar is seventh and
 untouchable until #108 clears.
@@ -387,6 +381,159 @@ The desktop history overlay's `resolve.rs` module doc cited
 **No such command id exists** — a reader following it would have got a parse
 that validates against nothing. Both copies now say `edit.deleteToLineEnd`,
 which does. A worked example that cannot be run is a comment, not documentation.
+
+---
+
+## 🔨 Panel 6 — the design, ruled before building
+
+**Ground verified 13 Aug 2026 by reading the code, not the record.**
+`crates/iridium-tui/src/frame/search/` — `mod.rs` 422, `paint.rs` 349,
+`matches.rs` 132, `tests.rs` **1136**. That last number is the safety net: this
+is the best-guarded panel of the seven before conversion.
+
+This panel is **materially harder than panels 4 and 5** and differs from every
+one converted so far in four ways. Each is a ruling, taken and recorded rather
+than discovered half way through.
+
+### ⛔ D-1 — it needs a new kernel table, and only three ids exist
+
+`SEARCH_OPEN`, `SEARCH_NEXT_MATCH`, `SEARCH_PREVIOUS_MATCH` exist in
+`builtin/ids.rs` as **mode-free document commands**. There is no `SEARCH_MODE`
+and no `builtin/panel/search.rs`. The panel answers **15** things; 13 of them
+have no id at all.
+
+New file `commands/builtin/panel/search.rs`: `SEARCH_MODE` plus 13 scoped verbs
+— dismiss, toggleField, caretLeft/Right/Home/End, queryBackspace/Delete,
+replaceCurrent, replaceAll, toggleCaseSensitive, toggleWholeWord, toggleRegex.
+Added to `TABLES` and re-exported from `builtin/mod.rs`, exactly as `palette.rs`
+and `history.rs` were.
+
+### ⚖️ D-2 — next/previous **reuse the document ids**, they do not get scoped twins
+
+The panel's `Enter` calls `Editor::goto_next_match`. That is not "a panel action
+that happens to resemble a document action" — it **is** `search.nextMatch`.
+Minting `search.panel.nextMatch` would give a user two ids for one behaviour and
+put both in the palette.
+
+The `palette.open` / `palette.dismiss` precedent points the other way and does
+not apply: those are two *different* actions sharing a chord, which is why they
+need separate ids. This is one action reached from two places.
+
+⚠️ **Consequence for the ratchet.** Two of the panel's 15 verbs are therefore
+**not** in the `SEARCH_MODE` table, so
+`the_kernels_vocabulary_and_this_panels_verbs_are_the_same_set` cannot be copied
+verbatim. It becomes two assertions:
+
+* every `SEARCH_MODE`-scoped meta is a verb the panel answers, and every verb
+  **except the two borrowed ones** is `SEARCH_MODE`-scoped;
+* each borrowed id is registered and is **mode-free**, named explicitly in a
+  `const BORROWED: &[CommandId]`.
+
+Both halves pinned, neither guessed. A completeness test that enumerates
+"everything" breaks the moment there is a second everything.
+
+### ⛔ D-3 — shift is **semantic** here, so "shift is Any" does not hold
+
+`Enter` is next match and `Shift+Enter` is previous match — the old code
+classified the chord with a `chord()` that ignores shift and then **re-read
+`event.modifiers.shift` inside the arm**. Faithfulness therefore requires the
+opposite of what panels 1–5 required:
+
+| binding | shift |
+| --- | --- |
+| `enter` → `search.nextMatch` | **Forbidden** |
+| `shift+enter` → `search.previousMatch` | **Required** |
+| every other binding | `Any` |
+
+So the shift ratchet is written as "every binding **except the two `Enter`
+spellings** spells shift `Any`", with those two named in the test and the reason
+in a comment — plus a **behavioural** test that `Enter` goes forward and
+`Shift+Enter` goes back, which is the property a user actually depends on and
+which no pattern-level assertion can state.
+
+⚠️ The module doc already records that the legacy xterm encoding **cannot
+express `Shift+Enter` at all**, which is why `Up`/`Down` are bound to the same
+two verbs. That must survive: four bindings, two verbs.
+
+### ⛔ D-4 — it has **two** fields and it is **not modal**
+
+Unlike every panel so far, unclaimed keys are `SearchOutcome::Ignored` and stay
+the host's, so `Ctrl+S` is not dead while the panel is open. And the printable
+fall-through currently sits **inside a `match` arm above the wildcard**, not
+below the table.
+
+After conversion, plain `Char(c)` becomes the fall-through, which puts this
+panel squarely in the class that produced the three-panel defect. It **needs the
+`Suppressed` variant**: `"a" = ""` must not type `a` into the query — or into
+the *replacement*, which is worse, because that string is what `Ctrl+Alt+R`
+writes into the document.
+
+Dispatch, all four resolutions distinct:
+
+| resolution | outcome | why |
+| --- | --- | --- |
+| `Verb(v)` | run it | — |
+| `Pending` | `Handled` | a half-typed sequence must not reach the host, or its first stroke edits the document |
+| `Suppressed` | `Handled` | the user said this key does nothing; typing it *or* forwarding it would both be doing something |
+| `Unclaimed`, printable & plain | type into the focused field → `Handled` | what makes the panel typable |
+| `Unclaimed`, anything else | `Ignored` | ⭐ **the host's — this is what keeps save alive** |
+
+### ✅ Built, all eight steps. What landed
+
+`commands/builtin/panel/search.rs` (175 lines, `SEARCH_MODE` + 13 verbs), and
+`search/` gained `verb.rs` (134), `keymap.rs` (162), `resolve.rs` (147) and
+`keymap_tests.rs` (510). `mod.rs` went 422 → 467, losing `Chord`/`chord()` and
+gaining `run(verb)` and `unclaimed()`. `tests.rs` is **untouched at 1136** and
+all of it passed unchanged.
+
+Every count in the kernel derives from `TABLES` in a `const` loop, so adding the
+fourth table needed no number updated anywhere — the count assertions adapted on
+their own. 1376 kernel tests green.
+
+⭐ `toggle` now takes a `SearchToggle` enum rather than the `char` from the
+chord, which deleted an unreachable `_ => SearchOutcome::Ignored` arm. That arm
+existed only because the key and the option used to be the same value; with one
+verb per option, an unrecognised `Alt+X` never reaches `toggle` at all.
+
+### ⛔ M3 FAILED TO FAIL — the test defect this found
+
+**The first four mutations:**
+
+| # | mutation | result |
+| --- | --- | --- |
+| M1 | drop the `Verb::from_id` filter in `set_user_keymap` | 1 of 80 failed |
+| M2 | report a suppression as `Unclaimed` — *the three-panel defect, reintroduced* | 3 of 80 failed |
+| M3 | swap `ENTER_PLAIN` and `ENTER_SHIFT`'s verbs | ⛔ **0 of 80 failed** |
+| M4 | swallow unclaimed chords instead of forwarding them | 2 of 80 failed |
+
+M3 is the find. `enter_goes_forward_and_shift_enter_goes_back` was written as
+"press `Enter`, then `Shift+Enter`, assert the caret came back". That shape only
+proves the two keys are **inverses of each other** — it never says which one goes
+forward — so inverting *both* leaves it green. The test agreed with my mistake by
+sharing it.
+
+Rewritten against an **independent oracle**: `Down` and `Up` are separately bound
+to the same two verbs (which is *why* they exist — the legacy xterm encoding
+cannot express `Shift+Enter`), so what they select is a witness `Enter` can be
+compared against without comparing it to itself. The oracle itself is pinned
+absolutely first — `Down` must reach a *later line* than the start — because two
+relative comparisons would hold just as well with the oracle inverted.
+
+**M3 re-measured against the corrected test: 1 of 80 failed.**
+
+⚖️ M2 is the other one worth reading: three failures, **none** of them from the
+1136-line pre-existing suite. The suppression defect that shipped in three panels
+is invisible to every test that does not specifically look for it, in every panel
+that has a field. That is now four panels where it has been looked for.
+
+M4's two failures include one from the pre-existing suite
+(`a_key_the_panel_does_not_bind_is_left_to_the_host`), so the non-modal property
+was already guarded before this conversion touched it.
+
+### 📌 The law M3 earned
+
+**A test that presses a key and then its opposite proves they are inverses, not
+that either is correct.** Direction needs a witness from outside the pair.
 
 ---
 

@@ -77,15 +77,23 @@
 //! Anything else is [`SearchOutcome::Ignored`] and stays the host's to handle,
 //! so a binding such as save is not dead while the panel is open.
 
+mod keymap;
 mod matches;
 mod paint;
+mod resolve;
+mod verb;
 
+#[cfg(test)]
+mod keymap_tests;
 #[cfg(test)]
 mod tests;
 
 use iridium_editor::search::SearchOptions;
-use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers};
+use iridium_editor::{Editor, KeyCode, KeyEvent, KeyPress, Keymap, KeymapStack};
 
+use self::keymap::default_keymap;
+use self::resolve::{Resolved, types_text};
+use self::verb::Verb;
 use super::CellPosition;
 use super::field::Field;
 use super::palette::Palette;
@@ -144,7 +152,7 @@ enum Feedback {
 /// [`Chrome`](super::Chrome) while it is open. Keeping it across closes is what
 /// makes the query survive: closing clears the kernel's search but leaves the
 /// text in the field, so re-opening offers the last query back.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SearchOverlay {
     /// The query field.
     query: Field,
@@ -158,13 +166,40 @@ pub struct SearchOverlay {
     error: Option<String>,
     /// What the last action had to say.
     feedback: Feedback,
+    /// The overlay's own keymap: its defaults, with the user's layer over them.
+    keys: KeymapStack,
+    /// The strokes of a multi-stroke sequence typed so far.
+    pending: Vec<KeyPress>,
 }
 
 impl SearchOverlay {
-    /// A panel with empty fields and default options.
+    /// A panel with empty fields, default options, and `user_keys` over its own
+    /// defaults.
+    ///
+    /// ⭐ **The layer is a parameter rather than a later `set_user_keymap`
+    /// call.** A panel whose keys are configurable only if the caller remembers
+    /// a second call is a panel whose keys silently are not — a defect that
+    /// shows up as nothing happening, months later, to one user. Taking it here
+    /// makes forgetting a compile error. [`Self::set_user_keymap`] stays for
+    /// reloads, which genuinely are a second call.
+    ///
+    /// ⚠️ There is deliberately **no `Default`**. A derived one would give an
+    /// empty [`KeymapStack`], so an overlay built that way would answer no keys
+    /// at all — a panel that looks constructed and is deaf.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(user_keys: &Keymap) -> Self {
+        let mut overlay = Self {
+            query: Field::default(),
+            replacement: Field::default(),
+            focus: Focus::default(),
+            options: SearchOptions::default(),
+            error: None,
+            feedback: Feedback::default(),
+            keys: KeymapStack::with_base(default_keymap()),
+            pending: Vec::new(),
+        };
+        overlay.set_user_keymap(user_keys);
+        overlay
     }
 
     /// The rows a panel takes on a screen with `available` rows for it.
@@ -240,46 +275,68 @@ impl SearchOverlay {
     /// Returns [`SearchOutcome::Ignored`] for a key it does not bind, which the
     /// host is then free to act on itself.
     pub fn handle_key(&mut self, event: &KeyEvent, editor: &mut Editor) -> SearchOutcome {
-        match (chord(event.modifiers), event.key) {
-            (Chord::Plain, KeyCode::Escape) => {
+        match self.resolve_key(event) {
+            Resolved::Verb(verb) => self.run(verb, editor),
+            // ⚠️ Both stay with the overlay rather than falling through. A
+            // half-typed sequence must not reach the host, or its first stroke
+            // would edit the document behind the panel; and a key the user
+            // deliberately unbound must neither type itself nor be forwarded,
+            // because both of those are *doing something*.
+            Resolved::Pending | Resolved::Suppressed => SearchOutcome::Handled,
+            Resolved::Unclaimed => self.unclaimed(event, editor),
+        }
+    }
+
+    /// Runs one resolved verb.
+    fn run(&mut self, verb: Verb, editor: &mut Editor) -> SearchOutcome {
+        match verb {
+            Verb::Dismiss => {
                 self.close(editor);
                 SearchOutcome::Closed
             },
-            (Chord::Plain, KeyCode::Enter) => {
-                if event.modifiers.shift {
-                    editor.goto_previous_match();
-                } else {
-                    editor.goto_next_match();
-                }
-                SearchOutcome::Handled
-            },
-            (Chord::Plain, KeyCode::Down) => {
+            Verb::NextMatch => {
                 editor.goto_next_match();
                 SearchOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Up) => {
+            Verb::PreviousMatch => {
                 editor.goto_previous_match();
                 SearchOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Tab) => {
+            Verb::ToggleField => {
                 self.focus = match self.focus {
                     Focus::Find => Focus::Replace,
                     Focus::Replace => Focus::Find,
                 };
                 SearchOutcome::Handled
             },
-            (Chord::Plain, KeyCode::Left) => self.edit(editor, Field::move_left, false),
-            (Chord::Plain, KeyCode::Right) => self.edit(editor, Field::move_right, false),
-            (Chord::Plain, KeyCode::Home) => self.edit(editor, Field::move_home, false),
-            (Chord::Plain, KeyCode::End) => self.edit(editor, Field::move_end, false),
-            (Chord::Plain, KeyCode::Backspace) => self.edit(editor, Field::backspace, true),
-            (Chord::Plain, KeyCode::Delete) => self.edit(editor, Field::delete, true),
-            (Chord::Plain, KeyCode::Char(character)) => {
+            Verb::CaretLeft => self.edit(editor, Field::move_left, false),
+            Verb::CaretRight => self.edit(editor, Field::move_right, false),
+            Verb::CaretHome => self.edit(editor, Field::move_home, false),
+            Verb::CaretEnd => self.edit(editor, Field::move_end, false),
+            Verb::FieldBackspace => self.edit(editor, Field::backspace, true),
+            Verb::FieldDelete => self.edit(editor, Field::delete, true),
+            Verb::ReplaceCurrent => self.replace_current(editor),
+            Verb::ReplaceAll => self.replace_all(editor),
+            Verb::ToggleCaseSensitive => self.toggle(editor, SearchToggle::CaseSensitive),
+            Verb::ToggleWholeWord => self.toggle(editor, SearchToggle::WholeWord),
+            Verb::ToggleRegex => self.toggle(editor, SearchToggle::Regex),
+        }
+    }
+
+    /// A key no binding claimed: text if it is text, the host's otherwise.
+    ///
+    /// The fall-through is what makes the overlay typable at all, and it is
+    /// deliberately *below* the keymap: a user who binds a bare letter to a verb
+    /// gets the verb, and every other letter still types.
+    ///
+    /// ⭐ Anything that is not text stays [`SearchOutcome::Ignored`]. Unlike the
+    /// palette and the undo tree this overlay is **not modal**, and that is what
+    /// keeps a binding such as save alive while it is open.
+    fn unclaimed(&mut self, event: &KeyEvent, editor: &mut Editor) -> SearchOutcome {
+        match event.key {
+            KeyCode::Char(character) if types_text(event.modifiers) => {
                 self.edit(editor, |field| field.insert(character), true)
             },
-            (Chord::Alt, KeyCode::Char(character)) => self.toggle(editor, character),
-            (Chord::Ctrl, KeyCode::Char('r' | 'R')) => self.replace_current(editor),
-            (Chord::CtrlAlt, KeyCode::Char('r' | 'R')) => self.replace_all(editor),
             _ => SearchOutcome::Ignored,
         }
     }
@@ -310,12 +367,11 @@ impl SearchOverlay {
     }
 
     /// Flips one option and re-runs the search with it.
-    fn toggle(&mut self, editor: &mut Editor, character: char) -> SearchOutcome {
-        let option = match character.to_ascii_lowercase() {
-            'c' => &mut self.options.case_sensitive,
-            'w' => &mut self.options.whole_word,
-            'r' => &mut self.options.regex,
-            _ => return SearchOutcome::Ignored,
+    fn toggle(&mut self, editor: &mut Editor, option: SearchToggle) -> SearchOutcome {
+        let option = match option {
+            SearchToggle::CaseSensitive => &mut self.options.case_sensitive,
+            SearchToggle::WholeWord => &mut self.options.whole_word,
+            SearchToggle::Regex => &mut self.options.regex,
         };
         *option = !*option;
         self.refresh(editor);
@@ -391,32 +447,21 @@ impl SearchOverlay {
     }
 }
 
-/// The modifier combinations the overlay distinguishes.
+/// Which of the three search options a toggle verb flips.
 ///
-/// Shift is deliberately not part of it: it decides which *character* a
-/// printable key produced, which the input adapter has already resolved, and it
-/// selects between next and previous on `Enter`.
+/// ⭐ **A type rather than the `char` the old code switched on.** `toggle` used
+/// to take the character from the chord and answer
+/// [`SearchOutcome::Ignored`] for one it did not recognise — a fall-through that
+/// existed only because the key and the option were the same value. Now each
+/// option has its own verb and its own binding, so an unrecognised `Alt+X` never
+/// reaches here at all: it is unclaimed, not text, and therefore the host's.
+/// The unreachable arm is gone rather than left as a lie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Chord {
-    /// No modifier that changes the meaning of the key.
-    Plain,
-    /// Alt alone.
-    Alt,
-    /// Control alone.
-    Ctrl,
-    /// Control and Alt together.
-    CtrlAlt,
-    /// Anything involving meta, which the overlay leaves to the host.
-    Other,
-}
-
-/// The chord one modifier set names.
-const fn chord(modifiers: Modifiers) -> Chord {
-    match (modifiers.ctrl, modifiers.alt, modifiers.meta) {
-        (false, false, false) => Chord::Plain,
-        (false, true, false) => Chord::Alt,
-        (true, false, false) => Chord::Ctrl,
-        (true, true, false) => Chord::CtrlAlt,
-        _ => Chord::Other,
-    }
+enum SearchToggle {
+    /// Match the query's case exactly.
+    CaseSensitive,
+    /// Match only on whole-word boundaries.
+    WholeWord,
+    /// Read the query as a regular expression.
+    Regex,
 }

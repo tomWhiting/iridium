@@ -335,9 +335,14 @@ impl FrameCompositor {
         // a limit that moved with the window closed a loop: a wheel tick at the
         // bottom clamped to one value, the frame it triggered reported another,
         // and the document bounced between the two for as long as the wheel
-        // turned. MEASURED 12 Aug 2026 on an 80-line document at 512×384: the
-        // same document reported bottoms of 3105.2 and 1223.6 depending on
-        // which end was on screen.
+        // turned. The same document reports two different bottoms depending on
+        // which end is on screen, and by a factor rather than a rounding.
+        //
+        // The measurement that found it — its document, its viewport and its
+        // two numbers — is in `docs/IN-FLIGHT-112c-sidebar.md`, and stays
+        // there: a figure true only of one grid at one font size has an expiry
+        // date, and a fact with an expiry date does not belong in a file that
+        // ships. What survives here is the mechanism, which has none.
         //
         // The cost of counting each line once is that the tail rows of a
         // wrapped line at the very end of a document sit below the window and

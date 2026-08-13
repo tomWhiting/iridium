@@ -37,7 +37,7 @@ impl DesktopApp {
         let Some(editor) = self.workspace.active_editor() else {
             return;
         };
-        self.menu = Some(ContextMenu::open(editor, x, y));
+        self.menu = Some(ContextMenu::open(editor, x, y, &self.user_keys));
         if let Some(shell) = &mut self.shell {
             shell.compositor.reset_blink();
             shell.window.request_redraw();

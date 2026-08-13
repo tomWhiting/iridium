@@ -43,7 +43,7 @@ fn every_modal_panel_makes_the_bar_inert_and_then_lets_it_go() {
             .workspace
             .active_editor()
             .expect("a session always has one");
-        crate::context_menu::ContextMenu::open(editor, 0.0, 0.0)
+        crate::context_menu::ContextMenu::open(editor, 0.0, 0.0, &app.user_keys)
     };
     let setters: Vec<(&str, PanelSetter)> = vec![
         (

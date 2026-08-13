@@ -1,32 +1,74 @@
 # #117 — the other seven panel key tables
 
-**Started 13 Aug 2026. Five of seven panels done. Read "Where this stands".**
+**Started 13 Aug 2026. All six reachable panels done; the seventh is #108's.**
 
-## ⏭️ PICK UP HERE
+## ✅ PANEL 7 IS BUILT — every panel #117 can reach is done
 
 | what | value |
 | --- | --- |
-| `origin/main` | `4b100747` — steps 4a and 4b, ten gates green on `cd096186`, pushed and verified |
-| local `HEAD` | panel 5, the TUI history panel — see below for whether it is committed |
+| panels converted | **6 of 6 reachable** (the seventh, the menubar, is #108's and untouchable) |
+| desktop lib suite | 419 pass |
+| mutations | M1 1/419, M2 4/419, M3 6/419, M4 1/419, M5 1/419 — five armed, five caught |
 
-**Next: panel 6 — the TUI search overlay.** Ground verified 13 Aug; the design
-is in "Panel 6 — the design, ruled before building" below, with its build order.
+### What panel 7 landed
 
-After that: the desktop context menu. ⛔ The desktop menubar is seventh and
-untouchable until #108 clears.
+**Kernel** — `commands/builtin/panel/context_menu.rs`: `CONTEXT_MENU_MODE` and
+six verbs (`dismiss`, `accept`, `selectPrevious`, `selectNext`, `selectFirst`,
+`selectLast`), added to `TABLES` and to `builtin/mod.rs`'s re-export list. No
+count needed updating anywhere: `PANEL_COMMAND_COUNT` derives from `TABLES`.
 
-### ⛔ A gap found while converting panel 5, deliberately NOT fixed here
+**Desktop face** — `context_menu.rs` became a directory:
 
-`config.reload` is a kernel-registered host command bound in the desktop face,
-and **the terminal face does not implement it** — `dispatch_host_command` in
-`apps/iridium/src/app/mod.rs` has no arm for it. It is not silent: the fallback
-says `"`config.reload` is bound to a key but nothing runs it"`, which is an
-honest channel. But it means the terminal face's panels can only ever have
-their user keymap set **at construction**, so `set_user_keymap` on the terminal
-palette and the terminal history panel is reachable from nothing but `new`.
+| file | lines | what |
+| --- | --- | --- |
+| `mod.rs` | 76 | the module doc, the declarations, three re-exports |
+| `menu.rs` | 365 | `ContextMenu`, `MenuItem`, `MenuOutcome`, the ruled row set |
+| `keymap.rs` | 110 | eight bindings, `PLAIN`/`CTRL`, `EVERY_PATTERN` |
+| `resolve.rs` | 126 | `Resolved`, `stack_for`, `resolve_key` |
+| `verb.rs` | 82 | the six verbs, `ALL`, `id()`, `from_id()` |
+| `keymap_tests.rs` | 440 | 16 ratchets |
+| `tests.rs` | 332 | the pre-existing suite, moved verbatim |
 
-That is #102's territory, not #117's, and widening this task to cover it would
-be scope creep. Logged here so it is not rediscovered a third time.
+`ContextMenu::open` now takes `user_keys: &Keymap` — the `FileExplorerPanel::open`
+ruling, so forgetting the layer is a compile error. Three call sites updated:
+`app/menu.rs` (passes `&self.user_keys`), `app/tests/menubar.rs`,
+`tests/chrome_screenshots/shots.rs` (an empty layer: the shot is of the shipped
+defaults).
+
+⚠️ **There is no `set_user_keymap`.** Every other panel is long-lived and a
+configuration reload calls one. This menu exists only between a right-click and
+the next key, so there is no live menu for a reload to reach and the next
+right-click builds a fresh stack. Written down in `resolve.rs`'s module doc so
+the asymmetry is not read as an omission.
+
+**`FaceKeys`** — `commands/template.rs` gained the menu's entry under *The
+right-click menu*, and `the_written_file_lists_every_panels_own_keys` grew to
+three panels. M5 (removing the entry) failed that test, so the law holds: a panel
+converted without its `FaceKeys` entry is a panel whose keys are undiscoverable.
+
+### 📌 The law this session earned
+
+> **A restore that carries an old mtime is invisible to the build system.**
+
+Reverting a mutation with `mv backup original` restored the *content* and the
+*old timestamp*, so `cargo` judged the crate fresh and re-ran the **mutated**
+binary. The revert looked broken; nothing was wrong with it. `touch` the file
+after any restore that does not rewrite it in place — and note the dangerous
+direction is the other one: a mutation written with a stale mtime would be
+measured as *not caught*, a false clean.
+
+Corollary for this checkout: prefer rewriting a file in place (Edit, or a Python
+write) over `mv`/`cp` when reverting.
+
+### Reminders that cost time this session
+
+* Read the gate verdict from the runner's own output —
+  `grep -E "^(>>>|!!!|✅|⛔)" <file>` — and **never end a `ci.sh` command with
+  `echo`**, or the harness reports `echo`'s status.
+* `$PIPESTATUS` is not zsh; it is `$pipestatus`. Verify a push with a separate
+  `git fetch` + `git rev-parse --short origin/main`.
+* `mod.rs` carries declarations only — `context_menu/mod.rs` was 429 lines until
+  the type moved to `menu.rs`, which is the shape both sibling panels already had.
 
 ## Where this stands — 13 Aug 2026
 
@@ -36,8 +78,8 @@ be scope creep. Logged here so it is not rediscovered a third time.
 | 2 | desktop history overlay | ✅ **DONE** — `9b666e00`, ten gates green on the commit, pushed |
 | 3 | TUI command palette | ✅ **DONE** — needed a face seam first; see below |
 | 4 | TUI history panel | ✅ **DONE** — see "Panel 5" below |
-| 5 | TUI search | not started |
-| 6 | desktop context menu | not started |
+| 5 | TUI search | ✅ **DONE** — `65466244`, ten gates green, pushed |
+| 6 | desktop context menu | ✅ **DONE** — see the block at the head of this file |
 | 7 | desktop menubar | ⛔ **do not touch** — #108 waits on Tom clicking a menu item |
 
 The explorer (#91) and the command palette are both on the mechanism. Everything
@@ -534,6 +576,57 @@ was already guarded before this conversion touched it.
 
 **A test that presses a key and then its opposite proves they are inverses, not
 that either is correct.** Direction needs a witness from outside the pair.
+
+---
+
+## 🔨 Panel 7 — the desktop context menu
+
+**Ground verified 13 Aug 2026.** `apps/iridium-desktop/src/context_menu.rs`,
+707 lines with its tests inline (≈385 code, ≈320 tests).
+
+### ✅ Suppression audit: clean, and for the undo trees' reason
+
+No field. The dispatch ends `_ => MenuOutcome::Handled` and the module doc says
+the panel is modal on purpose. A suppression resolving to `Unclaimed` therefore
+does exactly what a suppression should. **No `Suppressed` variant** — same
+ruling as both undo trees, agreed with rather than re-invented.
+
+### ⛔ D-1 — it needs a kernel table, and the namespace matters
+
+No `MENU_MODE`, no menu vocabulary of any kind. Eight bindings, six verbs:
+dismiss, accept, selectPrevious (`Up`, `Ctrl+P`), selectNext (`Down`,
+`Ctrl+N`), selectFirst (`Home`), selectLast (`End`).
+
+⚠️ **The namespace is `contextMenu.*`, not `menu.*`.** The menubar is a second
+panel with its own navigation and is blocked on #108; taking the shorter name
+now would force it into a worse one later, or into sharing a mode with a panel
+that is not it. `CONTEXT_MENU_MODE = "contextMenu"`, and `menuBar.*` is left
+free.
+
+⚠️ **Do not confuse the menu's *content* with its *keys*.** The rows run Cut,
+Copy, Paste, Select All and `palette.open` — kernel commands the menu merely
+lists. Those are not this table. This table is the six verbs that *drive* the
+menu, and `MenuOutcome::Run(CommandId)` stays exactly as it is.
+
+### ⚖️ D-2 — shift
+
+The old code computes `plain`/`ctrl_only` from ctrl, alt and meta and **never
+reads shift** — it says so in a comment. So shift is `Any` on all eight, the
+same faithfulness requirement as panels 1, 2, 4 and 5. No exception here; panel
+6 remains the only one where shift is semantic.
+
+### 🔨 Build order
+
+1. `commands/builtin/panel/context_menu.rs` — `CONTEXT_MENU_MODE` + 6 verbs;
+   `TABLES`; re-export from `panel/mod.rs` and `builtin/mod.rs`.
+2. **Split `context_menu.rs` into `context_menu/`** — it is 707 lines and
+   `mod.rs` must carry declarations only. ⚠️ Plain `mv`, **not `git mv`**,
+   which stages.
+3. `verb.rs`, `keymap.rs`, `resolve.rs` (no `Suppressed`), `keymap_tests.rs`.
+4. `ContextMenu::open` takes the user layer — the `FileExplorerPanel::open`
+   ruling. Three call sites: `app/menu.rs:40`, `app/tests/menubar.rs:46`,
+   `tests/chrome_screenshots/shots.rs:190`.
+5. Mutations, then the ten gates.
 
 ---
 

@@ -62,6 +62,7 @@
 //! place that knows there is more than one, and adding a panel is one line there
 //! plus one `mod`.
 
+mod context_menu;
 mod explorer;
 mod history;
 mod palette;
@@ -69,6 +70,10 @@ mod search;
 #[cfg(test)]
 mod tests;
 
+pub use context_menu::{
+    CONTEXT_MENU_ACCEPT, CONTEXT_MENU_DISMISS, CONTEXT_MENU_MODE, CONTEXT_MENU_SELECT_FIRST,
+    CONTEXT_MENU_SELECT_LAST, CONTEXT_MENU_SELECT_NEXT, CONTEXT_MENU_SELECT_PREVIOUS,
+};
 pub use explorer::{
     EXPLORER_ACTIVATE, EXPLORER_BEGIN_EDIT, EXPLORER_COLLAPSE, EXPLORER_CONFIRM_APPLY,
     EXPLORER_CONFIRM_CANCEL, EXPLORER_CONFIRM_MODE, EXPLORER_DISMISS, EXPLORER_EDIT_ASK_APPLY,
@@ -111,6 +116,7 @@ pub const TABLES: &[&[CommandMeta]] = &[
     palette::PALETTE,
     history::HISTORY,
     search::SEARCH,
+    context_menu::CONTEXT_MENU,
 ];
 
 /// The number of panel commands the kernel names.

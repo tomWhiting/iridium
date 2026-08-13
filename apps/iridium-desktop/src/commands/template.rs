@@ -53,6 +53,16 @@ const HISTORY_NOTE: &str = "\
 The keys the undo-tree panel answers while it is open. They apply there and
 nowhere else, so binding one of these takes nothing away from the document.";
 
+/// The heading the right-click menu's own bindings appear under.
+const MENU_TITLE: &str = "The right-click menu";
+
+/// What is said under that heading.
+const MENU_NOTE: &str = "\
+The keys the context menu answers while it is up. They apply there and nowhere
+else, so binding one of these takes nothing away from the document. The menu
+itself opens on a right-click rather than on a chord, so there is no key here
+that opens it.";
+
 /// Writes the default configuration file at `path` if nothing is there,
 /// including this face's own bindings and commands in the list.
 ///
@@ -75,6 +85,7 @@ pub fn create_config_if_absent(path: &Path) -> io::Result<Created> {
     // *kernel's*, and the generator already reads those from the registry.
     let palette_keymap = crate::command_palette::default_keymap();
     let history_keymap = crate::history_overlay::default_keymap();
+    let menu_keymap = crate::context_menu::default_keymap();
     iridium_config::create_if_absent(
         path,
         &[
@@ -94,6 +105,12 @@ pub fn create_config_if_absent(path: &Path) -> io::Result<Created> {
                 title: HISTORY_TITLE,
                 note: HISTORY_NOTE,
                 keymap: &history_keymap,
+                commands: &[],
+            },
+            FaceKeys {
+                title: MENU_TITLE,
+                note: MENU_NOTE,
+                keymap: &menu_keymap,
                 commands: &[],
             },
         ],
@@ -145,8 +162,9 @@ mod tests {
     /// ⚠️ **Written over every panel this face contributes, not over one.** The
     /// palette was the first; the undo tree was the second, and a test naming
     /// only the palette would have gone on passing while the undo tree's ten
-    /// chords were absent. A panel added to `create_config_if_absent` and missed
-    /// here is the exact drift this shape prevents.
+    /// chords were absent. The right-click menu is the third, and proved the
+    /// shape was worth having. A panel added to `create_config_if_absent` and
+    /// missed here is the exact drift this prevents.
     ///
     /// Asserted on the chord *and* the command together on one line, because
     /// the command alone would also appear in the unbound reference section —
@@ -164,6 +182,10 @@ mod tests {
                 crate::command_palette::default_keymap(),
             ),
             ("the undo tree", crate::history_overlay::default_keymap()),
+            (
+                "the right-click menu",
+                crate::context_menu::default_keymap(),
+            ),
         ];
         for (panel, keymap) in &panels {
             for binding in keymap.bindings() {

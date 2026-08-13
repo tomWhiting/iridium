@@ -21,7 +21,7 @@ use iridium_desktop::tab_strip::{TabItem, TabStripContent};
 use iridium_desktop::units::u32_to_f32;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::theme::Theme;
-use iridium_editor::{KeyCode, Modifiers};
+use iridium_editor::{KeyCode, Keymap, Modifiers};
 
 use super::{
     Chrome, FONT, FONT_SIZE, Gpu, HEIGHT, Palette, SCALE, WIDTH, check_clear_colour, chord,
@@ -187,7 +187,14 @@ fn menu_shot(
         let _ = editor.handle_key(&chord(KeyCode::Right, Modifiers::shift()));
     }
     editor.state_mut().read_only = read_only;
-    let menu = ContextMenu::open(&editor, 0.34 * u32_to_f32(WIDTH), 0.30 * u32_to_f32(HEIGHT));
+    // An empty user layer: the shot is of the shipped defaults, and a
+    // configuration file's bindings change no pixel of this panel anyway.
+    let menu = ContextMenu::open(
+        &editor,
+        0.34 * u32_to_f32(WIDTH),
+        0.30 * u32_to_f32(HEIGHT),
+        &Keymap::new("empty"),
+    );
     let content = menu.content(&editor.state().theme, fit);
     let chrome = Chrome {
         tabs: None,

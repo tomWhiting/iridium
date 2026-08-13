@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 1 | desktop command palette | ✅ **DONE** — the split `3d491f8e`, the conversion `56bd0e2f` |
 | 2 | desktop history overlay | ✅ **DONE** — `9b666e00`, ten gates green on the commit, pushed |
-| 3 | TUI command palette | 🔨 **in progress — see "Panel 3 needed a seam first"** |
+| 3 | TUI command palette | ✅ **DONE** — needed a face seam first; see below |
 | 4 | TUI history panel | not started |
 | 5 | TUI search | not started |
 | 6 | desktop context menu | not started |
@@ -206,6 +206,71 @@ layer regardless of who writes it — and is logged rather than guessed at.
 
 Revert cost if the ruling goes the other way: one commit, confined to
 `apps/iridium`.
+
+---
+
+### Step 4b — the terminal palette converted, and a defect in three panels
+
+The conversion itself is the established shape: `keymap.rs` (15 bindings — no
+`⌘` spellings, there is no ⌘ in a terminal), `resolve.rs`, `verb.rs`,
+`keymap_tests.rs`, `Chord`/`chord()` deleted. The twelve verbs are the
+**kernel's already** — registered for the desktop palette in `56bd0e2f` — so no
+new kernel table was needed.
+
+| # | mutation | result |
+| --- | --- | --- |
+| M1 | `PLAIN`'s shift `Any` → `Forbidden` | 3 ratchets failed, **331 passed** |
+| M2 | `set_user_keymap` pushes the layer unfiltered | 1 failed, **333 passed** |
+| M4 | `Suppressed` folded back into `Unclaimed` | 1 failed, **333 passed** |
+| M6 | the face never hands the palette the user's layer | 1 failed, **102 passed** |
+
+#### ⛔⛔ The defect M4 turned up, in **three** panels including two shipped
+
+Writing this panel's `Resolved` I had to decide what a *suppression* is. A panel
+with a query field takes an unclaimed printable key as **text** — so if `"a" =
+""` resolves to `Unclaimed`, pressing `a` types the very character the user
+asked the editor to stop reacting to.
+
+Both shipped palettes did exactly that:
+
+| panel | shipped in | what a suppressed `a` did |
+| --- | --- | --- |
+| desktop command palette | `56bd0e2f` | typed `a` into the query |
+| file explorer (browse) | `111d72fa` | filtered the tree by `a` |
+| file explorer (rename) | `111d72fa` | typed `a` into a **filename** |
+| desktop undo tree | `9b666e00` | nothing — it has no field, correct as built |
+
+Both `resolve_key` functions carried a comment saying *"both end the sequence;
+only one reaches the query field"* — **for months, while the code did the
+opposite.**
+
+📌 **A comment describing the invariant is not the invariant.** Two independent
+panels documented this rule correctly and neither implemented it; what found it
+was writing a third and having to name the case.
+
+Fixed in all three by giving `Resolved` a `Suppressed` variant. Red first in
+every case, and measured:
+
+| # | mutation | result |
+| --- | --- | --- |
+| M5 | the explorer fix reverted | 2 failed, **231 passed** |
+
+The rename-field guard is worth noting separately: edit-mode dispatch swallows
+`Suppressed` because it falls to a **wildcard arm**, not because anything names
+it, so the test exists to stop a later reordering reopening it silently.
+
+#### The terminal's panels were being handed nothing at all
+
+`App` now keeps the user's `Keymap` and gives it to the palette at construction
+and to the explorer at `open`. The explorer half closes #91's own gap in this
+face: it had a rebindable keymap and this face never handed it one.
+
+⚖️ **`FileExplorerPanel::open` takes the layer as a parameter rather than
+offering a `set_user_keymap` to call afterwards.** A panel built on demand
+cannot be given its bindings by a constructor that does not ask for them —
+forgetting is now a compile error rather than something a test has to notice.
+That is the honest fix for a defect whose whole nature was *nothing failing for
+months*. `set_user_keymap` remains, for reloads.
 
 ---
 

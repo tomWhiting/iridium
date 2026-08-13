@@ -78,7 +78,12 @@ impl FileExplorer {
             // A half-typed sequence has run nothing yet, and a key that
             // abandoned one was typed as a chord rather than as text — neither
             // belongs in the query.
-            Resolved::Pending | Resolved::Abandoned => ExplorerOutcome::Handled,
+            // ⛔ `Suppressed` belongs here and not with `Unclaimed`: the key was
+            // claimed by a binding that names nothing, so sending it on would
+            // filter — or rename — by a character the user unbound.
+            Resolved::Pending | Resolved::Abandoned | Resolved::Suppressed => {
+                ExplorerOutcome::Handled
+            },
             Resolved::Unclaimed => self.unclaimed_browse_key(event),
         }
     }

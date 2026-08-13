@@ -45,18 +45,27 @@
 //! opening the palette scrolls nothing and closing it restores the exact
 //! screen underneath.
 
+mod keymap;
 mod paint;
+mod resolve;
+mod verb;
 
+#[cfg(test)]
+mod keymap_tests;
 #[cfg(test)]
 mod tests;
 
 use iridium_editor::commands::palette::{self, CommandMru};
-use iridium_editor::{CommandId, Editor, KeyCode, KeyEvent, Modifiers};
+use iridium_editor::{CommandId, Editor, KeyCode, KeyEvent, KeyPress, KeymapStack};
 
+use self::resolve::{Resolved, types_text};
+use self::verb::Verb;
 use super::CellPosition;
 use super::field::Field;
 use super::palette::Palette;
 use crate::cell::CellBuffer;
+
+use self::keymap::default_keymap;
 
 /// What became of a key handed to the palette.
 ///
@@ -80,7 +89,7 @@ pub enum PaletteOutcome {
 /// The host owns one of these, opens it when the kernel reports the
 /// `palette.open` host command, hands it every key while it is open, and paints
 /// it over the finished frame.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandPalette {
     /// The query field.
     query: Field,
@@ -96,6 +105,19 @@ pub struct CommandPalette {
     /// Before the first paint it is a reasonable page rather than zero, so
     /// `PageDown` on a panel that has not reached the screen yet still moves.
     window: usize,
+    /// The panel's own keymap: its defaults, with the user's layer over them.
+    keys: KeymapStack,
+    /// The strokes of a multi-stroke sequence typed so far.
+    pending: Vec<KeyPress>,
+}
+
+impl Default for CommandPalette {
+    /// ⚠️ **Written out rather than derived.** A derived `Default` would give
+    /// an empty [`KeymapStack`], so a palette built that way would answer no
+    /// keys at all — a panel that looks constructed and is deaf.
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CommandPalette {
@@ -103,8 +125,12 @@ impl CommandPalette {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            query: Field::default(),
+            selected: 0,
+            scroll: 0,
             window: super::panel::MAX_VISIBLE_ROWS,
-            ..Self::default()
+            keys: KeymapStack::with_base(default_keymap()),
+            pending: Vec::new(),
         }
     }
 
@@ -119,6 +145,8 @@ impl CommandPalette {
         self.query = Field::default();
         self.selected = 0;
         self.scroll = 0;
+        // A sequence half-typed before the panel closed means nothing now.
+        self.pending.clear();
     }
 
     /// The query field's text.
@@ -150,27 +178,43 @@ impl CommandPalette {
         editor: &Editor,
         mru: &CommandMru,
     ) -> PaletteOutcome {
-        let page = self.window.max(1);
-        match (chord(event.modifiers), event.key) {
-            (Chord::Plain, KeyCode::Escape) | (Chord::Ctrl, KeyCode::Char('k' | 'K')) => {
-                PaletteOutcome::Closed
-            },
-            (Chord::Plain, KeyCode::Enter) => self.accept(editor, mru),
-            (Chord::Plain, KeyCode::Up) | (Chord::Ctrl, KeyCode::Char('p' | 'P')) => {
-                self.move_selection(editor, mru, -1)
-            },
-            (Chord::Plain, KeyCode::Down) | (Chord::Ctrl, KeyCode::Char('n' | 'N')) => {
-                self.move_selection(editor, mru, 1)
-            },
-            (Chord::Plain, KeyCode::PageUp) => self.move_selection(editor, mru, -isize_of(page)),
-            (Chord::Plain, KeyCode::PageDown) => self.move_selection(editor, mru, isize_of(page)),
-            (Chord::Plain, KeyCode::Left) => self.edit(Field::move_left, false),
-            (Chord::Plain, KeyCode::Right) => self.edit(Field::move_right, false),
-            (Chord::Plain, KeyCode::Home) => self.edit(Field::move_home, false),
-            (Chord::Plain, KeyCode::End) => self.edit(Field::move_end, false),
-            (Chord::Plain, KeyCode::Backspace) => self.edit(Field::backspace, true),
-            (Chord::Plain, KeyCode::Delete) => self.edit(Field::delete, true),
-            (Chord::Plain, KeyCode::Char(character)) => {
+        match self.resolve_key(event) {
+            Resolved::Verb(verb) => self.run(verb, editor, mru),
+            // A half-typed sequence and a deliberately-suppressed key are both
+            // "nothing happened, and the panel stays open". They are separate
+            // variants because only one of them may fall through to the query.
+            Resolved::Pending | Resolved::Suppressed => PaletteOutcome::Handled,
+            Resolved::Unclaimed => self.unclaimed(event),
+        }
+    }
+
+    /// Runs one resolved verb.
+    fn run(&mut self, verb: Verb, editor: &Editor, mru: &CommandMru) -> PaletteOutcome {
+        let page = isize_of(self.window.max(1));
+        match verb {
+            Verb::Dismiss => PaletteOutcome::Closed,
+            Verb::Accept => self.accept(editor, mru),
+            Verb::SelectPrevious => self.move_selection(editor, mru, -1),
+            Verb::SelectNext => self.move_selection(editor, mru, 1),
+            Verb::SelectPageUp => self.move_selection(editor, mru, -page),
+            Verb::SelectPageDown => self.move_selection(editor, mru, page),
+            Verb::CaretLeft => self.edit(Field::move_left, false),
+            Verb::CaretRight => self.edit(Field::move_right, false),
+            Verb::CaretHome => self.edit(Field::move_home, false),
+            Verb::CaretEnd => self.edit(Field::move_end, false),
+            Verb::QueryBackspace => self.edit(Field::backspace, true),
+            Verb::QueryDelete => self.edit(Field::delete, true),
+        }
+    }
+
+    /// A key no binding claimed: text if it is text, swallowed otherwise.
+    ///
+    /// The fall-through is what makes the panel typable at all, and it is
+    /// deliberately *below* the keymap: a user who binds a bare letter to a
+    /// verb gets the verb, and every other letter still types.
+    fn unclaimed(&mut self, event: &KeyEvent) -> PaletteOutcome {
+        match event.key {
+            KeyCode::Char(character) if types_text(event.modifiers) => {
                 self.edit(|field| field.insert(character), true)
             },
             // Modal: everything else is swallowed, not passed to the document.
@@ -275,27 +319,4 @@ impl CommandPalette {
 /// `value` as an `isize`, saturating on a page size no terminal can reach.
 fn isize_of(value: usize) -> isize {
     isize::try_from(value).unwrap_or(isize::MAX)
-}
-
-/// The modifier combinations the palette distinguishes.
-///
-/// Shift is not part of it: it decides which character a printable key
-/// produced, and the input adapter has already resolved that.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Chord {
-    /// No modifier that changes the meaning of the key.
-    Plain,
-    /// Control alone.
-    Ctrl,
-    /// Anything else, which the modal panel swallows.
-    Other,
-}
-
-/// The chord one modifier set names.
-const fn chord(modifiers: Modifiers) -> Chord {
-    match (modifiers.ctrl, modifiers.alt, modifiers.meta) {
-        (false, false, false) => Chord::Plain,
-        (true, false, false) => Chord::Ctrl,
-        _ => Chord::Other,
-    }
 }

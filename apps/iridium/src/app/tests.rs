@@ -171,6 +171,52 @@ fn a_binding_from_the_users_file_runs_in_this_face() {
     );
 }
 
+/// ⭐ **#117: the user's layer reaches this face's panels, not just its editor.**
+///
+/// A panel is modal and resolves against its own stack, so the layer installed
+/// on the editor never reaches it. Nothing else in this suite would notice the
+/// hand-over being dropped — the palette would answer its defaults and look
+/// entirely well.
+///
+/// ⚠️ The palette is driven with a scratch [`Editor`] rather than this app's,
+/// because both would be borrows of `app` at once. What is under test is which
+/// *keymap* the palette holds, which the scratch editor does not affect.
+#[test]
+fn a_user_binding_reaches_this_faces_command_palette() {
+    let ctrl_j = KeyEvent {
+        key: KeyCode::Char('j'),
+        modifiers: Modifiers::ctrl(),
+        is_repeat: false,
+    };
+    let scratch = iridium_editor::Editor::with_defaults();
+    let mru = iridium_editor::commands::palette::CommandMru::default();
+
+    let mut plain = with_bindings(Vec::new());
+    plain.palette.open();
+    plain.palette.paste("ab");
+    plain.palette.handle_key(&ctrl_j, &scratch, &mru);
+    assert_eq!(
+        plain.palette.query(),
+        "ab",
+        "`ctrl+j` must do nothing unbound, or the assertion below proves nothing"
+    );
+
+    let binding = iridium_editor::KeyBinding::parse(
+        "ctrl+j",
+        iridium_editor::commands::builtin::PALETTE_QUERY_BACKSPACE,
+    )
+    .expect("the fixture is a key sequence");
+    let mut app = with_bindings(vec![binding]);
+    app.palette.open();
+    app.palette.paste("ab");
+    app.palette.handle_key(&ctrl_j, &scratch, &mru);
+    assert_eq!(
+        app.palette.query(),
+        "a",
+        "the user's palette binding did not reach the panel this face owns"
+    );
+}
+
 /// A file with a bad line in it says so on the way in, rather than dropping the
 /// binding in silence.
 #[test]

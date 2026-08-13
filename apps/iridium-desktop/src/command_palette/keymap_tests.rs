@@ -345,6 +345,40 @@ fn setting_the_user_keymap_twice_leaves_one_layer() {
     );
 }
 
+/// ⛔ **A defect this panel shipped with, found while converting the terminal's.**
+///
+/// This panel has a query field, so a key nothing claimed becomes *text*. A
+/// suppression — `"a" = ""` — resolved to `Unclaimed` along with it, so pressing
+/// `a` typed the very character the user had asked the editor to stop reacting
+/// to. `resolve_key`'s own comment said "both end the sequence; only one reaches
+/// the query field", and the code did not do that.
+///
+/// Red first: this failed against the code as shipped in `56bd0e2f`.
+#[test]
+fn a_suppressed_printable_key_does_not_type_itself_into_the_query() {
+    let editor = Editor::with_defaults();
+    let mru = CommandMru::default();
+
+    let mut typing = CommandPalette::new();
+    typing.open();
+    typing.handle_key(&press(KeyCode::Char('a')), &editor, &mru);
+    assert_eq!(
+        typing.query(),
+        "a",
+        "an unclaimed printable key must type, or the assertion below proves nothing"
+    );
+
+    let mut panel = CommandPalette::new();
+    panel.open();
+    panel.set_user_keymap(&unbind_layer("a"));
+    panel.handle_key(&press(KeyCode::Char('a')), &editor, &mru);
+    assert_eq!(
+        panel.query(),
+        "",
+        "a suppressed key typed itself into the query"
+    );
+}
+
 /// A key press with no modifiers.
 fn press(key: KeyCode) -> KeyEvent {
     KeyEvent {

@@ -74,6 +74,15 @@ pub(super) enum Resolved {
     /// of a chord, not as text, and feeding it to the query field would put a
     /// character in a filter the user was not editing.
     Abandoned,
+    /// A binding matched and named no command: the sequence is bound to nothing.
+    ///
+    /// ⛔ **Distinct from [`Self::Unclaimed`], and it shipped folded into it.**
+    /// Both the browsing filter and the rename field take an unclaimed
+    /// printable key as text, so `"a" = ""` filtered — or renamed — by the very
+    /// character the user had asked the editor to stop reacting to. The comment
+    /// in [`FileExplorer::resolve_key`] had said as much for months while the
+    /// code did the opposite.
+    Suppressed,
 }
 
 impl FileExplorer {
@@ -110,7 +119,7 @@ impl FileExplorer {
             // field.
             let command = binding.command().cloned();
             self.pending.clear();
-            return command.map_or(Resolved::Unclaimed, Resolved::Command);
+            return command.map_or(Resolved::Suppressed, Resolved::Command);
         }
 
         if self.keys.has_continuation(&self.pending, Some(&mode)) {

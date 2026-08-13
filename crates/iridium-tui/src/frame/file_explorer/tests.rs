@@ -50,8 +50,13 @@ fn project(name: &str) -> TempDir {
 
 /// An open panel whose root listing has landed.
 fn opened(directory: &TempDir) -> FileExplorerPanel {
-    let mut panel = FileExplorerPanel::open(directory.path().to_path_buf(), false)
-        .expect("the fixture directory opened");
+    let mut panel = FileExplorerPanel::open(
+        directory.path().to_path_buf(),
+        false,
+        // Nothing configured: these tests are about the panel's own keys.
+        &iridium_editor::Keymap::new("user"),
+    )
+    .expect("the fixture directory opened");
     let deadline = Instant::now() + PATIENCE;
     while Instant::now() < deadline {
         if panel.poll() && !panel.is_waiting() {

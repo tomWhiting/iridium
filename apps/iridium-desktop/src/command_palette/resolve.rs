@@ -60,6 +60,14 @@ pub(super) enum Resolved {
     Pending,
     /// Nothing claimed the key. The panel decides what an unclaimed key means.
     Unclaimed,
+    /// A binding matched and named no command: the sequence is bound to nothing.
+    ///
+    /// ⛔ **Distinct from [`Self::Unclaimed`], and it shipped folded into it.**
+    /// This panel has a query field, so an unclaimed printable key becomes text
+    /// — which meant `"a" = ""` typed the very character the user had asked the
+    /// editor to stop reacting to. Both end the sequence; only `Unclaimed`
+    /// reaches the query field.
+    Suppressed,
     /// A sequence in progress was abandoned by a key that cannot continue it.
     ///
     /// Distinct from [`Self::Unclaimed`] on purpose: that key was typed as part
@@ -76,9 +84,11 @@ impl CommandPalette {
     /// stroke long and is cleared again before returning.
     ///
     /// A binding naming a command that is not one of this panel's verbs resolves
-    /// [`Unclaimed`](Resolved::Unclaimed) rather than being run: the palette is
-    /// modal, and a user layer reaching it can only carry palette commands, so
-    /// this is the suppression case and the unknown-command case at once.
+    /// [`Suppressed`](Resolved::Suppressed) rather than being run: the palette
+    /// is modal, and a user layer reaching it can only carry palette commands,
+    /// so this is the suppression case and the unknown-command case at once.
+    /// Either way the key was *claimed by a binding* and must not reach the
+    /// query field as text.
     pub(super) fn resolve_key(&mut self, event: &KeyEvent) -> Resolved {
         self.pending.push(KeyPress::new(event.key, event.modifiers));
 
@@ -89,7 +99,7 @@ impl CommandPalette {
             // query field.
             let verb = binding.command().and_then(Verb::from_id);
             self.pending.clear();
-            return verb.map_or(Resolved::Unclaimed, Resolved::Verb);
+            return verb.map_or(Resolved::Suppressed, Resolved::Verb);
         }
 
         if self

@@ -1,6 +1,39 @@
 # #117 — the other seven panel key tables
 
-**Started 13 Aug 2026. Three of seven panels done. Read "Where this stands".**
+**Started 13 Aug 2026. Four of seven panels done. Read "Where this stands".**
+
+## ⏭️ PICK UP HERE — state at the last compaction
+
+| what | value |
+| --- | --- |
+| `origin/main` | `08f84872` (step 4a, pushed, ten gates green) |
+| local `HEAD` | `cd096186` (step 4b + the suppression fix) — **COMMITTED, NOT PUSHED** |
+| gates on `cd096186` | were running in background task `bb94i3cnd`, output at `scratchpad/gates4.txt` |
+
+**Next three actions, in order:**
+
+1. Read the verdict **from the runner's own output**:
+   `grep -E "^(>>>|!!!|✅|⛔)" .../scratchpad/gates4.txt`. If that file is gone,
+   just re-run `bash scripts/ci.sh` (15–20 min, use `run_in_background: true`).
+   ⚠️ Do not end the command with `echo`, or the reported exit status is
+   `echo`'s and not the script's — that already happened once this session.
+2. If `fmt` failed, `cargo fmt --all`, commit the formatting, and **re-run all
+   ten** — the nine that passed ran against pre-format bytes.
+3. Push, then verify with a separate `git fetch` + `git rev-parse --short
+   origin/main` (`$PIPESTATUS` is not a thing in zsh; it is `$pipestatus`).
+
+**Then: panel 5 — the TUI history panel** (`crates/iridium-tui/src/frame/
+history_panel/`). The kernel vocabulary already exists — the eight `HISTORY_*`
+verbs and `HISTORY_MODE` registered in `9b666e00` — so it needs no new kernel
+table, exactly as the terminal palette needed none. Copy the shape from
+`crates/iridium-tui/src/frame/command_palette/`. Remaining after that: TUI
+search, then the desktop context menu. ⛔ The desktop menubar is seventh and
+untouchable until #108 clears.
+
+⚠️ **Check the TUI history panel for the suppression defect too.** It is the
+one panel family not yet audited: if it has no field it is correct as-is (like
+the desktop undo tree), and if it has one it has the bug. Grep for
+`map_or(Resolved::Unclaimed`.
 
 ## Where this stands — 13 Aug 2026
 

@@ -27,7 +27,7 @@ fn editor_with(content: &str) -> Editor {
 
 /// An open panel over `editor`.
 fn opened(editor: &mut Editor) -> SearchOverlay {
-    let mut overlay = SearchOverlay::new();
+    let mut overlay = SearchOverlay::new(&iridium_editor::Keymap::new("empty"));
     overlay.open(editor);
     overlay
 }
@@ -936,7 +936,7 @@ fn closing_the_search_takes_the_marks_with_it() {
 #[test]
 fn the_panel_takes_its_rows_from_the_document() {
     let editor = editor_with("one\ntwo\nthree");
-    let overlay = SearchOverlay::new();
+    let overlay = SearchOverlay::new(&iridium_editor::Keymap::new("empty"));
 
     let without = Frame::layout(&editor, 60, 8, Chrome::default());
     assert_eq!(without.text_rows, 7);
@@ -962,7 +962,7 @@ fn the_kernels_viewport_shrinks_with_the_panel() {
     // A viewport that still claimed the panel's rows would let the kernel
     // scroll a match underneath the panel that found it.
     let mut editor = editor_with("one\ntwo\nthree");
-    let overlay = SearchOverlay::new();
+    let overlay = SearchOverlay::new(&iridium_editor::Keymap::new("empty"));
     let chrome = Chrome {
         status: crate::frame::Status::default(),
         search: Some(&overlay),

@@ -254,7 +254,7 @@ impl App {
             editor,
             frame: Frame::new(),
             file,
-            search: SearchOverlay::new(),
+            search: SearchOverlay::new(&user_keys),
             search_open: false,
             palette: {
                 let mut palette = CommandPalette::new();

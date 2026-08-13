@@ -120,20 +120,38 @@ pub struct FileExplorerPanel {
 }
 
 impl FileExplorerPanel {
-    /// Opens the panel on `root`, crawling past it or not.
+    /// Opens the panel on `root`, crawling past it or not, with `user_keys`
+    /// as the user's `[keys]` layer.
+    ///
+    /// ⭐ **The layer is a parameter rather than a later `set_user_keymap`
+    /// call, and that is deliberate.** #91 gave the shared explorer a
+    /// rebindable keymap and this face never handed it one, so the terminal
+    /// explorer ran the defaults whatever the configuration file said — for
+    /// months, with nothing failing. A panel constructed on demand cannot be
+    /// given its bindings by a constructor that does not ask for them, so this
+    /// one asks: forgetting is now a compile error rather than something a test
+    /// has to be written to notice. Pass an empty [`Keymap`] to mean "no user
+    /// configuration", which is what a face with nothing to hand over has.
     ///
     /// # Errors
     ///
     /// Returns the shared panel's own message when the directory cannot be
     /// read — already a sentence fit for the statusline.
-    pub fn open(root: std::path::PathBuf, crawl: bool) -> Result<Self, String> {
-        FileExplorer::open(root, crawl).map(|explorer| Self {
-            explorer,
-            // A popover to begin with, in both faces. The panel is opened by a
-            // chord far more often to find one file than to keep a tree up, and
-            // the placement that costs the document nothing is the one to
-            // default to.
-            anchor: Anchor::Popover,
+    pub fn open(
+        root: std::path::PathBuf,
+        crawl: bool,
+        user_keys: &iridium_editor::Keymap,
+    ) -> Result<Self, String> {
+        FileExplorer::open(root, crawl).map(|mut explorer| {
+            explorer.set_user_keymap(user_keys);
+            Self {
+                explorer,
+                // A popover to begin with, in both faces. The panel is opened
+                // by a chord far more often to find one file than to keep a
+                // tree up, and the placement that costs the document nothing
+                // is the one to default to.
+                anchor: Anchor::Popover,
+            }
         })
     }
 
@@ -174,6 +192,15 @@ impl FileExplorerPanel {
     /// frame is owed even if no key arrives.
     pub fn is_waiting(&self) -> bool {
         self.explorer.is_waiting()
+    }
+
+    /// Replaces the user's `[keys]` bindings inside the shared panel.
+    ///
+    /// For a configuration *reload* — the panel is already open and the file
+    /// has changed under it. First installation goes through [`Self::open`],
+    /// which takes the layer so that it cannot be skipped.
+    pub fn set_user_keymap(&mut self, user: &iridium_editor::Keymap) {
+        self.explorer.set_user_keymap(user);
     }
 
     /// Whether the panel's rows have been edited without being applied.

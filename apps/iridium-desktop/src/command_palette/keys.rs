@@ -38,9 +38,14 @@ impl CommandPalette {
     ) -> PaletteOutcome {
         match self.resolve_key(event) {
             Resolved::Verb(verb) => self.run(verb, editor, mru),
-            // Modal: a stroke part-way through a sequence, and one that
-            // abandoned it, are both swallowed rather than passed on.
-            Resolved::Pending | Resolved::Abandoned => PaletteOutcome::Handled,
+            // Modal: a stroke part-way through a sequence, one that abandoned
+            // it, and one a binding deliberately bound to nothing are all
+            // swallowed rather than passed on. ⛔ `Suppressed` belongs here and
+            // not with `Unclaimed`: it was claimed by a binding, so sending it
+            // to the query would type a character the user unbound.
+            Resolved::Pending | Resolved::Abandoned | Resolved::Suppressed => {
+                PaletteOutcome::Handled
+            },
             Resolved::Unclaimed => self.unclaimed(event),
         }
     }

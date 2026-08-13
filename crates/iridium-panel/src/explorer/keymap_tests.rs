@@ -174,6 +174,49 @@ fn every_mode_has_at_least_one_binding() {
     }
 }
 
+/// A user layer holding one *unbind*, built the way `iridium_config` builds one.
+fn unbind_layer(sequence: &str) -> Keymap {
+    let (first, rest) =
+        KeyBinding::parse_sequence(sequence).expect("the fixture is a key sequence");
+    let mut layer = Keymap::new("user");
+    layer.push(KeyBinding::unbound(first, &rest));
+    layer
+}
+
+/// ⛔ **A defect this panel shipped with, found while converting the terminal's
+/// palette.**
+///
+/// The browsing mode has a *filter query*, so a key nothing claimed becomes
+/// text. A suppression — `"a" = ""` — resolved to `Unclaimed` along with it, so
+/// pressing `a` filtered the tree by the very character the user had asked the
+/// editor to stop reacting to.
+///
+/// Red first: this failed against the code as shipped in `111d72fa`.
+#[test]
+fn a_suppressed_printable_key_does_not_type_itself_into_the_filter() {
+    let directory = project();
+
+    let mut typing = opened(&directory);
+    typing.handle_key(&press(KeyCode::Char('a')));
+    assert_eq!(
+        typing.query.text(),
+        "a",
+        "an unclaimed printable key must filter, or the assertion below proves nothing"
+    );
+
+    let mut explorer = opened(&directory);
+    explorer.set_user_keymap(&unbind_layer("a"));
+    assert_eq!(
+        explorer.handle_key(&press(KeyCode::Char('a'))),
+        ExplorerOutcome::Handled
+    );
+    assert_eq!(
+        explorer.query.text(),
+        "",
+        "a suppressed key typed itself into the filter"
+    );
+}
+
 // ===== The seam =====
 
 /// ⭐ **The task, end to end.** A line a user could write moves a real key.

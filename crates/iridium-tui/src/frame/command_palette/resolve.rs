@@ -1,55 +1,44 @@
-//! Turning a keypress into a verb the palette can run.
+//! Turning a keypress into a verb the panel can run.
 //!
-//! The panel resolves against [its own stack](super::panel::CommandPalette):
+//! The panel resolves against [its own stack](super::CommandPalette):
 //! [`super::keymap::default_keymap`] at the base, and the user's `[keys]`
 //! bindings pushed on top by the face that read the configuration file.
 //!
-//! # ⭐ Only the palette's own commands are taken from the user's layer
+//! # ⭐ Only this panel's own commands are taken from the user's layer
 //!
 //! A user's `[keys]` layer holds all their bindings, and most are editor ones
 //! with no mode. Pushed into this stack whole, a mode-free binding would apply
-//! in **every** mode — so somebody who bound `backspace` to `edit.deleteToLineEnd`
-//! for the document would find `Backspace` had stopped deleting in the palette's
+//! in **every** mode — so somebody who bound `end` to `edit.deleteToLineEnd` for
+//! the document would find `End` had stopped reaching the end of the palette's
 //! query, having never mentioned the palette.
 //!
 //! [`CommandPalette::set_user_keymap`] therefore keeps only the bindings whose
 //! command is one of this panel's verbs, and scopes each one to
-//! [`PALETTE_MODE`]. The user writes
-//!
-//! ```toml
-//! [keys]
-//! "ctrl+j" = "palette.selectNext"
-//! ```
-//!
-//! and gets a binding that fires in the palette and nowhere else, without having
-//! said so — because the mode is a property of the command they named, not a
+//! [`PALETTE_MODE`]. The mode is a property of the command the user named, not a
 //! second thing for them to keep in step.
 //!
 //! # ⚠️ An unbind is the one thing that cannot be scoped, and is not dropped
 //!
 //! `"escape" = ""` suppresses a sequence and carries **no command**, so there is
 //! nothing to read a verb off. Dropping it would mean a user could unbind a key
-//! everywhere except this panel, which is the surprise this task exists to
-//! remove; guessing a verb for it would be inventing intent.
-//!
-//! It is passed through mode-free, so it suppresses that sequence in the palette
-//! too — the honest reading of what was written. The palette stays closable
-//! regardless, because `palette.open` is the editor stack's and the face
-//! answers it whatever the panel thinks.
+//! everywhere except this panel; guessing a verb for it would be inventing
+//! intent. It is passed through mode-free, so it suppresses that sequence here
+//! too — the honest reading of what was written.
 
 use iridium_editor::commands::builtin::PALETTE_MODE;
 use iridium_editor::{KeyEvent, KeyPress, Keymap, KeymapStack, Modifiers};
 
+use super::CommandPalette;
 use super::keymap::default_keymap;
-use super::panel::CommandPalette;
 use super::verb::Verb;
 
 /// The name the user's bindings are pushed under inside the panel.
 ///
 /// Distinct from `iridium_config`'s `"user"` because this is a *filtered*
 /// projection of that layer, and a diagnostic naming it should not claim to be
-/// quoting the layer the editor holds.
-pub const USER_LAYER_NAME: &str = "user-palette";
+/// quoting the layer the editor holds. Distinct from the desktop palette's for
+/// the same reason: two faces, two projections.
+pub const USER_LAYER_NAME: &str = "user-terminal-palette";
 
 /// What one keypress came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,22 +47,19 @@ pub(super) enum Resolved {
     Verb(Verb),
     /// The strokes so far begin a longer sequence; nothing has run yet.
     Pending,
-    /// Nothing claimed the key. The panel decides what an unclaimed key means.
-    Unclaimed,
     /// A binding matched and named no command: the sequence is bound to nothing.
     ///
-    /// ⛔ **Distinct from [`Self::Unclaimed`], and it shipped folded into it.**
-    /// This panel has a query field, so an unclaimed printable key becomes text
-    /// — which meant `"a" = ""` typed the very character the user had asked the
-    /// editor to stop reacting to. Both end the sequence; only `Unclaimed`
-    /// reaches the query field.
+    /// ⚠️ **Distinct from [`Self::Unclaimed`], and the distinction is the whole
+    /// point of having it.** This panel has a query field, so an unclaimed
+    /// printable key becomes text. A key the user wrote `"a" = ""` against must
+    /// *not* — reporting a suppression as unclaimed would type the very
+    /// character they asked the editor to stop reacting to.
     Suppressed,
-    /// A sequence in progress was abandoned by a key that cannot continue it.
+    /// Nothing claimed the key.
     ///
-    /// Distinct from [`Self::Unclaimed`] on purpose: that key was typed as part
-    /// of a chord, not as text, and feeding it to the query field would put a
-    /// character in a query the user was not editing.
-    Abandoned,
+    /// The panel has a query field, so this is where a printable character
+    /// becomes text. Anything else is swallowed, because the panel is modal.
+    Unclaimed,
 }
 
 impl CommandPalette {
@@ -82,21 +68,10 @@ impl CommandPalette {
     /// Pushes the stroke onto the pending sequence first, so a multi-stroke
     /// binding a user wrote is reachable. Almost always the sequence is one
     /// stroke long and is cleared again before returning.
-    ///
-    /// A binding naming a command that is not one of this panel's verbs resolves
-    /// [`Suppressed`](Resolved::Suppressed) rather than being run: the palette
-    /// is modal, and a user layer reaching it can only carry palette commands,
-    /// so this is the suppression case and the unknown-command case at once.
-    /// Either way the key was *claimed by a binding* and must not reach the
-    /// query field as text.
     pub(super) fn resolve_key(&mut self, event: &KeyEvent) -> Resolved {
         self.pending.push(KeyPress::new(event.key, event.modifiers));
 
         if let Some(binding) = self.keys.exact_match(&self.pending, Some(&PALETTE_MODE)) {
-            // A suppression matches and names no command: the sequence is
-            // deliberately bound to nothing, which is not the same as nothing
-            // having claimed it. Both end the sequence; only one reaches the
-            // query field.
             let verb = binding.command().and_then(Verb::from_id);
             self.pending.clear();
             return verb.map_or(Resolved::Suppressed, Resolved::Verb);
@@ -109,13 +84,8 @@ impl CommandPalette {
             return Resolved::Pending;
         }
 
-        let mid_sequence = self.pending.len() > 1;
         self.pending.clear();
-        if mid_sequence {
-            Resolved::Abandoned
-        } else {
-            Resolved::Unclaimed
-        }
+        Resolved::Unclaimed
     }
 
     /// Replaces the user's bindings inside the panel with those in `user`.
@@ -150,16 +120,6 @@ impl CommandPalette {
         self.pending.clear();
     }
 
-    /// Forgets any half-typed multi-stroke sequence.
-    ///
-    /// ⚠️ **Called whenever the palette opens**, for the reason the editor's own
-    /// resolver is reset on blur: a leader pressed before the palette closed
-    /// would otherwise still be waiting when it reopened, and the next key typed
-    /// would be read as its continuation.
-    pub fn abandon_pending_keys(&mut self) {
-        self.pending.clear();
-    }
-
     /// Whether a multi-stroke sequence is part-way through.
     ///
     /// Exposed so a face can say so on screen, as the editor's pending-chord
@@ -170,19 +130,12 @@ impl CommandPalette {
     }
 }
 
-/// Whether a keypress is somebody typing a character rather than pressing a
-/// chord.
+/// Whether a modifier set is one that types text rather than naming a chord.
 ///
-/// ⛔ **The guard the fall-through cannot do without.** An unclaimed key is only
-/// text if no modifier that changes its meaning is held: `Ctrl+S` while the
-/// palette is up carries `KeyCode::Char('s')`, and a fall-through that read the
-/// character alone would put an `s` in the query — which is the panel silently
-/// inventing input from a chord it was asked to swallow.
-///
-/// Shift is not consulted, because shift is how a capital is typed. `AltGraph`
-/// is not consulted either, and does not need to be: the layouts that compose
-/// with it report `Ctrl+Alt` held, which this already refuses — exactly as the
-/// `chord` table it replaced did.
+/// Shift is not consulted: it decides *which* character a printable key
+/// produced, and the input adapter has already resolved that. `AltGraph` is not
+/// consulted for the same reason — on a great many layouts it is how the
+/// character is typed at all.
 pub(super) const fn types_text(modifiers: Modifiers) -> bool {
     !modifiers.ctrl && !modifiers.alt && !modifiers.meta
 }

@@ -139,6 +139,11 @@ pub struct App {
     columns: usize,
     /// The height of the terminal, in cells.
     rows: usize,
+    /// The user's `[keys]` layer, kept so panels built later can be given it.
+    ///
+    /// The file explorer is constructed on demand rather than at startup, so
+    /// there has to be somewhere for its bindings to wait.
+    user_keys: iridium_editor::Keymap,
 }
 
 impl App {
@@ -194,6 +199,11 @@ impl App {
         // face also binds means the one they wrote — which is the whole point
         // of the file. See `config` for why this face reads it and does not
         // write it.
+        // ⭐ Built *before* the bindings are moved into the install, and kept:
+        // every panel this face owns is modal and resolves against its own
+        // stack, so each needs the user's layer handed to it. The editor's copy
+        // is not reachable from a panel.
+        let user_keys = iridium_config::keys::keymap(user.bindings.iter().cloned());
         let problems = config::install_user_bindings(&mut editor, user.bindings);
         let config_message = config::summary(&problems, path).map(Message::error);
 
@@ -246,7 +256,11 @@ impl App {
             file,
             search: SearchOverlay::new(),
             search_open: false,
-            palette: CommandPalette::new(),
+            palette: {
+                let mut palette = CommandPalette::new();
+                palette.set_user_keymap(&user_keys);
+                palette
+            },
             palette_open: false,
             explorer: None,
             mru: CommandMru::default(),
@@ -259,6 +273,7 @@ impl App {
             clipboard: String::new(),
             columns: 0,
             rows: 0,
+            user_keys,
         };
 
         if let Some(line) = options.line {
@@ -575,7 +590,7 @@ impl App {
     /// chord or from the command line, a panel that silently did not appear is
     /// indistinguishable from one that is broken.
     fn open_explorer(&mut self, root: iridium_panel::explorer::ExplorerRoot) {
-        match FileExplorerPanel::open(root.path, root.crawl) {
+        match FileExplorerPanel::open(root.path, root.crawl, &self.user_keys) {
             Ok(explorer) => self.explorer = Some(explorer),
             Err(error) => {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));

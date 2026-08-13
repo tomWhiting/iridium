@@ -785,3 +785,40 @@ fn the_panel_reports_unapplied_edits_so_the_host_can_refuse_to_drop_it() {
         "dirtiness is a comparison against what loaded, not a flag"
     );
 }
+
+/// ⛔ **A suppressed key must not reach the row being renamed either.**
+///
+/// The browse-mode half of this is in [`super::keymap_tests`]; this is the
+/// mode where getting it wrong is worse, because the character lands in a
+/// *filename* rather than in a filter that can be cleared.
+///
+/// ⚠️ Guards a **wildcard arm**. Edit-mode dispatch swallows `Suppressed`
+/// because it falls to `_`, not because anything names it — so a later hand
+/// reordering those arms would reopen the defect with nothing else complaining.
+#[test]
+fn a_suppressed_printable_key_does_not_reach_the_row_being_edited() {
+    let directory = fixture("edit-suppressed");
+
+    let mut typing = opened(&directory);
+    editing(&mut typing, "README.md");
+    type_text(&mut typing, "z");
+    assert!(
+        typing.has_unapplied_edits(),
+        "an unclaimed printable key must edit the row, or the assertion below \
+         proves nothing"
+    );
+
+    let (first, rest) =
+        iridium_editor::KeyBinding::parse_sequence("z").expect("the fixture is a key sequence");
+    let mut layer = iridium_editor::Keymap::new("user");
+    layer.push(iridium_editor::KeyBinding::unbound(first, &rest));
+
+    let mut explorer = opened(&directory);
+    explorer.set_user_keymap(&layer);
+    editing(&mut explorer, "README.md");
+    type_text(&mut explorer, "z");
+    assert!(
+        !explorer.has_unapplied_edits(),
+        "a suppressed key typed itself into the row being renamed"
+    );
+}

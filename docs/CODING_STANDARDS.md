@@ -118,6 +118,36 @@ If a file approaches these limits, split it:
 - Tests at the bottom of a file count toward the limit
 - Consider moving tests to a separate `tests/` directory for large modules
 
+### ⛔ Splitting a test file: take the census, because green proves nothing
+
+**Measured 13 Aug 2026, not assumed.** Splitting
+`input/keyboard/behavior_tests.rs` into seven files and then commenting out a
+single `mod` line left the suite **passing**: 1,368 tests green instead of
+1,376, eight assertions simply gone, nothing red.
+
+`cargo` does not read the directory — it reads the `mod` list. A `.rs` file
+nobody declares compiles clean and takes its tests with it, and **neither the
+test gate nor clippy nor `fmt` reports it**. The one signal that fired was a
+`dead_code` warning on a constant that the orphaned file alone used, which is
+luck, not coverage: had it touched only shared helpers there would have been
+no signal at all.
+
+So whenever a file is added to, removed from or renamed inside a module
+directory, take a count either side of the change and compare:
+
+```bash
+cargo test -p <crate> --lib -- --list | grep -c ': test$'
+```
+
+A matching total is the only evidence the move preserved the suite. Diff the
+test names, not just the count, if anything was renamed.
+
+The whole tree was swept for pre-existing orphans on the same day — both module
+forms, `mod.rs` and `foo.rs` beside `foo/` — across 389 declared children.
+None were found. The sweep is a dozen lines of `os.walk` plus one regex over
+`^\s*(pub(\(.*\))?\s+)?mod\s+(\w+)\s*;` and is worth re-running after any large
+reorganisation.
+
 ---
 
 ## Semantic Organization

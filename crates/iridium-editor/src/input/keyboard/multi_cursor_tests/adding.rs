@@ -1,4 +1,4 @@
-//! Making carets: above and below, every occurrence, and the AltGr chord
+//! Making carets: above and below, every occurrence, and the `AltGr` chord
 //! that must not be mistaken for one.
 //!
 //! Split out of a 1,122-line `multi_cursor_tests.rs` for #92, on the rules

@@ -1,6 +1,6 @@
 //! Turning a keypress into a verb the panel can run.
 //!
-//! The panel resolves against [its own stack](super::panel::HistoryPanel):
+//! The panel resolves against [its own stack](super::HistoryPanel):
 //! [`super::keymap::default_keymap`] at the base, and the user's `[keys]`
 //! bindings pushed on top by the face that read the configuration file.
 //!
@@ -24,22 +24,23 @@
 //! everywhere except this panel; guessing a verb for it would be inventing
 //! intent. It is passed through mode-free, so it suppresses that sequence here
 //! too — the honest reading of what was written. The panel stays closable
-//! regardless, because `history.togglePanel` is the editor stack's and the face
+//! regardless, because `history.togglePanel` is the editor stack's and the host
 //! answers it whatever the panel thinks.
 
 use iridium_editor::commands::builtin::HISTORY_MODE;
 use iridium_editor::{KeyEvent, KeyPress, Keymap, KeymapStack};
 
+use super::HistoryPanel;
 use super::keymap::default_keymap;
-use super::panel::HistoryPanel;
 use super::verb::Verb;
 
 /// The name the user's bindings are pushed under inside the panel.
 ///
 /// Distinct from `iridium_config`'s `"user"` because this is a *filtered*
 /// projection of that layer, and a diagnostic naming it should not claim to be
-/// quoting the layer the editor holds.
-pub const USER_LAYER_NAME: &str = "user-history";
+/// quoting the layer the editor holds. Distinct from the desktop panel's for the
+/// same reason: two faces, two projections.
+pub const USER_LAYER_NAME: &str = "user-terminal-history";
 
 /// What one keypress came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,11 +51,11 @@ pub(super) enum Resolved {
     Pending,
     /// Nothing claimed the key.
     ///
-    /// ⚠️ Unlike the palette and the explorer, this panel has no field, so there
-    /// is nothing for an unclaimed key to fall through *to*. It is swallowed,
-    /// which is what being modal means — and that is why this enum has no
-    /// separate `Abandoned`: the two would be acted on identically, and a
-    /// distinction nothing reads is a distinction that will drift.
+    /// ⚠️ Unlike the palette and the file explorer, this panel has no field, so
+    /// there is nothing for an unclaimed key to fall through *to*. It is
+    /// swallowed, which is what being modal means — and that is why this enum
+    /// has no separate `Suppressed`: the two would be acted on identically, and
+    /// a distinction nothing reads is a distinction that will drift.
     Unclaimed,
 }
 

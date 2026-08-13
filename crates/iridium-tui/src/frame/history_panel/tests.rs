@@ -78,9 +78,9 @@ fn forked_history() -> Editor {
     editor
 }
 
-/// An open panel.
+/// An open panel with no user bindings, so its defaults are what answers.
 fn open_panel() -> HistoryPanel {
-    let mut panel = HistoryPanel::new();
+    let mut panel = HistoryPanel::new(&iridium_editor::Keymap::new("empty"));
     panel.open();
     panel
 }

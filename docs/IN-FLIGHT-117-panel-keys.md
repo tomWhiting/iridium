@@ -1,39 +1,38 @@
 # #117 — the other seven panel key tables
 
-**Started 13 Aug 2026. Four of seven panels done. Read "Where this stands".**
+**Started 13 Aug 2026. Five of seven panels done. Read "Where this stands".**
 
-## ⏭️ PICK UP HERE — state at the last compaction
+## ⏭️ PICK UP HERE
 
 | what | value |
 | --- | --- |
-| `origin/main` | `08f84872` (step 4a, pushed, ten gates green) |
-| local `HEAD` | `cd096186` (step 4b + the suppression fix) — **COMMITTED, NOT PUSHED** |
-| gates on `cd096186` | were running in background task `bb94i3cnd`, output at `scratchpad/gates4.txt` |
+| `origin/main` | `4b100747` — steps 4a and 4b, ten gates green on `cd096186`, pushed and verified |
+| local `HEAD` | panel 5, the TUI history panel — see below for whether it is committed |
 
-**Next three actions, in order:**
+**Next: panel 6 — the TUI search overlay** (`crates/iridium-tui/src/frame/
+search/`). ⚠️ **Audit it for the suppression defect first**: it *does* have a
+query field, so it is in the dangerous class — grep for
+`map_or(Resolved::Unclaimed` and check whether an unclaimed printable key
+becomes text. If it does, it needs the `Suppressed` variant the terminal
+palette carries, and a red test proven to fail first. It also needs a kernel
+vocabulary, which the history panel did not: check whether `SEARCH_MODE` and
+search verbs exist in `commands/builtin/panel/` before assuming they do.
 
-1. Read the verdict **from the runner's own output**:
-   `grep -E "^(>>>|!!!|✅|⛔)" .../scratchpad/gates4.txt`. If that file is gone,
-   just re-run `bash scripts/ci.sh` (15–20 min, use `run_in_background: true`).
-   ⚠️ Do not end the command with `echo`, or the reported exit status is
-   `echo`'s and not the script's — that already happened once this session.
-2. If `fmt` failed, `cargo fmt --all`, commit the formatting, and **re-run all
-   ten** — the nine that passed ran against pre-format bytes.
-3. Push, then verify with a separate `git fetch` + `git rev-parse --short
-   origin/main` (`$PIPESTATUS` is not a thing in zsh; it is `$pipestatus`).
-
-**Then: panel 5 — the TUI history panel** (`crates/iridium-tui/src/frame/
-history_panel/`). The kernel vocabulary already exists — the eight `HISTORY_*`
-verbs and `HISTORY_MODE` registered in `9b666e00` — so it needs no new kernel
-table, exactly as the terminal palette needed none. Copy the shape from
-`crates/iridium-tui/src/frame/command_palette/`. Remaining after that: TUI
-search, then the desktop context menu. ⛔ The desktop menubar is seventh and
+After that: the desktop context menu. ⛔ The desktop menubar is seventh and
 untouchable until #108 clears.
 
-⚠️ **Check the TUI history panel for the suppression defect too.** It is the
-one panel family not yet audited: if it has no field it is correct as-is (like
-the desktop undo tree), and if it has one it has the bug. Grep for
-`map_or(Resolved::Unclaimed`.
+### ⛔ A gap found while converting panel 5, deliberately NOT fixed here
+
+`config.reload` is a kernel-registered host command bound in the desktop face,
+and **the terminal face does not implement it** — `dispatch_host_command` in
+`apps/iridium/src/app/mod.rs` has no arm for it. It is not silent: the fallback
+says `"`config.reload` is bound to a key but nothing runs it"`, which is an
+honest channel. But it means the terminal face's panels can only ever have
+their user keymap set **at construction**, so `set_user_keymap` on the terminal
+palette and the terminal history panel is reachable from nothing but `new`.
+
+That is #102's territory, not #117's, and widening this task to cover it would
+be scope creep. Logged here so it is not rediscovered a third time.
 
 ## Where this stands — 13 Aug 2026
 
@@ -42,7 +41,7 @@ the desktop undo tree), and if it has one it has the bug. Grep for
 | 1 | desktop command palette | ✅ **DONE** — the split `3d491f8e`, the conversion `56bd0e2f` |
 | 2 | desktop history overlay | ✅ **DONE** — `9b666e00`, ten gates green on the commit, pushed |
 | 3 | TUI command palette | ✅ **DONE** — needed a face seam first; see below |
-| 4 | TUI history panel | not started |
+| 4 | TUI history panel | ✅ **DONE** — see "Panel 5" below |
 | 5 | TUI search | not started |
 | 6 | desktop context menu | not started |
 | 7 | desktop menubar | ⛔ **do not touch** — #108 waits on Tom clicking a menu item |
@@ -304,6 +303,90 @@ cannot be given its bindings by a constructor that does not ask for them —
 forgetting is now a compile error rather than something a test has to notice.
 That is the honest fix for a defect whose whole nature was *nothing failing for
 months*. `set_user_keymap` remains, for reloads.
+
+---
+
+## 🔨 Panel 5 — the TUI history panel
+
+### ✅ The suppression audit came back clean, and the reason matters
+
+The panel has **no query field**. Its old dispatch ended in
+`_ => HistoryOutcome::Handled`, so a key nothing claimed was already swallowed.
+A suppression resolving to `Unclaimed` therefore does exactly what a suppression
+should: nothing. It is correct by construction, as the desktop undo tree was —
+and for the same reason, which is *absence of a field*, not care taken.
+
+That is why this panel's `Resolved` has **no `Suppressed` variant**. The desktop
+undo tree had already ruled the same way and written the reason down; this
+conversion agreed with it rather than inventing a third answer. A distinction
+nothing reads is a distinction that will drift.
+
+⭐ The claim is now measurable rather than a comment:
+`an_unclaimed_printable_key_is_swallowed_and_changes_nothing` presses a bare
+letter and asserts both that the panel stays open and that the selection did not
+move. Before this, three panels documented the suppression rule correctly and
+two of them implemented it backwards — a comment is not an invariant.
+
+### What landed
+
+`history_panel/` gained four files beside the two it had:
+
+| file | holds |
+| --- | --- |
+| `keymap.rs` | 9 bindings, `PLAIN`/`CTRL_ALT`, `EVERY_PATTERN`, `#[cfg(test)] DEFAULT_BINDING_COUNT = 9` |
+| `resolve.rs` | `Resolved` (three variants, no `Suppressed`), `resolve_key`, `set_user_keymap`, `has_pending_keys` |
+| `verb.rs` | `Verb`, `ALL`, `const fn id()`, `from_id()` — 8 verbs |
+| `keymap_tests.rs` | 13 ratchets |
+
+`mod.rs` lost `Chord`/`chord()` and gained `run(verb)`. **No kernel work at
+all** — the eight `HISTORY_*` verbs and `HISTORY_MODE` were already registered
+by `9b666e00` for the desktop panel, and this face answers exactly that set.
+`the_kernels_vocabulary_and_this_panels_verbs_are_the_same_set` is what holds
+the two in step.
+
+`HistoryPanel::new` now **takes the user's layer as a parameter**, following the
+`FileExplorerPanel::open` ruling above: forgetting is a compile error, not
+something a test has to notice. The derived `Default` was removed with it — a
+derived `Default` would have produced an empty `KeymapStack`, which is a panel
+that looks constructed and answers nothing.
+
+⚠️ One binding covers `h` and `H` both, where the old arm read
+`Char('h' | 'H')`. `StrokePattern::matches` ASCII-lowercases a character
+keycode, so the second spelling would have been dead weight that *looked* like
+coverage. `the_close_chord_answers_a_capital_h_as_well` pins that, because the
+shift ratchet varies the modifier and this is about the **keycode**.
+
+### ⭐ Three mutations, all measured
+
+| # | mutation | result |
+| --- | --- | --- |
+| M1 | drop the `Verb::from_id` filter in `set_user_keymap`, so every commanded binding is kept | **1 of 23 failed** — `a_user_binding_naming_a_document_command_never_reaches_this_panel` |
+| M2 | `CTRL_ALT` spells shift `Forbidden` instead of `Any` | **4 of 23 failed** |
+| M3 | swap `Up` and `Down` in the new table | **5 of 23 failed** |
+
+M2 is the one that justifies the ratchets: the four failures were *all* new
+tests, and the 248-line suite that existed before the conversion caught **none
+of them**. A user holding shift would have lost the close chord and nothing
+would have said so.
+
+M3 is the one that justifies trusting the conversion: three of its five failures
+came from the **pre-existing** `tests` module. A conversion is exactly as safe
+as the suite that existed before it, and here that suite is awake.
+
+### Verified locally before committing
+
+`iridium-tui` 348 passed (334 before, +14), `iridium` 103 passed, both exit 0.
+Zero clippy diagnostics on `iridium-tui` and `iridium` with
+`--all-targets --all-features`. Every file in the directory is under 400 lines
+against the 800 bar.
+
+### One doc defect fixed in passing
+
+The desktop history overlay's `resolve.rs` module doc cited
+`edit.selectToLineEnd` as its worked example of a mode-free document binding.
+**No such command id exists** — a reader following it would have got a parse
+that validates against nothing. Both copies now say `edit.deleteToLineEnd`,
+which does. A worked example that cannot be run is a comment, not documentation.
 
 ---
 

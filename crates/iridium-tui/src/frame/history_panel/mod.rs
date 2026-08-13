@@ -45,16 +45,29 @@
 //! `Enter` deliberately keeps the panel open: hopping between two states and
 //! watching the document change underneath is what a tree is *for*, and the
 //! refreshed panel shows the `*` moving. `Escape` is how you put it away.
+//!
+//! Every one of those is a [`KeyBinding`](iridium_editor::KeyBinding) in
+//! [`keymap::default_keymap`], not a `match` arm — so a user's `[keys]` layer
+//! can move any of them. See [`resolve`] for what is taken from that layer and
+//! what is deliberately left behind.
 
+mod keymap;
 mod paint;
+mod resolve;
+mod verb;
 
+#[cfg(test)]
+mod keymap_tests;
 #[cfg(test)]
 mod tests;
 
 use iridium_editor::history::UndoNodeId;
-use iridium_editor::history::tree_view::{TreeViewSelection, linearize};
-use iridium_editor::{Editor, KeyCode, KeyEvent, Modifiers};
+use iridium_editor::history::tree_view::{TreeViewRow, TreeViewSelection, linearize};
+use iridium_editor::{Editor, KeyEvent, KeyPress, Keymap, KeymapStack};
 
+use self::keymap::default_keymap;
+use self::resolve::Resolved;
+use self::verb::Verb;
 use super::palette::Palette;
 use crate::cell::CellBuffer;
 
@@ -78,48 +91,72 @@ pub enum HistoryOutcome {
 /// The host owns one of these, toggles it when the kernel reports the
 /// `history.togglePanel` host command, hands it every key while it is open,
 /// and paints it over the finished frame.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryPanel {
     /// The kernel's selection model: which node is selected, and which slice
     /// of the rows the window shows.
     selection: TreeViewSelection,
+    /// The panel's own keymap: its defaults, with the user's layer over them.
+    keys: KeymapStack,
+    /// The strokes of a multi-stroke sequence typed so far.
+    pending: Vec<KeyPress>,
 }
 
 impl HistoryPanel {
-    /// A closed panel.
+    /// A closed panel answering `user_keys` over its own defaults.
+    ///
+    /// ⭐ **The layer is a parameter rather than a later `set_user_keymap`
+    /// call.** A panel whose keys are configurable only if the caller remembers
+    /// a second call is a panel whose keys silently are not — which is a defect
+    /// that shows up as nothing happening, months later, to one user. Taking it
+    /// here makes forgetting a compile error. [`Self::set_user_keymap`] stays
+    /// for reloads, which genuinely are a second call.
     #[must_use]
-    pub const fn new() -> Self {
-        Self {
+    pub fn new(user_keys: &Keymap) -> Self {
+        let mut panel = Self {
             selection: TreeViewSelection::with_window(super::panel::MAX_VISIBLE_ROWS),
-        }
+            keys: KeymapStack::with_base(default_keymap()),
+            pending: Vec::new(),
+        };
+        panel.set_user_keymap(user_keys);
+        panel
     }
 
     /// Resets the panel for opening: the selection follows the current node.
-    pub const fn open(&mut self) {
+    pub fn open(&mut self) {
         self.selection.reset();
+        // A sequence half-typed before the panel closed means nothing now.
+        self.pending.clear();
     }
 
     /// Handles one key press. Every key is consumed; see the module docs.
     pub fn handle_key(&mut self, event: &KeyEvent, editor: &Editor) -> HistoryOutcome {
+        match self.resolve_key(event) {
+            Resolved::Verb(verb) => self.run(verb, editor),
+            // A half-typed sequence and a key nothing claimed are the same
+            // thing here: nothing happens, and the panel stays open. There is
+            // no field for either to fall through to.
+            Resolved::Pending | Resolved::Unclaimed => HistoryOutcome::Handled,
+        }
+    }
+
+    /// Runs one resolved verb.
+    fn run(&mut self, verb: Verb, editor: &Editor) -> HistoryOutcome {
         let snapshot = editor.history_snapshot();
         let rows = linearize(&snapshot);
         let page = isize_of(self.selection.page());
-        match (chord(event.modifiers), event.key) {
-            (Chord::Plain, KeyCode::Escape) | (Chord::CtrlAlt, KeyCode::Char('h' | 'H')) => {
-                HistoryOutcome::Closed
-            },
-            (Chord::Plain, KeyCode::Enter) => self
+        match verb {
+            Verb::Dismiss => HistoryOutcome::Closed,
+            Verb::Jump => self
                 .selection
                 .selected_node(&rows)
                 .map_or(HistoryOutcome::Handled, HistoryOutcome::Jump),
-            (Chord::Plain, KeyCode::Up) => self.move_selection(&rows, -1),
-            (Chord::Plain, KeyCode::Down) => self.move_selection(&rows, 1),
-            (Chord::Plain, KeyCode::PageUp) => self.move_selection(&rows, -page),
-            (Chord::Plain, KeyCode::PageDown) => self.move_selection(&rows, page),
-            (Chord::Plain, KeyCode::Home) => self.move_selection(&rows, isize::MIN),
-            (Chord::Plain, KeyCode::End) => self.move_selection(&rows, isize::MAX),
-            // Modal: everything else is swallowed, not passed to the document.
-            _ => HistoryOutcome::Handled,
+            Verb::SelectPrevious => self.move_selection(&rows, -1),
+            Verb::SelectNext => self.move_selection(&rows, 1),
+            Verb::SelectPageUp => self.move_selection(&rows, -page),
+            Verb::SelectPageDown => self.move_selection(&rows, page),
+            Verb::SelectFirst => self.move_selection(&rows, isize::MIN),
+            Verb::SelectLast => self.move_selection(&rows, isize::MAX),
         }
     }
 
@@ -134,11 +171,7 @@ impl HistoryPanel {
     }
 
     /// Moves the selection by `delta` rows, clamping at both ends.
-    fn move_selection(
-        &mut self,
-        rows: &[iridium_editor::history::tree_view::TreeViewRow<'_>],
-        delta: isize,
-    ) -> HistoryOutcome {
+    fn move_selection(&mut self, rows: &[TreeViewRow<'_>], delta: isize) -> HistoryOutcome {
         self.selection.move_by(rows, delta);
         HistoryOutcome::Handled
     }
@@ -147,24 +180,4 @@ impl HistoryPanel {
 /// `value` as an `isize`, saturating on a page size no terminal can reach.
 fn isize_of(value: usize) -> isize {
     isize::try_from(value).unwrap_or(isize::MAX)
-}
-
-/// The modifier combinations the panel distinguishes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Chord {
-    /// No modifier that changes the meaning of the key.
-    Plain,
-    /// Control and Alt together — the toggle chord that closes the panel.
-    CtrlAlt,
-    /// Anything else, which the modal panel swallows.
-    Other,
-}
-
-/// The chord one modifier set names.
-const fn chord(modifiers: Modifiers) -> Chord {
-    match (modifiers.ctrl, modifiers.alt, modifiers.meta) {
-        (false, false, false) => Chord::Plain,
-        (true, true, false) => Chord::CtrlAlt,
-        _ => Chord::Other,
-    }
 }

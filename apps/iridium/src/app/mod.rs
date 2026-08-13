@@ -264,7 +264,7 @@ impl App {
             palette_open: false,
             explorer: None,
             mru: CommandMru::default(),
-            history: HistoryPanel::new(),
+            history: HistoryPanel::new(&user_keys),
             history_open: false,
             prompt: None,
             // A configuration problem is the first thing the session has to

@@ -8,7 +8,7 @@
 //!
 //! A user's `[keys]` layer holds all their bindings, and most are editor ones
 //! with no mode. Pushed into this stack whole, a mode-free binding would apply
-//! in **every** mode — so somebody who bound `end` to `edit.selectToLineEnd` for
+//! in **every** mode — so somebody who bound `end` to `edit.deleteToLineEnd` for
 //! the document would find `End` had stopped reaching the newest state, having
 //! never mentioned this panel.
 //!

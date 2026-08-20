@@ -248,7 +248,65 @@ if [ -z "$predicate_dir" ] || [ ! -f "$predicate_dir/claim_predicate.sh" ]; then
     exit 1
 fi
 # shellcheck source=claim_predicate.sh
-. "$predicate_dir/claim_predicate.sh"
+# ⛔ THE LOAD IS CHECKED, AND THE CHECK IS ON THE SYMBOL, NOT THE STATUS.
+# The block above closes the door on an ABSENT predicate. A predicate that is
+# PRESENT but does not deliver `claim_is_set` walked straight through: the
+# source succeeded, the function was undefined, and `claim_is_set || exit 0`
+# below read that as "unclaimed repository" and approved the transaction. The
+# guard was silently absent in a repo that asked for it — the state this file's
+# own comment 15 lines up calls CATASTROPHIC.
+#
+# ⭐ AND `. file || exit 1` IS NOT THE FIX, though it is the obvious one. A
+# truncated or empty file is VALID SHELL and sources with status 0; measured,
+# rc-based checking catches the dangerous modes only when the cut happens to
+# land mid-construct. `claim_is_set` is defined at line 117 of 139 in the
+# shipped predicate — 84% in — so essentially the whole truncation space
+# sources cleanly with the function missing.
+#
+# WARNING: THE STATUS CHECK BELOW IS UNREACHABLE AT THIS VENUE, AND IT STAYS
+# ANYWAY -- MEASURED, so that no reader concludes it is the thing catching a
+# broken predicate. On a SYNTAX ERROR this /bin/sh EXITS inside the dot-command
+# rather than returning non-zero, so the `if ! .` branch never runs: the
+# operator sees the shell's raw parse error and `fatal: ref updates aborted by
+# hook`, never the refusal text below. That outcome is still FAIL-CLOSED and
+# correct -- the hook dies, its status is non-zero, git aborts -- but the guard
+# is not the thing saying so. It is kept because dot-on-syntax-error is a shell
+# variance (POSIX lets a non-interactive shell exit; not every /bin/sh does),
+# and a check costing one line that fires on some other seat's shell is worth
+# more than a tidier file. The load-bearing check for every mode that actually
+# reaches this code is the SYMBOL check after it.
+if ! . "$predicate_dir/claim_predicate.sh"; then
+    printf '⛔ REFUSED: the class-A guard could not LOAD its claim predicate.
+' >&2
+    printf '   Read but not sourceable: %s/claim_predicate.sh
+' "$predicate_dir" >&2
+    printf '   The file exists and the shell refused it — a syntax error or a
+' >&2
+    printf '   partial write. Refusing rather than skipping: a guard that cannot
+' >&2
+    printf '   load is not a guard that does not apply, and only one of those is
+' >&2
+    printf '   safe to ignore.
+' >&2
+    exit 1
+fi
+if ! command -v claim_is_set >/dev/null 2>&1; then
+    printf '⛔ REFUSED: the claim predicate loaded but defines no claim_is_set.
+' >&2
+    printf '   Loaded from: %s/claim_predicate.sh
+' "$predicate_dir" >&2
+    printf '   The file sourced cleanly and the symbol this guard needs is not
+' >&2
+    printf '   there — the signature of a TRUNCATED or EMPTY predicate, which is
+' >&2
+    printf '   valid shell and so cannot be caught by the status above.
+' >&2
+    printf '   Refusing rather than skipping: a guard that cannot load is not a
+' >&2
+    printf '   guard that does not apply, and only one of those is safe to ignore.
+' >&2
+    exit 1
+fi
 
 # Unclaimed repository ⇒ the guard does not apply here. Ruling point 3: this is
 # the LEGITIMATE unclaimed state, not a defect.

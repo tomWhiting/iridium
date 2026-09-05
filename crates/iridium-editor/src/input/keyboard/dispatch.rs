@@ -76,17 +76,8 @@ impl KeyboardHandler {
         config: &EditorConfig,
         scopes: &CaretScopes<'_>,
     ) -> (KeyResult, Option<KeyboardAction>) {
-        // `resolver` and `keymap` are disjoint fields, so the mutable borrow of
-        // the state machine coexists with the immutable borrow of the bindings.
-        let resolution = self.resolver.resolve_repeat(
-            &self.keymap,
-            KeyPress::from_event(event),
-            event.is_repeat,
-        );
-
-        match resolution {
-            Resolution::Matched(invocation) => {
-                let (id, args) = invocation.into_parts();
+        match self.resolve_key(event) {
+            ResolvedKey::Action(action, args) => {
                 let ctx = CommandContext {
                     event: Some(event),
                     args,
@@ -95,83 +86,48 @@ impl KeyboardHandler {
                     config,
                     scopes,
                 };
-                match action_for(id.as_str()) {
-                    Some(action) => (self.run_action(action, &ctx), Some(action)),
-                    // A keymap may bind a command this kernel does not implement
-                    // — a host command — and the host then owns it, by name.
-                    None => (
-                        KeyResult::HostCommand {
-                            command: id,
-                            args: ctx.args,
-                        },
-                        None,
-                    ),
-                }
+                (self.run_action(action, &ctx), Some(action))
             },
-            // The keypress was consumed by the sequence state machine. Nothing
-            // ran, so nothing is invalidated.
-            Resolution::Pending | Resolution::Aborted | Resolution::ModeEntered(_) => {
-                (KeyResult::Handled, None)
-            },
-            Resolution::NoMatch => {
-                let ctx = CommandContext {
-                    event: Some(event),
-                    args: CommandArgs::NONE,
-                    document,
-                    cursor,
-                    config,
-                    scopes,
-                };
-                self.fall_through(&ctx)
-            },
+            ResolvedKey::Result(result) => (result, None),
         }
     }
 
-    /// Handles a keypress no binding claimed.
-    ///
-    /// The only fall-through behaviour is self-insert, and it applies under
-    /// exactly the condition the pre-registry `Char(_)` arms used: a character
-    /// key with none of `ctrl`, `alt` or `meta` held. `Shift` is deliberately not
-    /// consulted — the host already resolved it into the character. `AltGraph` is
-    /// likewise not consulted here: layouts that report `AltGr` as `Ctrl+Alt`
-    /// fail the `ctrl`/`alt` test and pass through untouched, which is what lets
-    /// the host compose the character itself.
-    ///
-    /// # The one mode question the kernel asks
-    ///
-    /// Self-insert is reached *after* the keymap declined the key, so a modal
-    /// keymap cannot switch typing off by binding — see
-    /// [`Keymap::silence_typing_in`](crate::commands::Keymap::silence_typing_in)
-    /// for why suppression cannot do it either. The keymap is therefore asked
-    /// whether the active mode types at all before the character is inserted.
-    /// The kernel still knows no mode *names*: it passes the resolver's mode
-    /// straight back to the stack that declared it.
-    fn fall_through(&mut self, ctx: &CommandContext<'_>) -> (KeyResult, Option<KeyboardAction>) {
-        let Some(event) = ctx.event else {
-            return (KeyResult::Ignored, None);
-        };
+    /// One resolver for legacy and cell input; only actions interpret geometry.
+    pub(super) fn resolve_key(&mut self, event: &KeyEvent) -> ResolvedKey {
+        let resolution = self.resolver.resolve_repeat(
+            &self.keymap,
+            KeyPress::from_event(event),
+            event.is_repeat,
+        );
+        match resolution {
+            Resolution::Matched(invocation) => {
+                let (id, args) = invocation.into_parts();
+                match action_for(id.as_str()) {
+                    Some(action) => ResolvedKey::Action(action, args),
+                    None => ResolvedKey::Result(KeyResult::HostCommand { command: id, args }),
+                }
+            },
+            Resolution::Pending | Resolution::Aborted | Resolution::ModeEntered(_) => {
+                ResolvedKey::Result(KeyResult::Handled)
+            },
+            Resolution::NoMatch => self.resolve_typing(event),
+        }
+    }
+
+    /// Self-insert uses the original event, and the active keymap's typing rule.
+    fn resolve_typing(&self, event: &KeyEvent) -> ResolvedKey {
         let modifiers = event.modifiers;
         if matches!(event.key, KeyCode::Char(_))
             && !modifiers.ctrl
             && !modifiers.alt
             && !modifiers.meta
         {
-            // A silent mode swallows the character rather than reporting it
-            // unhandled: `Handled`, not `Ignored`. A host that saw `Ignored`
-            // would be entitled to type the key itself, which is the exact
-            // outcome the mode was declared to prevent. The gate sits inside
-            // this branch and not above it, because what the keymap declared is
-            // that the mode does not *type* — a key carrying no character was
-            // never the host's to lose.
             if !self.keymap.types_unclaimed_keys(self.resolver.mode()) {
-                return (KeyResult::Handled, None);
+                return ResolvedKey::Result(KeyResult::Handled);
             }
-            // Routed through the same action as an explicit binding would be, so
-            // self-insert has exactly one implementation.
-            let result = self.run_action(KeyboardAction::InsertCharacter, ctx);
-            return (result, Some(KeyboardAction::InsertCharacter));
+            return ResolvedKey::Action(KeyboardAction::InsertCharacter, CommandArgs::NONE);
         }
-        (KeyResult::Ignored, None)
+        ResolvedKey::Result(KeyResult::Ignored)
     }
 
     /// Post-dispatch bookkeeping: invalidates transient handler state after a
@@ -327,4 +283,10 @@ impl KeyboardHandler {
             )
         )
     }
+}
+
+/// Resolution is independent of how a face measures its cursor motions.
+pub(super) enum ResolvedKey {
+    Action(KeyboardAction, CommandArgs),
+    Result(KeyResult),
 }

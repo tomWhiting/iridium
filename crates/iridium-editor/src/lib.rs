@@ -46,6 +46,7 @@
 
 // Module declarations only - no implementation here
 pub mod brace_folds;
+pub mod cell_layout;
 pub mod commands;
 pub mod document;
 pub mod editor;

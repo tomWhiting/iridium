@@ -1,0 +1,278 @@
+{
+  "status": "source_verified_for_private_branch_checkpoint_not_landed",
+  "at_melbourne": "2026-09-05T22:01:09.093036+10:00",
+  "baseline": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
+  "worktree": "/private/tmp/iridium-cell-composer",
+  "branch": "codex/iridium-cell-composer",
+  "settlement": {
+    "status": "approved_for_registration_and_R1_implementation",
+    "at_melbourne": "2026-09-05T21:59:16.791579+10:00",
+    "worktree": "/private/tmp/iridium-cell-composer",
+    "branch": "codex/iridium-cell-composer",
+    "baseline": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
+    "decisions": "Root accepts D1-D13 of the authored design within the user-authorized Iridium composer goal. Borrow-enforced freshness and opt-in grapheme-boundary wrap; existing renderer defaults preserved. Root has reviewed R1 exactwall and acceptance.",
+    "registration": "Before source edits, register authoritative design/checklist/stories/brief JSON and generated Markdown under docs/design/iridium-cell-composer with declared registration walls and source provenance.",
+    "execution": "Implement R1 only after registration checks; no out-of-wall edits. No commit/merge/install/venue workflow without root coordination. Remaining rows await R1 usable contract.",
+    "validation": "Use existing workspace Unicode dependencies. Coordinate Cargo/cache commands with root; no accidental GPU build needed for initial kernel-only tests. Full required gates and exact-commit205 evidence remain landing prerequisites."
+  },
+  "registration_wall": {
+    "at_melbourne": "2026-09-05T22:00:32.550079+10:00",
+    "worktree": "/private/tmp/iridium-cell-composer",
+    "baseline": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
+    "authority": "/private/tmp/nwp-05-proof/iridium-composer-draft/root-settlement.json",
+    "authority_sha256": "57a0df78b9a0e7291ec8e03fe2094f5a02187e1d929b34be1ca4b5424ce4d28e",
+    "create": [
+      "docs/design/iridium-cell-composer/design.json",
+      "docs/design/iridium-cell-composer/DESIGN.md",
+      "docs/design/iridium-cell-composer/checklist.json",
+      "docs/design/iridium-cell-composer/CHECKLIST.md",
+      "docs/design/iridium-cell-composer/stories.json",
+      "docs/design/iridium-cell-composer/USER-STORIES.md",
+      "docs/design/iridium-cell-composer/briefs/ICC-001.json",
+      "docs/design/iridium-cell-composer/briefs/ICC-001.md",
+      "docs/design/iridium-cell-composer/registration.json"
+    ],
+    "modify": [],
+    "scope": "Registration JSON and generated Markdown only. R1 source wall is unchanged from accepted ICC-001."
+  },
+  "draft_inputs_sha256": {
+    "design.json": "81ded5143aa5b4bc6f6f9681c4ea1c5010b4c229685fe8683faa3b0753762777",
+    "briefs/ICC-001.json": "66ff998d9d8f964db7ca51dbf4ff59092905d94759d1579d98c36f32dd133e93",
+    "checklist.json": "1cf2a35e0da09d37d1b541d9e955bc9566a1dae5d08108a1c5eb86f7c6d09505",
+    "stories.json": "bef05210e895f80b25a4aafa821fb2d7fe72048dd85c8214078e6d74bc6009d7"
+  },
+  "renderer": "/Users/tom/Developer/ablative/apps/meridian/.meridian/design-system/scripts/render-cluster.py",
+  "validation": "ICC-AST-01 is closed by independent supplemental AST review. Twelve exact 43-path local check selections passed, including full workspace all-features tests, strict workspace all-features/all-targets Clippy, wasm checks and formatting. All source, check-record and raw-log hashes were revalidated before this private branch checkpoint. Historical 42-path benchmarks remain separately bound. No Fable or exact-commit 205 landing receipt is claimed.",
+  "R2_amendment": {
+    "schema": "iridium-cell-composer-wall-amendment.v1",
+    "row": "R2",
+    "approved_by": "root message 2026-09-05",
+    "additional_modify": [
+      "crates/iridium-editor/src/editor/mod.rs"
+    ],
+    "reason": "Declare sibling cell_input module and export public input types through editor namespace; preserve frozen R1 bytes."
+  },
+  "R2_readonly_history_repair": {
+    "at_melbourne": "2026-09-05T23:12:20.705725+10:00",
+    "authority": "Root authorizes bounded R2 repair before R3, 2026-09-05",
+    "source_modify": [
+      "crates/iridium-editor/src/editor/cell_input.rs",
+      "crates/iridium-editor/src/input/keyboard/cell_tests.rs"
+    ],
+    "docs_modify": [
+      "docs/design/iridium-cell-composer/design.json",
+      "docs/design/iridium-cell-composer/DESIGN.md",
+      "docs/design/iridium-cell-composer/briefs/ICC-001.json",
+      "docs/design/iridium-cell-composer/briefs/ICC-001.md",
+      "docs/design/iridium-cell-composer/registration.json"
+    ],
+    "reason": "Read-only cell API rejects content-replaying History requests before history mutation. Next/previous branch selection stays allowed because it changes no document/cursor/current node. Legacy API unchanged.",
+    "prior_proof": "iridium-r2-local-proof.json is historical pending changed-byte diagnostic"
+  },
+  "R3_execution": {
+    "authority": "Root authorization ICC-001 R3 implementation, 2026-09-05",
+    "at_melbourne": "2026-09-05T23:15:18.277850+10:00",
+    "source_wall": {
+      "modify": [
+        "crates/iridium-tui/src/frame/mod.rs",
+        "crates/iridium-tui/src/frame/geometry.rs",
+        "crates/iridium-tui/src/frame/line.rs",
+        "crates/iridium-tui/src/frame/text.rs"
+      ],
+      "create": [
+        "crates/iridium-tui/src/frame/types.rs",
+        "crates/iridium-tui/src/frame/render.rs",
+        "crates/iridium-tui/src/frame/cell_options.rs",
+        "crates/iridium-tui/src/frame/prepared_cells.rs",
+        "crates/iridium-tui/src/frame/cell_render.rs",
+        "crates/iridium-tui/src/frame/cell_geometry.rs",
+        "crates/iridium-tui/src/frame/embedding_tests.rs",
+        "crates/iridium-tui/src/frame/wrap_tests.rs"
+      ]
+    },
+    "docs_modify": [
+      "design.json",
+      "DESIGN.md",
+      "briefs/ICC-001.json",
+      "briefs/ICC-001.md",
+      "registration.json"
+    ],
+    "scope": "Borrowed Frame rendering and optional bare chrome. No driver, ANSI, TTY ownership or editor mutation. R1/R2 changes require exact additional approval.",
+    "typed_error_decision": "CellFrameError in frame/cell_options.rs wraps CellLayoutError and reports extent mismatch; no kernel error expansion needed."
+  },
+  "R3_kernel_seams": {
+    "authority": "Root approves shared measurement descriptors and per-cursor affinity, 2026-09-05",
+    "at_melbourne": "2026-09-05T23:17:41.768519+10:00",
+    "row": "R3",
+    "additional_modify": [
+      "crates/iridium-editor/src/cell_layout/clusters.rs",
+      "crates/iridium-editor/src/cell_layout/tests.rs",
+      "crates/iridium-editor/src/editor/cell_input.rs",
+      "crates/iridium-editor/src/input/keyboard/cell_navigation.rs",
+      "crates/iridium-editor/src/input/keyboard/cell_tests.rs"
+    ],
+    "reason": "One common Unicode measurement authority preserves infallible legacy LineLayout and strict CellLine separately. Each rendered cursor reads its actual validated transient affinity.",
+    "contracts": [
+      "measure_graphemes returns borrowed MeasuredGrapheme with text/scalar/byte/kind/width_at; zero tab width floors to one as before; strict CR/LF and overflow errors unchanged.",
+      "Editor::cell_cursor_affinity(index, options) returns None for nonexistent cursor, validated affinity/default Downstream for current cursor; primary cell_affinity remains compatible."
+    ]
+  },
+  "R3_highlight_ownership": {
+    "at_melbourne": "2026-09-05T23:49:18.310358+10:00",
+    "authority": "Root approval ICC-R3-IR-1 snapshot repair, 2026-09-05",
+    "source_modify": [
+      "crates/iridium-tui/src/frame/types.rs",
+      "crates/iridium-tui/src/frame/render.rs",
+      "crates/iridium-tui/src/frame/wrap_tests.rs",
+      "crates/iridium-tui/Cargo.toml",
+      "Cargo.lock"
+    ],
+    "reason": "Retain immutable Rope snapshot with document id before reusing the WindowedSpanCache; no raw address, full text comparison or repeated clearing while unchanged.",
+    "dependency": "Existing locked workspace ropey only; add TUI dependency membership, no version changes.",
+    "performance": "One retained Rope snapshot keeps prior shared nodes alive until refresh; next edit may copy affected rope path. Measure in R4.",
+    "proof": "/private/tmp/nwp-05-proof/iridium-r3-highlight-ownership-proof.json"
+  },
+  "R4_execution": {
+    "at_melbourne": "2026-09-05T23:56:47.245527+10:00",
+    "authority": "Root authorizes R4 after closed independent R3 rereview, including six-path wall",
+    "row": "R4",
+    "files": {
+      "modify": [
+        "crates/iridium-editor/Cargo.toml",
+        "crates/iridium-tui/Cargo.toml"
+      ],
+      "create": [
+        "crates/iridium-editor/tests/cell_composer.rs",
+        "crates/iridium-tui/tests/cell_composer.rs",
+        "crates/iridium-editor/benches/cell_composer.rs",
+        "crates/iridium-tui/benches/cell_composer.rs"
+      ]
+    },
+    "measurement": "Separate std timing harnesses preserve pure kernel feature scope. Measure kernel preparation, prepared hits and key dispatch; TUI frame preparation, repeated paint/hits and edit plus paint with/without retained Frame snapshot, including rope COW and capture-name-map reconstruction. Explicit samples, no time pass thresholds.",
+    "execution": "Serial CPU diagnostics in dedicated ICC target with jobs2. Full workspace/GPU/wasm measured where possible and failures named; no skip-green or landing claim."
+  },
+  "R4_checkpoint": {
+    "at_melbourne": "2026-09-06T00:46:16.356398+10:00",
+    "proof": "/private/tmp/nwp-05-proof/iridium-r4-local-proof.json",
+    "source_set_sha256": "b33d5f88117116b8d610b9e7c9ece64912bac9a176cde772891d2abd219bdfac",
+    "status": "source_frozen_declared_local_diagnostics_completed_with_performance_qualification",
+    "landing": "not approved"
+  },
+  "keyboard_handler_extraction": {
+    "schema": "iridium-cell-composer-wall-amendment.v1",
+    "at_melbourne": "2026-09-06T01:01:18.537113+10:00",
+    "finding": "ICC-AST-01",
+    "authority": "Root message authorizing narrow keyboard handler extraction after the supplemental structural audit, 6 September 2026",
+    "row": "R2",
+    "source_modify": [
+      "crates/iridium-editor/src/input/keyboard/mod.rs"
+    ],
+    "source_create": [
+      "crates/iridium-editor/src/input/keyboard/handler.rs"
+    ],
+    "audit": "/private/tmp/nwp-05-proof/iridium-r4-ast/review.json",
+    "audit_sha256": "89828e43b59ae0e59dffb35bf569fa46a85e52a3ce31efe2ba4e5e65b3752166",
+    "change": "Move existing KeyboardHandler type/Default/impl into named handler.rs, retaining public re-export. Limit restored sibling field/helper access to pub(super); retain public API and exact behavior. Module contains declarations/re-exports/import declarations only. No unrelated core.rs refactor.",
+    "limits": "New named file below500 physical lines. Existing relocated expectation/unused history parameter stay byte-identical inherited code; no new suppression. Additional files require prior registration.",
+    "verification": "Freeze43paths and run formatting, focused keyboard and complete editor/TUI/public tests, strict workspace all-features/all-targets Clippy; repeat supplemental AST. Previous42-path full proof is historical after extraction."
+  },
+  "handler_extraction_checkpoint": {
+    "proof": "/private/tmp/nwp-05-proof/iridium-handler-local-proof.json",
+    "source_set_sha256": "e785bb9ecf5bf4174c7d3ea5b5871b4a4d90bb844605fde43bdd9acd8d5fd6a2",
+    "at_melbourne": "2026-09-06T01:12:02.548431+10:00",
+    "status": "ICC-AST-01_resolved_and_changed_source_local_checks_completed"
+  },
+  "private_branch_checkpoint": {
+    "at_melbourne": "2026-09-06T08:37:01.580452+10:00",
+    "purpose": "User-authorized commit/push of checked stages to the existing private feature branch only.",
+    "branch": "codex/iridium-cell-composer",
+    "source_set_sha256": "e785bb9ecf5bf4174c7d3ea5b5871b4a4d90bb844605fde43bdd9acd8d5fd6a2",
+    "source_count": 43,
+    "local_proof_sha256": "3cd42a9878b558e54bb6e49c5663ca1f8f382355d249b5e2c8c9a7601df01954",
+    "validated_selections": [
+      {
+        "name": "keyboard-tests",
+        "sha256": "1191695d713c4472652ad4ced7390435c6ebae4197854750a3054ca1f3392ad5",
+        "log_sha256": "1dc4eb117fceb6c56cacbaf31596b53de1544b94cdbf8a5b4e7871006718b888"
+      },
+      {
+        "name": "kernel-tests",
+        "sha256": "a4994c5ab4dcca43bdeb7fc5356673a86edf06a4fb6d59d48ba0bfdc79f3eeac",
+        "log_sha256": "408b82172416be4cfb407cd8339600541b4bb509952fca42251659d80f3063df"
+      },
+      {
+        "name": "syntax-tests",
+        "sha256": "7985632b86fcbba2d7bc9378c00f16d013165ca9411a6bd126ed643a8a45a5f3",
+        "log_sha256": "79e481adbd4a4a79f45ec0c703aacf471a67700a250988699d7151a9d509a1cc"
+      },
+      {
+        "name": "tui-tests",
+        "sha256": "bb345a86f0da64c6912eb0ff3c06664e22a84e5aa6cebab2749563a79d4ea794",
+        "log_sha256": "cfa5ca32350e87870783d0ab314aa5fa9e3793d9c075c804992b023d82192604"
+      },
+      {
+        "name": "workspace-tests",
+        "sha256": "0e2efd203ebfcaaf73df5a6e27507419db36e3cdeb8013e67014649257428705",
+        "log_sha256": "f4bbd5c7b852254047f07046545dd7ce603c357694b6a63196d075605408b296"
+      },
+      {
+        "name": "workspace-clippy",
+        "sha256": "93b6484135d712ee182e69712248b9db437c1dd7fd28993b64199022c1c537e4",
+        "log_sha256": "bd879046bef8c8838d7e57d7a38f0cd1fff42cf9c38b5861c0953596c88264d7"
+      },
+      {
+        "name": "wasm-check",
+        "sha256": "8b3adad84011534612fbe924756c1376f75bc3d4c47b0aa42063bb44a5cb33c7",
+        "log_sha256": "00bb5dd9d6167d8b4b42da2075c2929939e2f1e596e320485c446465d8d6452d"
+      },
+      {
+        "name": "wasm-clippy",
+        "sha256": "6223a2a2236f692e71788d76d37fe08b9912644d781c5f85e5af9394ef4f33b9",
+        "log_sha256": "c4e75a7d8deab0be2376b6d68e36ea16a7cb66662b6f6a0e4354ebaf8a7c8216"
+      },
+      {
+        "name": "fmt",
+        "sha256": "d10a449327685f0e342fd362b658ede112039a989c80f49dc0c87e34140c54b7",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "clippy-kernel",
+        "sha256": "f2310032c4bb74a3165a8d4753e20d4c2202bbe26b01f345d52ddc7eafe4d3de",
+        "log_sha256": "91d1652b4fae2ff449e85988d5e2de9796ff02123fcd10450f49cad7368d9734"
+      },
+      {
+        "name": "clippy-syntax",
+        "sha256": "77675a6b6b8750928cdf28838b4705b5cb266e69ea489a1af216bc1ea3afc4e0",
+        "log_sha256": "ac5be6f054f954922974e6502f0031a67ae7ad87861455b3eeedd9dd72916a14"
+      },
+      {
+        "name": "test-lang",
+        "sha256": "53ce235026ab6eb117fea80eead63e780310119d81cebe509f8a40b1c2505c14",
+        "log_sha256": "3693b84133e067cd52909e3bdfe828f70194adf3e67339a39a155a20ef73e7eb"
+      }
+    ],
+    "workspace_result": {
+      "passed": 3209,
+      "failed": 0,
+      "ignored": 20,
+      "ignored_provenance": "Nineteen baseline documentation examples and one unchanged screenshot-artifact test; required GPU targets actually ran."
+    },
+    "outstanding": [
+      "Fable review and exact-commit 205 battery remain landing prerequisites; this private branch checkpoint is not landing approval.",
+      "Public Git history/release decision remains pending. No history rewrite, main merge, public visibility change, release or installation is authorized by this checkpoint.",
+      "Rust error-heavy long-line syntax stress remains above the documented input-latency intent; historical edit+frame means were about70ms versus 0.324–0.373ms plain control. Subsequent unchanged-source external diagnostics attribute the dominant case to tree-sitter error recovery/reuse refusal, not missing incremental wiring. Explained, not repaired.",
+      "Supplemental AST review retains nineteen inherited inventory matches and the existing core.rs size qualification; no aggregate AST-clean claim."
+    ],
+    "performance_provenance": {
+      "path": "/private/tmp/nwp-05-proof/iridium-key-attribution/results.json",
+      "sha256": "d0860a0ee9371c5482362789e980bc0dcdfb0c36ba82d8ad259475d11da45459",
+      "scope": "External public-API CPU diagnostic; no new Frame timing or isolated COW/allocation claim."
+    },
+    "history_mapping": {
+      "pre_checkpoint_base": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
+      "rewritten_base": null,
+      "rewritten_checkpoint": null,
+      "status": "No rewrite performed or approved; retain original commit identities in the external push receipt."
+    }
+  }
+}

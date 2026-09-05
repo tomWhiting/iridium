@@ -383,7 +383,7 @@ pub struct Editor {
     listeners: Vec<Box<dyn Fn(&EditorEvent) + Send + Sync>>,
 
     /// Keyboard input handler
-    keyboard_handler: KeyboardHandler,
+    pub(super) keyboard_handler: KeyboardHandler,
 
     /// Every command this editor exposes, kernel and host alike.
     ///
@@ -771,7 +771,7 @@ impl Editor {
     /// Shared by [`Self::handle_key`] and [`Self::run_command`] so a command
     /// invoked by id and the same command invoked by its key sequence cannot
     /// diverge.
-    fn consume_key_result(&mut self, result: KeyResult) -> EditorKeyResult {
+    pub(super) fn consume_key_result(&mut self, result: KeyResult) -> EditorKeyResult {
         match result {
             KeyResult::Command(cmd) => {
                 if !self.state.read_only || matches!(cmd, Command::SetSelection { .. }) {
@@ -1036,7 +1036,7 @@ impl Editor {
     /// stack across command application) and the mouse/IME/paste/search paths
     /// (which reset the sticky column and addition-order stack explicitly before
     /// calling this).
-    fn apply_command_internal(&mut self, command: Command) {
+    pub(super) fn apply_command_internal(&mut self, command: Command) {
         let content_changed = command.modifies_content();
         let selection_changed = command.modifies_selection();
 
@@ -1365,6 +1365,7 @@ impl Editor {
 
     /// Returns a mutable reference to the fold state.
     pub const fn fold_state_mut(&mut self) -> &mut FoldState {
+        self.keyboard_handler.invalidate_cell_geometry();
         &mut self.state.fold_state
     }
 
@@ -1723,7 +1724,7 @@ impl Editor {
     }
 
     /// Emits a search updated event (T125).
-    fn emit_search_updated(&self) {
+    pub(super) fn emit_search_updated(&self) {
         self.emit(&EditorEvent::SearchUpdated {
             match_count: self.state.search.match_count(),
             current_index: self.state.search.current_match,

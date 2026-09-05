@@ -148,31 +148,14 @@ pub const fn document_rows(rows: usize, search_open: bool) -> usize {
 /// The geometry a screen of this size would be drawn with.
 pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) -> FrameLayout {
     let state = editor.state();
-    let total_lines = state.document.line_count();
-    // The band comes off the screen FIRST, and everything on the X axis is
-    // measured against what is left. Sizing the gutter against the full width
-    // and subtracting afterwards would let a wide gutter and a wide band
-    // together claim more columns than the screen has.
-    //
-    // A band wider than the screen leaves zero for everything else, which is
-    // arithmetic that needs no guard of its own: a zero-width text area paints
-    // no cells and places no caret.
-    let sidebar_columns = chrome.sidebar_columns.min(columns);
-    let available = columns - sidebar_columns;
-    let gutter_width = gutter::width(total_lines, state.config.show_line_numbers).min(available);
-    let text_width = available - gutter_width;
-    let status_row = rows.checked_sub(1);
-    let below_status = rows.saturating_sub(1);
-
-    let panel_rows = chrome
-        .search
-        .map_or(0, |_| SearchOverlay::rows(below_status));
-    let text_rows = document_rows(rows, chrome.search.is_some());
-    let search_rows = if panel_rows == 0 {
-        None
-    } else {
-        Some((text_rows, panel_rows))
-    };
+    let Allocation {
+        sidebar_columns,
+        gutter_width,
+        text_width,
+        text_rows,
+        search_rows,
+        status_row,
+    } = allocate(editor, columns, rows, Some(chrome));
     let scroll = whole_cells(state.viewport.scroll_offset_x);
 
     let viewport = Viewport {
@@ -205,6 +188,52 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
         // Filled in by the render pass, which is what knows whether the
         // panel's focused field had room to be drawn.
         search_caret: None,
+    }
+}
+
+/// Chrome allocation shared by legacy and wrapped frames before any mapping.
+pub(super) struct Allocation {
+    pub(super) sidebar_columns: usize,
+    pub(super) gutter_width: usize,
+    pub(super) text_width: usize,
+    pub(super) text_rows: usize,
+    pub(super) search_rows: Option<(usize, usize)>,
+    pub(super) status_row: Option<usize>,
+}
+
+pub(super) fn allocate(
+    editor: &Editor,
+    columns: usize,
+    rows: usize,
+    chrome: Option<Chrome<'_>>,
+) -> Allocation {
+    let Some(chrome) = chrome else {
+        return Allocation {
+            sidebar_columns: 0,
+            gutter_width: 0,
+            text_width: columns,
+            text_rows: rows,
+            search_rows: None,
+            status_row: None,
+        };
+    };
+    let state = editor.state();
+    let sidebar_columns = chrome.sidebar_columns.min(columns);
+    let available = columns - sidebar_columns;
+    let gutter_width =
+        gutter::width(state.document.line_count(), state.config.show_line_numbers).min(available);
+    let below_status = rows.saturating_sub(1);
+    let panel_rows = chrome
+        .search
+        .map_or(0, |_| SearchOverlay::rows(below_status));
+    let text_rows = document_rows(rows, chrome.search.is_some());
+    Allocation {
+        sidebar_columns,
+        gutter_width,
+        text_width: available - gutter_width,
+        text_rows,
+        search_rows: (panel_rows != 0).then_some((text_rows, panel_rows)),
+        status_row: rows.checked_sub(1),
     }
 }
 

@@ -1,0 +1,415 @@
+//! Keyboard handler state and command dispatch; sibling modules implement focused editing verbs.
+
+use super::auto_pair_record::AutoPairInsertion;
+use super::{
+    CaretScopes, Command, CommandArgs, CommandRunError, CursorState, Document, EditorConfig,
+    KeyEvent, KeyHintIndex, KeyResult, KeymapResolver, KeymapStack, Selection, UndoTree, actions,
+    cell_navigation, default_keymap_stack,
+};
+
+/// Keyboard event handler for the editor.
+///
+/// Owns three things: the bindings ([`Self::keymap`]), the multi-key sequence
+/// state machine ([`Self::resolver`]), and the transient per-cursor state that
+/// only the keyboard needs (sticky columns and the multi-cursor addition-order
+/// stack). It never mutates a document: a command that changes text is returned
+/// as a reversible [`Command`] for the caller to apply.
+///
+/// One instance per input focus, because a half-typed key sequence belongs to the
+/// surface it was typed into.
+#[derive(Debug)]
+pub struct KeyboardHandler {
+    /// The binding layers consulted for every keypress, highest precedence last.
+    ///
+    /// Seeded with [`default_keymap_stack`]. A host layers its own keymap on top
+    /// with [`Self::push_keymap`], which overrides the default without editing
+    /// it.
+    pub(super) keymap: KeymapStack,
+
+    /// Which key sequence runs each command, derived from [`Self::keymap`].
+    ///
+    /// Cached because a command palette re-reads it on every filter keystroke
+    /// while it changes only when a layer is pushed or popped. Kept in step by
+    /// `install_keymap`, the single funnel every keymap mutation passes through.
+    pub(super) key_hints: KeyHintIndex,
+
+    /// The key-sequence state machine: the strokes typed so far in an incomplete
+    /// sequence, plus the active mode.
+    ///
+    /// Held here rather than passed in because a pending sequence is per-focus
+    /// state with the same lifetime as the sticky columns below, and must be
+    /// abandoned by the same host events that invalidate them.
+    pub(super) resolver: KeymapResolver,
+
+    /// Per-cursor preferred ("sticky") columns for vertical movement.
+    ///
+    /// Aligned with [`CursorState::all_selections`] order (primary first,
+    /// then secondary cursors in document order) as captured by the last
+    /// vertical move or vertical add. The vector lives on the handler rather
+    /// than on `Selection` so the persisted cursor state stays free of
+    /// transient input concerns.
+    ///
+    /// The columns are valid *only* for the exact cursor state recorded in
+    /// [`Self::sticky_state`]. A vertical operation reuses them when the
+    /// incoming cursor state equals that snapshot and rebuilds them from the
+    /// current head columns otherwise. Validating by full cursor-state
+    /// identity (rather than by cursor count) is what makes any intervening
+    /// path self-invalidate the sticky column without an explicit reset: a
+    /// horizontal motion, an edit, or a select-all produces a different
+    /// cursor state, so the stale columns are ignored — while undo/redo that
+    /// restores the *exact* prior cursor state also restores its sticky
+    /// columns (they were never destroyed, only left dormant).
+    pub(super) preferred_columns: Option<Vec<usize>>,
+
+    /// The cursor state that [`Self::preferred_columns`] describes, or `None`
+    /// when no sticky columns are held. A vertical move/add trusts
+    /// `preferred_columns` only while this equals the incoming cursor state.
+    pub(super) sticky_state: Option<CursorState>,
+
+    /// The document content revision ([`Document::revision`]) the sticky
+    /// columns were captured at, or `None` when untracked.
+    ///
+    /// A host-driven bare content edit can shift text under cursors *without*
+    /// moving them (leaving [`Self::sticky_state`] matching), so validating the
+    /// sticky columns also against the content revision discards them whenever
+    /// the document changed — a vertical move after such an edit re-seeds from
+    /// the live head column instead of a stale preferred column.
+    pub(super) sticky_revision: Option<u64>,
+
+    /// Set when a non-vertical cursor mutation has happened since the sticky
+    /// columns were captured, marking them stale without destroying them.
+    ///
+    /// Validity by cursor-state identity alone is defeated by any action that
+    /// returns the cursor to the same coordinates (a left-then-right round
+    /// trip, an edit that lands the caret back where it started): the columns
+    /// would be wrongly resurrected. A horizontal motion, an edit, a collapse to
+    /// primary, or a line operation sets this flag (see
+    /// [`Self::note_operation`]); a vertical move/add ignores dirty columns and
+    /// re-seeds from the live head. The flag is cleared only when new columns are
+    /// stored, on a full reset, or when undo/redo restores the exact prior state
+    /// (see [`Self::revalidate_vertical_columns`]) — so genuine history replay
+    /// still revives the columns while a live round trip does not.
+    pub(super) sticky_dirty: bool,
+
+    /// Secondary cursors in the order they were added, most recent last.
+    ///
+    /// Populated by the multi-cursor add verbs (add-selection-to-next-match,
+    /// add-cursor-above/below, select-all-occurrences) and consumed by
+    /// remove-last-cursor and [`Self::skip_last_added_occurrence`], which pop the
+    /// most recently added cursor. Each entry is the exact [`Selection`] of a
+    /// secondary cursor.
+    ///
+    /// The stack is only meaningful while it describes the *current* cursor
+    /// state; [`Self::add_order_anchor`] records the state it was last
+    /// consistent with so any cursor change from another path (a motion, an
+    /// edit, a collapse, a host-driven `set_cursor`/`set_selection`, undo/redo)
+    /// self-invalidates the stack the next time a multi-cursor verb runs. See
+    /// [`Self::sync_add_order`].
+    pub(super) cursor_add_order: Vec<Selection>,
+
+    /// The cursor state that [`Self::cursor_add_order`] was last consistent
+    /// with (the state each add verb produced), or `None` when the stack is
+    /// empty and untracked.
+    ///
+    /// Before a multi-cursor verb trusts the stack it compares the incoming
+    /// cursor state against this snapshot; any mismatch means something else
+    /// moved, added, or removed a cursor since the last verb, so the stack is
+    /// cleared. This is what makes edits and motions unable to corrupt the
+    /// addition order: they never update the anchor, so the very next verb
+    /// discards the now-stale stack instead of removing or skipping the wrong
+    /// cursor.
+    pub(super) add_order_anchor: Option<CursorState>,
+
+    /// The document content revision ([`Document::revision`]) the stack was
+    /// last consistent with, or `None` when untracked.
+    ///
+    /// A host-driven bare `Insert`/`Delete`/`Replace` can move text under the
+    /// cursors *without* changing any cursor position, leaving
+    /// [`Self::add_order_anchor`] matching while the bytes each stack entry
+    /// points at have changed. Recording the revision alongside the anchor
+    /// means the next verb also compares content revisions and discards the
+    /// stack whenever the document changed, so skip/remove-last-cursor never
+    /// slice a stale range as the search term.
+    pub(super) add_order_revision: Option<u64>,
+
+    /// What the last auto-pair keystroke wrote, or `None` when the last one
+    /// wrote no multi-character closer.
+    ///
+    /// ⭐ **Backspace's multi-character collapse is gated on this and on
+    /// nothing else** — ruling B-13, `docs/design/AUTO-PAIR-MAP.md` §10.12.
+    /// *"Did the editor write this closer"* is a fact about what happened, and
+    /// a buffer records only what is; three rounds of positional probes into
+    /// the post-edit buffer were each refuted by a case at a scope boundary
+    /// the probe could not see. So the insertion says what it wrote and the
+    /// delete believes only that.
+    ///
+    /// Valid *only* for the exact document identity, content revision and
+    /// cursor state recorded in it, which is the same validation discipline
+    /// [`Self::preferred_columns`] describes and for the same reason:
+    /// validating by full identity is what makes every intervening path — a
+    /// motion, another edit, undo, redo, a click, a host-driven cursor jump —
+    /// self-invalidate the record without an explicit reset. Nothing in this
+    /// crate clears it, and nothing needs to.
+    pub(super) auto_pair: Option<AutoPairInsertion>,
+
+    /// How many lines a page motion hops: the viewport height, in text rows.
+    ///
+    /// View state mirrored from the host, not owned here — the keyboard layer
+    /// has no viewport, but `cursor.pageUp`/`cursor.pageDown` are caret motions
+    /// with sticky columns, which are this handler's, so the one integer they
+    /// need travels to them rather than the motion moving to the view. Synced
+    /// through [`Self::set_page_rows`]; [`crate::Editor`] does so from its own
+    /// viewport before every dispatch, so it can never go stale on that path. A
+    /// host driving this handler directly syncs it whenever its layout changes.
+    ///
+    /// Zero — the initial value, and legitimate whenever chrome consumes every
+    /// row — pages one line (see [`Self::page_motion`]).
+    pub(super) page_rows: usize,
+    /// Transient cell geometry, never serialized or restored by history.
+    pub(super) cell_navigation: Option<cell_navigation::CellNavigationState>,
+    /// A mutable fold borrow may replace the object without advancing its counter.
+    pub(super) cell_geometry_dirty: bool,
+}
+
+impl Default for KeyboardHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl KeyboardHandler {
+    /// Creates a new keyboard handler bound to the default non-modal keymap.
+    ///
+    /// The keymap is the layer stack from [`default_keymap_stack`]; a host adds
+    /// its own layer with [`Self::push_keymap`] rather than replacing this one, so
+    /// bindings the user did not override keep working.
+    ///
+    /// # Compatibility
+    ///
+    /// This was a `const fn` before bindings became data. It cannot be one now,
+    /// because it allocates the default binding table — so a downstream
+    /// `static H: KeyboardHandler = KeyboardHandler::new();` no longer compiles and
+    /// must become a `LazyLock` or a run-time construction. Nothing in this
+    /// workspace constructed a handler in a `const` context; the narrowing is
+    /// recorded here rather than left to be discovered.
+    #[must_use]
+    pub fn new() -> Self {
+        let keymap = default_keymap_stack();
+        Self {
+            key_hints: KeyHintIndex::build(&keymap),
+            keymap,
+            resolver: KeymapResolver::new(),
+            preferred_columns: None,
+            sticky_state: None,
+            sticky_revision: None,
+            sticky_dirty: false,
+            cursor_add_order: Vec::new(),
+            add_order_anchor: None,
+            add_order_revision: None,
+            auto_pair: None,
+            page_rows: 0,
+            cell_navigation: None,
+            cell_geometry_dirty: false,
+        }
+    }
+
+    /// Syncs the viewport height, in text rows, that a page motion hops.
+    ///
+    /// See [`Self::page_rows`] for who calls this and when. Idempotent and
+    /// cheap, so syncing on every dispatch costs nothing; zero is a legitimate
+    /// value and pages one line.
+    pub const fn set_page_rows(&mut self, rows: usize) {
+        self.page_rows = rows;
+    }
+
+    /// Handles a keyboard event.
+    ///
+    /// Returns a `KeyResult` indicating what action should be taken.
+    /// The caller is responsible for applying any resulting commands
+    /// and handling clipboard operations.
+    ///
+    /// The event is resolved through [`Self::keymap`]; see [`super::dispatch`] for the
+    /// resolution order and for what happens to a keypress no binding claims.
+    ///
+    /// `config` drives the editing behaviors: `tab_width`/`insert_spaces`
+    /// for Tab, indent, and outdent; `auto_indent` for Enter (indent
+    /// inheritance, bracket-block and code-fence expansion); `auto_pairs`
+    /// for bracket/quote pairing; and `line_comment_token` as the comment
+    /// syntax fallback for the comment-toggle commands when the document's
+    /// language provides none.
+    ///
+    /// `scopes` answers what the text at a byte offset is syntactically inside,
+    /// for the one manifest rule that needs it: a language's `not_in` says a
+    /// bracket must not auto-close inside a string or a comment. Pass
+    /// [`CaretScopes::none`] where there is no parse tree — it means *unknown*,
+    /// and under ruling B-6 unknown suppresses nothing, which is behaviour as
+    /// it was before the rule was read.
+    pub fn handle_key(
+        &mut self,
+        event: &KeyEvent,
+        document: &Document,
+        cursor: &CursorState,
+        history: &UndoTree,
+        config: &EditorConfig,
+        scopes: &CaretScopes<'_>,
+    ) -> KeyResult {
+        self.reset_cell_state();
+        let (result, action) = self.dispatch_key(event, document, cursor, history, config, scopes);
+        self.note_operation(action, &result);
+        result
+    }
+
+    /// Runs one command by id, with no keystroke involved.
+    ///
+    /// This is the other half of "every editor action is a named, addressable
+    /// value": a command palette, a macro, a menu item and an AI host all need to
+    /// invoke a command they found in the
+    /// [`CommandRegistry`](crate::CommandRegistry) without fabricating a
+    /// [`KeyEvent`]. The returned [`KeyResult`] is exactly what the same command
+    /// produces from a keypress, and the post-command bookkeeping (sticky columns,
+    /// the multi-cursor addition-order stack) runs identically — so invoking
+    /// `cursor.lineDown` from a palette keeps the sticky column just as the
+    /// `Down` key does.
+    ///
+    /// `args` carries a count and captured characters for commands that read them;
+    /// pass [`CommandArgs::NONE`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandRunError::Unimplemented`] when this kernel implements no command
+    /// with that id. A host command registered in the registry lands here, and the
+    /// caller — which owns the implementation — is the right place to notice.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the five state parameters are exactly `CommandContext`'s \
+        fields, and bundling them into a public input struct would put a \
+        second name on the same set — one the kernel builds, one every caller \
+        builds — for a lint about readability. `handle_key` beside it takes \
+        the same five and sits inside the limit, so the shapes would then \
+        differ for no reason a reader could see."
+    )]
+    pub fn run_command(
+        &mut self,
+        id: &str,
+        args: CommandArgs,
+        document: &Document,
+        cursor: &CursorState,
+        _history: &UndoTree,
+        config: &EditorConfig,
+        scopes: &CaretScopes<'_>,
+    ) -> Result<KeyResult, CommandRunError> {
+        self.reset_cell_state();
+        let Some(action) = actions::action_for(id) else {
+            return Err(CommandRunError::Unimplemented { id: id.to_owned() });
+        };
+        let ctx = actions::CommandContext {
+            event: None,
+            args,
+            document,
+            cursor,
+            config,
+            scopes,
+        };
+        let result = self.run_action(action, &ctx);
+        self.note_operation(Some(action), &result);
+        Ok(result)
+    }
+
+    /// Returns `true` when this kernel implements a command with `id`.
+    ///
+    /// A host uses this to decide whether a registry entry is the kernel's to run
+    /// or its own, without invoking anything.
+    #[must_use]
+    pub fn implements_command(id: &str) -> bool {
+        actions::action_for(id).is_some()
+    }
+
+    /// Handles pasting text from clipboard.
+    ///
+    /// This is called by the editor when clipboard content is available.
+    /// The text is inserted at every cursor.
+    pub fn handle_paste(&self, text: &str, document: &Document, cursor: &CursorState) -> KeyResult {
+        Self::insert_text(text, document, cursor)
+    }
+
+    // ========== Keymap and sequence state ==========
+
+    /// Clears the sticky-column state used for vertical movement, and any
+    /// pending key sequence.
+    ///
+    /// Sticky columns are validated against the exact cursor state they were
+    /// captured for (see [`Self::preferred_columns`]), so most cursor changes
+    /// self-invalidate them. This explicit reset is for host-driven cursor
+    /// jumps that bypass [`Self::handle_key`] — `set_cursor`/`set_selection`,
+    /// mouse-applied commands, IME commits, paste — where the caller wants a
+    /// fresh sticky column even if the new state happened to coincide with a
+    /// dormant one. Undo/redo deliberately does **not** call this: restoring
+    /// the exact prior cursor state must also restore its sticky columns.
+    ///
+    /// A half-typed key sequence is abandoned for the same reason the columns
+    /// are: the context it was typed in is gone. Calls from
+    /// [`Self::note_operation`] never abandon anything, because a keypress that
+    /// left a sequence pending produces no cursor mutation and so never reaches
+    /// here.
+    pub fn reset_vertical_state(&mut self) {
+        self.reset_cell_state();
+        self.preferred_columns = None;
+        self.sticky_state = None;
+        self.sticky_revision = None;
+        self.sticky_dirty = false;
+        self.resolver.abort_pending();
+    }
+
+    /// Revives the sticky columns after an undo/redo replay that restored the
+    /// exact cursor state they describe.
+    ///
+    /// History navigation that returns the cursor to the state the sticky
+    /// columns were captured for should also revive them (the enclosing content
+    /// edit had marked them dirty). This clears the dirty flag and, when the
+    /// stored [`Self::sticky_state`] still equals the restored `cursor`,
+    /// re-stamps [`Self::sticky_revision`] to the replayed document's
+    /// `revision` — because undo/redo bump the revision even when they restore
+    /// identical content, the columns' original revision would otherwise no
+    /// longer match. When the stored state does not match the restored cursor,
+    /// only the flag is cleared and the (now mismatched) columns are ignored by
+    /// [`Self::take_sticky_columns_for`], so a wrong set can never be revived.
+    pub fn revalidate_vertical_columns(&mut self, cursor: &CursorState, revision: u64) {
+        self.reset_cell_state();
+        self.sticky_dirty = false;
+        if self.sticky_state.as_ref() == Some(cursor) {
+            self.sticky_revision = Some(revision);
+        }
+    }
+
+    /// Discards the multi-cursor addition-order stack, and any pending key
+    /// sequence.
+    ///
+    /// Called by the editor from every path that mutates the cursor without
+    /// going through an add verb — host `set_cursor`/`set_selection`, mouse
+    /// clicks, IME commits, paste, search navigation, and undo/redo replay.
+    /// Unlike the value-equality snapshot in [`Self::sync_add_order`] (which a
+    /// sequence of mutations returning to the same state can defeat), this
+    /// eager clear cannot be fooled by a round trip: once any such path runs,
+    /// remove-last-cursor and skip find an empty stack and no-op rather than
+    /// removing an arbitrarily-ordered cursor.
+    pub fn invalidate_cursor_order(&mut self) {
+        self.cursor_add_order.clear();
+        self.add_order_anchor = None;
+        self.add_order_revision = None;
+        self.resolver.abort_pending();
+    }
+
+    // ========== Shared utility ==========
+
+    /// Creates a selection command if the cursor changed.
+    pub(super) fn create_selection_command(old: &CursorState, new: &CursorState) -> KeyResult {
+        if old == new {
+            KeyResult::Handled
+        } else {
+            KeyResult::Command(Command::SetSelection {
+                old_state: old.clone(),
+                new_state: new.clone(),
+            })
+        }
+    }
+}

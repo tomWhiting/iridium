@@ -1,0 +1,337 @@
+{
+  "id": "ICC-001",
+  "cluster": "iridium-cell-composer",
+  "title": "Shared cell composer geometry and optional bare terminal Frame",
+  "status": "source_verified_for_private_branch_checkpoint_not_landed",
+  "depends_on": [],
+  "checklist": [
+    "C1",
+    "C2",
+    "C3",
+    "C4"
+  ],
+  "stories": [
+    "S1",
+    "S2",
+    "S3",
+    "S4"
+  ],
+  "design": "../design.json",
+  "purpose": "A compact Norn composer can render, hit-test and edit one Iridium document in its allocated rectangle with correct Unicode and retained undo.",
+  "task": "Preserve the exact43 locally verified source and historical benchmark provenance. Commit/push this checked stage to its existing private feature branch under the explicit checkpoint authorization. Fable, exact-commit205 and public-history/release decisions remain distinct prerequisites; do not claim landing or perform main/rewrite/publication actions.",
+  "requirements": [
+    {
+      "id": "R1",
+      "title": "Borrowed kernel cell rows and grapheme geometry",
+      "depends_on": [],
+      "spec": "WHEN a caller prepares CellRowMap from a borrowed Document, its actual FoldState and explicit CellWrapParameters, the kernel SHALL produce immutable screen rows for the lifetime of those borrows. It SHALL use workspace unicode-segmentation and unicode-width without GPU dependencies; expose scalar/byte/grapheme/cell boundaries, row placements, hit testing and row spans from the same measurements; and implement decisions D1-D7. Preparation SHALL NOT clone or hash the full document to validate freshness, mutate editor state, trim whitespace, or use document id/revision as an independent cache authority. Methods take no replacement document. Invalid positions are typed errors; hidden positions are explicit non-placement. Zero-width layouts are explicit empty layouts and never divide by zero.",
+      "files": {
+        "modify": [
+          "Cargo.lock",
+          "crates/iridium-editor/Cargo.toml",
+          "crates/iridium-editor/src/lib.rs"
+        ],
+        "create": [
+          "crates/iridium-editor/src/cell_layout/mod.rs",
+          "crates/iridium-editor/src/cell_layout/types.rs",
+          "crates/iridium-editor/src/cell_layout/clusters.rs",
+          "crates/iridium-editor/src/cell_layout/rows.rs",
+          "crates/iridium-editor/src/cell_layout/mapping.rs",
+          "crates/iridium-editor/src/cell_layout/tests.rs"
+        ]
+      },
+      "acceptance": [
+        "cargo test -p iridium-editor --no-default-features cell_layout covers widths 0,1,2,4,8,10,80; empty text, empty lines, CR/LF/CRLF, trailing newline, exactly-full last row, tabs, wide glyphs, combining clusters, flags, skin-tone emoji and ZWJ sequences.",
+        "For \"alpha beta gamma\" at width 10, rows are exactly \"alpha beta\" and \" gamma\". Concatenated source spans reproduce every original scalar/byte, including leading/trailing spaces. There is no word-break backtracking and no invented final empty row for an exactly-full non-newline-ending line.",
+        "Every positive-width grapheme is indivisible across rows. A tab that crosses the row end is placed at the next row origin and remeasured from that origin; an atom wider than the entire width is represented once as an overflow atom, never split or retried indefinitely. R3 clips it using existing blanking behavior.",
+        "place and position_at obey the canonical laws in D6, including explicit wrap affinity, trailing whitespace, dead cells before wide glyphs, zero-width clusters and row-end edge positions. Do not assert a false bijection for zero-width clusters or tab continuation cells.",
+        "Doctest compile_fail demonstrates that changing Document or FoldState while the row map is used fails to compile. A runtime divergent-clone fixture creates equal id/revision but different text and proves independently borrowed maps describe their actual sources; no map method accepts the other clone.",
+        "Fold visibility comes from the borrowed FoldState::is_line_hidden contract and produces each visible document line once, including nested folds. It never reuses the unrelated web FoldState or changes fold-visual Viewport units."
+      ],
+      "checklist": [
+        "C1"
+      ],
+      "stories": [
+        "S1"
+      ],
+      "provenance": [
+        "docs/TERMINAL-FACE-PLAN.md:26",
+        "docs/SOFT-WRAP-DESIGN.md:16 and review section at 632",
+        "crates/iridium-tui/src/frame/line.rs:114",
+        "crates/iridium-editor/src/document/buffer.rs:96"
+      ],
+      "implementation_status": "implemented_local_verified"
+    },
+    {
+      "id": "R2",
+      "title": "Cell-aware command dispatch and complete grapheme-safe input",
+      "depends_on": [
+        "R1"
+      ],
+      "spec": "WHEN the host opts into Editor cell-key, cell-command, cell-pointer or cell-paste entry points, the kernel SHALL use the existing keymap resolver, command IDs, repeat handling, auto-pair provenance and reversible-command/history path. Geometry-dependent commands SHALL prepare the borrowed row map from current editor state internally, obtain the result, end immutable layout borrows, then apply the command exactly once. The implementation SHALL provide visual-row Up/Down/Page/Home/End and selection variants, grapheme-atomic horizontal movement/deletion and range-safe word/edit operations as D8-D10 define. No parallel physical-key switch is permitted. Existing Editor::handle_key/run_command/paste semantics for current faces remain unchanged. No resize or layout synchronization may call set_content, rebuild Editor, reset undo or mutate the legacy Viewport. All errors precede document/history mutation.",
+      "files": {
+        "modify": [
+          "crates/iridium-editor/src/editor/core.rs",
+          "crates/iridium-editor/src/input/keyboard/mod.rs",
+          "crates/iridium-editor/src/input/keyboard/dispatch.rs",
+          "crates/iridium-editor/src/input/keyboard/actions/mod.rs",
+          "crates/iridium-editor/src/input/keyboard/actions/run.rs",
+          "crates/iridium-editor/src/input/keyboard/navigation.rs",
+          "crates/iridium-editor/src/input/keyboard/edits.rs",
+          "crates/iridium-editor/src/input/keyboard/backspace_pairs.rs",
+          "crates/iridium-editor/src/input/keyboard/editing/intents.rs",
+          "crates/iridium-editor/src/editor/mod.rs"
+        ],
+        "create": [
+          "crates/iridium-editor/src/editor/cell_input.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_input.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_navigation.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_actions.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_edits.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_tests.rs",
+          "crates/iridium-editor/src/input/keyboard/handler.rs"
+        ]
+      },
+      "acceptance": [
+        "Unit tests exercise resolved command IDs through both key events and direct command dispatch. Rebinding cursor.lineDown to another key still yields a visual-row move in cell mode; host commands/chords/repeat suppression retain their existing results. No hardcoded Enter/Alt-Enter send decision is added.",
+        "Left/Right, Backspace/Delete, word delete and selection replacement never leave half a combining sequence, ZWJ family, regional-indicator flag or emoji modifier. Test both scalar-interior host selection refusal before mutation and post-insert normalization when new text joins a preexisting grapheme.",
+        "Unicode-safe Backspace preserves the real owned-pair and multi-character auto-pair collapse rules. User-supplied closers are not treated as owned. Combining marks adjacent to pair delimiters cannot cause partial-grapheme deletion.",
+        "Up/Down traverse continuation rows with sticky CELL columns, preserve preferred position through short rows, skip folded content and preserve selection direction. Home/End address the visible row; document-start/end still address the document. Page commands use the actual visible text-row count, including zero-height behavior without invented limits.",
+        "Cell affinity/preferred columns are outside persisted Position, CursorState, Command, UndoTree and legacy Viewport. Resize/tab-width/fold changes and nonvertical movements invalidate stale preferences without losing undo branches. Undo/redo restores exact document bytes and serialized selections; it does not replay obsolete screen affinity.",
+        "Paste of multiline Unicode text is one reversible operation with original text unchanged, never a series of simulated key presses. Paste never produces a submit command. Typing, auto-pair insertion, resize, paste, undo, redo and branch creation preserve the existing history grouping contract.",
+        "For ordinary typing/copy/host commands the cell-mode dispatcher does not prepare a whole-document row map when only local grapheme validation is needed. Geometry work is limited to geometry-dependent operations; no content clone/hash comparison is added per key.",
+        "ICC-AST-01: keyboard/mod.rs contains module/import declarations and re-exports only; KeyboardHandler public path and all behavior remain identical after moving its type and implementation to handler.rs. Existing sibling field/helper access uses pub(super), never pub(crate). New handler file is below500 physical lines. Exact move proof, focused keyboard/public editor/TUI tests, strict workspace Clippy and supplemental AST bind the new43-path source set; previous42-path diagnostics remain historical."
+      ],
+      "checklist": [
+        "C2"
+      ],
+      "stories": [
+        "S2"
+      ],
+      "provenance": [
+        "crates/iridium-editor/src/editor/core.rs:547, 1100, 1192",
+        "crates/iridium-editor/src/input/keyboard/dispatch.rs:64",
+        "crates/iridium-editor/src/input/keyboard/actions/run.rs:34",
+        "crates/iridium-editor/src/input/keyboard/edits.rs:189",
+        "crates/iridium-editor/src/input/keyboard/navigation.rs:141"
+      ],
+      "implementation_status": "implemented_local_verified_readonly_history_and_handler_structure_repaired"
+    },
+    {
+      "id": "R3",
+      "title": "Borrowed cell Frame preparation and optional bare chrome",
+      "depends_on": [
+        "R2"
+      ],
+      "spec": "WHEN Frame::prepare_cells borrows an Editor and explicit CellFrameOptions, the face SHALL derive text extent/chrome allocation once, prepare the kernel map from those exact borrows and return PreparedCellFrame. Frame::render_cells SHALL accept that prepared object and a same-sized local CellBuffer, not an independent editor. Render, caret, selections and hit testing SHALL consume the same prepared row geometry. Absent chrome SHALL reserve no status, search, gutter or sidebar cells. Existing Frame::render/layout/sync_viewport signatures and their default output/scroll semantics SHALL remain unchanged. New composer rendering SHALL NOT enter raw mode, own ANSI output, read a TTY, run a driver, or mutate the Editor. An extent mismatch is a typed error before any buffer write.",
+      "files": {
+        "modify": [
+          "crates/iridium-tui/src/frame/mod.rs",
+          "crates/iridium-tui/src/frame/geometry.rs",
+          "crates/iridium-tui/src/frame/line.rs",
+          "crates/iridium-tui/src/frame/text.rs",
+          "crates/iridium-editor/src/cell_layout/clusters.rs",
+          "crates/iridium-editor/src/cell_layout/tests.rs",
+          "crates/iridium-editor/src/editor/cell_input.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_navigation.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_tests.rs",
+          "crates/iridium-tui/Cargo.toml",
+          "Cargo.lock"
+        ],
+        "create": [
+          "crates/iridium-tui/src/frame/types.rs",
+          "crates/iridium-tui/src/frame/render.rs",
+          "crates/iridium-tui/src/frame/cell_options.rs",
+          "crates/iridium-tui/src/frame/prepared_cells.rs",
+          "crates/iridium-tui/src/frame/cell_render.rs",
+          "crates/iridium-tui/src/frame/cell_geometry.rs",
+          "crates/iridium-tui/src/frame/embedding_tests.rs",
+          "crates/iridium-tui/src/frame/wrap_tests.rs"
+        ]
+      },
+      "acceptance": [
+        "Frame mod.rs contains declarations/re-exports after moving its existing Frame/PaintedLine definitions and legacy rendering logic unchanged into named modules. Existing public exports remain available.",
+        "Bare 0x0, 0xN, Nx0, 1x1 and larger buffers render without out-of-range writes or hidden reserved status rows. A nonzero parent-origin fixture copies local cells at one offset and leaves sentinel cells outside the allocated rectangle unchanged; the Iridium API returns local coordinates only.",
+        "Prepared extent mismatch is rejected without changing a sentinel-filled destination. Compile-fail examples prove the borrowed editor cannot be edited between preparation, rendering and hit-testing. Reprepare after resize works with the same Editor/history.",
+        "No second wrap scanner exists in the face. LineLayout preserves existing public within-line results while deriving cluster widths/byte/scalar spans from the kernel measurement. Frame styles, syntax spans and selections keep original document byte/scalar coordinates when one line occupies several rows.",
+        "Caret hints and hit testing agree with D6/D11. Exact-full final rows and an oversized CJK glyph at width 1 remain bounded; a trailing-edge caret is explicit, not a false hit-test round trip. No partial glyph or ANSI/control character is emitted.",
+        "Existing legacy frame tests remain green and fixed expected-cell fixtures prove identical output for default chrome, hidden/visible gutter, sidebar, status, open search overlay, horizontal clipping, folded placeholder, Unicode/tabs and search/selection styling. New optional Some(chrome) allocation uses existing chrome rules and None is bare.",
+        "Composer pointer mutation uses the R2 fresh cell-pointer entry point with current options. Prepared hit tests are read-only queries; no owned stale geometry/token can later mutate a different editor.",
+        "Fixed expected descriptors cover CRLF as invisible legacy cluster, combining/ZWJ/CJK/tab byte/scalar/cell spans; strict CellLine retains explicit line-ending and overflow errors. No error-to-empty conversion.",
+        "Each actual primary/secondary cursor uses its validated cell affinity. Invalid index returns None; actual state/options changes invalidate affinities. Multi-cursor soft-break upstream carets remain upstream; legacy primary API is unchanged.",
+        "Review repair ICC-R3-01: bind syntax-cache reuse to the same document and an immutable Rope snapshot using the existing locked ropey instance-equivalence API. Retain ownership so address reuse and divergent Document clones cannot reuse foreign spans. Permit only the existing workspace ropey dependency for iridium-tui and its lockfile dependency-list membership; no version/checksum churn. Same unchanged document preserves cache reuse. Reused-versus-fresh Frame tests cover equal-revision different documents and divergent same-id clones. Record the retained snapshot copy-on-write cost for subsequent performance validation."
+      ],
+      "checklist": [
+        "C3"
+      ],
+      "stories": [
+        "S3"
+      ],
+      "provenance": [
+        "crates/iridium-tui/src/frame/mod.rs:130, 146, 156",
+        "crates/iridium-tui/src/frame/geometry.rs:70, 138",
+        "crates/iridium-tui/src/frame/text.rs:65",
+        "crates/iridium-tui/src/input.rs:145, 232"
+      ],
+      "implementation_status": "implemented_local_verified_highlight_ownership_repaired"
+    },
+    {
+      "id": "R4",
+      "title": "Cross-renderer and host-boundary compatibility proof",
+      "depends_on": [
+        "R3"
+      ],
+      "spec": "WHEN the completed candidate is verified, the proof SHALL exercise the public kernel and terminal composer APIs without a terminal driver, plus existing renderer/keyboard/history suites and the target-gated wasm build. Compatibility tests SHALL use fixed baseline expectations and actual public calls, not two wrappers around the same new implementation as the only oracle. Record performance measurements for preparation versus repeated painting/hits and key operations; do not invent product caps or claim the documented performance target from unmeasured code. All result claims name exact source revision, commands, exit status and unavailable execution lanes.",
+      "files": {
+        "modify": [
+          "crates/iridium-editor/Cargo.toml",
+          "crates/iridium-tui/Cargo.toml"
+        ],
+        "create": [
+          "crates/iridium-editor/tests/cell_composer.rs",
+          "crates/iridium-tui/tests/cell_composer.rs",
+          "crates/iridium-editor/benches/cell_composer.rs",
+          "crates/iridium-tui/benches/cell_composer.rs"
+        ]
+      },
+      "acceptance": [
+        "Public integration fixture owns one Editor for a complete typing/autopair/multiline Unicode paste/resize/scroll/hit/undo/redo/branch sequence, proving exact text/selections and retained undo branch identity. Register two fake host send commands through the existing registry/keymap and prove Enter/Alt-Enter selection stays host-owned; paste/release do not send.",
+        "Native iridium-tui input::translate fixtures preserve uppercase/original text, Alt/Meta and press/repeat/release categories, bracketed paste and documented legacy modifier ambiguity. No guessed AltGraph or synthesized printable keys are introduced.",
+        "Run existing cargo test -p iridium-editor --no-default-features, syntax feature tests, iridium-tui tests, host_extension_surface and full workspace/all-features tests. Existing retained_shaping, top_inset, left_inset and run_weight_reaches_the_glyphs must execute on a venue with the needed GPU support; compile-only or an environment skip is not a render compatibility pass.",
+        "Run the existing target-specific wasm check and strict wasm Clippy, as declared in scripts/ci.sh. Native compilation is not evidence that wasm.rs compiled. Preserve existing binding/Viewport/Position serialization and public renderer default fields; no generated JS bindings or pkg artifact is changed by this brief.",
+        "Run strict workspace/all-features/all-targets Clippy and fmt; audit no newly added suppressions, unwrap/expect/panic, ignored tests or discarded errors. Record existing unrelated baseline findings separately; do not suppress them or silently widen this wall.",
+        "Record a benchmark for short/multiline/long-unbroken Unicode drafts, separating row-map preparation, repeated render/hits and key dispatch. Repeated queries on one prepared frame do not re-segment text. The borrowed map never validates by full text equality/hash; ordinary text input does not scan unrelated lines.",
+        "Keep benchmarks in their responsibility crates: editor benchmark measures kernel row preparation/hits/key dispatch without iridium-tui dev-dependency or syntax-feature unification; iridium-tui benchmark measures prepared Frame render/hits and warm-frame edit costs. The TUI Cargo.toml addition registers only this standalone benchmark using existing dependencies. Record retained Rope copy-on-write and capture-map reconstruction costs; no timing threshold or query-recompilation claim. TUI records explicitly label plain text (clear_language) and Rust (set_language) controls; repeated hit measurements sample visible document rows and require a present hit. Preserve the observed Rust long-line cost as a performance qualification rather than attributing an aggregate difference to Rope COW alone."
+      ],
+      "checklist": [
+        "C4"
+      ],
+      "stories": [
+        "S4"
+      ],
+      "provenance": [
+        "CLAUDE.md architecture notes and performance target",
+        "scripts/ci.sh:121",
+        "crates/iridium-editor/Cargo.toml retained_shaping/top_inset/left_inset test declarations",
+        "crates/iridium-editor/tests/host_extension_surface.rs"
+      ],
+      "implementation_status": "declared_local_checks_completed_after_handler_extraction_with_performance_qualification"
+    }
+  ],
+  "boundaries": [
+    "Norn implementation, same-session daemon/attach, transcript storage, filesystem editor panels, file tabs or conflict resolution.",
+    "Word-wrap algorithms, generic plugin/extension framework, retained global layout cache, CRDT, new document identity infrastructure.",
+    "Changing GPU/web/default terminal renderer layout or legacy serialized Position/Viewport contracts.",
+    "Starting Iridium terminal driver/TTY lifecycle, model requests, builds, installation or release during authoring.",
+    "Exact modify/create paths in ICC-001. Stop before editing any other file; name the needed files and amendment. Do not expand to GPU/web migration or rewrite core.rs wholesale."
+  ],
+  "verification": [
+    "cargo test -p iridium-editor --no-default-features --no-fail-fast",
+    "cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast",
+    "cargo test -p iridium-tui --no-fail-fast",
+    "cargo test --workspace --all-features --no-fail-fast",
+    "cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown",
+    "cargo clippy --workspace --all-features --all-targets -- -D warnings",
+    "cargo clippy -p iridium-editor --no-default-features --all-targets -- -D warnings",
+    "cargo clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings",
+    "cargo clippy -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown -- -D warnings",
+    "cargo fmt --all --check",
+    "cargo bench -p iridium-editor --no-default-features --bench cell_composer",
+    "Execute the registered exact-commit venue battery before landing; scripts/ci.sh default mode runs the existing ten checks, whereas --verdict exit 0 means measured and its stdout token carries pass/fail. No venue receipt is supplied by this packet."
+  ],
+  "verification_status": "ICC-AST-01 is closed by independent supplemental AST review. Twelve exact 43-path local check selections passed, including full workspace all-features tests, strict workspace all-features/all-targets Clippy, wasm checks and formatting. All source, check-record and raw-log hashes were revalidated before this private branch checkpoint. Historical 42-path benchmarks remain separately bound. No Fable or exact-commit 205 landing receipt is claimed.",
+  "execution_checkpoint": "/private/tmp/nwp-05-proof/iridium-handler-local-proof.json",
+  "private_branch_checkpoint": {
+    "at_melbourne": "2026-09-06T08:37:01.580452+10:00",
+    "purpose": "User-authorized commit/push of checked stages to the existing private feature branch only.",
+    "branch": "codex/iridium-cell-composer",
+    "source_set_sha256": "e785bb9ecf5bf4174c7d3ea5b5871b4a4d90bb844605fde43bdd9acd8d5fd6a2",
+    "source_count": 43,
+    "local_proof_sha256": "3cd42a9878b558e54bb6e49c5663ca1f8f382355d249b5e2c8c9a7601df01954",
+    "validated_selections": [
+      {
+        "name": "keyboard-tests",
+        "sha256": "1191695d713c4472652ad4ced7390435c6ebae4197854750a3054ca1f3392ad5",
+        "log_sha256": "1dc4eb117fceb6c56cacbaf31596b53de1544b94cdbf8a5b4e7871006718b888"
+      },
+      {
+        "name": "kernel-tests",
+        "sha256": "a4994c5ab4dcca43bdeb7fc5356673a86edf06a4fb6d59d48ba0bfdc79f3eeac",
+        "log_sha256": "408b82172416be4cfb407cd8339600541b4bb509952fca42251659d80f3063df"
+      },
+      {
+        "name": "syntax-tests",
+        "sha256": "7985632b86fcbba2d7bc9378c00f16d013165ca9411a6bd126ed643a8a45a5f3",
+        "log_sha256": "79e481adbd4a4a79f45ec0c703aacf471a67700a250988699d7151a9d509a1cc"
+      },
+      {
+        "name": "tui-tests",
+        "sha256": "bb345a86f0da64c6912eb0ff3c06664e22a84e5aa6cebab2749563a79d4ea794",
+        "log_sha256": "cfa5ca32350e87870783d0ab314aa5fa9e3793d9c075c804992b023d82192604"
+      },
+      {
+        "name": "workspace-tests",
+        "sha256": "0e2efd203ebfcaaf73df5a6e27507419db36e3cdeb8013e67014649257428705",
+        "log_sha256": "f4bbd5c7b852254047f07046545dd7ce603c357694b6a63196d075605408b296"
+      },
+      {
+        "name": "workspace-clippy",
+        "sha256": "93b6484135d712ee182e69712248b9db437c1dd7fd28993b64199022c1c537e4",
+        "log_sha256": "bd879046bef8c8838d7e57d7a38f0cd1fff42cf9c38b5861c0953596c88264d7"
+      },
+      {
+        "name": "wasm-check",
+        "sha256": "8b3adad84011534612fbe924756c1376f75bc3d4c47b0aa42063bb44a5cb33c7",
+        "log_sha256": "00bb5dd9d6167d8b4b42da2075c2929939e2f1e596e320485c446465d8d6452d"
+      },
+      {
+        "name": "wasm-clippy",
+        "sha256": "6223a2a2236f692e71788d76d37fe08b9912644d781c5f85e5af9394ef4f33b9",
+        "log_sha256": "c4e75a7d8deab0be2376b6d68e36ea16a7cb66662b6f6a0e4354ebaf8a7c8216"
+      },
+      {
+        "name": "fmt",
+        "sha256": "d10a449327685f0e342fd362b658ede112039a989c80f49dc0c87e34140c54b7",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "clippy-kernel",
+        "sha256": "f2310032c4bb74a3165a8d4753e20d4c2202bbe26b01f345d52ddc7eafe4d3de",
+        "log_sha256": "91d1652b4fae2ff449e85988d5e2de9796ff02123fcd10450f49cad7368d9734"
+      },
+      {
+        "name": "clippy-syntax",
+        "sha256": "77675a6b6b8750928cdf28838b4705b5cb266e69ea489a1af216bc1ea3afc4e0",
+        "log_sha256": "ac5be6f054f954922974e6502f0031a67ae7ad87861455b3eeedd9dd72916a14"
+      },
+      {
+        "name": "test-lang",
+        "sha256": "53ce235026ab6eb117fea80eead63e780310119d81cebe509f8a40b1c2505c14",
+        "log_sha256": "3693b84133e067cd52909e3bdfe828f70194adf3e67339a39a155a20ef73e7eb"
+      }
+    ],
+    "workspace_result": {
+      "passed": 3209,
+      "failed": 0,
+      "ignored": 20,
+      "ignored_provenance": "Nineteen baseline documentation examples and one unchanged screenshot-artifact test; required GPU targets actually ran."
+    },
+    "outstanding": [
+      "Fable review and exact-commit 205 battery remain landing prerequisites; this private branch checkpoint is not landing approval.",
+      "Public Git history/release decision remains pending. No history rewrite, main merge, public visibility change, release or installation is authorized by this checkpoint.",
+      "Rust error-heavy long-line syntax stress remains above the documented input-latency intent; historical edit+frame means were about70ms versus 0.324–0.373ms plain control. Subsequent unchanged-source external diagnostics attribute the dominant case to tree-sitter error recovery/reuse refusal, not missing incremental wiring. Explained, not repaired.",
+      "Supplemental AST review retains nineteen inherited inventory matches and the existing core.rs size qualification; no aggregate AST-clean claim."
+    ],
+    "performance_provenance": {
+      "path": "/private/tmp/nwp-05-proof/iridium-key-attribution/results.json",
+      "sha256": "d0860a0ee9371c5482362789e980bc0dcdfb0c36ba82d8ad259475d11da45459",
+      "scope": "External public-API CPU diagnostic; no new Frame timing or isolated COW/allocation claim."
+    },
+    "history_mapping": {
+      "pre_checkpoint_base": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
+      "rewritten_base": null,
+      "rewritten_checkpoint": null,
+      "status": "No rewrite performed or approved; retain original commit identities in the external push receipt."
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "cluster": "iridium-cell-composer",
+  "title": "Cell composer checklist",
+  "sections": [
+    {
+      "name": "Iridium composer prerequisite",
+      "items": [
+        {
+          "id": "C1",
+          "text": "Borrowed kernel cell rows and grapheme geometry"
+        },
+        {
+          "id": "C2",
+          "text": "Cell-aware command dispatch and complete grapheme-safe input"
+        },
+        {
+          "id": "C3",
+          "text": "Borrowed cell Frame preparation and optional bare chrome"
+        },
+        {
+          "id": "C4",
+          "text": "Cross-renderer and host-boundary compatibility proof"
+        }
+      ]
+    }
+  ]
+}

@@ -21,7 +21,10 @@
 //! measures *within* one line, which the kernel expresses in pixels against a
 //! fixed character width — an assumption a terminal cannot make.
 
-use unicode_segmentation::UnicodeSegmentation as _;
+use iridium_editor::cell_layout::clusters::measure_graphemes;
+use iridium_editor::cell_layout::{CellColumn, CellRow, ClusterKind};
+
+use super::CellFrameError;
 
 use crate::cell::Grapheme;
 
@@ -112,32 +115,25 @@ impl LineLayout {
     /// `iridium_editor::input::keyboard`): a tab must always advance, or a
     /// caret could never move past one.
     pub fn new(text: &str, tab_width: usize) -> Self {
-        let tab_width = tab_width.max(1);
         let mut clusters = Vec::new();
         let mut column = 0;
         let mut char_index = 0;
-
-        for (byte_index, cluster) in text.grapheme_indices(true) {
-            let char_count = cluster.chars().count();
-            let grapheme = Grapheme::new(cluster);
-            let is_tab = cluster == "\t";
-            let width = if is_tab {
-                tab_width - (column % tab_width)
-            } else {
-                grapheme.as_ref().map_or(0, Grapheme::width)
-            };
+        for measured in measure_graphemes(text) {
+            let scalars = measured.scalar_range();
+            let bytes = measured.byte_range();
+            let width = measured.width_at(CellColumn(column), tab_width);
             clusters.push(PlacedCluster {
-                grapheme,
-                is_tab,
+                grapheme: Grapheme::new(measured.text()),
+                is_tab: measured.kind() == ClusterKind::Tab,
                 column,
                 width,
-                char_index,
-                char_count,
-                byte_index,
-                byte_count: cluster.len(),
+                char_index: scalars.start,
+                char_count: scalars.len(),
+                byte_index: bytes.start,
+                byte_count: bytes.len(),
             });
             column += width;
-            char_index += char_count;
+            char_index = scalars.end;
         }
 
         Self {
@@ -146,6 +142,48 @@ impl LineLayout {
             char_count: char_index,
             byte_count: text.len(),
         }
+    }
+
+    /// Retains original source coordinates while adopting the kernel row's
+    /// already measured cells. No segmentation or wrapping occurs here.
+    pub(super) fn from_cell_row(text: &str, row: &CellRow) -> Result<Self, CellFrameError> {
+        let document_line = row.document_line();
+        let clusters = row
+            .clusters()
+            .iter()
+            .map(|cluster| {
+                let bytes = cluster.byte_range();
+                let scalars = cluster.scalar_range();
+                let source = text.get(bytes.clone()).ok_or(CellFrameError::Cluster {
+                    line: document_line,
+                    byte: bytes.start,
+                })?;
+                let grapheme = if cluster.kind() == ClusterKind::Glyph {
+                    Some(Grapheme::new(source).ok_or(CellFrameError::Cluster {
+                        line: document_line,
+                        byte: bytes.start,
+                    })?)
+                } else {
+                    None
+                };
+                Ok(PlacedCluster {
+                    grapheme,
+                    is_tab: cluster.kind() == ClusterKind::Tab,
+                    column: cluster.column().0,
+                    width: cluster.width(),
+                    char_index: scalars.start,
+                    char_count: scalars.len(),
+                    byte_index: bytes.start,
+                    byte_count: bytes.len(),
+                })
+            })
+            .collect::<Result<Vec<_>, CellFrameError>>()?;
+        Ok(Self {
+            clusters,
+            width: row.width(),
+            char_count: row.scalar_range().end,
+            byte_count: row.byte_range().end,
+        })
     }
 
     /// The number of display columns the whole line occupies.

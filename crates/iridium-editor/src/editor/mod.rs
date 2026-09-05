@@ -12,6 +12,7 @@
 //! same type rather than introducing another.
 
 mod ast;
+mod cell_input;
 mod config;
 mod core;
 mod fold_state;
@@ -21,6 +22,7 @@ mod history_nav;
 mod command_api_tests;
 
 pub use ast::{CaretScopes, SyntaxDelta, SyntaxState};
+pub use cell_input::{CellInputError, CellInputOptions};
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 pub use fold_state::{FoldInfo, FoldState};

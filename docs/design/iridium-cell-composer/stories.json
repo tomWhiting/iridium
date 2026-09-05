@@ -1,0 +1,32 @@
+{
+  "cluster": "iridium-cell-composer",
+  "title": "Cell composer stories",
+  "personas": [
+    {
+      "name": "Norn host integrator",
+      "role": "host",
+      "stories": [
+        {
+          "id": "S1",
+          "title": "Borrowed kernel cell rows and grapheme geometry",
+          "text": "As a host integrator, I can rely on one Unicode cell geometry for visible text, caret and pointer positions."
+        },
+        {
+          "id": "S2",
+          "title": "Cell-aware command dispatch and complete grapheme-safe input",
+          "text": "As a host integrator, I can edit wrapped Unicode text and keep every undo branch through resize."
+        },
+        {
+          "id": "S3",
+          "title": "Borrowed cell Frame preparation and optional bare chrome",
+          "text": "As a host integrator, I can embed the composer in my rectangle while retaining ownership of terminal and focus."
+        },
+        {
+          "id": "S4",
+          "title": "Cross-renderer and host-boundary compatibility proof",
+          "text": "As a host integrator, I can adopt the composer with proof that existing renderer and input paths still behave as before."
+        }
+      ]
+    }
+  ]
+}

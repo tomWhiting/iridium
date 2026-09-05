@@ -18,6 +18,8 @@ glyphon = { workspace = true, optional = true }
 
 # Text buffer
 ropey.workspace = true
+unicode-segmentation.workspace = true
+unicode-width.workspace = true
 
 # The generic tree model the workspace projects through. A compile-time
 # edge with no runtime cost, and zero dependencies of its own.
@@ -163,3 +165,8 @@ required-features = ["syntax"]
 name = "folding"
 harness = false
 required-features = ["syntax"]
+
+# Pure kernel cell geometry/input measurements; no TUI dependency or syntax unification.
+[[bench]]
+name = "cell_composer"
+harness = false

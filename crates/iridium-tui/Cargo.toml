@@ -15,6 +15,9 @@ workspace = true
 # The kernel. No GPU: the terminal face uses the pure layout half of `render`.
 iridium-editor = { path = "../iridium-editor", default-features = false, features = ["syntax"] }
 
+# Retained immutable text snapshots for O(1) highlight-source freshness.
+ropey.workspace = true
+
 # The file explorer, whole, and the row vocabulary it composes in. Shared with
 # the GPU face so a rename means one thing in both — see `iridium_panel` for
 # why that had to be a crate rather than a module in a face.
@@ -35,3 +38,8 @@ unicode-segmentation.workspace = true
 # faked one would be testing something else.
 [dev-dependencies]
 iridium-file = { workspace = true, features = ["test-support"] }
+
+# Cell Frame preparation/paint and retained snapshot edit costs, without a TTY.
+[[bench]]
+name = "cell_composer"
+harness = false

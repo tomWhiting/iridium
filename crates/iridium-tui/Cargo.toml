@@ -11,12 +11,17 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["syntax"]
+# Plain-text hosts can omit both the parser and the retained highlight snapshot.
+syntax = ["iridium-editor/syntax", "dep:ropey"]
+
 [dependencies]
 # The kernel. No GPU: the terminal face uses the pure layout half of `render`.
-iridium-editor = { path = "../iridium-editor", default-features = false, features = ["syntax"] }
+iridium-editor = { path = "../iridium-editor", default-features = false }
 
 # Retained immutable text snapshots for O(1) highlight-source freshness.
-ropey.workspace = true
+ropey = { workspace = true, optional = true }
 
 # The file explorer, whole, and the row vocabulary it composes in. Shared with
 # the GPU face so a rename means one thing in both — see `iridium_panel` for
@@ -43,3 +48,5 @@ iridium-file = { workspace = true, features = ["test-support"] }
 [[bench]]
 name = "cell_composer"
 harness = false
+# This benchmark includes Rust parser/cache costs as well as a plain control.
+required-features = ["syntax"]

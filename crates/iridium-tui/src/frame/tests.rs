@@ -1,9 +1,12 @@
 //! Whole-frame tests: build an editor, render, assert on cells.
 
 use super::*;
+#[cfg(feature = "syntax")]
 use iridium_editor::syntax::Language;
 
-use crate::cell::{Cell, CellContent, Color};
+#[cfg(feature = "syntax")]
+use crate::cell::Cell;
+use crate::cell::{CellContent, Color};
 
 /// The text of a row, with continuation cells contributing nothing.
 fn row_text(buffer: &CellBuffer, row: usize) -> String {
@@ -76,6 +79,7 @@ fn the_caret_line_takes_the_current_line_background() {
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn highlighting_repaints_when_the_document_changes() {
     // The cache is keyed on parse count *and* document revision. Dropping the
     // revision half leaves last generation's colours on screen after an edit.
@@ -144,6 +148,7 @@ fn search_matches_are_marked_without_any_panel_being_open() {
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn a_search_match_keeps_the_syntax_colour_of_the_code_it_found() {
     // Only the background is a match's to change. Painting the foreground too
     // would hide the very code the search was run to read, and would do it
@@ -188,6 +193,7 @@ fn a_search_match_keeps_the_syntax_colour_of_the_code_it_found() {
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn a_nested_span_wins_over_the_span_containing_it() {
     // Spans are painted outermost first so the innermost wins. Sorting by end
     // ascending instead paints the inner span first and lets the outer one

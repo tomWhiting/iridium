@@ -1,5 +1,5 @@
 {
-  "status": "ICC002_ICC003_root_review_accepted_private_checkpoint_authorized",
+  "status": "ICC004_local_CPU_verified_root_review_accepted_private_checkpoint",
   "at_melbourne": "2026-09-05T22:01:09.093036+10:00",
   "baseline": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
   "worktree": "/private/tmp/iridium-cell-composer",
@@ -416,5 +416,113 @@
     "checks": "ICC002 kernel/syntax checks and review remain source-bound on unchanged implementation; ICC003 complete TUI390/0/0, strict TUI all-targets Clippy, fmt and bounded AST pass on the assembled51 source. Historical failures and inherited ignored kernel doctests stay explicitly recorded.",
     "commit_receipt": "The resulting actual revision and remote-ref verification are recorded externally after commit/push; no invented revision is embedded here.",
     "not_a_landing": "Exact205/Fable, main merge and broader release checks are not claimed by this private integration checkpoint."
+  },
+  "ICC-004": {
+    "schema": "icc-004-registration.v1",
+    "at_melbourne": "2026-09-06T13:54:11.263567+10:00",
+    "root": "/private/tmp/iridium-cell-transactions",
+    "base": "84d026f6c1a0621a7988712b171d45c97f43610b",
+    "branch": "codex/iridium-cell-transactions",
+    "authority": "Root accepted default-on optional syntax design and requested both feature scopes tested/strictClippy, followed by a checked private checkpoint. No editor/Norn/Chiron tree-sitter migration.",
+    "source_wall": {
+      "modify": [
+        "crates/iridium-tui/Cargo.toml",
+        "crates/iridium-tui/src/lib.rs",
+        "crates/iridium-tui/src/frame/mod.rs",
+        "crates/iridium-tui/src/frame/types.rs",
+        "crates/iridium-tui/src/frame/render.rs",
+        "crates/iridium-tui/src/frame/cell_render.rs",
+        "crates/iridium-tui/src/frame/prepared_cells.rs",
+        "crates/iridium-tui/src/frame/palette.rs",
+        "crates/iridium-tui/src/frame/tests.rs",
+        "crates/iridium-tui/src/frame/wrap_tests.rs"
+      ],
+      "create": [
+        "crates/iridium-tui/tests/syntax_features.rs"
+      ],
+      "delete": []
+    },
+    "documentation_wall": {
+      "modify": [
+        "docs/design/iridium-cell-composer/design.json",
+        "docs/design/iridium-cell-composer/DESIGN.md",
+        "docs/design/iridium-cell-composer/checklist.json",
+        "docs/design/iridium-cell-composer/CHECKLIST.md",
+        "docs/design/iridium-cell-composer/registration.json"
+      ],
+      "create": [
+        "docs/design/iridium-cell-composer/briefs/ICC-004.json",
+        "docs/design/iridium-cell-composer/briefs/ICC-004.md"
+      ],
+      "delete": []
+    },
+    "before_source_sha256": {
+      "crates/iridium-tui/Cargo.toml": "86e362aa0c8182a0c336ddf6e47caeb6ccb969e2bf77ec302948e6dcff9992dc",
+      "crates/iridium-tui/src/lib.rs": "57bfd4ee3c171f42fd7cb6746404bd0dd664265cf6ed2a71a5f992ab5c4da2c7",
+      "crates/iridium-tui/src/frame/mod.rs": "e726f1aabf615454168614d4c02855838c664b03c021c90a4a19ee853563c903",
+      "crates/iridium-tui/src/frame/types.rs": "816b69904fcf5767fd4832cd779cbe5852abc48606492504983b1d0f5a4efada",
+      "crates/iridium-tui/src/frame/render.rs": "6e9e528c68768baa6b1c1e418d89e593d66283332e7b91b17d7272d5f38f555c",
+      "crates/iridium-tui/src/frame/cell_render.rs": "e7b1a3d8aed627941cf163b723fd2fabc76d36dd2ff5ef4f9436c0af42033ce0",
+      "crates/iridium-tui/src/frame/prepared_cells.rs": "ee13bf12df9cdf41f0b8085f5abeff6d625f03b382570a9ccf1bc51047f22866",
+      "crates/iridium-tui/src/frame/palette.rs": "6bf1d782e12bef7d49e55a3c4cb0f3943a81b22f54579e8e6321f83366e914cb",
+      "crates/iridium-tui/src/frame/tests.rs": "cd7317ffe18ec15db2661800d57a7f9db979a3024cd26f482887a9bf027c06b0",
+      "crates/iridium-tui/src/frame/wrap_tests.rs": "c10312b6176c7ecbff87b6a2b0cd8dbc725c71d7218088b0c6b45a06090355be"
+    },
+    "prior_checkpoint": "/private/tmp/nwp-05-proof/icc-003-primary-caret/private-checkpoint/CHECKPOINT.json",
+    "scope": "Parser-free composer is explicit at dependency selection. Existing default TUI syntax behavior and tests remain; feature-off is not a silent runtime fallback.",
+    "local_CPU_checkpoint": {
+      "at_melbourne": "2026-09-06T14:05:20.687486+10:00",
+      "status": "root_review_accepted_local_CPU_verified_private_checkpoint_authorized",
+      "source_set_sha256": "3d299be0ba75ecb0377282dffa4cf2c948a64cd8069dc29bd4f4ca439a0dd8c4",
+      "source_paths": 55,
+      "checks": [
+        {
+          "name": "no-syntax-tests-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/no-syntax-tests-2.json",
+          "sha256": "e537239a459948ab27007420a703f8dfd855b270fced42761892d79fe854ff67",
+          "log_sha256": "7ee6db8e4fb0871d8e2f62107ee4aaa097600b09e0ebc41d2c52903190db56f9"
+        },
+        {
+          "name": "no-syntax-clippy-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/no-syntax-clippy-2.json",
+          "sha256": "0b1f137f62d8588f3506da71721075f10a147c4976f839e0ac6bf1a830f10e23",
+          "log_sha256": "96ee9407d47e2a51c6dac9be756b1ac3dacbc37ae0e9f9a19be4723d4454e1df"
+        },
+        {
+          "name": "syntax-tests-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/syntax-tests-2.json",
+          "sha256": "c22715a47dfad1fe17a57d7ab7bd4089b0fa08d6fc825e8ea96dd919e09b2340",
+          "log_sha256": "5ce2efda6b1eaf819e9cc3d2250c2c824c1aaeb340054fd413e2bb9ee7b965a2"
+        },
+        {
+          "name": "syntax-clippy-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/syntax-clippy-2.json",
+          "sha256": "dbfd9975d8be883ed552a934a8e1d7954fdedc976d8292f1c53c30fd0f276d63",
+          "log_sha256": "c355ec9b7cca003cedf7b09e8a09780ba2f776ab85cc3b7532dfded42e5f5abc"
+        },
+        {
+          "name": "fmt-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/fmt-2.json",
+          "sha256": "a9c7b57309d19820087a66cf28252f9725e0154116028d3135ac6c2a3cfcadea",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "native-links-compile-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/native-links-compile-2.json",
+          "sha256": "a0023bbd7ae214198d41f1fe9db7e2efdd3792e7edf615e5654ce4bf6a2c65c4",
+          "log_sha256": "7f6ea400216990406d4c845e99ea9425d50f8c43526c6e42e5a71839e862f379"
+        },
+        {
+          "name": "no-syntax-tree-2",
+          "path": "/private/tmp/nwp-05-proof/icc-004-optional-syntax/no-syntax-tree-2.json",
+          "sha256": "7849bf8414dbe59b739288748d6cb400b401939e8b97bcd324e60fad6bcccc92",
+          "log_sha256": "6dd565c008823075b3e5b2ca8038b4979ff96273514f1c560e9473c62414e43f"
+        }
+      ],
+      "validation": "No-syntax TUI378 passed; default syntax TUI393 passed; both0 failed/ignored. Both strict all-targets Clippy, fmt, normal parser-free dependency tree and standalone actual compile with tree-sitter0.25.10 passed on final55 source. Fifteen parser-specific tests remain enabled in default mode.",
+      "root_review": "Root reviewed default-on feature gating and two no-syntax repeat_n iterator arms, then authorized private checkpoint after final bounded checks.",
+      "efficiency": "Feature-off Frame has no parser/span/Rope snapshot cache; uniform row styles stream through repeat_n without per-row style-vector allocation. The editor text buffer still uses Rope.",
+      "boundary": "Private integration checkpoint, not a main/205/Fable landing. No Norn/Chiron tree-sitter migration, repository Cargo.lock change or temporary-path release dependency."
+    }
   }
 }

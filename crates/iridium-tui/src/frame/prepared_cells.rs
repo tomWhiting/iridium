@@ -65,6 +65,7 @@ impl std::fmt::Debug for PreparedCellFrame<'_> {
 #[derive(Debug)]
 pub(super) struct PreparedRow {
     pub(super) document_line: usize,
+    #[cfg(feature = "syntax")]
     pub(super) byte_start: usize,
     pub(super) layout: LineLayout,
     pub(super) first: bool,
@@ -224,6 +225,7 @@ fn prepare_rows(
         };
         result.push(PreparedRow {
             document_line,
+            #[cfg(feature = "syntax")]
             byte_start: document.line_to_byte_offset(document_line).ok_or(
                 CellLayoutError::InvalidPosition {
                     line: document_line,

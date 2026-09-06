@@ -72,6 +72,14 @@ Norn owns the TTY/ANSI lifecycle, focus, parent layout, scroll intent and send-v
 
 Visible cell geometry is measured once on preparation. Hidden or zero-width line boundary metadata is measured once on explicit placement demand and reused for that borrowed map lifetime; untouched hidden lines are not scanned. Repeated paint/hit/caret queries reuse those measurements. Build the borrowed map only for geometry-dependent input, not ordinary characters/copy/host commands. Do not copy the entire document into an identity key, invent workload caps, or implement a general retained-row cache. Measure the initial composer cost against the repository stated sub-8ms input/120fps intent and report actual results; timings are not asserted without measurement. Frame syntax-cache freshness additionally retains one immutable Rope snapshot and document id, comparing shared instance identity in O(1). This is separate from borrowed row geometry. The retained snapshot may require copying an affected rope path on the next edit; R4 must measure that copy-on-write cost.
 
+### D14: Atomic host cell replacement and gesture-isolated undo
+
+replace_cell_range validates the exact current cursor and typed range before any mutation, clamping, event or transient reset; replacement text is unchanged. EndOfReplacement chooses the next canonical grapheme boundary including CRLF joins, while Exact validates the complete desired post-edit CursorState without rounding. Internal preparation uses rope-shared scratch state and one synchronous commit. Rejections preserve text/revision/cursor/history/branches/events. True text-and-cursor no-op does not reset grouping. Cursor-only transactions are recorded without content events. New host transactions and opt-in cell paste isolate grouping on both sides without changing configured timeout or discarding branches; ordinary key and legacy paste/apply semantics remain unchanged. Context-complete reversible edits protect adjacent CR/LF from an inverse that otherwise derives its end from inserted text alone. One existing cell normalization authority is shared; no public staged token, parallel editor, full-document identity copy or generic transaction framework.
+
+### D15: Host ownership of the primary terminal cursor
+
+Frame::render_cells remains compatible and delegates with paint_primary=true. The explicit render_cells_with_primary_caret(prepared, buffer, paint_primary) uses the same exact borrowed frame and extent check, and false omits only primary caret paint. The primary remains in layout metadata for host hardware-cursor placement. The prepared visible-carets list starts with primary only when primary_caret is Some; skip that single list entry, never every equal position. Secondary carets, including those coincident with the primary or first-visible when primary is offscreen, still paint. Text, syntax, selection/search layers, wide-grapheme continuation cells, chrome and error-before-write contract remain unchanged. No second frame, underlay reconstruction, editor mutation, terminal ownership or Norn-specific rendering logic is introduced.
+
 ## Structure
 
 - `Cargo.lock`
@@ -84,8 +92,14 @@ Visible cell geometry is measured once on preparation. Hidden or zero-width line
 - `crates/iridium-editor/src/cell_layout/tests.rs`
 - `crates/iridium-editor/src/cell_layout/types.rs`
 - `crates/iridium-editor/src/editor/cell_input.rs`
+- `crates/iridium-editor/src/editor/cell_replacement.rs`
+- `crates/iridium-editor/src/editor/cell_transaction_tests.rs`
+- `crates/iridium-editor/src/editor/command_apply.rs`
 - `crates/iridium-editor/src/editor/core.rs`
+- `crates/iridium-editor/src/editor/history_nav.rs`
 - `crates/iridium-editor/src/editor/mod.rs`
+- `crates/iridium-editor/src/history/undo_tree/isolated.rs`
+- `crates/iridium-editor/src/history/undo_tree/mod.rs`
 - `crates/iridium-editor/src/input/keyboard/actions/mod.rs`
 - `crates/iridium-editor/src/input/keyboard/actions/run.rs`
 - `crates/iridium-editor/src/input/keyboard/backspace_pairs.rs`
@@ -102,6 +116,7 @@ Visible cell geometry is measured once on preparation. Hidden or zero-width line
 - `crates/iridium-editor/src/input/keyboard/navigation.rs`
 - `crates/iridium-editor/src/lib.rs`
 - `crates/iridium-editor/tests/cell_composer.rs`
+- `crates/iridium-editor/tests/cell_transactions.rs`
 - `crates/iridium-tui/Cargo.toml`
 - `crates/iridium-tui/benches/cell_composer.rs`
 - `crates/iridium-tui/src/frame/cell_geometry.rs`

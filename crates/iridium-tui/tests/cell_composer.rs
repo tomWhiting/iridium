@@ -2,11 +2,11 @@
 
 use iridium_editor::cell_layout::{CellColumn, ScreenRow};
 use iridium_editor::{
-    CommandArgs, CommandCategory, CommandId, CommandMeta, Editor, EditorKeyResult, KeyBinding,
-    KeyCode, KeyEvent, KeyPress, Keymap, Modifiers, Position,
+    CommandArgs, CommandCategory, CommandId, CommandMeta, CursorState, Editor, EditorKeyResult,
+    KeyBinding, KeyCode, KeyEvent, KeyPress, Keymap, Modifiers, Position, Selection,
 };
 use iridium_tui::cell::{CellBuffer, CellContent};
-use iridium_tui::frame::{CellFrameOptions, Frame};
+use iridium_tui::frame::{CellFrameError, CellFrameOptions, Frame, Palette};
 use iridium_tui::input::{TerminalInput, translate};
 use terminput::{
     Encoding, Event, KeyCode as TerminalCode, KeyEvent as TerminalKey, KeyEventKind, KeyModifiers,
@@ -222,5 +222,214 @@ fn public_terminal_translation_keeps_text_modifiers_and_event_kinds() -> TestRes
         from_bytes(&[13])?,
         TerminalInput::Key(KeyEvent::simple(KeyCode::Enter))
     );
+    Ok(())
+}
+
+#[test]
+fn host_primary_cursor_preserves_backward_selection_and_search_underlay() -> TestResult {
+    for search in [false, true] {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("a界bc");
+        editor.state_mut().config.highlight_current_line = false;
+        if search {
+            editor.update_search("界")?;
+            assert_eq!(editor.current_match_index(), Some(0));
+        }
+        editor.state_mut().cursor =
+            CursorState::new(Selection::new(Position::new(0, 4), Position::new(0, 1)));
+        let before_cursor = editor.state().cursor.clone();
+        let before_revision = editor.state().document.revision();
+        let before_history = editor.current_history_node();
+        let prepared = Frame::prepare_cells(&editor, options(5, 0))?;
+        let before_hit = prepared.position_at(2, 0)?;
+        let mut frame = Frame::new();
+        let mut legacy = CellBuffer::new(5, 3);
+        let legacy_layout = frame.render_cells(&prepared, &mut legacy)?;
+        let mut explicit = CellBuffer::new(5, 3);
+        frame.render_cells_with_primary_caret(&prepared, &mut explicit, true)?;
+        assert_eq!(explicit, legacy);
+        let mut hardware = CellBuffer::new(5, 3);
+        let hardware_layout =
+            frame.render_cells_with_primary_caret(&prepared, &mut hardware, false)?;
+        let palette = Palette::from_theme(editor.get_theme());
+        let selected = palette.selected(palette.text());
+        let underlay = if search {
+            palette.search_match(selected, true)
+        } else {
+            selected
+        };
+        for column in [1, 2] {
+            assert_eq!(
+                hardware.get(column, 0).ok_or("wide cell absent")?.style(),
+                underlay
+            );
+            assert_eq!(
+                legacy.get(column, 0).ok_or("wide caret absent")?.style(),
+                palette.caret(underlay)
+            );
+        }
+        assert!(
+            hardware
+                .get(2, 0)
+                .ok_or("continuation absent")?
+                .is_continuation()
+        );
+        assert_eq!(
+            hardware.get(3, 0).ok_or("selected b absent")?.style(),
+            selected
+        );
+        assert_eq!(
+            hardware.get(0, 0).ok_or("plain a absent")?.style(),
+            palette.text()
+        );
+        assert_eq!(row_text(&hardware, 0)?, "a界bc");
+        assert_eq!(hardware_layout.primary_caret, legacy_layout.primary_caret);
+        assert_eq!(hardware_layout.caret(), legacy_layout.caret());
+        assert_eq!(prepared.position_at(2, 0)?, before_hit);
+        assert_eq!(editor.state().cursor, before_cursor);
+        assert_eq!(editor.state().document.revision(), before_revision);
+        assert_eq!(editor.current_history_node(), before_history);
+    }
+    Ok(())
+}
+
+#[test]
+fn host_primary_cursor_keeps_trailing_wide_glyph_and_layout_hint() -> TestResult {
+    let mut editor = Editor::with_defaults();
+    editor.set_content("界");
+    editor.state_mut().config.highlight_current_line = false;
+    editor.state_mut().cursor = CursorState::at(Position::new(0, 1));
+    let prepared = Frame::prepare_cells(
+        &editor,
+        CellFrameOptions {
+            rows: 1,
+            ..options(2, 0)
+        },
+    )?;
+    let caret = prepared
+        .layout()
+        .primary_caret
+        .ok_or("primary hint absent")?;
+    assert!(caret.trailing_edge);
+    assert_eq!((caret.position.column, caret.position.row), (0, 0));
+    assert_eq!(caret.placement.column, CellColumn(2));
+    let mut frame = Frame::new();
+    let mut buffer = CellBuffer::new(2, 1);
+    let rendered = frame.render_cells_with_primary_caret(&prepared, &mut buffer, false)?;
+    assert_eq!(rendered.primary_caret, Some(caret));
+    assert_eq!(rendered.caret(), Some(caret.position));
+    assert_eq!(row_text(&buffer, 0)?, "界");
+    assert!(
+        buffer
+            .get(1, 0)
+            .ok_or("wide continuation absent")?
+            .is_continuation()
+    );
+    let palette = Palette::from_theme(editor.get_theme());
+    for column in [0, 1] {
+        assert_eq!(
+            buffer.get(column, 0).ok_or("glyph absent")?.style(),
+            palette.text()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn host_primary_cursor_keeps_first_visible_secondary_when_primary_is_offscreen() -> TestResult {
+    let mut editor = Editor::with_defaults();
+    editor.set_content("a\n界\nc");
+    editor.state_mut().config.highlight_current_line = false;
+    editor.state_mut().cursor = CursorState {
+        primary: Selection::collapsed(Position::new(0, 0)),
+        secondary: vec![Selection::collapsed(Position::new(1, 0))],
+    };
+    let prepared = Frame::prepare_cells(
+        &editor,
+        CellFrameOptions {
+            rows: 1,
+            ..options(2, 1)
+        },
+    )?;
+    assert_eq!(prepared.layout().primary_caret, None);
+    let mut frame = Frame::new();
+    let mut buffer = CellBuffer::new(2, 1);
+    let rendered = frame.render_cells_with_primary_caret(&prepared, &mut buffer, false)?;
+    assert_eq!(rendered.caret(), None);
+    assert_eq!(row_text(&buffer, 0)?, "界");
+    let palette = Palette::from_theme(editor.get_theme());
+    for column in [0, 1] {
+        assert_eq!(
+            buffer.get(column, 0).ok_or("secondary absent")?.style(),
+            palette.caret(palette.text())
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn host_primary_cursor_keeps_coincident_secondary_carets() -> TestResult {
+    // Distinct logical positions can share a physical wide-glyph caret. An
+    // exact duplicate selection must also remain a painted secondary entry.
+    for secondary in [Position::new(0, 0), Position::new(0, 1)] {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("界");
+        editor.state_mut().config.highlight_current_line = false;
+        editor.state_mut().cursor = CursorState {
+            primary: Selection::collapsed(Position::new(0, 1)),
+            secondary: vec![Selection::collapsed(secondary)],
+        };
+        let prepared = Frame::prepare_cells(
+            &editor,
+            CellFrameOptions {
+                rows: 1,
+                ..options(2, 0)
+            },
+        )?;
+        let mut frame = Frame::new();
+        let mut buffer = CellBuffer::new(2, 1);
+        frame.render_cells_with_primary_caret(&prepared, &mut buffer, false)?;
+        let palette = Palette::from_theme(editor.get_theme());
+        for column in [0, 1] {
+            assert_eq!(
+                buffer
+                    .get(column, 0)
+                    .ok_or("coincident caret absent")?
+                    .style(),
+                palette.caret(palette.text())
+            );
+        }
+        let mut legacy = CellBuffer::new(2, 1);
+        frame.render_cells(&prepared, &mut legacy)?;
+        assert_eq!(buffer, legacy);
+    }
+    Ok(())
+}
+
+#[test]
+fn host_primary_cursor_refuses_extent_mismatch_before_buffer_writes() -> TestResult {
+    let editor = Editor::with_defaults();
+    let prepared = Frame::prepare_cells(
+        &editor,
+        CellFrameOptions {
+            rows: 1,
+            ..options(2, 0)
+        },
+    )?;
+    let mut frame = Frame::new();
+    for paint_primary in [false, true] {
+        let mut buffer = CellBuffer::new(3, 1);
+        let palette = Palette::from_theme(editor.get_theme());
+        buffer.fill(palette.selected(palette.text()));
+        let before = buffer.clone();
+        assert!(matches!(
+            frame.render_cells_with_primary_caret(&prepared, &mut buffer, paint_primary),
+            Err(CellFrameError::ExtentMismatch {
+                prepared: (2, 1),
+                buffer: (3, 1)
+            })
+        ));
+        assert_eq!(buffer, before);
+    }
     Ok(())
 }

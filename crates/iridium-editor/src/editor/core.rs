@@ -11,7 +11,7 @@ use crate::commands::{
     CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyHintIndex, KeyPress, Keymap,
     KeymapError, KeymapStack, ModeName, RegistryError, builtin,
 };
-use crate::document::{CursorState, Document, Position, Selection, compute_edit_span};
+use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::{Command, UndoTree};
 use crate::input::keyboard::editing;
 use crate::input::{
@@ -1027,66 +1027,6 @@ impl Editor {
         self.apply_command_internal(command);
     }
 
-    /// Applies a command without touching the keyboard handler's transient
-    /// state.
-    ///
-    /// Used by the input paths that own that state themselves: the keyboard
-    /// handler (which runs its own post-dispatch bookkeeping in
-    /// `note_operation`, and for the add verbs *must* keep its addition-order
-    /// stack across command application) and the mouse/IME/paste/search paths
-    /// (which reset the sticky column and addition-order stack explicitly before
-    /// calling this).
-    pub(super) fn apply_command_internal(&mut self, command: Command) {
-        let content_changed = command.modifies_content();
-        let selection_changed = command.modifies_selection();
-
-        // Computed before the edit lands, because the span is expressed in the
-        // pre-edit document's coordinates and that document is about to stop
-        // existing. An error here is not fatal: leaving the edit unreported
-        // makes the next sync parse the document whole, which is slower and
-        // still correct.
-        let span = compute_edit_span(&self.state.document, &command)
-            .ok()
-            .flatten();
-
-        // Apply the command
-        if let Err(e) = command.apply(&mut self.state.document, &mut self.state.cursor) {
-            self.emit(&EditorEvent::Error {
-                message: e.to_string(),
-                code: "COMMAND_FAILED".to_string(),
-            });
-            return;
-        }
-
-        if let Some(span) = span {
-            self.state.syntax.note_edit(&self.state.document, &span);
-        }
-
-        // Push to undo history if it modifies content
-        if content_changed {
-            // Folds are read by the renderer on the very next frame, so they
-            // are refreshed here rather than lazily. Before this the editor's
-            // regions were correct only until the first keystroke.
-            self.state.refresh_syntax();
-
-            self.state.history.push(command);
-
-            // Recorded search match ranges point into the pre-edit document;
-            // re-synchronize the active search so replace operations never
-            // act on stale ranges.
-            if self.state.refresh_search() {
-                self.emit_search_updated();
-            }
-
-            self.emit_content_changed();
-        }
-
-        // Emit selection changed if needed
-        if selection_changed || content_changed {
-            self.emit_selection_changed();
-        }
-    }
-
     /// Performs undo.
     ///
     /// Returns true if an action was undone.
@@ -1106,7 +1046,7 @@ impl Editor {
         if !self.apply_replayed_command(&cmd, "UNDO_FAILED") {
             return false;
         }
-        self.finish_history_replay(&cmd);
+        self.finish_history_replay(&cmd, cmd.modifies_content());
         true
     }
 
@@ -1124,7 +1064,7 @@ impl Editor {
         if !self.apply_replayed_command(&cmd, "REDO_FAILED") {
             return false;
         }
-        self.finish_history_replay(&cmd);
+        self.finish_history_replay(&cmd, cmd.modifies_content());
         true
     }
 
@@ -1136,7 +1076,8 @@ impl Editor {
     /// - Brings the parse tree and the fold regions back in step with the
     ///   document.
     /// - Re-synchronizes the active search with the mutated document.
-    /// - Emits content, search, and selection events.
+    /// - Emits content/search effects when any traversed edge changed content,
+    ///   and selection effects once for the final destination.
     ///
     /// Note it deliberately does **not** reset the keyboard handler's sticky
     /// vertical column. The handler validates its sticky columns against the
@@ -1145,7 +1086,7 @@ impl Editor {
     /// a multi-cursor block built by add-above/below keeps its preferred
     /// columns across an undone edit. A stale sticky column cannot leak,
     /// because any other restored state simply fails the identity check.
-    pub(super) fn finish_history_replay(&mut self, cmd: &Command) {
+    pub(super) fn finish_history_replay(&mut self, cmd: &Command, content_changed: bool) {
         if !command_restores_selection(cmd) {
             if let Some(position) = replayed_command_caret(cmd) {
                 let clamped = self.state.document.clamp_position(position);
@@ -1167,18 +1108,15 @@ impl Editor {
         self.keyboard_handler
             .revalidate_vertical_columns(&self.state.cursor, self.state.document.revision());
 
-        // A replay changes the document exactly as a command does, so the tree
-        // and the folds derived from it have to move with it. Without this an
-        // undo left every fold region describing the document as it was before
-        // the undo, until some later content command happened to refresh them —
-        // and the renderer reads those regions on the very next frame.
-        self.state.refresh_syntax();
-
-        if self.state.refresh_search() {
-            self.emit_search_updated();
+        // Cursor-only host transactions replay selection without fabricating
+        // document updates. All legacy content history follows the same path.
+        if content_changed {
+            self.state.refresh_syntax();
+            if self.state.refresh_search() {
+                self.emit_search_updated();
+            }
+            self.emit_content_changed();
         }
-
-        self.emit_content_changed();
         self.emit_selection_changed();
     }
 
@@ -1222,14 +1160,14 @@ impl Editor {
     }
 
     /// Emits a content changed event (T060).
-    fn emit_content_changed(&self) {
+    pub(super) fn emit_content_changed(&self) {
         self.emit(&EditorEvent::ContentChanged {
             content: self.state.content(),
         });
     }
 
     /// Emits a selection changed event (T061).
-    fn emit_selection_changed(&self) {
+    pub(super) fn emit_selection_changed(&self) {
         let selections: Vec<Selection> = self.state.cursor.all_selections().copied().collect();
         self.emit(&EditorEvent::SelectionChanged { selections });
     }

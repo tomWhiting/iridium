@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::commands::Command;
 
 mod info;
+mod isolated;
 
 pub use info::{UndoNodeInfo, UndoTreeInfo, UndoTreeSnapshot};
 

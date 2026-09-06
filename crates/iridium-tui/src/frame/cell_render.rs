@@ -17,6 +17,21 @@ impl Frame {
         prepared: &PreparedCellFrame<'_>,
         buffer: &mut CellBuffer,
     ) -> Result<CellFrameLayout, CellFrameError> {
+        self.render_cells_with_primary_caret(prepared, buffer, true)
+    }
+
+    /// Paints the same borrowed frame with explicit ownership of primary caret
+    /// paint. Set `paint_primary` to false when the host supplies its own cursor.
+    /// Secondary carets, selection/search layers and layout caret hints remain
+    /// unchanged, including secondary carets coincident with the primary.
+    ///
+    /// An extent error occurs before the buffer or highlighter cache is changed.
+    pub fn render_cells_with_primary_caret(
+        &mut self,
+        prepared: &PreparedCellFrame<'_>,
+        buffer: &mut CellBuffer,
+        paint_primary: bool,
+    ) -> Result<CellFrameLayout, CellFrameError> {
         let expected = (prepared.layout.columns, prepared.layout.rows);
         let actual = (buffer.width(), buffer.height());
         if expected != actual {
@@ -36,7 +51,9 @@ impl Frame {
         for (index, row) in prepared.visible.iter().enumerate() {
             self.paint_cell_row(prepared, row, index, buffer, &palette);
         }
-        for caret in &prepared.carets {
+        // The primary is first only when it is visible in this prepared frame.
+        let skip_primary = usize::from(!paint_primary && prepared.layout.primary_caret.is_some());
+        for caret in prepared.carets.iter().skip(skip_primary) {
             if let Some(cell) = buffer.get(caret.position.column, caret.position.row) {
                 buffer.set_style(
                     caret.position.column,

@@ -22,6 +22,24 @@
           "text": "Cross-renderer and host-boundary compatibility proof"
         }
       ]
+    },
+    {
+      "name": "Host cell transactions",
+      "items": [
+        {
+          "id": "C5",
+          "text": "Typed atomic host replacement and isolated undo with grouping enabled"
+        }
+      ]
+    },
+    {
+      "name": "Terminal host cursor ownership",
+      "items": [
+        {
+          "id": "C6",
+          "text": "Primary caret paint can be delegated to the host without changing underlay or secondary carets"
+        }
+      ]
     }
   ]
 }

@@ -7,9 +7,11 @@ use crate::cell_layout::{
     Affinity, CellColumn, CellLayoutError, CellRowMap, CellWrapParameters, ScreenRow,
 };
 use crate::commands::CommandArgs;
-use crate::document::{CursorState, Selection};
+use crate::document::{CursorState, EditSpanError, Range, Selection};
 use crate::history::Command;
-use crate::input::keyboard::cell_input::{CellInputContext, prepare_result, validate_cursor};
+use crate::input::keyboard::cell_input::{
+    CellInputContext, prepare_paste, prepare_result, validate_cursor,
+};
 use crate::input::{CommandRunError, HistoryRequest, KeyEvent, KeyResult, SearchAction};
 
 /// Explicit geometry for one cell input operation; the host owns focus and send.
@@ -33,6 +35,24 @@ pub enum CellInputError {
     /// A prepared reversible edit could not be applied.
     #[error(transparent)]
     Edit(#[from] IridiumError),
+    /// A reversible edit has no valid pre-edit syntax span.
+    #[error(transparent)]
+    Span(#[from] EditSpanError),
+    /// Host range endpoints must be ordered, present and complete graphemes.
+    #[error("invalid cell replacement range: {range:?}")]
+    InvalidRange {
+        /// The exact refused range, without normalization or clamping.
+        range: Range,
+    },
+    /// A host replacement cannot alter a read-only editor.
+    #[error("cell replacement refused: editor is read-only")]
+    ReadOnly,
+    /// Byte arithmetic or a prepared caret does not resolve in its document.
+    #[error("cell replacement byte offset does not resolve: {offset}")]
+    InvalidOffset {
+        /// The failed byte offset (or operand at an overflow).
+        offset: usize,
+    },
 }
 
 impl Editor {
@@ -85,18 +105,14 @@ impl Editor {
     ///
     /// Paste does not resolve keys or produce host submit commands. Normalizing
     /// the resulting selections is part of the same command and undo entry.
+    /// The gesture is isolated from adjacent typing without changing the timeout.
     pub fn paste_cells(&mut self, text: &str) -> Result<(), CellInputError> {
         validate_cursor(&self.state.document, &self.state.cursor)?;
         if self.state.read_only || text.is_empty() {
             return Ok(());
         }
-        let result =
-            self.keyboard_handler
-                .handle_paste(text, &self.state.document, &self.state.cursor);
-        let result = prepare_result(result, &self.state.document, &self.state.cursor)?;
-        self.keyboard_handler.reset_vertical_state();
-        self.keyboard_handler.invalidate_cursor_order();
-        self.consume_key_result(result);
+        let prepared = prepare_paste(text, &self.state.document, &self.state.cursor)?;
+        self.commit_cell_edit(prepared);
         Ok(())
     }
 

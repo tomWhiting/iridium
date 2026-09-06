@@ -133,7 +133,7 @@ impl Editor {
             return false;
         };
 
-        self.apply_replayed(&cmd, "REDO_BRANCH_FAILED")
+        self.apply_replayed(&cmd, "REDO_BRANCH_FAILED", cmd.modifies_content())
     }
 
     /// Moves to an arbitrary node of the undo tree, replaying the document to
@@ -168,16 +168,20 @@ impl Editor {
             }
         }
 
-        self.apply_replayed(last, "HISTORY_JUMP_FAILED")
+        self.apply_replayed(
+            last,
+            "HISTORY_JUMP_FAILED",
+            commands.iter().any(Command::modifies_content),
+        )
     }
 
     /// Applies one replayed command and runs the shared post-replay step.
-    fn apply_replayed(&mut self, cmd: &Command, code: &str) -> bool {
+    fn apply_replayed(&mut self, cmd: &Command, code: &str, content_changed: bool) -> bool {
         if !self.apply_replayed_command(cmd, code) {
             return false;
         }
 
-        self.finish_history_replay(cmd);
+        self.finish_history_replay(cmd, content_changed);
         true
     }
 }

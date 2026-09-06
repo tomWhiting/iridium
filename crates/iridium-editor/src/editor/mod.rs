@@ -13,6 +13,8 @@
 
 mod ast;
 mod cell_input;
+mod cell_replacement;
+mod command_apply;
 mod config;
 mod core;
 mod fold_state;
@@ -21,8 +23,12 @@ mod history_nav;
 #[cfg(test)]
 mod command_api_tests;
 
+#[cfg(test)]
+mod cell_transaction_tests;
+
 pub use ast::{CaretScopes, SyntaxDelta, SyntaxState};
 pub use cell_input::{CellInputError, CellInputOptions};
+pub use cell_replacement::CellReplacementCursor;
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 pub use fold_state::{FoldInfo, FoldState};

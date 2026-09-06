@@ -80,6 +80,8 @@ replace_cell_range validates the exact current cursor and typed range before any
 
 Frame::render_cells remains compatible and delegates with paint_primary=true. The explicit render_cells_with_primary_caret(prepared, buffer, paint_primary) uses the same exact borrowed frame and extent check, and false omits only primary caret paint. The primary remains in layout metadata for host hardware-cursor placement. The prepared visible-carets list starts with primary only when primary_caret is Some; skip that single list entry, never every equal position. Secondary carets, including those coincident with the primary or first-visible when primary is offscreen, still paint. Text, syntax, selection/search layers, wide-grapheme continuation cells, chrome and error-before-write contract remain unchanged. No second frame, underlay reconstruction, editor mutation, terminal ownership or Norn-specific rendering logic is introduced.
 
+### D16: Syntax is a default-on optional terminal feature
+
 ## Structure
 
 - `Cargo.lock`
@@ -126,12 +128,16 @@ Frame::render_cells remains compatible and delegates with paint_primary=true. Th
 - `crates/iridium-tui/src/frame/geometry.rs`
 - `crates/iridium-tui/src/frame/line.rs`
 - `crates/iridium-tui/src/frame/mod.rs`
+- `crates/iridium-tui/src/frame/palette.rs`
 - `crates/iridium-tui/src/frame/prepared_cells.rs`
 - `crates/iridium-tui/src/frame/render.rs`
+- `crates/iridium-tui/src/frame/tests.rs`
 - `crates/iridium-tui/src/frame/text.rs`
 - `crates/iridium-tui/src/frame/types.rs`
 - `crates/iridium-tui/src/frame/wrap_tests.rs`
+- `crates/iridium-tui/src/lib.rs`
 - `crates/iridium-tui/tests/cell_composer.rs`
+- `crates/iridium-tui/tests/syntax_features.rs`
 
 ## Constraints
 

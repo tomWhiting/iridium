@@ -40,16 +40,27 @@ impl Frame {
                 buffer: actual,
             });
         }
-        let window = prepared.visible.first().map_or(0, |row| row.document_line)
-            ..prepared
-                .visible
-                .last()
-                .map_or(0, |row| row.document_line.saturating_add(1));
-        self.refresh(prepared.editor, window);
+        #[cfg(feature = "syntax")]
+        {
+            let window = prepared.visible.first().map_or(0, |row| row.document_line)
+                ..prepared
+                    .visible
+                    .last()
+                    .map_or(0, |row| row.document_line.saturating_add(1));
+            self.refresh(prepared.editor, window);
+        }
         let palette = Palette::from_theme(prepared.editor.get_theme());
         buffer.fill(palette.text());
         for (index, row) in prepared.visible.iter().enumerate() {
-            self.paint_cell_row(prepared, row, index, buffer, &palette);
+            Self::paint_cell_row(
+                #[cfg(feature = "syntax")]
+                self,
+                prepared,
+                row,
+                index,
+                buffer,
+                &palette,
+            );
         }
         // The primary is first only when it is visible in this prepared frame.
         let skip_primary = usize::from(!paint_primary && prepared.layout.primary_caret.is_some());
@@ -75,7 +86,7 @@ impl Frame {
     }
 
     fn paint_cell_row(
-        &self,
+        #[cfg(feature = "syntax")] frame: &Self,
         prepared: &PreparedCellFrame<'_>,
         row: &PreparedRow,
         index: usize,
@@ -108,7 +119,13 @@ impl Frame {
                 },
             );
         }
-        let styles = self.cluster_styles(row.byte_start, &row.layout, palette, background);
+        #[cfg(feature = "syntax")]
+        let styles = frame.cluster_styles(row.byte_start, &row.layout, palette, background);
+        #[cfg(not(feature = "syntax"))]
+        let styles = std::iter::repeat_n(
+            palette.text().with_background(background),
+            row.layout.clusters().len(),
+        );
         for (cluster, style) in row.layout.clusters().iter().zip(styles) {
             text::paint_cluster(buffer, index, cluster, style, area);
         }

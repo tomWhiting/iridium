@@ -5,6 +5,7 @@ mod field;
 mod file_explorer;
 mod geometry;
 mod gutter;
+#[cfg(feature = "syntax")]
 mod highlight;
 mod history_panel;
 mod line;

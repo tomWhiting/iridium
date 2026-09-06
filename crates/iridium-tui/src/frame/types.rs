@@ -1,8 +1,11 @@
 //! Frame cache ownership and the legacy line-paint placement.
 
+#[cfg(feature = "syntax")]
 use iridium_editor::Document;
+#[cfg(feature = "syntax")]
 use ropey::{Rope, extra::esoterica::ropes_are_instances};
 
+#[cfg(feature = "syntax")]
 use super::highlight::Highlighting;
 
 /// Renders editor state into a cell buffer.
@@ -14,8 +17,10 @@ use super::highlight::Highlighting;
 #[derive(Default)]
 pub struct Frame {
     /// The highlighter and spans, once a language has been set.
+    #[cfg(feature = "syntax")]
     pub(super) highlighting: Option<Highlighting>,
     /// Actual immutable text source of those spans, retained across paints.
+    #[cfg(feature = "syntax")]
     pub(super) highlight_source: Option<HighlightSource>,
 }
 
@@ -26,11 +31,13 @@ pub struct Frame {
 /// never do. Other results may vary, causing only a safe cache miss. Retaining
 /// the shared snapshot makes a later edit copy its affected rope path; R4 must
 /// measure that cost alongside frame preparation and repeated painting.
+#[cfg(feature = "syntax")]
 pub(super) struct HighlightSource {
     document_id: u64,
     text: Rope,
 }
 
+#[cfg(feature = "syntax")]
 impl HighlightSource {
     pub(super) fn new(document: &Document) -> Self {
         Self {
@@ -61,11 +68,12 @@ pub(super) struct PaintedLine {
 
 impl core::fmt::Debug for Frame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Frame")
-            .field(
-                "language",
-                &self.highlighting.as_ref().map(Highlighting::language),
-            )
-            .finish_non_exhaustive()
+        let mut debug = f.debug_struct("Frame");
+        #[cfg(feature = "syntax")]
+        debug.field(
+            "language",
+            &self.highlighting.as_ref().map(Highlighting::language),
+        );
+        debug.finish_non_exhaustive()
     }
 }

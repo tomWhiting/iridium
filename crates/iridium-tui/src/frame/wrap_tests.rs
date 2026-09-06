@@ -115,6 +115,7 @@ fn cells_wrapped_selections_and_search_keep_original_source_columns() -> TestRes
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn cells_wrapped_syntax_and_folded_placeholders_preserve_legacy_styles() -> TestResult {
     let mut editor = Editor::with_defaults();
     editor.set_content("fn outer() {\n    run();\n}\nend");
@@ -165,6 +166,7 @@ fn cells_wrapped_syntax_and_folded_placeholders_preserve_legacy_styles() -> Test
     Ok(())
 }
 
+#[cfg(feature = "syntax")]
 fn parsed_editor(text: &str) -> Editor {
     let mut editor = Editor::with_defaults();
     editor.set_content(text);
@@ -173,6 +175,7 @@ fn parsed_editor(text: &str) -> Editor {
     editor
 }
 
+#[cfg(feature = "syntax")]
 fn parse_counters(editor: &Editor) -> (u64, u64, u64) {
     let state = editor.state();
     (
@@ -182,6 +185,7 @@ fn parse_counters(editor: &Editor) -> (u64, u64, u64) {
     )
 }
 
+#[cfg(feature = "syntax")]
 fn rendered_bare(frame: &mut Frame, editor: &Editor) -> Result<CellBuffer, super::CellFrameError> {
     let prepared = Frame::prepare_cells(editor, options(20, 2))?;
     let mut buffer = CellBuffer::new(20, 2);
@@ -190,6 +194,7 @@ fn rendered_bare(frame: &mut Frame, editor: &Editor) -> Result<CellBuffer, super
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn cells_frame_cache_uses_actual_source_across_equal_counter_editors() -> TestResult {
     let first = parsed_editor("let x = 1;");
     let second = parsed_editor("\"a string\"");
@@ -234,6 +239,7 @@ fn cells_frame_cache_uses_actual_source_across_equal_counter_editors() -> TestRe
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn cells_frame_cache_refuses_divergent_clones_with_equal_ids_and_revisions() -> TestResult {
     let base = iridium_editor::Document::new("");
     let mut first_document = base.clone();
@@ -271,6 +277,7 @@ fn cells_frame_cache_refuses_divergent_clones_with_equal_ids_and_revisions() -> 
 }
 
 #[test]
+#[cfg(feature = "syntax")]
 fn cells_frame_cache_retains_same_source_across_windows_and_repeated_paint() -> TestResult {
     let editor = parsed_editor(&"let x = 1;\n".repeat(300));
     let first = Frame::prepare_cells(&editor, options(20, 2))?;

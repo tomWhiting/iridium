@@ -4,6 +4,14 @@
 //! turns the kernel's document, layout and highlight state into cells, and
 //! terminal input back into the kernel's platform-neutral key presses.
 //!
+//! # Features
+//!
+//! `syntax` is enabled by default and supplies the kernel parser and frame
+//! highlight cache. A host using `default-features = false` gets plain text
+//! styling without either dependency, retaining language editing rules,
+//! selections, search, caret hints, chrome and all cell geometry. The semantic
+//! `Palette::highlighted` method is available only with `syntax`.
+//!
 //! # What this crate must not do
 //!
 //! It must not reimplement a verb the kernel already has. Three separate bugs

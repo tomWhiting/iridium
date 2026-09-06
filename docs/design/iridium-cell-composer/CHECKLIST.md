@@ -14,3 +14,7 @@
 ## Terminal host cursor ownership
 
 - [ ] **C6** — Primary caret paint can be delegated to the host without changing underlay or secondary carets
+
+## Parser-free terminal composition
+
+- [ ] **C7** — Default syntax stays enabled while a no-default composer links no parser and preserves cell/editor behavior

@@ -1,0 +1,74 @@
+{
+  "id": "ICC-004",
+  "cluster": "iridium-cell-composer",
+  "title": "Default-on optional syntax for parser-free terminal hosts",
+  "status": "root_review_accepted_local_CPU_verified_private_checkpoint_authorized",
+  "depends_on": [
+    "ICC-003"
+  ],
+  "checklist": [
+    "C7"
+  ],
+  "stories": [
+    "S3",
+    "S4"
+  ],
+  "design": "../design.json",
+  "purpose": "Resolve the actual tree-sitter native-links collision without migrating Norn/Chiron or adding parser startup/caches to its plain-text composer.",
+  "task": "Preserve the reviewed and locally verified parser-free terminal feature in the authorized private branch checkpoint. The actual Git revision and push verification are recorded externally after commit; no main or venue/Fable landing claim.",
+  "requirements": [
+    {
+      "id": "R1",
+      "title": "Explicit TUI syntax feature and parser-free rendering",
+      "depends_on": [],
+      "spec": "Implement D16. Feature-select only actual syntax dependencies/state/mapping/tests. Use the existing plain Palette style and existing shared geometry/selection/search/caret paint logic when syntax is absent. No unused-argument workarounds, simulated cache or silent fallback. No editor kernel modifications.",
+      "files": {
+        "modify": [
+          "crates/iridium-tui/Cargo.toml",
+          "crates/iridium-tui/src/lib.rs",
+          "crates/iridium-tui/src/frame/mod.rs",
+          "crates/iridium-tui/src/frame/types.rs",
+          "crates/iridium-tui/src/frame/render.rs",
+          "crates/iridium-tui/src/frame/cell_render.rs",
+          "crates/iridium-tui/src/frame/prepared_cells.rs",
+          "crates/iridium-tui/src/frame/palette.rs",
+          "crates/iridium-tui/src/frame/tests.rs",
+          "crates/iridium-tui/src/frame/wrap_tests.rs"
+        ],
+        "create": [
+          "crates/iridium-tui/tests/syntax_features.rs"
+        ],
+        "delete": []
+      },
+      "acceptance": [
+        "TUI default feature enables syntax; no-default TUI/editor dependency graph contains no iridium-syntax or tree-sitter packages. Optional Rope dependency is selected only by syntax; Frame is zero-sized without it.",
+        "Both complete cargo test --locked -p iridium-tui and --no-default-features pass; all existing public composer/primary-caret fixtures run in both scopes. New feature fixture verifies fixed text styles with/without syntax, language auto-pairs, Unicode paste and history.",
+        "Both corresponding all-targets cargo clippy selections pass with -D warnings; cargo fmt --all -- --check passes. Exact source before/after and log witnesses; no old assembled proof reused as new.",
+        "Existing syntax cache ownership/equal-counter/divergent-clone tests remain present and execute by default. Feature-specific test census is recorded, not called ignored/skipped green.",
+        "Existing Rust syntax benchmark declares required-features syntax; no parser-free Rust timing claim.",
+        "No editor/Norn/Chiron tree-sitter migration, no added mapping authority, no changed default colors or parser behavior. Each production file stays under its registered local size limit; legacy test inventory remains separate."
+      ],
+      "checklist": [
+        "C7"
+      ],
+      "stories": [
+        "S3",
+        "S4"
+      ],
+      "provenance": [
+        "../design.json#D16",
+        "crates/iridium-tui/Cargo.toml:16",
+        "crates/iridium-tui/src/frame/types.rs:15",
+        "crates/iridium-tui/src/frame/render.rs:239"
+      ]
+    }
+  ],
+  "boundaries": [
+    "Exactly10 modified TUI files and one new public integration test; no kernel source, Cargo.lock version churn or Norn source. Additional paths require a registered amendment.",
+    "Root authorizes dedicated ICC CPU cache jobs2 for both scopes. No GPU/workspace expansion, main, public action or installation. Commit/push only after actual checks."
+  ],
+  "verification": [
+    "Render and coverage before source edit.",
+    "Current feature-specific tests/strictClippy/fmt and graph proof before the actual private Git pin."
+  ]
+}

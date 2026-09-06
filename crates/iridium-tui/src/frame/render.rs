@@ -1,12 +1,19 @@
 //! Legacy unwrapped frame rendering, preserving the existing viewport and chrome.
 
+#[cfg(feature = "syntax")]
+use super::highlight;
+#[cfg(feature = "syntax")]
 use super::highlight::Highlighting;
 use super::search::{MatchHighlights, MatchedLine};
-use super::types::{HighlightSource, PaintedLine};
+#[cfg(feature = "syntax")]
+use super::types::HighlightSource;
+use super::types::PaintedLine;
 use super::units::whole_cells;
 use super::{Chrome, Frame, FrameLayout, LineLayout, Palette, TextArea};
-use super::{geometry, gutter, highlight, status, text};
-use crate::cell::{CellBuffer, Color, Style};
+use super::{geometry, gutter, status, text};
+#[cfg(feature = "syntax")]
+use crate::cell::Color;
+use crate::cell::{CellBuffer, Style};
 use iridium_editor::{Editor, Selection};
 use std::collections::HashSet;
 
@@ -66,9 +73,12 @@ impl Frame {
         // the whole-document derive was the parser tax
         // (docs/design/PARSER-TAX-MAP.md). An empty screen requests an empty
         // window; nothing will be painted from it.
-        let window = visible.first().copied().unwrap_or(0)
-            ..visible.last().map_or(0, |&last| last.saturating_add(1));
-        self.refresh(editor, window);
+        #[cfg(feature = "syntax")]
+        {
+            let window = visible.first().copied().unwrap_or(0)
+                ..visible.last().map_or(0, |&last| last.saturating_add(1));
+            self.refresh(editor, window);
+        }
 
         let palette = Palette::from_theme(editor.get_theme());
         buffer.fill(palette.text());
@@ -94,7 +104,9 @@ impl Frame {
             if row >= geometry.text_rows {
                 continue;
             }
-            self.paint_line(
+            Self::paint_line(
+                #[cfg(feature = "syntax")]
+                self,
                 buffer,
                 editor,
                 &palette,
@@ -123,7 +135,7 @@ impl Frame {
     /// Paints one document line: its gutter entry, its text, its selections
     /// and its carets.
     fn paint_line(
-        &self,
+        #[cfg(feature = "syntax")] frame: &Self,
         buffer: &mut CellBuffer,
         editor: &Editor,
         palette: &Palette,
@@ -157,11 +169,16 @@ impl Frame {
             geometry.gutter_area(),
         );
 
-        let line_start = state
-            .document
-            .line_to_byte_offset(document_line)
-            .unwrap_or(0);
-        let styles = self.cluster_styles(line_start, &layout, palette, background);
+        #[cfg(feature = "syntax")]
+        let styles = {
+            let line_start = state
+                .document
+                .line_to_byte_offset(document_line)
+                .unwrap_or(0);
+            frame.cluster_styles(line_start, &layout, palette, background)
+        };
+        #[cfg(not(feature = "syntax"))]
+        let styles = std::iter::repeat_n(blank, layout.clusters().len());
         for (cluster, style) in layout.clusters().iter().zip(styles) {
             text::paint_cluster(buffer, row, cluster, style, geometry.text);
         }
@@ -220,6 +237,7 @@ impl Frame {
     /// innermost wins, which is why the query result is sorted by start
     /// ascending and end *descending*.
     /// The style of every cluster on one line, from the highlight cache.
+    #[cfg(feature = "syntax")]
     pub(super) fn cluster_styles(
         &self,
         line_start: usize,
@@ -238,6 +256,7 @@ impl Frame {
 
     /// Brings the cached highlighter and span index up to date for the
     /// frame's window of document lines.
+    #[cfg(feature = "syntax")]
     pub(super) fn refresh(&mut self, editor: &Editor, viewport_lines: core::ops::Range<usize>) {
         let document = &editor.state().document;
         let same_source = self

@@ -40,6 +40,15 @@
           "text": "Primary caret paint can be delegated to the host without changing underlay or secondary carets"
         }
       ]
+    },
+    {
+      "name": "Parser-free terminal composition",
+      "items": [
+        {
+          "id": "C7",
+          "text": "Default syntax stays enabled while a no-default composer links no parser and preserves cell/editor behavior"
+        }
+      ]
     }
   ]
 }

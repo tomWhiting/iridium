@@ -17,9 +17,13 @@
 //! unknown background the honest answer is the colour itself, because guessing
 //! at the user's terminal background is how a selection ends up invisible.
 
+#[cfg(feature = "syntax")]
 use iridium_editor::render::{RunSlant, RunWeight};
+#[cfg(feature = "syntax")]
 use iridium_editor::syntax::{HighlightType, highlight_to_style};
-use iridium_editor::theme::{Color as ThemeColor, SyntaxColors, SyntaxEmphasis, Theme};
+use iridium_editor::theme::{Color as ThemeColor, Theme};
+#[cfg(feature = "syntax")]
+use iridium_editor::theme::{SyntaxColors, SyntaxEmphasis};
 
 use super::units::channel;
 use crate::cell::{Attributes, Color, Style};
@@ -56,9 +60,11 @@ pub struct Palette {
     /// The style feedback about a failure is shown in.
     overlay_error: Style,
     /// The theme's syntax colours, mapped per highlight by the kernel.
+    #[cfg(feature = "syntax")]
     syntax: SyntaxColors,
     /// The theme's emphasis table, applied per highlight by the same kernel
     /// mapping — so a heading this face draws bold is bold in the GPU face too.
+    #[cfg(feature = "syntax")]
     emphasis: SyntaxEmphasis,
 }
 
@@ -94,7 +100,9 @@ impl Palette {
                 .with_foreground(solid(theme.editor.line_number_active)),
             overlay_error: overlay_style(theme, foreground, editor_background)
                 .with_foreground(solid(theme.editor.diagnostic_error)),
+            #[cfg(feature = "syntax")]
             syntax: theme.syntax.clone(),
+            #[cfg(feature = "syntax")]
             emphasis: theme.emphasis.clone(),
         }
     }
@@ -212,6 +220,7 @@ impl Palette {
     /// direction as [`solid`]'s alpha handling above, not a drift: both faces
     /// still answer from one theme, and the difference is what the surface can
     /// physically draw rather than what it believes.
+    #[cfg(feature = "syntax")]
     pub fn highlighted(&self, highlight: HighlightType, background: Color) -> Style {
         let style = highlight_to_style(highlight, &self.syntax, &self.emphasis);
         let mut attributes = Attributes::NONE;
@@ -290,6 +299,7 @@ fn overlay_style(theme: &Theme, foreground: Color, editor_background: ThemeColor
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "syntax")]
     use iridium_editor::theme::Emphasis;
 
     #[test]
@@ -370,6 +380,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn a_highlight_takes_its_colour_from_the_theme() {
         let theme = Theme::dark();
         let palette = Palette::from_theme(&theme);
@@ -392,6 +403,7 @@ mod tests {
     /// for itself, which is the only reason the two native faces cannot
     /// disagree about what a heading looks like.
     #[test]
+    #[cfg(feature = "syntax")]
     fn a_theme_that_emphasises_a_category_reaches_the_cells() {
         let mut theme = Theme::dark();
         theme.emphasis = SyntaxEmphasis::none()
@@ -428,6 +440,7 @@ mod tests {
     /// surprise — someone will eventually author a semibold heading and need
     /// to know what a terminal does with it.
     #[test]
+    #[cfg(feature = "syntax")]
     fn a_terminal_has_one_bold_and_the_threshold_is_seven_hundred() {
         for (weight, bold) in [
             (RunWeight(300), false),
@@ -488,6 +501,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "syntax")]
     fn a_search_match_keeps_the_foreground_it_landed_on() {
         let palette = Palette::from_theme(&Theme::dark());
         let keyword = palette.highlighted(HighlightType::Keyword, Color::Default);

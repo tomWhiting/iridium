@@ -5,7 +5,10 @@ use crate::document::{CursorState, Document};
 use crate::editor::{CaretScopes, CellInputError, CellInputOptions, EditorConfig, FoldState};
 
 use super::actions::{CommandContext, action_for};
-pub use super::cell_edits::{prepare_result, validate_cursor};
+pub use super::cell_edits::{
+    PreparedCellEdit, canonical_end, prepare_command, prepare_paste, prepare_result,
+    validate_cursor, validate_range,
+};
 use super::dispatch::ResolvedKey;
 use super::{CommandRunError, KeyEvent, KeyResult, KeyboardHandler};
 

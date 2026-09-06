@@ -1,5 +1,5 @@
 {
-  "status": "source_verified_for_private_branch_checkpoint_not_landed",
+  "status": "ICC002_ICC003_root_review_accepted_private_checkpoint_authorized",
   "at_melbourne": "2026-09-05T22:01:09.093036+10:00",
   "baseline": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
   "worktree": "/private/tmp/iridium-cell-composer",
@@ -274,5 +274,147 @@
       "rewritten_checkpoint": null,
       "status": "No rewrite performed or approved; retain original commit identities in the external push receipt."
     }
+  },
+  "ICC-002": {
+    "schema": "icc-002-registration.v1",
+    "at_melbourne": "2026-09-06T12:46:49.697054+10:00",
+    "authority": "Root authorizes ICC-002 implementation from source-bound proposal plus exact crate-private routing amendment, 6 September 2026. No Cargo until coordinated.",
+    "baseline": "09cfa793d2f2aa70fad8e86c55d3323d1c7f8d04",
+    "branch": "codex/iridium-cell-transactions",
+    "worktree": "/private/tmp/iridium-cell-transactions",
+    "proposal": {
+      "path": "/private/tmp/nwp-05-proof/iridium-host-transaction-contract-20260906.json",
+      "sha256": "3ef1c9f67a0fd58efc108cd5412809c2150dbab344b92d52145257af46e4acbb"
+    },
+    "source_wall": {
+      "modify": [
+        "crates/iridium-editor/src/editor/mod.rs",
+        "crates/iridium-editor/src/editor/core.rs",
+        "crates/iridium-editor/src/editor/cell_input.rs",
+        "crates/iridium-editor/src/input/keyboard/cell_edits.rs",
+        "crates/iridium-editor/src/history/undo_tree/mod.rs",
+        "crates/iridium-editor/src/input/keyboard/cell_input.rs",
+        "crates/iridium-editor/src/editor/history_nav.rs"
+      ],
+      "create": [
+        "crates/iridium-editor/src/editor/cell_replacement.rs",
+        "crates/iridium-editor/src/editor/command_apply.rs",
+        "crates/iridium-editor/src/editor/cell_transaction_tests.rs",
+        "crates/iridium-editor/src/history/undo_tree/isolated.rs",
+        "crates/iridium-editor/tests/cell_transactions.rs"
+      ],
+      "delete": []
+    },
+    "documentation_wall": {
+      "modify": [
+        "docs/design/iridium-cell-composer/design.json",
+        "docs/design/iridium-cell-composer/DESIGN.md",
+        "docs/design/iridium-cell-composer/checklist.json",
+        "docs/design/iridium-cell-composer/CHECKLIST.md",
+        "docs/design/iridium-cell-composer/registration.json"
+      ],
+      "create": [
+        "docs/design/iridium-cell-composer/briefs/ICC-002.json",
+        "docs/design/iridium-cell-composer/briefs/ICC-002.md"
+      ]
+    },
+    "routing_amendment": "keyboard/cell_input.rs only routes private prepared helper/result; no public preparation token.",
+    "checks": "Register and render/coverage before source edits; source freeze plus direct rustfmt/AST, pending coordinated Cargo. No main/commit/publication.",
+    "scope_confirmation": {
+      "authority": "Root permits typed cell-only paste preparation and existing-core cursor-only replay guard; 6 September 2026 Melbourne. Root later frees Cargo lane for bounded tests and strict editor Clippy with dedicated target/jobs2.",
+      "paths_added": [],
+      "contract": "Preserve legacy paste/key behavior. Cell paste uses typed per-selection Replace and original byte offsets in descending order; validate against original document, so adjacent edits can join Unicode/CRLF without invalidating another original edit edge. One shared cursor/grapheme normalizer and one isolated commit. Content-only history side effects are conditioned on actual content change when replaying new cursor-only entries.",
+      "additional_acceptance": [
+        "Multicursor CRLF deletion-join plus adjacent grapheme/CRLF targets round-trip exact text/cursors.",
+        "Cursor-only undo/redo leaves document revision and content events untouched."
+      ]
+    },
+    "history_jump_repair": {
+      "schema": "icc-002-wall-amendment.v1",
+      "at_melbourne": "2026-09-06T13:11:22.669969+10:00",
+      "authority": "Root explicitly approves history_nav.rs amendment for independent review finding, 6 September 2026",
+      "row": "ICC-002/R1",
+      "additional_modify": [
+        "crates/iridium-editor/src/editor/history_nav.rs"
+      ],
+      "reason": "History jumps apply multiple edges before one finalization. A final cursor-only command must not hide earlier content changes. Pass cumulative content_changed evidence to the existing finalizer; single-command cursor-only replay remains content-silent.",
+      "acceptance": "Public jump from empty root to a content node then cursor-only destination refreshes content/search once; cursor-only navigation emits no content event. Add public regression in existing tests/cell_transactions.rs wall.",
+      "historical_proof": "Existing check records on earlier source hashes remain historical after this amendment."
+    },
+    "local_CPU_checkpoint": {
+      "at_melbourne": "2026-09-06T13:23:22.865140+10:00",
+      "status": "implemented_frozen_local_CPU_verified_review_closed_uncommitted_not_landed",
+      "source_set_sha256": "5e048ebd3a86a60d48e7cc4e132290f447e89581e47d15c719e6b3a9b757d977",
+      "proof": "/private/tmp/nwp-05-proof/icc-002-implementation/local-proof.json",
+      "proof_sha256": "4297d3823ca39ba147b875a7aa968560b91dcba0af08eea9dc20768c1646b306",
+      "independent_review": {
+        "path": "/private/tmp/nwp-05-proof/icc-002-independent-review/closure-01.json",
+        "sha256": "636fd8314a66100237349253249870cd8b8d3425486db264afa5217db00bd7d7",
+        "finding": "ICC002-REV-01",
+        "status": "closed",
+        "new_findings": []
+      },
+      "validation": "Kernel and syntax editor packages plus TUI tests, strict all-targets Clippy for those three CPU scopes, formatting and supplemental AST passed on exact51 paths. Ignored baseline documentation examples remain explicitly enumerated. No landing claim."
+    }
+  },
+  "ICC-003": {
+    "schema": "icc-003-registration.v1",
+    "at_melbourne": "2026-09-06T13:27:43.027099+10:00",
+    "authority": "Root requests the bounded essential primary-caret ownership seam before the private Git dependency checkpoint; exact source/doc walls and estimate sent before edits, 6 September 2026.",
+    "root": "/private/tmp/iridium-cell-transactions",
+    "base": "09cfa793d2f2aa70fad8e86c55d3323d1c7f8d04",
+    "branch": "codex/iridium-cell-transactions",
+    "source_wall": {
+      "modify": [
+        "crates/iridium-tui/src/frame/cell_render.rs",
+        "crates/iridium-tui/tests/cell_composer.rs"
+      ],
+      "create": [],
+      "delete": []
+    },
+    "documentation_wall": {
+      "modify": [
+        "docs/design/iridium-cell-composer/design.json",
+        "docs/design/iridium-cell-composer/DESIGN.md",
+        "docs/design/iridium-cell-composer/checklist.json",
+        "docs/design/iridium-cell-composer/CHECKLIST.md",
+        "docs/design/iridium-cell-composer/registration.json"
+      ],
+      "create": [
+        "docs/design/iridium-cell-composer/briefs/ICC-003.json",
+        "docs/design/iridium-cell-composer/briefs/ICC-003.md"
+      ]
+    },
+    "before_source_sha256": {
+      "crates/iridium-tui/src/frame/cell_render.rs": "39bbaed7101e7cedf9205e7b05253ec639b7a647498a57b06b42d22059ebc3c6",
+      "crates/iridium-tui/tests/cell_composer.rs": "b594292e744f95aa23ce29e2bd2bb1fd1293a4f76495d1638da8284dced308f8"
+    },
+    "ICC002_preserved": {
+      "source_freeze": "/private/tmp/nwp-05-proof/icc-002-implementation/final-freeze.json",
+      "source_set_sha256": "5e048ebd3a86a60d48e7cc4e132290f447e89581e47d15c719e6b3a9b757d977",
+      "rule": "No ICC002 kernel implementation or proof changes. This additive TUI change receives separate proof; the combined private checkpoint uses the latest assembled source witnesses."
+    },
+    "estimate": "About20 production lines plus public fixtures and docs; 10–15 minutes authoring, then cached CPU tests/strictClippy/fmt once root coordinates lane. No builds until that coordination; no commit/main/public action.",
+    "local_TUI_checkpoint": {
+      "at_melbourne": "2026-09-06T13:34:55.233935+10:00",
+      "status": "implemented_frozen_local_TUI_verified_root_review_pending_uncommitted_not_landed",
+      "source_set_sha256": "cdba3c0becde66d39dd1614c7f966baa5be86882b5093c5a9d46e6a6ebf36bb0",
+      "proof": "/private/tmp/nwp-05-proof/icc-003-primary-caret/local-proof.json",
+      "proof_sha256": "84249031ba99ce4ec85127a9c903b9bd995503ad9740b78a64d6a1d5be871869",
+      "validation": "Current complete TUI package: 390 passed, 0 failed, 0 ignored; strict TUI all-targets Clippy and workspace fmt passed. Supplemental AST2 changed paths no findings/skips/parser errors. ICC002 kernel and historical proofs remain unchanged. Root review and private checkpoint pending; no venue/landing claim."
+    }
+  },
+  "ICC002_ICC003_private_checkpoint": {
+    "status": "root_review_accepted_private_checkpoint_authorized_not_landed",
+    "at_melbourne": "2026-09-06T13:40:46.054843+10:00",
+    "source_set_sha256": "cdba3c0becde66d39dd1614c7f966baa5be86882b5093c5a9d46e6a6ebf36bb0",
+    "source_paths": 51,
+    "root_acceptance": "/private/tmp/nwp-05-proof/icc-003-primary-caret/private-checkpoint/root-acceptance.json",
+    "root_acceptance_sha256": "0d394ce7b3b178a62fade85c97e90bf8baa8b1705afac868cabf072b43e69fed",
+    "branch": "codex/iridium-cell-transactions",
+    "private_origin": "https://github.com/tomWhiting/iridium.git",
+    "checks": "ICC002 kernel/syntax checks and review remain source-bound on unchanged implementation; ICC003 complete TUI390/0/0, strict TUI all-targets Clippy, fmt and bounded AST pass on the assembled51 source. Historical failures and inherited ignored kernel doctests stay explicitly recorded.",
+    "commit_receipt": "The resulting actual revision and remote-ref verification are recorded externally after commit/push; no invented revision is embedded here.",
+    "not_a_landing": "Exact205/Fable, main merge and broader release checks are not claimed by this private integration checkpoint."
   }
 }

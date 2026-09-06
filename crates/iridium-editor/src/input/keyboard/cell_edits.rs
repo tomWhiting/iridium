@@ -189,3 +189,261 @@ fn preflight(
     command.apply(document, cursor)?;
     Ok(())
 }
+
+/// Private prepared state, consumed immediately by the editor's synchronous call.
+pub struct PreparedCellEdit {
+    pub command: Command,
+    pub document: Document,
+    pub cursor: CursorState,
+    pub span: Option<crate::document::EditSpan>,
+}
+
+impl PreparedCellEdit {
+    /// Attach the exact final selection to the same reversible history command.
+    pub fn select(mut self, new_state: CursorState) -> Result<Self, CellInputError> {
+        validate_cursor(&self.document, &new_state)?;
+        let selection = Command::SetSelection {
+            old_state: self.cursor.clone(),
+            new_state: new_state.clone(),
+        };
+        self.cursor = new_state;
+        if self.command.modifies_content() || !selection.is_empty() {
+            if self.command.is_empty() {
+                self.command = selection;
+            } else {
+                self.command = Command::Compound {
+                    commands: vec![self.command, selection],
+                };
+            }
+        }
+        Ok(self)
+    }
+}
+
+/// Validate a host-supplied range before any clamping or content access.
+pub fn validate_range(document: &Document, range: Range) -> Result<(), CellInputError> {
+    if range.start > range.end {
+        return Err(CellInputError::InvalidRange { range });
+    }
+    validate_position(document, range.start)?;
+    validate_position(document, range.end)?;
+    Ok(())
+}
+
+/// An inserted end may join a grapheme or sit between newly adjacent CR and LF.
+pub fn canonical_end(document: &Document, mut offset: usize) -> Result<Position, CellInputError> {
+    if offset
+        .checked_sub(1)
+        .and_then(|index| document.rope().get_byte(index))
+        == Some(b'\r')
+        && document.rope().get_byte(offset) == Some(b'\n')
+    {
+        offset = offset
+            .checked_add(1)
+            .ok_or(CellInputError::InvalidOffset { offset })?;
+    }
+    let position = document
+        .offset_to_position(offset)
+        .ok_or(CellInputError::InvalidOffset { offset })?;
+    Ok(boundary(document, position, true)?)
+}
+
+/// Share the existing preflight normalizer, but retain its checked scratch state.
+pub fn prepare_command(
+    mut command: Command,
+    document: &Document,
+    cursor: &CursorState,
+) -> Result<PreparedCellEdit, CellInputError> {
+    validate_cursor(document, cursor)?;
+    let span = crate::document::compute_edit_span(document, &command)?;
+    let mut scratch = document.clone();
+    let mut scratch_cursor = cursor.clone();
+    prepare_isolated(&mut command, document, &mut scratch, &mut scratch_cursor)?;
+    Ok(PreparedCellEdit {
+        command,
+        document: scratch,
+        cursor: scratch_cursor,
+        span,
+    })
+}
+
+fn prepare_isolated(
+    command: &mut Command,
+    original: &Document,
+    document: &mut Document,
+    cursor: &mut CursorState,
+) -> Result<(), CellInputError> {
+    match command {
+        Command::Compound { commands } => {
+            for child in commands {
+                prepare_isolated(child, original, document, cursor)?;
+            }
+            return Ok(());
+        },
+        Command::SetSelection { .. } => return preflight(command, document, cursor),
+        Command::Insert { position, .. } => {
+            validate_position(original, *position)?;
+            let offset = original.position_to_offset(*position).ok_or_else(|| {
+                CellInputError::InvalidRange {
+                    range: Range::empty(*position),
+                }
+            })?;
+            *position = position_at_byte(document, offset)?;
+        },
+        Command::Delete { range, .. } | Command::Replace { range, .. } => {
+            validate_range(original, *range)?;
+            let start = original
+                .position_to_offset(range.start)
+                .ok_or(CellInputError::InvalidRange { range: *range })?;
+            let end = original
+                .position_to_offset(range.end)
+                .ok_or(CellInputError::InvalidRange { range: *range })?;
+            *range = Range::new(
+                position_at_byte(document, start)?,
+                position_at_byte(document, end)?,
+            );
+        },
+    }
+    // Commands are prepared in descending original byte order. Earlier edits
+    // can join a grapheme/CRLF at a shared boundary; those original byte edges
+    // remain authoritative until the complete transaction is normalized.
+    preserve_line_endings(command, document)?;
+    command.apply(document, cursor)?;
+    Ok(())
+}
+
+fn position_at_byte(document: &Document, offset: usize) -> Result<Position, CellInputError> {
+    let position = document
+        .offset_to_position(offset)
+        .ok_or(CellInputError::InvalidOffset { offset })?;
+    if document.position_to_offset(position) != Some(offset) {
+        return Err(CellInputError::InvalidOffset { offset });
+    }
+    Ok(position)
+}
+
+/// Include adjacent CR/LF in the recorded splice: inverse coordinates derived
+/// from inserted text must not accidentally consume an existing line ending.
+fn preserve_line_endings(command: &mut Command, document: &Document) -> Result<(), CellInputError> {
+    let (range, text) = match command {
+        Command::Replace {
+            range, new_text, ..
+        } => (*range, new_text.as_str()),
+        Command::Delete { range, .. } => (*range, ""),
+        Command::Insert { position, text } => (Range::empty(*position), text.as_str()),
+        Command::SetSelection { .. } | Command::Compound { .. } => return Ok(()),
+    };
+    let start = document
+        .position_to_offset(range.start)
+        .ok_or(CellInputError::InvalidRange { range })?;
+    let end = document
+        .position_to_offset(range.end)
+        .ok_or(CellInputError::InvalidRange { range })?;
+    let prefix = start
+        .checked_sub(1)
+        .filter(|index| document.rope().get_byte(*index) == Some(b'\r'));
+    let suffix = document.rope().get_byte(end) == Some(b'\n');
+    if prefix.is_none() && !suffix {
+        return Ok(());
+    }
+    let expanded_start = prefix.unwrap_or(start);
+    let expanded_end = if suffix {
+        end.checked_add(1)
+            .ok_or(CellInputError::InvalidOffset { offset: end })?
+    } else {
+        end
+    };
+    let expanded = Range::new(
+        document
+            .offset_to_position(expanded_start)
+            .ok_or(CellInputError::InvalidOffset {
+                offset: expanded_start,
+            })?,
+        document
+            .offset_to_position(expanded_end)
+            .ok_or(CellInputError::InvalidOffset {
+                offset: expanded_end,
+            })?,
+    );
+    let mut new_text = String::new();
+    if prefix.is_some() {
+        new_text.push('\r');
+    }
+    new_text.push_str(text);
+    if suffix {
+        new_text.push('\n');
+    }
+    *command = Command::Replace {
+        range: expanded,
+        old_text: document.slice(expanded),
+        new_text,
+    };
+    Ok(())
+}
+
+/// Typed cell paste avoids the legacy builder's clamping/Option failure seam.
+/// Complete per-selection replacements keep CRLF joins stable between edits.
+pub fn prepare_paste(
+    text: &str,
+    document: &Document,
+    cursor: &CursorState,
+) -> Result<PreparedCellEdit, CellInputError> {
+    validate_cursor(document, cursor)?;
+    let mut effective = cursor.clone();
+    normalize_cursor(document, &mut effective)?;
+    let mut edits: Vec<_> = effective
+        .all_selections()
+        .enumerate()
+        .map(|(index, selection)| (index, selection.range()))
+        .collect();
+    edits.sort_by_key(|(_, range)| (range.start, range.end));
+    let mut removed = 0usize;
+    let mut inserted = 0usize;
+    let mut offsets = vec![0; effective.cursor_count()];
+    let mut commands = Vec::with_capacity(edits.len());
+    for (index, range) in edits {
+        validate_range(document, range)?;
+        let start = document
+            .position_to_offset(range.start)
+            .ok_or(CellInputError::InvalidRange { range })?;
+        let end = document
+            .position_to_offset(range.end)
+            .ok_or(CellInputError::InvalidRange { range })?;
+        let offset = start
+            .checked_sub(removed)
+            .and_then(|value| value.checked_add(inserted))
+            .and_then(|value| value.checked_add(text.len()))
+            .ok_or(CellInputError::InvalidOffset { offset: start })?;
+        let slot = offsets
+            .get_mut(index)
+            .ok_or(CellInputError::InvalidOffset { offset: index })?;
+        *slot = offset;
+        removed = removed
+            .checked_add(end - start)
+            .ok_or(CellInputError::InvalidOffset { offset: removed })?;
+        inserted = inserted
+            .checked_add(text.len())
+            .ok_or(CellInputError::InvalidOffset { offset: inserted })?;
+        let old_text = document.slice(range);
+        if old_text != text {
+            commands.push(Command::Replace {
+                range,
+                old_text,
+                new_text: text.to_owned(),
+            });
+        }
+    }
+    commands.reverse();
+    let prepared = prepare_command(Command::Compound { commands }, document, cursor)?;
+    let mut positions = offsets
+        .into_iter()
+        .map(|offset| canonical_end(&prepared.document, offset));
+    let primary = positions
+        .next()
+        .ok_or(CellInputError::InvalidOffset { offset: 0 })??;
+    let mut final_cursor = CursorState::at(primary);
+    for position in positions {
+        final_cursor.add_cursor(Selection::collapsed(position?));
+    }
+    prepared.select(final_cursor)
+}

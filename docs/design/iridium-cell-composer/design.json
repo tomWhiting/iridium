@@ -1,7 +1,7 @@
 {
   "cluster": "iridium-cell-composer",
   "title": "Shared cell composer geometry and terminal embedding",
-  "status": "source_verified_for_private_branch_checkpoint_not_landed",
+  "status": "ICC002_ICC003_root_review_accepted_private_checkpoint_authorized",
   "source": {
     "root": "/Users/tom/Developer/ablative/libs/iridium",
     "revision": "0ebd033179b73bcdc9746c050162d75d1cf280bd",
@@ -100,6 +100,18 @@
       "title": "Performance and error evidence",
       "body": "Visible cell geometry is measured once on preparation. Hidden or zero-width line boundary metadata is measured once on explicit placement demand and reused for that borrowed map lifetime; untouched hidden lines are not scanned. Repeated paint/hit/caret queries reuse those measurements. Build the borrowed map only for geometry-dependent input, not ordinary characters/copy/host commands. Do not copy the entire document into an identity key, invent workload caps, or implement a general retained-row cache. Measure the initial composer cost against the repository stated sub-8ms input/120fps intent and report actual results; timings are not asserted without measurement. Frame syntax-cache freshness additionally retains one immutable Rope snapshot and document id, comparing shared instance identity in O(1). This is separate from borrowed row geometry. The retained snapshot may require copying an affected rope path on the next edit; R4 must measure that copy-on-write cost.",
       "status": "active"
+    },
+    {
+      "id": "D14",
+      "title": "Atomic host cell replacement and gesture-isolated undo",
+      "status": "active",
+      "body": "replace_cell_range validates the exact current cursor and typed range before any mutation, clamping, event or transient reset; replacement text is unchanged. EndOfReplacement chooses the next canonical grapheme boundary including CRLF joins, while Exact validates the complete desired post-edit CursorState without rounding. Internal preparation uses rope-shared scratch state and one synchronous commit. Rejections preserve text/revision/cursor/history/branches/events. True text-and-cursor no-op does not reset grouping. Cursor-only transactions are recorded without content events. New host transactions and opt-in cell paste isolate grouping on both sides without changing configured timeout or discarding branches; ordinary key and legacy paste/apply semantics remain unchanged. Context-complete reversible edits protect adjacent CR/LF from an inverse that otherwise derives its end from inserted text alone. One existing cell normalization authority is shared; no public staged token, parallel editor, full-document identity copy or generic transaction framework."
+    },
+    {
+      "id": "D15",
+      "title": "Host ownership of the primary terminal cursor",
+      "status": "active",
+      "body": "Frame::render_cells remains compatible and delegates with paint_primary=true. The explicit render_cells_with_primary_caret(prepared, buffer, paint_primary) uses the same exact borrowed frame and extent check, and false omits only primary caret paint. The primary remains in layout metadata for host hardware-cursor placement. The prepared visible-carets list starts with primary only when primary_caret is Some; skip that single list entry, never every equal position. Secondary carets, including those coincident with the primary or first-visible when primary is offscreen, still paint. Text, syntax, selection/search layers, wide-grapheme continuation cells, chrome and error-before-write contract remain unchanged. No second frame, underlay reconstruction, editor mutation, terminal ownership or Norn-specific rendering logic is introduced."
     }
   ],
   "api_contract": [
@@ -137,6 +149,16 @@
       "name": "Shared Unicode descriptors",
       "shape": "cell_layout::clusters::measure_graphemes(&str) -> impl Iterator<Item=MeasuredGrapheme>; descriptor text/scalar_range/byte_range/kind/width_at(CellColumn,tab_width)",
       "note": "One shared segmentation/classification/width authority; legacy LineLayout remains infallible and accepts invisible CR/LF clusters. Strict CellLine and CellRowMap still reject line endings and checked width overflow. No failure-to-empty fallback."
+    },
+    {
+      "name": "Editor host cell transaction",
+      "shape": "replace_cell_range(&mut self, range: Range, replacement: &str, cursor: CellReplacementCursor) -> Result<(), CellInputError>; CellReplacementCursor::{EndOfReplacement, Exact(CursorState)}",
+      "note": "Synchronous validated isolated undo transaction; owned full old/new CursorState. Existing ranges carry public fields: an inverted literal range is rejected, never normalized silently."
+    },
+    {
+      "name": "Host-owned primary caret",
+      "shape": "Frame::render_cells_with_primary_caret(&mut self, &PreparedCellFrame, &mut CellBuffer, paint_primary: bool) -> Result<CellFrameLayout, CellFrameError>",
+      "note": "Existing render_cells delegates true. False suppresses only primary paint, preserving layout/hardware-cursor hints and all secondary/underlay/chrome paint."
     }
   ],
   "structure": {
@@ -149,7 +171,7 @@
     "crates/iridium-editor/src/cell_layout/rows.rs": "ICC-001 R1: Borrowed kernel cell rows and grapheme geometry",
     "crates/iridium-editor/src/cell_layout/mapping.rs": "ICC-001 R1: Borrowed kernel cell rows and grapheme geometry",
     "crates/iridium-editor/src/cell_layout/tests.rs": "ICC-001 R1: Borrowed kernel cell rows and grapheme geometry; ICC-001 R3 approved shared measurement/per-cursor affinity seam",
-    "crates/iridium-editor/src/editor/core.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
+    "crates/iridium-editor/src/editor/core.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
     "crates/iridium-editor/src/input/keyboard/mod.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
     "crates/iridium-editor/src/input/keyboard/dispatch.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
     "crates/iridium-editor/src/input/keyboard/actions/mod.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
@@ -158,11 +180,11 @@
     "crates/iridium-editor/src/input/keyboard/edits.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
     "crates/iridium-editor/src/input/keyboard/backspace_pairs.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
     "crates/iridium-editor/src/input/keyboard/editing/intents.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
-    "crates/iridium-editor/src/editor/cell_input.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-001 R3 approved shared measurement/per-cursor affinity seam",
-    "crates/iridium-editor/src/input/keyboard/cell_input.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
+    "crates/iridium-editor/src/editor/cell_input.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-001 R3 approved shared measurement/per-cursor affinity seam; ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/src/input/keyboard/cell_input.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
     "crates/iridium-editor/src/input/keyboard/cell_navigation.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-001 R3 approved shared measurement/per-cursor affinity seam",
     "crates/iridium-editor/src/input/keyboard/cell_actions.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
-    "crates/iridium-editor/src/input/keyboard/cell_edits.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input",
+    "crates/iridium-editor/src/input/keyboard/cell_edits.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
     "crates/iridium-editor/src/input/keyboard/cell_tests.rs": "ICC-001 R2: Cell-aware command dispatch and complete grapheme-safe input; ICC-001 R3 approved shared measurement/per-cursor affinity seam",
     "crates/iridium-tui/src/frame/mod.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
     "crates/iridium-tui/src/frame/geometry.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
@@ -172,17 +194,24 @@
     "crates/iridium-tui/src/frame/render.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
     "crates/iridium-tui/src/frame/cell_options.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
     "crates/iridium-tui/src/frame/prepared_cells.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
-    "crates/iridium-tui/src/frame/cell_render.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
+    "crates/iridium-tui/src/frame/cell_render.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome; ICC-003: explicit primary-caret paint ownership and public regressions",
     "crates/iridium-tui/src/frame/cell_geometry.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
     "crates/iridium-tui/src/frame/embedding_tests.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
     "crates/iridium-tui/src/frame/wrap_tests.rs": "ICC-001 R3: Borrowed cell Frame preparation and optional bare chrome",
     "crates/iridium-editor/tests/cell_composer.rs": "ICC-001 R4: public compatibility and separate kernel/TUI performance evidence",
-    "crates/iridium-tui/tests/cell_composer.rs": "ICC-001 R4: public compatibility and separate kernel/TUI performance evidence",
+    "crates/iridium-tui/tests/cell_composer.rs": "ICC-001 R4: public compatibility and separate kernel/TUI performance evidence; ICC-003: explicit primary-caret paint ownership and public regressions",
     "crates/iridium-editor/benches/cell_composer.rs": "ICC-001 R4: public compatibility and separate kernel/TUI performance evidence",
-    "crates/iridium-editor/src/editor/mod.rs": "ICC-001 R2: Declare and export cell input API without changing legacy entry points",
+    "crates/iridium-editor/src/editor/mod.rs": "ICC-001 R2: Declare and export cell input API without changing legacy entry points; ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
     "crates/iridium-tui/Cargo.toml": "ICC-001 R4: public compatibility and separate kernel/TUI performance evidence",
     "crates/iridium-tui/benches/cell_composer.rs": "ICC-001 R4: public compatibility and separate kernel/TUI performance evidence",
-    "crates/iridium-editor/src/input/keyboard/handler.rs": "ICC-001 R2 / ICC-AST-01: named KeyboardHandler state and implementation, preserving public re-export and sibling-only internal access"
+    "crates/iridium-editor/src/input/keyboard/handler.rs": "ICC-001 R2 / ICC-AST-01: named KeyboardHandler state and implementation, preserving public re-export and sibling-only internal access",
+    "crates/iridium-editor/src/history/undo_tree/mod.rs": "ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/src/editor/cell_replacement.rs": "ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/src/editor/command_apply.rs": "ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/src/editor/cell_transaction_tests.rs": "ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/src/history/undo_tree/isolated.rs": "ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/tests/cell_transactions.rs": "ICC-002: typed prepared host cell transaction, shared effects and isolated undo proof",
+    "crates/iridium-editor/src/editor/history_nav.rs": "ICC-002: cumulative content-change evidence through multi-edge history navigation"
   },
   "execution_contract": {
     "registration": "R1-R4, their public integration fixtures and benchmarks, and the registered handler extraction are implemented. The current43 source set passed twelve local check selections and independent scoped review closures; root now coordinates a private feature-branch checkpoint. Exact-commit venue/review landing prerequisites remain outstanding.",
@@ -449,5 +478,151 @@
       "rewritten_checkpoint": null,
       "status": "No rewrite performed or approved; retain original commit identities in the external push receipt."
     }
+  },
+  "ICC-002": {
+    "registration": {
+      "schema": "icc-002-registration.v1",
+      "at_melbourne": "2026-09-06T12:46:49.697054+10:00",
+      "authority": "Root authorizes ICC-002 implementation from source-bound proposal plus exact crate-private routing amendment, 6 September 2026. No Cargo until coordinated.",
+      "baseline": "09cfa793d2f2aa70fad8e86c55d3323d1c7f8d04",
+      "branch": "codex/iridium-cell-transactions",
+      "worktree": "/private/tmp/iridium-cell-transactions",
+      "proposal": {
+        "path": "/private/tmp/nwp-05-proof/iridium-host-transaction-contract-20260906.json",
+        "sha256": "3ef1c9f67a0fd58efc108cd5412809c2150dbab344b92d52145257af46e4acbb"
+      },
+      "source_wall": {
+        "modify": [
+          "crates/iridium-editor/src/editor/mod.rs",
+          "crates/iridium-editor/src/editor/core.rs",
+          "crates/iridium-editor/src/editor/cell_input.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_edits.rs",
+          "crates/iridium-editor/src/history/undo_tree/mod.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_input.rs"
+        ],
+        "create": [
+          "crates/iridium-editor/src/editor/cell_replacement.rs",
+          "crates/iridium-editor/src/editor/command_apply.rs",
+          "crates/iridium-editor/src/editor/cell_transaction_tests.rs",
+          "crates/iridium-editor/src/history/undo_tree/isolated.rs",
+          "crates/iridium-editor/tests/cell_transactions.rs"
+        ],
+        "delete": []
+      },
+      "documentation_wall": {
+        "modify": [
+          "docs/design/iridium-cell-composer/design.json",
+          "docs/design/iridium-cell-composer/DESIGN.md",
+          "docs/design/iridium-cell-composer/checklist.json",
+          "docs/design/iridium-cell-composer/CHECKLIST.md",
+          "docs/design/iridium-cell-composer/registration.json"
+        ],
+        "create": [
+          "docs/design/iridium-cell-composer/briefs/ICC-002.json",
+          "docs/design/iridium-cell-composer/briefs/ICC-002.md"
+        ]
+      },
+      "routing_amendment": "keyboard/cell_input.rs only routes private prepared helper/result; no public preparation token.",
+      "checks": "Register and render/coverage before source edits; source freeze plus direct rustfmt/AST, pending coordinated Cargo. No main/commit/publication."
+    },
+    "performance": "Only touched line graphemes and edited text are measured/copied; scratch Document shares rope. No layout preparation or set_content. Existing Rust syntax stress qualification is unchanged.",
+    "scope_confirmation": {
+      "authority": "Root permits typed cell-only paste preparation and existing-core cursor-only replay guard; 6 September 2026 Melbourne. Root later frees Cargo lane for bounded tests and strict editor Clippy with dedicated target/jobs2.",
+      "paths_added": [],
+      "contract": "Preserve legacy paste/key behavior. Cell paste uses typed per-selection Replace and original byte offsets in descending order; validate against original document, so adjacent edits can join Unicode/CRLF without invalidating another original edit edge. One shared cursor/grapheme normalizer and one isolated commit. Content-only history side effects are conditioned on actual content change when replaying new cursor-only entries.",
+      "additional_acceptance": [
+        "Multicursor CRLF deletion-join plus adjacent grapheme/CRLF targets round-trip exact text/cursors.",
+        "Cursor-only undo/redo leaves document revision and content events untouched."
+      ]
+    },
+    "history_jump_repair": {
+      "schema": "icc-002-wall-amendment.v1",
+      "at_melbourne": "2026-09-06T13:11:22.669969+10:00",
+      "authority": "Root explicitly approves history_nav.rs amendment for independent review finding, 6 September 2026",
+      "row": "ICC-002/R1",
+      "additional_modify": [
+        "crates/iridium-editor/src/editor/history_nav.rs"
+      ],
+      "reason": "History jumps apply multiple edges before one finalization. A final cursor-only command must not hide earlier content changes. Pass cumulative content_changed evidence to the existing finalizer; single-command cursor-only replay remains content-silent.",
+      "acceptance": "Public jump from empty root to a content node then cursor-only destination refreshes content/search once; cursor-only navigation emits no content event. Add public regression in existing tests/cell_transactions.rs wall.",
+      "historical_proof": "Existing check records on earlier source hashes remain historical after this amendment."
+    },
+    "local_CPU_checkpoint": {
+      "at_melbourne": "2026-09-06T13:23:22.865140+10:00",
+      "status": "implemented_frozen_local_CPU_verified_review_closed_uncommitted_not_landed",
+      "source_set_sha256": "5e048ebd3a86a60d48e7cc4e132290f447e89581e47d15c719e6b3a9b757d977",
+      "proof": "/private/tmp/nwp-05-proof/icc-002-implementation/local-proof.json",
+      "proof_sha256": "4297d3823ca39ba147b875a7aa968560b91dcba0af08eea9dc20768c1646b306",
+      "independent_review": {
+        "path": "/private/tmp/nwp-05-proof/icc-002-independent-review/closure-01.json",
+        "sha256": "636fd8314a66100237349253249870cd8b8d3425486db264afa5217db00bd7d7",
+        "finding": "ICC002-REV-01",
+        "status": "closed",
+        "new_findings": []
+      },
+      "validation": "Kernel and syntax editor packages plus TUI tests, strict all-targets Clippy for those three CPU scopes, formatting and supplemental AST passed on exact51 paths. Ignored baseline documentation examples remain explicitly enumerated. No landing claim."
+    }
+  },
+  "ICC-003": {
+    "registration": {
+      "schema": "icc-003-registration.v1",
+      "at_melbourne": "2026-09-06T13:27:43.027099+10:00",
+      "authority": "Root requests the bounded essential primary-caret ownership seam before the private Git dependency checkpoint; exact source/doc walls and estimate sent before edits, 6 September 2026.",
+      "root": "/private/tmp/iridium-cell-transactions",
+      "base": "09cfa793d2f2aa70fad8e86c55d3323d1c7f8d04",
+      "branch": "codex/iridium-cell-transactions",
+      "source_wall": {
+        "modify": [
+          "crates/iridium-tui/src/frame/cell_render.rs",
+          "crates/iridium-tui/tests/cell_composer.rs"
+        ],
+        "create": [],
+        "delete": []
+      },
+      "documentation_wall": {
+        "modify": [
+          "docs/design/iridium-cell-composer/design.json",
+          "docs/design/iridium-cell-composer/DESIGN.md",
+          "docs/design/iridium-cell-composer/checklist.json",
+          "docs/design/iridium-cell-composer/CHECKLIST.md",
+          "docs/design/iridium-cell-composer/registration.json"
+        ],
+        "create": [
+          "docs/design/iridium-cell-composer/briefs/ICC-003.json",
+          "docs/design/iridium-cell-composer/briefs/ICC-003.md"
+        ]
+      },
+      "before_source_sha256": {
+        "crates/iridium-tui/src/frame/cell_render.rs": "39bbaed7101e7cedf9205e7b05253ec639b7a647498a57b06b42d22059ebc3c6",
+        "crates/iridium-tui/tests/cell_composer.rs": "b594292e744f95aa23ce29e2bd2bb1fd1293a4f76495d1638da8284dced308f8"
+      },
+      "ICC002_preserved": {
+        "source_freeze": "/private/tmp/nwp-05-proof/icc-002-implementation/final-freeze.json",
+        "source_set_sha256": "5e048ebd3a86a60d48e7cc4e132290f447e89581e47d15c719e6b3a9b757d977",
+        "rule": "No ICC002 kernel implementation or proof changes. This additive TUI change receives separate proof; the combined private checkpoint uses the latest assembled source witnesses."
+      },
+      "estimate": "About20 production lines plus public fixtures and docs; 10–15 minutes authoring, then cached CPU tests/strictClippy/fmt once root coordinates lane. No builds until that coordination; no commit/main/public action."
+    },
+    "local_TUI_checkpoint": {
+      "at_melbourne": "2026-09-06T13:34:55.233935+10:00",
+      "status": "implemented_frozen_local_TUI_verified_root_review_pending_uncommitted_not_landed",
+      "source_set_sha256": "cdba3c0becde66d39dd1614c7f966baa5be86882b5093c5a9d46e6a6ebf36bb0",
+      "proof": "/private/tmp/nwp-05-proof/icc-003-primary-caret/local-proof.json",
+      "proof_sha256": "84249031ba99ce4ec85127a9c903b9bd995503ad9740b78a64d6a1d5be871869",
+      "validation": "Current complete TUI package: 390 passed, 0 failed, 0 ignored; strict TUI all-targets Clippy and workspace fmt passed. Supplemental AST2 changed paths no findings/skips/parser errors. ICC002 kernel and historical proofs remain unchanged. Root review and private checkpoint pending; no venue/landing claim."
+    }
+  },
+  "ICC002_ICC003_private_checkpoint": {
+    "status": "root_review_accepted_private_checkpoint_authorized_not_landed",
+    "at_melbourne": "2026-09-06T13:40:46.054843+10:00",
+    "source_set_sha256": "cdba3c0becde66d39dd1614c7f966baa5be86882b5093c5a9d46e6a6ebf36bb0",
+    "source_paths": 51,
+    "root_acceptance": "/private/tmp/nwp-05-proof/icc-003-primary-caret/private-checkpoint/root-acceptance.json",
+    "root_acceptance_sha256": "0d394ce7b3b178a62fade85c97e90bf8baa8b1705afac868cabf072b43e69fed",
+    "branch": "codex/iridium-cell-transactions",
+    "private_origin": "https://github.com/tomWhiting/iridium.git",
+    "checks": "ICC002 kernel/syntax checks and review remain source-bound on unchanged implementation; ICC003 complete TUI390/0/0, strict TUI all-targets Clippy, fmt and bounded AST pass on the assembled51 source. Historical failures and inherited ignored kernel doctests stay explicitly recorded.",
+    "commit_receipt": "The resulting actual revision and remote-ref verification are recorded externally after commit/push; no invented revision is embedded here.",
+    "not_a_landing": "Exact205/Fable, main merge and broader release checks are not claimed by this private integration checkpoint."
   }
 }

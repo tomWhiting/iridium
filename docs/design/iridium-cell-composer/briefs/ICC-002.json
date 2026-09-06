@@ -1,0 +1,82 @@
+{
+  "id": "ICC-002",
+  "cluster": "iridium-cell-composer",
+  "title": "Atomic host cell replacement and isolated gesture history",
+  "status": "root_review_accepted_private_checkpoint_authorized_not_landed",
+  "depends_on": [
+    "ICC-001"
+  ],
+  "checklist": [
+    "C5"
+  ],
+  "stories": [
+    "S2",
+    "S4"
+  ],
+  "design": "../design.json",
+  "purpose": "Norn completion, prompt recall/restore and submit clear can replace a typed range without resetting Editor, losing undo or leaving partial state.",
+  "task": "Preserve this locally checked and reviewed implementation in the authorized private codex/iridium-cell-transactions checkpoint. Actual revision and push verification belong in the external checkpoint receipt; main merge, public actions and venue/Fable landing claims remain separate.",
+  "requirements": [
+    {
+      "id": "R1",
+      "title": "Prepared host replacement and isolated cell gesture commit",
+      "depends_on": [],
+      "spec": "Implement D14 using a typed public replacement method and enum, private prepared scratch state, common command effects, and private undo grouping barriers. Validate before publication; use existing grapheme normalization; record exact reversible text/cursors. Only opt-in cell paste changes gesture isolation. No legacy host behavior changes.",
+      "files": {
+        "modify": [
+          "crates/iridium-editor/src/editor/mod.rs",
+          "crates/iridium-editor/src/editor/core.rs",
+          "crates/iridium-editor/src/editor/cell_input.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_edits.rs",
+          "crates/iridium-editor/src/history/undo_tree/mod.rs",
+          "crates/iridium-editor/src/input/keyboard/cell_input.rs",
+          "crates/iridium-editor/src/editor/history_nav.rs"
+        ],
+        "create": [
+          "crates/iridium-editor/src/editor/cell_replacement.rs",
+          "crates/iridium-editor/src/editor/command_apply.rs",
+          "crates/iridium-editor/src/editor/cell_transaction_tests.rs",
+          "crates/iridium-editor/src/history/undo_tree/isolated.rs",
+          "crates/iridium-editor/tests/cell_transactions.rs"
+        ],
+        "delete": []
+      },
+      "acceptance": [
+        "Public replace_cell_range returns typed errors for inverted/out-of-bounds/grapheme-interior range, invalid current cursor, invalid exact postcursor and read-only. Rejection leaves document revision, content, full cursor, history node/branches and success events unchanged.",
+        "Combining, ZWJ, flag and deletion-join fixtures preserve whole graphemes. EndOfReplacement canonicalizes joining edges; Exact preserves valid direction/secondary selections and refuses interiors. LF/CR/CRLF and CR-before-existing-LF insertion round-trip exact bytes and cursor through undo/redo.",
+        "With nonzero grouping enabled, typing before/after a replacement, clear, recall or cell paste creates independent undo entries while timeout remains unchanged. Branches remain reachable. True text-and-cursor no-op does not split a normal typing group.",
+        "A cursor-only host replacement is one undoable selection transaction, emits only selection change and does not advance document revision. Malformed later compound command preflight cannot publish an earlier child edit.",
+        "Common command effects preserve syntax edit notification, search refresh and content/selection event order. New prepared path propagates span errors before commit; moved legacy fallback stays baseline-only. Ordinary key grouping and legacy paste/apply behavior remain unchanged.",
+        "rg -n \"replace_cell_range|CellReplacementCursor|push_isolated|prepare_command\" crates/iridium-editor/src/editor crates/iridium-editor/src/input/keyboard/cell_edits.rs crates/iridium-editor/src/history/undo_tree/isolated.rs identifies the actual seam; public integration tests call only public APIs with grouping enabled.",
+        "New named production files stay within 500 lines; mod.rs changes add declarations/reexports only. No new suppression/unwrap/expect/panic/ignored Result. Existing oversized core.rs and legacy mod.rs implementation remain explicitly baseline qualifications.",
+        "Multicursor CRLF deletion-join plus adjacent grapheme/CRLF targets round-trip exact text/cursors.",
+        "Cursor-only undo/redo leaves document revision and content events untouched.",
+        "Public jump from empty root to a content node then cursor-only destination refreshes content/search once; cursor-only navigation emits no content event. Add public regression in existing tests/cell_transactions.rs wall."
+      ],
+      "checklist": [
+        "C5"
+      ],
+      "stories": [
+        "S2",
+        "S4"
+      ],
+      "provenance": [
+        "../design.json#D14",
+        "../../../../crates/iridium-editor/src/editor/cell_input.rs",
+        "../../../../crates/iridium-editor/src/input/keyboard/cell_edits.rs",
+        "../../../../crates/iridium-editor/src/editor/core.rs",
+        "../../../../crates/iridium-editor/src/history/undo_tree/mod.rs",
+        "/private/tmp/nwp-05-proof/iridium-host-transaction-contract-20260906.json"
+      ]
+    }
+  ],
+  "boundaries": [
+    "No Norn source, original Iridium worktree, dependency, Cargo manifest/lock, GPU/TTY ownership or generic transaction infrastructure edits.",
+    "Additional files require explicit prior registration. No Cargo until coordinated; no commit before strict lint, no main/public/venue action."
+  ],
+  "verification": [
+    "Direct rustfmt and source-bound supplemental AST/LOC before handoff.",
+    "Pending coordinated cargo test --locked -p iridium-editor --no-default-features cell_transaction; public --test cell_transactions; cell input and full editor/TUI legacy CPU checks; strict corresponding Clippy, fmt.",
+    "Shared core effects require current-source full workspace tests and strict all-feature/all-target Clippy before main eligibility. Fable/exact205 remain separate."
+  ]
+}

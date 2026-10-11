@@ -50,6 +50,7 @@ mod actions;
 mod auto_pair_record;
 mod backspace_pairs;
 mod behaviors;
+mod tag_pairs;
 mod comments;
 mod cursor_addition;
 mod dispatch;

@@ -52,6 +52,9 @@ pub(super) fn backspace_edits_with_pairs(
     cursor
         .all_selections()
         .map(|sel| {
+            let pairs = if document.language() == Some("markdown") {
+                PairRules::for_position(document, sel.head)
+            } else { pairs };
             if !sel.is_collapsed() {
                 return CursorEdit::delete(sel.range());
             }

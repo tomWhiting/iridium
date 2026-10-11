@@ -11,6 +11,7 @@
 
 mod capture;
 mod highlighter;
+mod injections;
 mod span;
 
 pub use capture::HighlightType;

@@ -105,6 +105,20 @@ const SOURCES: &[(&str, &str)] = &[
         "yaml",
         include_str!("../languages/queries/yaml/config.toml"),
     ),
+    ("cypher", include_str!("../languages/queries/cypher/config.toml")),
+    ("glsl", include_str!("../languages/queries/glsl/config.toml")),
+    ("html", include_str!("../languages/queries/html/config.toml")),
+    ("java", include_str!("../languages/queries/java/config.toml")),
+    ("just", include_str!("../languages/queries/just/config.toml")),
+    ("nu", include_str!("../languages/queries/nu/config.toml")),
+    ("proto", include_str!("../languages/queries/proto/config.toml")),
+    ("sql", include_str!("../languages/queries/sql/config.toml")),
+    ("query", include_str!("../languages/queries/query/config.toml")),
+    ("typst", include_str!("../languages/queries/typst/config.toml")),
+    ("wgsl", include_str!("../languages/queries/wgsl/config.toml")),
+    ("zig", include_str!("../languages/queries/zig/config.toml")),
+    ("xml", include_str!("../languages/queries/xml/config.toml")),
+    ("dtd", include_str!("../languages/queries/dtd/config.toml")),
 ];
 
 /// What came of parsing [`SOURCES`].

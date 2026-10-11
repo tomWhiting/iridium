@@ -1,0 +1,11 @@
+name = "Java"
+grammar = "java"
+path_suffixes = ["java"]
+tab_size = 2
+line_comments = ["// "]
+brackets = [
+    { start = "(", end = ")", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "[", end = "]", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "{", end = "}", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+]

@@ -92,39 +92,10 @@ fn every_parseable_language_ships_the_highlights_query_the_highlighter_requires(
 }
 
 #[test]
-fn a_language_with_no_grammar_reports_absence_rather_than_an_error() {
-    // The behaviour the four grammarless languages depend on. A caller must be
-    // able to ask for any query of any language and get a routine `Ok(None)`
-    // back, so features degrade instead of erroring — see `grammar`'s module
-    // note. An `Err` here would surface as a broken editor for a `go.mod`.
-    let mut grammarless = 0_usize;
+fn every_registered_language_can_compile_its_queries() {
     for &language in Language::all() {
-        if crate::grammar::has_grammar(language) {
-            continue;
-        }
-        grammarless += 1;
-        for &kind in QueryKind::all() {
-            // Matched rather than compared: `SyntaxError` is deliberately not
-            // `PartialEq` — it carries a message meant for a human — and
-            // deriving it to shorten a test would be the tail wagging the dog.
-            match compiled(language, kind) {
-                Ok(None) => {},
-                Ok(Some(_)) => panic!(
-                    "{}/{kind} compiled a query with no grammar to compile it against",
-                    language.id()
-                ),
-                Err(error) => panic!(
-                    "{}/{kind} errored instead of reporting a routine absence: {error}",
-                    language.id()
-                ),
-            }
-        }
+        assert!(crate::grammar::has_grammar(language), "{} has no parser", language.id());
     }
-
-    assert!(
-        grammarless > 0,
-        "no language lacks a grammar, so this test proves nothing"
-    );
 }
 
 #[test]

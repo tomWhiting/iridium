@@ -1,0 +1,11 @@
+name = "GLSL"
+grammar = "glsl"
+path_suffixes = ["glsl", "vert", "frag", "geom", "tesc", "tese"]
+tab_size = 2
+line_comments = ["// "]
+brackets = [
+    { start = "(", end = ")", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "[", end = "]", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "{", end = "}", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+]

@@ -1,0 +1,12 @@
+name = "SQL"
+grammar = "sql"
+path_suffixes = ["sql"]
+tab_size = 2
+line_comments = ["-- "]
+brackets = [
+    { start = "(", end = ")", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "[", end = "]", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "{", end = "}", close = true, newline = true, not_in = ["string", "comment"] },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+    { start = "'", end = "'", close = true, newline = false, not_in = ["string", "comment"] },
+]

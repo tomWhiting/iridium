@@ -102,7 +102,7 @@ impl KeyboardHandler {
             // a manifest lookup, and the answer is the document's, not the
             // cursor's.
             let pairs = behaviors::PairRules::for_document(document);
-            if pairs.is_trigger(c) {
+            if pairs.is_trigger(c) || c == '>' || document.language() == Some("markdown") {
                 let (edits, closers) =
                     behaviors::auto_pair_char_edits(document, cursor, c, pairs, scopes);
                 let Some((command, landed)) =

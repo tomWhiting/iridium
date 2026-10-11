@@ -147,11 +147,15 @@ impl PairRules {
     /// manifest that declares an empty table has said "none", and gets none;
     /// `diff` is the one that does.
     pub(super) fn for_document(document: &Document) -> Self {
-        let Some(manifest) = document
-            .language()
-            .and_then(Language::from_id)
-            .and_then(Language::manifest)
-        else {
+        Self::for_language(document.language().and_then(Language::from_id))
+    }
+
+    pub(super) fn for_position(document: &Document, position: Position) -> Self {
+        Self::for_language(document.language_at(position))
+    }
+
+    fn for_language(language: Option<Language>) -> Self {
+        let Some(manifest) = language.and_then(Language::manifest) else {
             return Self::ALL;
         };
         let (Some(closing), Some(expanding)) =
@@ -536,7 +540,7 @@ pub(super) fn enter_edits(
         .all_selections()
         .map(|sel| {
             if config.auto_indent {
-                enter_edit_for(document, sel, config, line_ending, pairs)
+                enter_edit_for(document, sel, config, line_ending, if document.language() == Some("markdown") { PairRules::for_position(document, sel.head) } else { pairs })
             } else {
                 let text = line_ending.to_string();
                 let placement = CaretPlacement::collapsed(text.len());
@@ -705,7 +709,10 @@ pub(super) fn auto_pair_char_edits(
     cursor
         .all_selections()
         .map(|sel| {
-            let (edit, placement, closer) = auto_pair_edit_for(document, sel, c, pairs, scopes);
+            let local = if document.language() == Some("markdown") {
+                PairRules::for_position(document, sel.head)
+            } else { pairs };
+            let (edit, placement, closer) = auto_pair_edit_for(document, sel, c, local, scopes);
             ((edit, placement), closer)
         })
         .unzip()
@@ -735,6 +742,12 @@ fn auto_pair_edit_for(
         }
         // A bare closer replaces the selection like any typed character.
         return plain_char_edit(sel, c);
+    }
+
+    if c == '>' {
+        if let Some(text) = super::tag_pairs::closing_edit(document, sel.head) {
+            return (CursorEdit::replace(sel.range(), text), CaretPlacement::collapsed(1), None);
+        }
     }
 
     // Skip over an existing closer instead of inserting a duplicate — §10.4's

@@ -68,7 +68,7 @@ use iridium_editor::{
 
 use ModifierState::{Any, Forbidden, Required};
 
-/// Open an untitled document in a new tab.
+/// Offers buffer-word completions at matching cursors.
 pub const COMPLETE_WORD: CommandId = CommandId::from_static("editor.completeWord");
 /// Opens an empty document in a new tab.
 pub const FILE_NEW: CommandId = CommandId::from_static("file.new");

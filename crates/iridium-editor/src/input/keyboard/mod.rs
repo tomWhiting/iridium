@@ -69,6 +69,7 @@ mod navigation;
 mod recording;
 mod selection_motion;
 mod tag_pairs;
+mod pair_rules;
 mod transform;
 mod types;
 pub mod visual_navigation;

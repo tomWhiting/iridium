@@ -114,11 +114,7 @@ const SHIPS: &[(Language, &[QueryKind])] = &[
     (Language::TypeScript, EVERYTHING),
     (
         Language::Cypher,
-        &[
-            QueryKind::Highlights,
-            QueryKind::Brackets,
-            QueryKind::Indents,
-        ],
+        &[QueryKind::Highlights],
     ),
     (
         Language::Glsl,

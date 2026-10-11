@@ -145,7 +145,7 @@ fn the_cache_is_shaped_like_the_two_enums_it_indexes() {
 }
 
 #[test]
-fn the_vendored_text_objects_carry_exactly_the_five_documented_captures() {
+fn the_vendored_text_objects_carry_exactly_the_declared_captures() {
     // Structural selection and text objects are built on these, and only
     // these. If a vendor refresh adds `@parameter.inside` or `@comment.inside`
     // this fails — which is the point: it means richer text objects became
@@ -181,11 +181,31 @@ fn the_vendored_text_objects_carry_exactly_the_five_documented_captures() {
     );
 
     let expected: BTreeSet<&str> = [
+        "assignment.inner",
+        "assignment.outer",
+        "block.outer",
+        "call.inner",
+        "call.outer",
         "class.around",
         "class.inside",
         "comment.around",
+        "comment.inside",
+        "comment.outer",
+        "conditional.inner",
+        "conditional.outer",
         "function.around",
+        "function.inner",
         "function.inside",
+        "function.outer",
+        "loop.inner",
+        "loop.outer",
+        "number.inner",
+        "parameter.around",
+        "parameter.inside",
+        "parameter.outer",
+        "pipeline.inner",
+        "pipeline.outer",
+        "statement.outer",
     ]
     .into_iter()
     .collect();

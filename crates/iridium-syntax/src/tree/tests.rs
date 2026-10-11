@@ -237,29 +237,10 @@ fn every_parseable_language_can_own_a_tree() {
 }
 
 #[test]
-fn a_grammarless_language_is_refused_a_tree_rather_than_given_an_empty_one() {
-    // The other half, and the one a caller depends on: refusing must be an
-    // explicit error naming the language, not a `SyntaxTree` that silently
-    // parses everything to nothing. A silent empty tree would make every
-    // syntax-driven feature look like it ran and found nothing.
-    let mut refused = 0_usize;
+fn every_registered_language_receives_a_parse_tree() -> Result<(), crate::SyntaxError> {
     for &language in Language::all() {
-        if crate::grammar::has_grammar(language) {
-            continue;
-        }
-        refused += 1;
-        let error = SyntaxTree::new(language)
-            .err()
-            .unwrap_or_else(|| panic!("{} has no grammar but was given a tree", language.id()));
-        assert!(
-            error.to_string().contains(language.id()),
-            "{} was refused with a message that does not name it: {error}",
-            language.id()
-        );
+        let mut syntax = SyntaxTree::new(language)?;
+        assert!(syntax.parse("").is_some(), "{} cannot parse an empty document", language.id());
     }
-
-    assert!(
-        refused > 0,
-        "every language has a grammar, so this test proves nothing"
-    );
+    Ok(())
 }

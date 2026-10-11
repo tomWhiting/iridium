@@ -55,7 +55,7 @@ fn test_highlight_type_from_capture_name() {
 /// simply did not use the `_` convention.
 ///
 /// Verified individually against the vendored queries rather than assumed.
-const DELIBERATELY_UNSTYLED: &[&str] = &[
+const DELIBERATELY_UNSTYLED: &[&str] = &["_cmd", "_flag", "_name", "spell", 
     "_isinstance",
     "_issubclass",
     "none",

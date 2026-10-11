@@ -470,7 +470,9 @@ mod tests {
         for &language in Language::all() {
             assert!(
                 extensions_of(language).next().is_some()
-                    || language.manifest().is_some_and(crate::manifest::Manifest::is_hidden),
+                    || language
+                        .manifest()
+                        .is_some_and(crate::manifest::Manifest::is_hidden),
                 "{} claims no extension at all",
                 language.id()
             );

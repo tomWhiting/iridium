@@ -182,8 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn different_prefixes_are_not_replaced_by_the_primary_word()
-    {
+    fn different_prefixes_are_not_replaced_by_the_primary_word() {
         let document = Document::new("alphabet al z");
         let mut cursors = CursorState::at(Position::new(0, 11));
         cursors.add_cursor(crate::Selection::collapsed(Position::new(0, 13)));

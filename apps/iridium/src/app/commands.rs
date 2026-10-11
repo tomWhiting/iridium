@@ -70,6 +70,7 @@ use ModifierState::{Any, Forbidden, Required};
 
 /// Open an untitled document in a new tab.
 pub const COMPLETE_WORD: CommandId = CommandId::from_static("editor.completeWord");
+/// Opens an empty document in a new tab.
 pub const FILE_NEW: CommandId = CommandId::from_static("file.new");
 /// Write the document to its file.
 pub const FILE_SAVE: CommandId = CommandId::from_static("file.save");

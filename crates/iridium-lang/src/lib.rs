@@ -438,7 +438,9 @@ mod tests {
         for &language in Language::all() {
             assert!(
                 language.extensions().next().is_some()
-                    || language.manifest().is_some_and(crate::manifest::Manifest::is_hidden),
+                    || language
+                        .manifest()
+                        .is_some_and(crate::manifest::Manifest::is_hidden),
                 "{language:?} claims no extension, so no file can ever select it"
             );
             for extension in language.extensions() {

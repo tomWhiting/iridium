@@ -13,7 +13,10 @@ fn type_at(language: &str, source: &str, at: Position, character: char) -> (Docu
         &mut document,
         &mut cursor,
     );
-    assert!(command.is_some(), "typing must produce a reversible command");
+    assert!(
+        command.is_some(),
+        "typing must produce a reversible command"
+    );
     (document, cursor)
 }
 
@@ -34,7 +37,12 @@ fn xml_attributes_and_namespaces_keep_the_tag_name() {
 
 #[test]
 fn xml_self_closing_and_closing_tags_stay_single() {
-    for source in ["<message /", "</message", "<?xml version=\"1.0\"?", "<!-- note --"] {
+    for source in [
+        "<message /",
+        "</message",
+        "<?xml version=\"1.0\"?",
+        "<!-- note --",
+    ] {
         let (document, _) = type_at("xml", source, Position::new(0, source.chars().count()), '>');
         assert_eq!(document.text(), format!("{source}>"));
     }

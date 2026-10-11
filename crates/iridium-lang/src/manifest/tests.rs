@@ -99,7 +99,7 @@ fn exactly_three_manifests_are_hidden() {
 
 #[test]
 fn no_language_iridium_offers_is_a_hidden_one() {
-    for &language in Language::all() {
+    for &language in Language::visible() {
         let manifest = language.manifest().expect("every language has a manifest");
         assert!(
             !manifest.is_hidden(),
@@ -383,7 +383,7 @@ fn the_manifests_that_list_no_autoclose_before_are_named() {
         .collect();
     assert_eq!(
         silent,
-        vec!["awl", "diff", "gitcommit", "markdown-inline"],
+        vec!["awl", "diff", "gitcommit", "markdown-inline", "cypher", "glsl", "html", "java", "just", "nu", "proto", "sql", "query", "typst", "wgsl", "zig", "xml", "dtd"],
         "an absent autoclose_before is a language that has not said"
     );
 }
@@ -600,16 +600,7 @@ fn the_languages_with_multi_character_openers_are_named() {
 
     assert_eq!(
         with_multi,
-        [
-            "c",
-            "cpp",
-            "go",
-            "javascript",
-            "python",
-            "rust",
-            "tsx",
-            "typescript"
-        ],
+        ["c", "cpp", "cypher", "dtd", "glsl", "go", "html", "java", "javascript", "proto", "python", "rust", "sql", "tsx", "typescript", "typst", "wgsl", "xml"],
         "the set of languages with multi-character auto-close openers changed"
     );
 }

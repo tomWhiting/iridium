@@ -177,6 +177,16 @@ impl HighlightType {
         // markup variants' note on the enum for why sharing a code capture's
         // *value* stopped being free.
         let result = match name {
+            "storageclass" | "special" | "tag.doctype" => Some(Self::Keyword),
+            "structure" => Some(Self::Type),
+            "cmd" => Some(Self::Function),
+            "character" => Some(Self::String),
+            "emphasis" | "markup.quote" => Some(Self::MarkupEmphasis),
+            "emphasis.strong" => Some(Self::MarkupStrong),
+            "markup" | "markup.raw" | "text.literal" => Some(Self::MarkupCode),
+            "markup.link" => Some(Self::MarkupLink),
+            "title" => Some(Self::MarkupHeading),
+
             // Keywords
             "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
                 Some(Self::Keyword)

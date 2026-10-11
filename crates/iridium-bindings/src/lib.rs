@@ -310,8 +310,7 @@ pub struct JsGPUInfo {
 /// ```
 #[napi]
 pub fn get_supported_languages() -> Vec<String> {
-    iridium_syntax::Language::all()
-        .iter()
+    iridium_syntax::Language::visible()
         .map(|l| l.id().to_string())
         .collect()
 }

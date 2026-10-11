@@ -26,7 +26,7 @@ impl App {
                 self.completion = Some(Menu {
                     session,
                     selected: 0,
-                })
+                });
             },
             Err(error) => self.message = Some(Message::notice(error.to_string())),
         }

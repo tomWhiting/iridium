@@ -1,7 +1,7 @@
 //! Manifest-backed delimiter rules are separate from edit construction.
-use iridium_lang::Language;
-use crate::{Document, Position, HighlightType};
 use super::multi_char_pairs::MultiCharRules;
+use crate::{Document, HighlightType, Position};
+use iridium_lang::Language;
 
 // ========== Character classes and pair tables ==========
 
@@ -245,7 +245,7 @@ impl PairRules {
     /// The closing bracket for an opener this language expands on Enter.
     ///
     /// Quotes never reach this — see [`Self::ALL`].
-    fn block_close(self, c: char) -> Option<char> {
+    pub(super) fn block_close(self, c: char) -> Option<char> {
         Self::lookup(self.expands, c)
     }
 
@@ -320,4 +320,3 @@ fn mask_of(pairs: impl Iterator<Item = (char, char)>) -> u8 {
     }
     mask
 }
-

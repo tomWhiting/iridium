@@ -14,7 +14,8 @@
 use crate::document::{CursorState, Document, Position, Range};
 
 use super::auto_pair_record::AutoPairInsertion;
-use super::behaviors::{PairRules, char_at, char_before};
+use super::pair_rules::PairRules;
+use super::behaviors::{char_at, char_before};
 use super::editing::CursorEdit;
 use super::{motions, multi_char_pairs};
 

@@ -45,7 +45,7 @@
 use iridium_lang::Language;
 
 use super::behavior_tests::{ch, doc_in, press};
-use super::behaviors::PairRules;
+use super::pair_rules::PairRules;
 use super::tests::{cursors_at, heads};
 use super::{Document, EditorConfig, KeyboardHandler};
 use crate::editor::CaretScopes;

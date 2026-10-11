@@ -117,10 +117,10 @@ fn skip_over_and_insertion_at_same_position_stay_distinct() {
 /// array would silently start expanding quote blocks. This is the guard.
 #[test]
 fn the_bracket_mask_covers_exactly_the_three_brackets() {
-    let masked: Vec<char> = super::behaviors::PAIRS
+    let masked: Vec<char> = super::pair_rules::PAIRS
         .iter()
         .enumerate()
-        .filter(|(index, _)| super::behaviors::BRACKET_MASK & (1_u8 << index) != 0)
+        .filter(|(index, _)| super::pair_rules::BRACKET_MASK & (1_u8 << index) != 0)
         .map(|(_, &(open, _))| open)
         .collect();
     assert_eq!(masked, vec!['(', '[', '{']);

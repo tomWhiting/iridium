@@ -3,7 +3,7 @@
 //! `/* */` seven languages share.
 //!
 //! The auto-pair map's slice S-3. These cannot live in
-//! [`behaviors::PAIRS`](super::behaviors::PAIRS) — a fixed six-slot table of
+//! [`behaviors::PAIRS`](super::pair_rules::PAIRS) — a fixed six-slot table of
 //! `(char, char)` cannot spell `r#"`→`"#`, and the first `char` of `r#"` would
 //! pair a bare `r`. What they need instead is a **longest match against the
 //! text before the caret** at the moment the opener's final character is typed,
@@ -55,7 +55,7 @@ use iridium_lang::manifest::{DelimiterPair, Manifest};
 use crate::document::{Document, Position, Range, Selection};
 use crate::editor::CaretScopes;
 
-use super::behaviors::{PairRules, SUPPRESSIBLE_SCOPES};
+use super::pair_rules::{PairRules, SUPPRESSIBLE_SCOPES};
 use super::editing::{CaretPlacement, CursorEdit};
 
 /// The multi-character auto-close rows of one language, or nothing.
@@ -419,7 +419,7 @@ pub(super) fn written_closer_around(
 /// Whether the language switches `opener` off in the scope the caret sits in.
 ///
 /// The same three-step shape as
-/// [`PairRules::suppressed_in`](super::behaviors::PairRules), and fail-open at
+/// [`PairRules::suppressed_in`](super::pair_rules::PairRules), and fail-open at
 /// every step for the same reason: under ruling B-6 a scope that cannot be
 /// resolved is *unknown*, not *nothing*, and a caller must do what it would
 /// have done without asking. The cheap test that the row names any scope at all

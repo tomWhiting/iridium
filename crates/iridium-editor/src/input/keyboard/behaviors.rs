@@ -25,7 +25,7 @@ use super::editing::{CaretPlacement, CursorEdit};
 use super::motions;
 use super::multi_char_pairs;
 
-pub(super) use super::pair_rules::{PAIRS, PairRules};
+use super::pair_rules::PairRules;
 
 /// Quote classification is independent of language pairing rules.
 const fn is_quote(c: char) -> bool {

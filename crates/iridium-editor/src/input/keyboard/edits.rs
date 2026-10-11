@@ -101,7 +101,7 @@ impl KeyboardHandler {
             // Built once here rather than inside the per-cursor loop: it costs
             // a manifest lookup, and the answer is the document's, not the
             // cursor's.
-            let pairs = behaviors::PairRules::for_document(document);
+            let pairs = super::pair_rules::PairRules::for_document(document);
             if pairs.is_trigger(c) || c == '>' || document.language() == Some("markdown") {
                 let (edits, closers) =
                     behaviors::auto_pair_char_edits(document, cursor, c, pairs, scopes);

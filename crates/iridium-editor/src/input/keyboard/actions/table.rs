@@ -19,6 +19,8 @@ use KeyboardAction as Action;
 /// here is a registered built-in. Order is irrelevant to correctness; it follows
 /// the id declaration order for readability.
 pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
+    (builtin::COMMAND_FINISH_CHANGE, Action::FinishChange),
+    (builtin::EDIT_INSERT_TEXT, Action::InsertText),
     // Navigation.
     (builtin::CURSOR_CHAR_LEFT, Action::CharLeft),
     (builtin::CURSOR_CHAR_RIGHT, Action::CharRight),
@@ -156,8 +158,14 @@ pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     (builtin::COMMAND_NO_OP, Action::NoOp),
     // Syntax.
     (builtin::AST_SELECT_NODE, Action::AstSelectNode),
+    (builtin::COMMAND_REPEAT_SEQUENCE, Action::RepeatSequence),
     (builtin::AST_EXPAND_SELECTION, Action::AstExpandSelection),
     (builtin::AST_SHRINK_SELECTION, Action::AstShrinkSelection),
+    (builtin::AST_DESCEND_SELECTION, Action::AstDescendSelection),
+    (builtin::AST_NAVIGATE_PREVIOUS, Action::AstNavigatePrevious),
+    (builtin::AST_NAVIGATE_NEXT, Action::AstNavigateNext),
+    (builtin::AST_NAVIGATE_COARSER, Action::AstNavigateCoarser),
+    (builtin::AST_NAVIGATE_FINER, Action::AstNavigateFiner),
     (
         builtin::AST_SELECT_NEXT_SIBLING,
         Action::AstSelectNextSibling,
@@ -212,6 +220,12 @@ pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     (builtin::AST_PREVIOUS_CLASS, Action::AstPreviousClass),
     // Search.
     (builtin::SEARCH_OPEN, Action::SearchOpen),
+    (builtin::SEARCH_IN_SELECTION, Action::SearchInSelection),
+    (builtin::SEARCH_CLEAR_SCOPE, Action::SearchClearScope),
+    (
+        builtin::SEARCH_SELECT_ALL_MATCHES,
+        Action::SearchSelectAllMatches,
+    ),
     (builtin::SEARCH_NEXT_MATCH, Action::SearchNextMatch),
     (builtin::SEARCH_PREVIOUS_MATCH, Action::SearchPreviousMatch),
 ];

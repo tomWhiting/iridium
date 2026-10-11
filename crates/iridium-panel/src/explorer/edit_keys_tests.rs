@@ -108,7 +108,7 @@ fn tab_replaces_the_query_field_with_a_label_and_draws_the_buffer() {
          meaning: {rows:?}"
     );
     assert!(
-        rows[0].contains("⌘S"),
+        rows[0].contains("Ctrl+S"),
         "and must say how to apply: {rows:?}"
     );
     assert!(
@@ -376,7 +376,7 @@ fn cmd_s_reaches_the_confirmation_and_writes_nothing() {
         "the confirmation lists the operations by name: {rows:?}"
     );
     assert!(
-        rows.iter().any(|row| row.contains("y to apply")),
+        rows.iter().any(|row| row.contains("Y to apply")),
         "and says how to answer: {rows:?}"
     );
 }
@@ -574,7 +574,7 @@ fn escape_asks_before_it_throws_unapplied_edits_away() {
     type_text(&mut explorer, "!");
 
     let outcome = explorer.handle_key(&press(KeyCode::Escape));
-    assert!(failure(&outcome).contains("esc again"), "{outcome:?}");
+    assert!(failure(&outcome).contains("Esc again"), "{outcome:?}");
     assert!(
         explorer.mode.is_editing(),
         "the first press changes nothing"
@@ -600,11 +600,11 @@ fn a_key_in_between_makes_the_next_escape_ask_again() {
     type_text(&mut explorer, "!");
 
     let first = explorer.handle_key(&press(KeyCode::Escape));
-    assert!(failure(&first).contains("esc again"));
+    assert!(failure(&first).contains("Esc again"));
     explorer.handle_key(&press(KeyCode::Down));
 
     let second = explorer.handle_key(&press(KeyCode::Escape));
-    assert!(failure(&second).contains("esc again"), "{second:?}");
+    assert!(failure(&second).contains("Esc again"), "{second:?}");
     assert!(explorer.mode.is_editing(), "and the work is still there");
 }
 

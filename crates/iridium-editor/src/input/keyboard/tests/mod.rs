@@ -25,6 +25,7 @@
 
 mod clipboard;
 mod editing;
+mod graphemes;
 mod navigation;
 mod single_cursor;
 mod undo;

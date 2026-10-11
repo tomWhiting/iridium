@@ -17,6 +17,10 @@
 //! incremental path is an optimisation that can be missed; it is never the only
 //! thing standing between the tree and the truth.
 
+mod selection;
+mod spatial;
+mod staging;
+
 #[cfg(not(feature = "syntax"))]
 use crate::syntax_stubs::{Highlighter, InputEdit, SyntaxTree, Tree};
 use iridium_lang::Language;
@@ -29,6 +33,23 @@ use super::delta::SyntaxDelta;
 use super::expand::selection_for;
 use crate::document::{CursorState, Document, EditSpan, byte_point};
 use crate::input::keyboard::AstRequest;
+
+/// Compact, document-independent record of a staged syntax edit.
+pub(in crate::editor) struct PreparedSyntaxEdit {
+    edit: InputEdit,
+    revision: u64,
+}
+
+impl PreparedSyntaxEdit {
+    pub(in crate::editor) fn new(document: &Document, span: &EditSpan) -> Option<Self> {
+        let start = byte_point(document, span.start_byte)?;
+        let end = byte_point(document, span.new_end_byte)?;
+        Some(Self {
+            edit: edit_for(span, start, end),
+            revision: document.revision(),
+        })
+    }
+}
 
 /// The parse tree for the document being edited, and how current it is.
 #[derive(Debug, Default)]
@@ -74,6 +95,7 @@ pub struct SyntaxState {
     /// the selection came from, and it must survive a keymap being pushed or
     /// popped underneath it.
     expand: ExpandStack,
+    navigation: super::navigation::NavigationState,
     /// Edits reported since the last parse, in the order they were applied.
     ///
     /// A [`Vec`] rather than a single slot because nothing stops a caller from
@@ -112,6 +134,7 @@ impl SyntaxState {
         self.dirty = false;
         self.replaced = false;
         self.expand.clear();
+        self.navigation.clear();
         // Edits recorded against the discarded tree describe nodes that no
         // longer exist, and nothing derived from that tree survives a grammar
         // change either.
@@ -146,6 +169,7 @@ impl SyntaxState {
     pub fn invalidate(&mut self) {
         self.replaced = true;
         self.expand.clear();
+        self.navigation.clear();
         self.pending_edits.clear();
         self.pending_delta = SyntaxDelta::Full;
     }
@@ -158,6 +182,7 @@ impl SyntaxState {
         self.dirty = false;
         self.replaced = false;
         self.expand.clear();
+        self.navigation.clear();
         self.pending_edits.clear();
         self.pending_delta = SyntaxDelta::Full;
         self.tracked_revision = 0;
@@ -225,28 +250,29 @@ impl SyntaxState {
         // request — which would leave `expansion_depth` reporting frames that
         // are already dead.
         self.expand.clear();
+        self.navigation.clear();
 
+        if let Some(edit) = PreparedSyntaxEdit::new(document, span) {
+            self.note_prepared_edit(&edit);
+        }
+    }
+
+    /// Whether the retained tree accounts for every edit before a replay.
+    pub(in crate::editor) const fn tracks_revision(&self, revision: u64) -> bool {
+        !self.replaced && self.tracked_revision == revision
+    }
+
+    /// Publishes an edit whose post-edit coordinates were captured during a
+    /// successful staged replay. No temporary document needs to be retained.
+    pub(in crate::editor) fn note_prepared_edit(&mut self, prepared: &PreparedSyntaxEdit) {
+        self.expand.clear();
+        self.navigation.clear();
         let Some(tree) = self.tree.as_mut() else {
             return;
         };
-
-        let Some((start_row, start_column)) = byte_point(document, span.start_byte) else {
-            return;
-        };
-        let Some((new_end_row, new_end_column)) = byte_point(document, span.new_end_byte) else {
-            return;
-        };
-
-        let edit = edit_for(
-            span,
-            (start_row, start_column),
-            (new_end_row, new_end_column),
-        );
-        tree.edit(&edit);
-        // Recorded only once the tree has actually been shifted by it, so the
-        // list never describes an edit the tree has not seen.
-        self.pending_edits.push(edit);
-        self.tracked_revision = document.revision();
+        tree.edit(&prepared.edit);
+        self.pending_edits.push(prepared.edit);
+        self.tracked_revision = prepared.revision;
         self.dirty = true;
     }
 
@@ -351,6 +377,13 @@ impl SyntaxState {
         cursor: &CursorState,
         request: AstRequest,
     ) -> Option<CursorState> {
+        if super::navigation::is_navigation(request) {
+            self.sync(document);
+            let tree = self.tree.as_ref().and_then(SyntaxTree::tree);
+            self.expand.clear();
+            return self.navigation.apply(document, cursor, tree, request);
+        }
+        self.navigation.clear();
         self.sync(document)?;
 
         // Copied out before the tree is borrowed. The named-region verbs need it

@@ -137,6 +137,7 @@ impl DesktopApp {
         // `set_user_keymap` rebuilds the panel's whole stack, so an open panel
         // picks up the reload without being reopened.
         if let Some(explorer) = self.explorer.as_mut() {
+            explorer.set_key_label_style(iridium_editor::KeyLabelStyle::MacGlyphsCommandAsMeta);
             explorer.set_user_keymap(&self.user_keys);
         }
         // The palette resolves its own keys too (#117), and unlike the explorer
@@ -311,14 +312,12 @@ impl DesktopApp {
         // [`toggle_explorer`](Self::toggle_explorer) refuses, for the same
         // reason. Refusing after the choice was made would waste the choice
         // as well.
-        if self
+        if let Some(explorer) = self
             .explorer
             .as_ref()
-            .is_some_and(FileExplorer::has_unapplied_edits)
+            .filter(|explorer| explorer.has_unapplied_edits())
         {
-            self.message = Some(Message::error(
-                "the file explorer has unapplied edits — esc twice in it to throw them away",
-            ));
+            self.message = Some(Message::error(explorer.unapplied_edits_message()));
             return Flow::Running;
         }
         let start = self.chooser_start();
@@ -348,6 +347,7 @@ impl DesktopApp {
         }
         match FileExplorer::open(root.path, root.crawl) {
             Ok(mut explorer) => {
+                explorer.set_key_label_style(iridium_editor::KeyLabelStyle::MacGlyphsCommandAsMeta);
                 explorer.set_user_keymap(&self.user_keys);
                 self.explorer = Some(explorer);
             },
@@ -421,10 +421,7 @@ impl DesktopApp {
             // there is unapplied work, and the panel says how to get rid of
             // it.
             if explorer.has_unapplied_edits() {
-                self.message = Some(Message::error(
-                    "the file explorer has unapplied edits — esc twice in it to throw them away"
-                        .to_owned(),
-                ));
+                self.message = Some(Message::error(explorer.unapplied_edits_message()));
                 return Flow::Running;
             }
             self.explorer = None;
@@ -436,6 +433,7 @@ impl DesktopApp {
         let root = self.explorer_root();
         match FileExplorer::open(root.path, root.crawl) {
             Ok(mut explorer) => {
+                explorer.set_key_label_style(iridium_editor::KeyLabelStyle::MacGlyphsCommandAsMeta);
                 explorer.set_user_keymap(&self.user_keys);
                 self.explorer = Some(explorer);
                 // A panel the user just asked for takes the keys, whichever

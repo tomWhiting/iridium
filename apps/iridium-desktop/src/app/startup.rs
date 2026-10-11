@@ -330,26 +330,29 @@ impl DesktopApp {
         // The panel a project session exists to show, built here rather than
         // on the first frame so a directory that cannot be read says so before
         // a window opens — the same moment a file that cannot be read does.
-        let explorer =
-            match project.clone() {
-                Some(path) => {
-                    // Through `chosen_root`, not around it: a directory named on
-                    // the command line was picked by hand, and that is exactly the
-                    // distinction that function draws — so the crawl rule stays in
-                    // one place rather than being restated here.
-                    let root = project::chosen_root(path);
-                    Some({
-                        let mut explorer = FileExplorer::open(root.path.clone(), root.crawl)
-                            .map_err(|message| StartupError::Explorer {
+        let explorer = match project.clone() {
+            Some(path) => {
+                // Through `chosen_root`, not around it: a directory named on
+                // the command line was picked by hand, and that is exactly the
+                // distinction that function draws — so the crawl rule stays in
+                // one place rather than being restated here.
+                let root = project::chosen_root(path);
+                Some({
+                    let mut explorer =
+                        FileExplorer::open(root.path.clone(), root.crawl).map_err(|message| {
+                            StartupError::Explorer {
                                 path: root.path,
                                 message,
-                            })?;
-                        explorer.set_user_keymap(&user_keys);
-                        explorer
-                    })
-                },
-                None => None,
-            };
+                            }
+                        })?;
+                    explorer
+                        .set_key_label_style(iridium_editor::KeyLabelStyle::MacGlyphsCommandAsMeta);
+                    explorer.set_user_keymap(&user_keys);
+                    explorer
+                })
+            },
+            None => None,
+        };
 
         // Built before the struct literal, not inside it: `user_keys` is moved
         // into the literal, and a field evaluated after that move could not
@@ -398,6 +401,7 @@ impl DesktopApp {
             // without one — every session `cargo test` builds — has no menu
             // bar at all rather than a dead one.
             menu_proxy: None,
+            pending_open: Vec::new(),
             // `None` rather than `OPEN`, so the first refresh pushes rather
             // than assuming the bar already agrees with a value nothing set.
             last_menu_availability: None,

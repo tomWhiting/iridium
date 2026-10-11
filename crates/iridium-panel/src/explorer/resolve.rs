@@ -162,6 +162,7 @@ impl FileExplorer {
             stack.push(layer);
         }
         self.keys = stack;
+        self.rebuild_hints();
         // A sequence half-typed against the old bindings means nothing against
         // the new ones.
         self.pending.clear();

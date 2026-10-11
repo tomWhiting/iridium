@@ -11,8 +11,10 @@ use iridium_editor::theme::Theme;
 use iridium_editor::{KeyCode, Modifiers};
 use iridium_file::test_support::TempDir;
 
-use super::support::{FIT, chord, lines, meta, opened, press, query_field, select_row, settle};
-use crate::explorer::compose::BROWSE_HINT;
+use super::support::{
+    BROWSE_HINT, FIT, chord, lines, meta, opened, press, query_field, select_row, settle,
+};
+
 use crate::explorer::rows::truncate;
 use crate::explorer::{ExplorerOutcome, FileExplorer};
 use crate::row::{PanelCaret, PanelFit};

@@ -78,6 +78,7 @@ impl KeyboardHandler {
     ) -> (KeyResult, Option<KeyboardAction>) {
         // `resolver` and `keymap` are disjoint fields, so the mutable borrow of
         // the state machine coexists with the immutable borrow of the bindings.
+        self.last_invocation = None;
         let resolution = self.resolver.resolve_repeat(
             &self.keymap,
             KeyPress::from_event(event),
@@ -85,7 +86,21 @@ impl KeyboardHandler {
         );
 
         match resolution {
+            Resolution::Sequence {
+                steps,
+                enters_mode,
+                record_input,
+            } => (
+                KeyResult::Sequence {
+                    steps,
+                    enters_mode,
+                    record_input,
+                },
+                None,
+            ),
             Resolution::Matched(invocation) => {
+                self.last_invocation =
+                    Some(super::recording::invocation_for_event(&invocation, event));
                 let (id, args) = invocation.into_parts();
                 let ctx = CommandContext {
                     event: Some(event),
@@ -168,6 +183,13 @@ impl KeyboardHandler {
             }
             // Routed through the same action as an explicit binding would be, so
             // self-insert has exactly one implementation.
+            self.last_invocation = Some(crate::commands::CommandInvocation::new(
+                crate::commands::builtin::EDIT_INSERT_CHARACTER,
+                crate::commands::CommandArgs::with_text(match event.key {
+                    KeyCode::Char(c) => c.to_string(),
+                    _ => String::new(),
+                }),
+            ));
             let result = self.run_action(KeyboardAction::InsertCharacter, ctx);
             return (result, Some(KeyboardAction::InsertCharacter));
         }
@@ -243,8 +265,13 @@ impl KeyboardHandler {
             // whether it changed anything is not knowable from the *request*;
             // the editor reports it. Answering `true` here would mark the
             // sticky columns dormant on an undo that had nothing to undo.
-            KeyResult::History(_)
+            KeyResult::FinishChange
+            | KeyResult::RepeatSequence(_)
+            | KeyResult::Sequence { .. }
+            | KeyResult::History(_)
             | KeyResult::Ast(_)
+            | KeyResult::AstRepeated { .. }
+            | KeyResult::Error(_)
             | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }
@@ -268,11 +295,15 @@ impl KeyboardHandler {
             // moves the cursors and has no recorded sticky state to restore —
             // so the preferred columns must go, exactly as they would for any
             // other selection change.
-            KeyResult::Ast(_) => true,
+            KeyResult::Ast(_) | KeyResult::AstRepeated { .. } => true,
             // As above: an undo restores the *exact* cursor state recorded at
             // its destination, sticky columns included, so treating it as a
             // cursor mutation here would discard the very state it restores.
-            KeyResult::History(_)
+            KeyResult::FinishChange
+            | KeyResult::RepeatSequence(_)
+            | KeyResult::Sequence { .. }
+            | KeyResult::History(_)
+            | KeyResult::Error(_)
             | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }

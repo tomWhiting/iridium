@@ -308,13 +308,9 @@ fn ctrl_d_adds_next_match() {
     if let KeyResult::Command(Command::SetSelection { new_state, .. }) = result {
         // Should have 2 cursors now
         assert_eq!(new_state.cursor_count(), 2);
-        // Second cursor at "foo" position 8-11
-        assert!(
-            new_state
-                .secondary
-                .iter()
-                .any(|s| s.start() == Position::new(0, 8))
-        );
+        // The newly selected occurrence becomes active.
+        assert_eq!(new_state.primary.start(), Position::new(0, 8));
+        assert_eq!(new_state.secondary[0], cursor.primary);
     } else {
         panic!("Expected SetSelection command");
     }

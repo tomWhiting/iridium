@@ -29,6 +29,7 @@ terminput-termina.workspace = true
 # Cell width. A cell is not a character; see docs/TERMINAL-FACE-PLAN.md.
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+tracing.workspace = true
 
 # The explorer panel's tests open real directories on a real reader thread,
 # because the panel's whole job is showing what is on a disk and a fixture that

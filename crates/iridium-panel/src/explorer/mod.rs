@@ -91,9 +91,11 @@ pub mod plan;
 pub mod root;
 pub mod rows;
 
+mod bookmark;
 mod buffer;
 mod compose;
 mod edit_keys;
+mod hints;
 mod keymap;
 mod keys;
 mod mode;
@@ -115,6 +117,9 @@ mod confirm_tests;
 mod edit_keys_tests;
 
 #[cfg(test)]
+mod hints_tests;
+
+#[cfg(test)]
 mod keymap_tests;
 
 #[cfg(test)]
@@ -127,6 +132,7 @@ mod plan_tests;
 mod tests;
 
 pub use apply::{Failure, apply};
+pub use bookmark::ExplorerBookmark;
 pub use filter::{FilterRow, FilterView, filter};
 pub use keymap::{DEFAULT_BINDING_COUNT, KEYMAP_NAME, default_keymap};
 pub use panel::{ExplorerOutcome, FileExplorer};

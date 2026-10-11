@@ -52,28 +52,28 @@ impl KeyboardHandler {
         match action {
             // ----- Navigation and selection -----
             Action::CharLeft => Self::apply_repeated_motion(cursor, false, count, |head| {
-                motions::char_left(document, head)
+                self.horizontal_fold_target(document, head, motions::char_left(document, head))
             }),
             Action::CharLeftSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
-                motions::char_left(document, head)
+                self.horizontal_fold_target(document, head, motions::char_left(document, head))
             }),
             Action::CharRight => Self::apply_repeated_motion(cursor, false, count, |head| {
-                motions::char_right(document, head)
+                self.horizontal_fold_target(document, head, motions::char_right(document, head))
             }),
             Action::CharRightSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
-                motions::char_right(document, head)
+                self.horizontal_fold_target(document, head, motions::char_right(document, head))
             }),
             Action::WordLeft => Self::apply_repeated_motion(cursor, false, count, |head| {
-                motions::word_left(document, head)
+                self.horizontal_fold_target(document, head, motions::word_left(document, head))
             }),
             Action::WordLeftSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
-                motions::word_left(document, head)
+                self.horizontal_fold_target(document, head, motions::word_left(document, head))
             }),
             Action::WordRight => Self::apply_repeated_motion(cursor, false, count, |head| {
-                motions::word_right(document, head)
+                self.horizontal_fold_target(document, head, motions::word_right(document, head))
             }),
             Action::WordRightSelect => Self::apply_repeated_motion(cursor, true, count, |head| {
-                motions::word_right(document, head)
+                self.horizontal_fold_target(document, head, motions::word_right(document, head))
             }),
             Action::LineStart => Self::apply_motion(cursor, false, |head| {
                 motions::line_start_smart(document, head)
@@ -113,7 +113,11 @@ impl KeyboardHandler {
             // ----- Editing -----
             // The only command that reads the raw event. Invoked by id, with no
             // keystroke to take a character from, there is nothing to insert.
-            Action::InsertCharacter => match ctx.event.map(|event| event.key) {
+            Action::InsertCharacter => match ctx
+                .event
+                .map(|event| event.key)
+                .or_else(|| ctx.args.capture(0).map(KeyCode::Char))
+            {
                 Some(KeyCode::Char(c)) => {
                     self.handle_char_input(c, document, cursor, ctx.config, ctx.scopes)
                 },
@@ -227,33 +231,56 @@ impl KeyboardHandler {
             // Named, not performed: the answer lives in the editor's parse tree
             // and its expansion stack, neither of which the keyboard layer can
             // see. See `AstRequest`.
-            Action::AstSelectNode => KeyResult::Ast(AstRequest::SelectNode),
-            Action::AstExpandSelection => KeyResult::Ast(AstRequest::ExpandSelection),
-            Action::AstShrinkSelection => KeyResult::Ast(AstRequest::ShrinkSelection),
-            Action::AstSelectNextSibling => KeyResult::Ast(AstRequest::SelectNextSibling),
-            Action::AstSelectPreviousSibling => KeyResult::Ast(AstRequest::SelectPreviousSibling),
-            Action::AstSelectFirstChild => KeyResult::Ast(AstRequest::SelectFirstChild),
-            Action::AstSelectLastChild => KeyResult::Ast(AstRequest::SelectLastChild),
-            Action::AstExtendNextSibling => KeyResult::Ast(AstRequest::ExtendNextSibling),
-            Action::AstExtendPreviousSibling => KeyResult::Ast(AstRequest::ExtendPreviousSibling),
-            Action::AstCursorNodeStart => KeyResult::Ast(AstRequest::CursorNodeStart),
-            Action::AstCursorNodeEnd => KeyResult::Ast(AstRequest::CursorNodeEnd),
-            Action::AstCursorOnEverySibling => KeyResult::Ast(AstRequest::CursorOnEverySibling),
-            Action::AstCursorOnEveryChild => KeyResult::Ast(AstRequest::CursorOnEveryChild),
-            Action::AstSelectFunctionInside => KeyResult::Ast(AstRequest::SelectFunctionInside),
-            Action::AstSelectFunctionAround => KeyResult::Ast(AstRequest::SelectFunctionAround),
-            Action::AstSelectClassInside => KeyResult::Ast(AstRequest::SelectClassInside),
-            Action::AstSelectClassAround => KeyResult::Ast(AstRequest::SelectClassAround),
-            Action::AstSelectCommentAround => KeyResult::Ast(AstRequest::SelectCommentAround),
-            Action::AstNextFunction => KeyResult::Ast(AstRequest::NextFunction),
-            Action::AstPreviousFunction => KeyResult::Ast(AstRequest::PreviousFunction),
-            Action::AstNextClass => KeyResult::Ast(AstRequest::NextClass),
-            Action::AstPreviousClass => KeyResult::Ast(AstRequest::PreviousClass),
+            Action::FinishChange => KeyResult::FinishChange,
+            Action::InsertText => {
+                let Some(text) = ctx.args.text() else {
+                    return KeyResult::Ignored;
+                };
+                let edits = super::super::editing::replace_all_edits(cursor, text);
+                Self::line_command(super::super::editing::build_multi_cursor_command(
+                    document, cursor, edits,
+                ))
+            },
+            Action::RepeatSequence => KeyResult::RepeatSequence(count),
+            Action::AstSelectNode => ast_result(AstRequest::SelectNode, count),
+            Action::AstExpandSelection => ast_result(AstRequest::ExpandSelection, count),
+            Action::AstShrinkSelection => ast_result(AstRequest::ShrinkSelection, count),
+            Action::AstNavigateFiner => ast_result(AstRequest::NavigateFiner, count),
+            Action::AstNavigateCoarser => ast_result(AstRequest::NavigateCoarser, count),
+            Action::AstNavigateNext => ast_result(AstRequest::NavigateNext, count),
+            Action::AstNavigatePrevious => ast_result(AstRequest::NavigatePrevious, count),
+            Action::AstDescendSelection => ast_result(AstRequest::DescendSelection, count),
+            Action::AstSelectNextSibling => ast_result(AstRequest::SelectNextSibling, count),
+            Action::AstSelectPreviousSibling => {
+                ast_result(AstRequest::SelectPreviousSibling, count)
+            },
+            Action::AstSelectFirstChild => ast_result(AstRequest::SelectFirstChild, count),
+            Action::AstSelectLastChild => ast_result(AstRequest::SelectLastChild, count),
+            Action::AstExtendNextSibling => ast_result(AstRequest::ExtendNextSibling, count),
+            Action::AstExtendPreviousSibling => {
+                ast_result(AstRequest::ExtendPreviousSibling, count)
+            },
+            Action::AstCursorNodeStart => ast_result(AstRequest::CursorNodeStart, count),
+            Action::AstCursorNodeEnd => ast_result(AstRequest::CursorNodeEnd, count),
+            Action::AstCursorOnEverySibling => ast_result(AstRequest::CursorOnEverySibling, count),
+            Action::AstCursorOnEveryChild => ast_result(AstRequest::CursorOnEveryChild, count),
+            Action::AstSelectFunctionInside => ast_result(AstRequest::SelectFunctionInside, count),
+            Action::AstSelectFunctionAround => ast_result(AstRequest::SelectFunctionAround, count),
+            Action::AstSelectClassInside => ast_result(AstRequest::SelectClassInside, count),
+            Action::AstSelectClassAround => ast_result(AstRequest::SelectClassAround, count),
+            Action::AstSelectCommentAround => ast_result(AstRequest::SelectCommentAround, count),
+            Action::AstNextFunction => ast_result(AstRequest::NextFunction, count),
+            Action::AstPreviousFunction => ast_result(AstRequest::PreviousFunction, count),
+            Action::AstNextClass => ast_result(AstRequest::NextClass, count),
+            Action::AstPreviousClass => ast_result(AstRequest::PreviousClass, count),
 
             // ----- General -----
             Action::NoOp => KeyResult::Handled,
 
             // ----- Search -----
+            Action::SearchSelectAllMatches => KeyResult::Search(SearchAction::SelectAllMatches),
+            Action::SearchInSelection => KeyResult::Search(SearchAction::OpenInSelection),
+            Action::SearchClearScope => KeyResult::Search(SearchAction::ClearScope),
             Action::SearchOpen => KeyResult::Search(SearchAction::OpenSearch),
             Action::SearchNextMatch => KeyResult::Search(SearchAction::NextMatch),
             Action::SearchPreviousMatch => KeyResult::Search(SearchAction::PreviousMatch),
@@ -267,5 +294,14 @@ impl KeyboardHandler {
     /// before the registry.
     fn line_command(command: Option<Command>) -> KeyResult {
         command.map_or(KeyResult::Handled, KeyResult::Command)
+    }
+}
+
+/// Preserve the one-step result while forwarding counts to the tree owner.
+const fn ast_result(request: AstRequest, count: u32) -> KeyResult {
+    if count == 1 {
+        KeyResult::Ast(request)
+    } else {
+        KeyResult::AstRepeated { request, count }
     }
 }

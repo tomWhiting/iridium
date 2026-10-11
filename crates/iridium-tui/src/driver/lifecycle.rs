@@ -52,6 +52,10 @@ pub struct TerminalState {
     bracketed_paste: AtomicBool,
     /// Focus reporting (DEC mode 1004) is on.
     focus_tracking: AtomicBool,
+    /// Button drag reporting (DEC 1002).
+    mouse_drag: AtomicBool,
+    /// Extended mouse coordinates (DEC 1006).
+    mouse_sgr: AtomicBool,
     /// Keyboard-enhancement flags have been pushed onto the terminal's stack.
     keyboard_flags_pushed: AtomicBool,
     /// The cursor (DEC mode 25) is hidden.
@@ -67,6 +71,8 @@ impl TerminalState {
             auto_wrap_disabled: AtomicBool::new(false),
             bracketed_paste: AtomicBool::new(false),
             focus_tracking: AtomicBool::new(false),
+            mouse_drag: AtomicBool::new(false),
+            mouse_sgr: AtomicBool::new(false),
             keyboard_flags_pushed: AtomicBool::new(false),
             cursor_hidden: AtomicBool::new(false),
         }
@@ -100,6 +106,8 @@ impl TerminalState {
             && !self.auto_wrap_disabled.load(Ordering::SeqCst)
             && !self.bracketed_paste.load(Ordering::SeqCst)
             && !self.focus_tracking.load(Ordering::SeqCst)
+            && !self.mouse_drag.load(Ordering::SeqCst)
+            && !self.mouse_sgr.load(Ordering::SeqCst)
             && !self.keyboard_flags_pushed.load(Ordering::SeqCst)
             && !self.cursor_hidden.load(Ordering::SeqCst)
     }
@@ -172,6 +180,14 @@ pub fn write_setup<W: io::Write>(
         )))
     )?;
 
+    for (flag, mode) in [
+        (&state.mouse_drag, DecPrivateModeCode::ButtonEventMouse),
+        (&state.mouse_sgr, DecPrivateModeCode::SGRMouse),
+    ] {
+        flag.store(true, Ordering::SeqCst);
+        write!(out, "{}", Csi::Mode(Mode::SetDecPrivateMode(dec(mode))))?;
+    }
+
     if capabilities.keyboard_enhancement {
         state.keyboard_flags_pushed.store(true, Ordering::SeqCst);
         write!(
@@ -232,6 +248,18 @@ pub fn write_teardown<W: io::Write>(out: &mut W, state: &TerminalState) -> io::R
             &mut failure,
             write!(out, "{}", Csi::Keyboard(Keyboard::PopFlags(1))),
         );
+    }
+
+    for (flag, mode) in [
+        (&state.mouse_sgr, DecPrivateModeCode::SGRMouse),
+        (&state.mouse_drag, DecPrivateModeCode::ButtonEventMouse),
+    ] {
+        if flag.swap(false, Ordering::SeqCst) {
+            record(
+                &mut failure,
+                write!(out, "{}", Csi::Mode(Mode::ResetDecPrivateMode(dec(mode)))),
+            );
+        }
     }
 
     if state.focus_tracking.swap(false, Ordering::SeqCst) {

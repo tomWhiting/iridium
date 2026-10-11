@@ -31,6 +31,9 @@
 //!
 //! | Key | Command | Note |
 //! |---|---|---|
+//! | `Ctrl+N` | [`FILE_NEW`] | new untitled tab |
+//! | `Alt+,` / `Alt+.` | previous / next tab | terminal-safe escape prefixes |
+//! | `Ctrl+W` | close tab | confirms unsaved changes |
 //! | `Ctrl+S` | [`FILE_SAVE`] | refuses a file that changed on disk |
 //! | `Ctrl+Alt+S` | [`FILE_SAVE_FORCE`] | saves anyway |
 //! | `F5` | [`FILE_RELOAD`] | re-reads the file |
@@ -54,7 +57,10 @@
 //! between two presses of `Ctrl+D`, and a palette round trip there would lose
 //! the very selection being skipped.
 
-use iridium_editor::commands::builtin::MULTI_CURSOR_SKIP_LAST_OCCURRENCE;
+use iridium_editor::commands::builtin::{
+    EXPLORER_TOGGLE_PANEL, MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, WORKSPACE_NEXT_TAB,
+    WORKSPACE_PREVIOUS_TAB,
+};
 use iridium_editor::{
     CommandCategory, CommandId, CommandMeta, KeyBinding, KeyCode, Keymap, ModifierPattern,
     ModifierState, StrokePattern,
@@ -62,6 +68,8 @@ use iridium_editor::{
 
 use ModifierState::{Any, Forbidden, Required};
 
+/// Open an untitled document in a new tab.
+pub const FILE_NEW: CommandId = CommandId::from_static("file.new");
 /// Write the document to its file.
 pub const FILE_SAVE: CommandId = CommandId::from_static("file.save");
 /// Write the document to its file even though the file changed on disk.
@@ -78,9 +86,42 @@ pub const FOLD_TOGGLE: CommandId = CommandId::from_static("fold.toggle");
 pub const FOLD_ALL: CommandId = CommandId::from_static("fold.all");
 /// Unfold every folded region.
 pub const FOLD_NONE: CommandId = CommandId::from_static("fold.none");
+/// Enter the terminal's arrow-driven syntax navigation preset.
+pub const STRUCTURAL_ENTER: CommandId = CommandId::from_static("structural.enter");
+/// Enter the preset that accepts a verb before a structural motion.
+pub const STRUCTURAL_VERB_ENTER: CommandId = CommandId::from_static("structural.enterVerbFirst");
 
 /// Every command this face contributes, in the order the palette would list.
+pub const PROJECT_SEARCH: CommandId = CommandId::from_static("project.search");
+/// Preview nodes matching the selected syntax kind or shape.
+pub const FIND_SIMILAR: CommandId = CommandId::from_static("syntax.findSimilar");
+/// Preview jq source selections.
+pub const QUERY_JSON: CommandId = CommandId::from_static("query.selectJson");
+
+/// Every terminal host command available to the palette.
 pub static COMMANDS: &[CommandMeta] = &[
+    CommandMeta::described(FIND_SIMILAR, "Find Similar Syntax Nodes", "Preview same-kind or same-shape nodes; Enter keeps editable selections, Escape restores.", CommandCategory::NAVIGATION).with_aliases(&["similar", "find similar"]),
+    CommandMeta::described(PROJECT_SEARCH, "Search Project", "Live project grep with literal/regex matches and source navigation.", CommandCategory::NAVIGATION).with_aliases(&["grep"]),
+    CommandMeta::described(QUERY_JSON, "Query JSON Selections", "Live jq filter: preview source selections, Enter keeps, Escape cancels.", CommandCategory::NAVIGATION).with_aliases(&["jq"]),
+    CommandMeta::described(
+        STRUCTURAL_VERB_ENTER,
+        "Verb-First Structural Navigation",
+        "d/c then an arrow selects and deletes/changes that node. Escape cancels a pending verb; dot repeats a composed edit.",
+        CommandCategory::NAVIGATION,
+    ).with_aliases(&["operator mode", "verb first", "Enter Verb-First Structural Navigation"]),
+    CommandMeta::described(
+        STRUCTURAL_ENTER,
+        "Structural Navigation",
+        "Selects the syntax node here. Up/Down select siblings; Left selects the parent; Right selects a child. Escape returns to typing.",
+        CommandCategory::NAVIGATION,
+    )
+    .with_aliases(&["syntax mode", "node navigation", "structural mode", "Enter Structural Navigation", "Structural Motions"]),
+    CommandMeta::described(
+        FILE_NEW,
+        "New Tab",
+        "Opens an empty document in a new tab.",
+        CommandCategory::from_static("File"),
+    ),
     CommandMeta::described(
         FILE_SAVE,
         "Save",
@@ -177,6 +218,20 @@ const CHORD: &[StrokePattern] = &[];
 
 /// The binding table: `(stroke, command)`.
 const BINDINGS: &[(StrokePattern, CommandId)] = &[
+    (StrokePattern::new(KeyCode::Char('k'), ALT), PALETTE_OPEN),
+    (
+        StrokePattern::new(KeyCode::Char('o'), ALT),
+        EXPLORER_TOGGLE_PANEL,
+    ),
+    (StrokePattern::new(KeyCode::Char('n'), CTRL), FILE_NEW),
+    (
+        StrokePattern::new(KeyCode::Char('.'), ALT),
+        WORKSPACE_NEXT_TAB,
+    ),
+    (
+        StrokePattern::new(KeyCode::Char(','), ALT),
+        WORKSPACE_PREVIOUS_TAB,
+    ),
     (StrokePattern::new(KeyCode::Char('s'), CTRL), FILE_SAVE),
     (
         StrokePattern::new(KeyCode::Char('s'), CTRL_ALT),
@@ -215,7 +270,13 @@ pub fn keymap() -> Keymap {
 /// Every command this face contributes, cloned for registration.
 #[must_use]
 pub fn command_metas() -> Vec<CommandMeta> {
-    COMMANDS.to_vec()
+    COMMANDS
+        .iter()
+        .chain(super::ex::COMMANDS.iter())
+        .chain(super::wrapping::COMMANDS.iter())
+        .chain(super::workbench::COMMANDS.iter())
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -270,6 +331,16 @@ mod tests {
             .map(|(_, command)| command.as_str())
             .collect();
         for meta in COMMANDS {
+            // The shared structural preset supplies F6/Ctrl+Space as a
+            // selection plus mode transition; this is its palette entry.
+            if meta.id() == &STRUCTURAL_ENTER
+                || meta.id() == &STRUCTURAL_VERB_ENTER
+                || meta.id() == &FIND_SIMILAR
+                || meta.id() == &QUERY_JSON
+                || meta.id() == &PROJECT_SEARCH
+            {
+                continue;
+            }
             assert!(
                 bound.contains(meta.id().as_str()),
                 "{} has no key, and this face's own verbs all deserve one",

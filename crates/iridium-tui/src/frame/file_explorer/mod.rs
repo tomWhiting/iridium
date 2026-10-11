@@ -20,9 +20,10 @@
 //! the person using them rather than by a test, because nothing compiles both
 //! faces' copies at once.
 //!
-//! # The panel is modal, exactly as the palette is
+//! # Input ownership belongs to the host
 //!
-//! Every key is consumed while it is open. The explorer's own key tables
+//! Every key handed to the panel is consumed. A persistent sidebar receives
+//! input only while focused. The explorer's own key tables
 //! decide what each one means — including the printable characters, which go
 //! to the filter — so there is nothing here to keep in step with the GPU face.
 //!
@@ -40,6 +41,7 @@
 //! not fit honestly is not taken at all — so it cannot be cached across a
 //! resize.
 
+mod mouse;
 mod paint;
 
 #[cfg(test)]
@@ -117,9 +119,78 @@ pub struct FileExplorerPanel {
     /// a sidebar was chosen. Widening the terminal then restores it, which is
     /// what a person who dragged a window narrow and back expects.
     anchor: Anchor,
+    sidebar_width: usize,
+}
+
+/// Navigation and placement remembered without retaining a reader or listing.
+#[derive(Debug, Clone)]
+pub struct FileExplorerBookmark {
+    location: iridium_panel::explorer::ExplorerBookmark,
+    anchor: Anchor,
+    sidebar_width: usize,
 }
 
 impl FileExplorerPanel {
+    /// Whether this browser stays beside the document after opening a file.
+    #[must_use]
+    pub fn is_sidebar(&self) -> bool {
+        self.anchor == Anchor::Sidebar
+    }
+
+    /// Chooses the persistent band or floating picker placement.
+    pub const fn set_sidebar(&mut self, sidebar: bool) {
+        self.anchor = if sidebar {
+            Anchor::Sidebar
+        } else {
+            Anchor::Popover
+        };
+    }
+
+    /// Sets the preferred sidebar width in cells, including its divider.
+    /// Painting, pointer input and document layout all clamp it to the same fit.
+    pub const fn set_sidebar_width(&mut self, columns: usize) {
+        self.sidebar_width = columns;
+    }
+
+    /// The shared explanation for a refused close, with current key bindings.
+    #[must_use]
+    pub fn unapplied_edits_message(&self) -> String {
+        self.explorer.unapplied_edits_message()
+    }
+
+    /// Remembers navigation, not unapplied edits. Check those before closing.
+    #[must_use]
+    pub fn bookmark(&self) -> FileExplorerBookmark {
+        FileExplorerBookmark {
+            location: self.explorer.bookmark(),
+            anchor: self.anchor,
+            sidebar_width: self.sidebar_width,
+        }
+    }
+
+    /// Reopens with fresh directory contents and the current user bindings.
+    ///
+    /// # Errors
+    /// Returns the shared directory reader's startup error.
+    pub fn open_bookmark(
+        bookmark: &FileExplorerBookmark,
+        user_keys: &iridium_editor::Keymap,
+    ) -> Result<Self, String> {
+        let mut explorer = FileExplorer::open_bookmark(&bookmark.location)?;
+        explorer.set_user_keymap(user_keys);
+        explorer.set_filter_order(iridium_panel::explorer::filter::FilterOrder::Relevance);
+        Ok(Self {
+            explorer,
+            anchor: bookmark.anchor,
+            sidebar_width: bookmark.sidebar_width,
+        })
+    }
+
+    /// Pastes into the active query or Oil filename field.
+    pub fn paste(&mut self, text: &str) {
+        self.explorer.paste(text);
+    }
+
     /// Opens the panel on `root`, crawling past it or not, with `user_keys`
     /// as the user's `[keys]` layer.
     ///
@@ -144,6 +215,7 @@ impl FileExplorerPanel {
     ) -> Result<Self, String> {
         FileExplorer::open(root, crawl).map(|mut explorer| {
             explorer.set_user_keymap(user_keys);
+            explorer.set_filter_order(iridium_panel::explorer::filter::FilterOrder::Relevance);
             Self {
                 explorer,
                 // A popover to begin with, in both faces. The panel is opened
@@ -151,6 +223,7 @@ impl FileExplorerPanel {
                 // tree up, and the placement that costs the document nothing
                 // is the one to default to.
                 anchor: Anchor::Popover,
+                sidebar_width: 32,
             }
         })
     }
@@ -170,7 +243,8 @@ impl FileExplorerPanel {
     pub fn sidebar_columns(&self, columns: usize, band_rows: usize) -> usize {
         match self.anchor {
             Anchor::Popover => 0,
-            Anchor::Sidebar => SidebarBox::fitted(columns, band_rows).map_or(0, |band| band.width),
+            Anchor::Sidebar => SidebarBox::fitted(columns, band_rows, self.sidebar_width)
+                .map_or(0, |band| band.width),
         }
     }
 
@@ -243,7 +317,7 @@ impl FileExplorerPanel {
     ) -> Option<CellPosition> {
         let (columns, rows) = (buffer.width(), buffer.height());
         let (placement, fit) = match self.anchor {
-            Anchor::Sidebar => SidebarBox::fitted(columns, band_rows)
+            Anchor::Sidebar => SidebarBox::fitted(columns, band_rows, self.sidebar_width)
                 .map(|band| {
                     (
                         Placement::Sidebar(band),

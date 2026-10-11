@@ -325,7 +325,11 @@ impl Keymap {
     ///   unreachable.
     pub fn validate(&self, registry: &CommandRegistry) -> Result<(), KeymapError> {
         for binding in &self.bindings {
-            if let Some(id) = binding.command() {
+            for id in binding
+                .command()
+                .into_iter()
+                .chain(binding.following_commands())
+            {
                 if !registry.contains(id.as_str()) {
                     return Err(KeymapError::UnknownCommand {
                         keymap: self.name.to_string(),
@@ -406,6 +410,16 @@ impl Keymap {
             let canonical = meta.id().clone();
             let declared = meta.mode().cloned();
             binding.set_command(canonical);
+            for id in binding.following_commands_mut() {
+                let meta =
+                    registry
+                        .get(id.as_str())
+                        .ok_or_else(|| KeymapError::UnknownCommand {
+                            keymap: name.clone(),
+                            id: id.as_str().to_owned(),
+                        })?;
+                *id = meta.id().clone();
+            }
             if binding.mode().is_none() {
                 if let Some(mode) = declared {
                     binding.set_mode(mode);

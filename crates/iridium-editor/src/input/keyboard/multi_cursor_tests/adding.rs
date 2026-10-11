@@ -16,12 +16,12 @@ fn add_below_is_sticky_across_a_short_line() {
 
     // First add clamps to the short middle line.
     assert!(press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor).is_some());
-    assert_eq!(heads(&cursor), vec![(0, 8), (1, 2)]);
+    assert_eq!(heads(&cursor), vec![(1, 2), (0, 8)]);
 
     // Second add: the clamped cursor's sticky column (8) lands on the long
     // third line, not the clamped column (2).
     assert!(press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor).is_some());
-    assert_eq!(heads(&cursor), vec![(0, 8), (1, 2), (2, 8)]);
+    assert_eq!(heads(&cursor), vec![(2, 8), (0, 8), (1, 2)]);
 }
 
 #[test]
@@ -31,11 +31,11 @@ fn add_above_is_sticky_across_a_short_line() {
     let mut cursor = cursors_at(&[(2, 8)]);
 
     assert!(press(&mut handler, &ADD_ABOVE, &mut doc, &mut cursor).is_some());
-    assert_eq!(heads(&cursor), vec![(2, 8), (1, 2)]);
+    assert_eq!(heads(&cursor), vec![(1, 2), (2, 8)]);
 
     assert!(press(&mut handler, &ADD_ABOVE, &mut doc, &mut cursor).is_some());
     // The middle cursor's sticky 8 restores on the long first line.
-    assert_eq!(heads(&cursor), vec![(2, 8), (0, 8), (1, 2)]);
+    assert_eq!(heads(&cursor), vec![(0, 8), (1, 2), (2, 8)]);
 }
 
 #[test]
@@ -48,12 +48,12 @@ fn repeated_adds_extend_the_block_and_reverse_direction() {
     press(&mut handler, &ADD_ABOVE, &mut doc, &mut cursor);
     // Cloning every cursor each press grows the contiguous block upward.
     assert_eq!(cursor.cursor_count(), 3);
-    assert_eq!(heads(&cursor), vec![(2, 1), (0, 1), (1, 1)]);
+    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1), (2, 1)]);
 
     // Reversing direction extends the block downward by one.
     press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor);
     assert_eq!(cursor.cursor_count(), 4);
-    assert_eq!(heads(&cursor), vec![(2, 1), (0, 1), (1, 1), (3, 1)]);
+    assert_eq!(heads(&cursor), vec![(3, 1), (0, 1), (1, 1), (2, 1)]);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn add_below_merges_colliding_clones() {
 
     assert!(press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor).is_some());
     assert_eq!(cursor.cursor_count(), 3);
-    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1), (2, 1)]);
+    assert_eq!(heads(&cursor), vec![(2, 1), (0, 1), (1, 1)]);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn add_above_only_the_non_edge_cursors_contribute() {
 
     assert!(press(&mut handler, &ADD_ABOVE, &mut doc, &mut cursor).is_some());
     assert_eq!(cursor.cursor_count(), 3);
-    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1), (2, 1)]);
+    assert_eq!(heads(&cursor), vec![(1, 1), (0, 1), (2, 1)]);
 }
 
 // ========== Select all occurrences ==========

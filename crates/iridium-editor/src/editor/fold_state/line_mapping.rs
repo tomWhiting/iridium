@@ -4,6 +4,7 @@
 //! walk over every fold.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 #[cfg(not(feature = "syntax"))]
 use crate::syntax_stubs::FoldRegion;
@@ -15,11 +16,11 @@ use iridium_syntax::FoldRegion;
 /// This structure is rebuilt when fold state changes and enables efficient
 /// lookups without per-line iteration.
 #[derive(Debug, Clone, Default)]
-pub(super) struct LineMapping {
+pub struct LineMapping {
     /// Sorted list of fold boundaries: (`doc_line`, `cumulative_hidden_before`, `hidden_in_fold`)
     /// Each entry represents a fold start line and the total hidden lines before it,
     /// plus the number of lines hidden by this specific fold.
-    boundaries: Vec<FoldBoundary>,
+    boundaries: Arc<[FoldBoundary]>,
     /// Total number of hidden lines across all folds.
     total_hidden: usize,
 }
@@ -106,110 +107,58 @@ impl LineMapping {
         }
 
         Self {
-            boundaries,
+            boundaries: boundaries.into(),
             total_hidden: cumulative_hidden,
         }
     }
 
-    /// Converts a visual line to a document line. O(log n).
-    pub(super) fn visual_to_document(&self, visual_line: usize) -> usize {
-        if self.boundaries.is_empty() {
-            return visual_line;
-        }
-
-        // Visual line V maps to document line D where:
-        // D = V + (total hidden lines before document line D)
-        //
-        // We iterate through boundaries to find how many hidden lines
-        // come before the visual position.
-        let mut hidden_so_far = 0;
-
-        for boundary in &self.boundaries {
-            // The visual line of this fold's start is: start_line - hidden_before
-            let fold_visual_start = boundary.start_line - boundary.hidden_before;
-
-            if visual_line < fold_visual_start {
-                // Visual line is before this fold
-                break;
-            }
-
-            // If the visual line is exactly at fold start, return the fold start
-            if visual_line == fold_visual_start {
-                return boundary.start_line;
-            }
-
-            // Visual line is after this fold start
-            // Account for all lines hidden by this fold
-            hidden_so_far = boundary.hidden_before + boundary.hidden_count;
-        }
-
-        visual_line + hidden_so_far
-    }
-
-    /// Converts a document line to a visual line. O(log n).
-    /// Returns None if the document line is hidden.
-    pub(super) fn document_to_visual(&self, doc_line: usize) -> Option<usize> {
-        if self.boundaries.is_empty() {
-            return Some(doc_line);
-        }
-
-        // Check if this line is hidden by any fold
-        for boundary in &self.boundaries {
-            if doc_line > boundary.start_line && doc_line <= boundary.end_line {
-                // Line is inside a fold (hidden)
-                return None;
-            }
-        }
-
-        // Binary search for the last boundary with start_line <= doc_line
-        let hidden_before = match self
+    /// Converts a visual line to a document line in O(log n).
+    pub fn visual_to_document(&self, visual_line: usize) -> usize {
+        let index = self
             .boundaries
-            .binary_search_by_key(&doc_line, |b| b.start_line)
-        {
-            Ok(idx) => {
-                // Exact match - doc_line is a fold start (visible)
-                self.boundaries[idx].hidden_before
-            },
-            Err(idx) => {
-                if idx == 0 {
-                    // Before all folds
-                    0
-                } else {
-                    // After boundary at idx-1
-                    let prev = &self.boundaries[idx - 1];
-                    if doc_line <= prev.end_line {
-                        // Inside the fold (this case handled above, but defensive)
-                        return None;
-                    }
-                    // After the fold
-                    prev.hidden_before + prev.hidden_count
-                }
-            },
-        };
-
-        Some(doc_line - hidden_before)
+            .partition_point(|boundary| boundary.start_line - boundary.hidden_before < visual_line);
+        let hidden = index.checked_sub(1).map_or(0, |index| {
+            let boundary = &self.boundaries[index];
+            boundary.hidden_before + boundary.hidden_count
+        });
+        visual_line.saturating_add(hidden)
     }
 
-    /// Returns total hidden line count. O(1).
-    pub(super) const fn total_hidden(&self) -> usize {
+    /// The final fold whose header precedes this document line.
+    fn boundary_before(&self, line: usize) -> Option<&FoldBoundary> {
+        let index = self
+            .boundaries
+            .partition_point(|boundary| boundary.start_line < line);
+        index
+            .checked_sub(1)
+            .and_then(|index| self.boundaries.get(index))
+    }
+
+    /// Converts a document line, returning None for a hidden line.
+    pub(crate) fn document_to_visual(&self, line: usize) -> Option<usize> {
+        (!self.is_hidden(line)).then(|| self.project_document(line))
+    }
+
+    /// Visual row of this line or the visible header of the fold hiding it.
+    pub fn project_document(&self, line: usize) -> usize {
+        let Some(boundary) = self.boundary_before(line) else {
+            return line;
+        };
+        if line <= boundary.end_line {
+            boundary.start_line - boundary.hidden_before
+        } else {
+            line - boundary.hidden_before - boundary.hidden_count
+        }
+    }
+
+    /// Returns total hidden line count in O(1).
+    pub(crate) const fn total_hidden(&self) -> usize {
         self.total_hidden
     }
 
-    /// Checks if a document line is hidden. O(log n).
-    pub(super) fn is_hidden(&self, doc_line: usize) -> bool {
-        if self.boundaries.is_empty() {
-            return false;
-        }
-
-        // Binary search for a boundary that might contain this line
-        for boundary in &self.boundaries {
-            if doc_line > boundary.start_line && doc_line <= boundary.end_line {
-                return true;
-            }
-            if boundary.start_line > doc_line {
-                break;
-            }
-        }
-        false
+    /// Checks whether a document line is hidden in O(log n).
+    pub(crate) fn is_hidden(&self, line: usize) -> bool {
+        self.boundary_before(line)
+            .is_some_and(|boundary| line <= boundary.end_line)
     }
 }

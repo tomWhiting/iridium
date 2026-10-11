@@ -1,5 +1,21 @@
 //! Core editor state and main editor instance.
 
+mod change;
+#[cfg(all(test, feature = "syntax"))]
+mod change_tests;
+mod checked_edits;
+mod command_application;
+mod selection_motion;
+mod visual_navigation;
+pub use checked_edits::CheckedEdit;
+mod search;
+mod search_scope;
+mod selections;
+mod sequence;
+mod similar;
+mod structural;
+pub use similar::SyntaxSimilarity;
+
 use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +27,7 @@ use crate::commands::{
     CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyHintIndex, KeyPress, Keymap,
     KeymapError, KeymapStack, ModeName, RegistryError, builtin,
 };
-use crate::document::{CursorState, Document, Position, Selection, compute_edit_span};
+use crate::document::{CursorState, Document, Position, Selection};
 use crate::history::{Command, UndoTree};
 use crate::input::keyboard::editing;
 use crate::input::{
@@ -19,7 +35,9 @@ use crate::input::{
     KeyEvent, KeyResult, KeyboardHandler, MouseEvent, MouseHandler, MouseResult, SearchAction,
 };
 use crate::render::Viewport;
-use crate::search::{SearchOptions, SearchState, replace_all, replace_current};
+#[cfg(test)]
+use crate::search::SearchOptions;
+use crate::search::SearchState;
 use crate::theme::Theme;
 
 #[cfg(not(feature = "syntax"))]
@@ -56,6 +74,12 @@ pub enum EditorEvent {
         match_count: usize,
         /// Current match index (if any)
         current_index: Option<usize>,
+        /// Diagnostic from the latest search or automatic refresh.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        /// Number of selected ranges, or None for whole-document search.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope_ranges: Option<usize>,
     },
 
     /// Theme changed (T147).
@@ -100,6 +124,8 @@ pub enum EditorEvent {
 /// Used to communicate what type of action was requested by the keyboard input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorKeyResult {
+    /// A rejected operation; hosts must display the diagnostic.
+    Error(String),
     /// No special action requested.
     None,
     /// A clipboard operation was requested.
@@ -330,29 +356,11 @@ impl EditorState {
     /// baseline; incremental match maintenance is a planned optimization
     /// (PLAN.md Phase 2 performance work).
     ///
-    /// Returns `true` when an active search was re-run (matches and current
-    /// index may have changed), `false` when there was nothing to refresh.
+    /// Returns `true` when an active search was re-run (matches, diagnostic and
+    /// current index may have changed), `false` when there was nothing to refresh.
+    /// Failures are retained in `search.error()` and leave no stale matches.
     pub fn refresh_search(&mut self) -> bool {
-        if self.search.query.is_empty() {
-            return false;
-        }
-
-        let previous_position = self.search.current_range().map(|range| range.start);
-        let query = self.search.query.clone();
-        let options = self.search.options.clone();
-
-        // The query and options were validated when the search was created
-        // and are unchanged here, so this can only fail if the public search
-        // fields were mutated into an invalid state. `find_all` clears the
-        // recorded matches before validating, which is exactly the safe
-        // outcome for that case: no stale range survives.
-        let _ = self.search.find_all(&query, &options, &self.document);
-
-        if let Some(position) = previous_position {
-            self.search.goto_nearest_match(position);
-        }
-
-        true
+        self.search.refresh(&self.document)
     }
 }
 
@@ -384,6 +392,10 @@ pub struct Editor {
 
     /// Keyboard input handler
     keyboard_handler: KeyboardHandler,
+
+    /// Last composed edit; selection-only sequences do not replace it.
+    last_command_sequence: Vec<crate::commands::CommandInvocation>,
+    change_session: Option<change::ChangeSession>,
 
     /// Every command this editor exposes, kernel and host alike.
     ///
@@ -421,6 +433,8 @@ impl Editor {
             },
             listeners: Vec::new(),
             keyboard_handler: KeyboardHandler::new(),
+            last_command_sequence: Vec::new(),
+            change_session: None,
             commands: Self::seeded_command_registry(),
             mouse_handler: MouseHandler::new(),
             ime_handler: ImeHandler::new(),
@@ -484,6 +498,7 @@ impl Editor {
     /// means any mutation via this accessor is treated like every other
     /// host-driven cursor jump (`set_cursor`, mouse, IME, paste).
     pub fn state_mut(&mut self) -> &mut EditorState {
+        self.finish_change();
         self.keyboard_handler.reset_vertical_state();
         self.keyboard_handler.invalidate_cursor_order();
         &mut self.state
@@ -494,6 +509,7 @@ impl Editor {
     /// The cursor is reset (so the keyboard handler's sticky vertical column
     /// is dropped) and any active search is re-run against the new content.
     pub fn set_content(&mut self, content: &str) {
+        self.finish_change();
         self.state.set_content(content);
         self.keyboard_handler.reset_vertical_state();
         self.keyboard_handler.invalidate_cursor_order();
@@ -515,42 +531,22 @@ impl Editor {
         self.state.cursor.primary.head
     }
 
-    /// Sets the cursor position.
-    ///
-    /// The position is clamped to the document. This bypasses the keyboard
-    /// handler, so its sticky vertical column is reset.
-    pub fn set_cursor(&mut self, position: Position) {
-        let clamped = self.state.document.clamp_position(position);
-        self.keyboard_handler.reset_vertical_state();
-        self.keyboard_handler.invalidate_cursor_order();
-        self.state.cursor = CursorState::at(clamped);
-        self.emit_selection_changed();
-    }
-
-    /// Sets the selection, replacing all cursors with a single selection.
-    ///
-    /// Both endpoints are clamped to the document. This bypasses the
-    /// keyboard handler, so its sticky vertical column is reset.
-    pub fn set_selection(&mut self, anchor: Position, head: Position) {
-        let anchor = self.state.document.clamp_position(anchor);
-        let head = self.state.document.clamp_position(head);
-        self.keyboard_handler.reset_vertical_state();
-        self.keyboard_handler.invalidate_cursor_order();
-        self.state.cursor = CursorState::new(Selection::new(anchor, head));
-        self.emit_selection_changed();
-    }
-
     /// Handles a keyboard event.
     ///
     /// Returns an `EditorKeyResult` indicating if a clipboard or search action
     /// was requested. The caller is responsible for handling these operations.
     pub fn handle_key(&mut self, event: &KeyEvent) -> EditorKeyResult {
+        let checkpoint = self
+            .change_session
+            .as_ref()
+            .map(|_| self.keyboard_handler.clone());
         // The page-motion hop is the viewport height, which is this editor's
         // state and not the handler's; synced at every dispatch so a resize —
         // or a host writing `state_mut().viewport` directly — can never leave
         // a page key hopping yesterday's layout.
         self.keyboard_handler
             .set_page_rows(self.state.viewport.visible_lines);
+        self.keyboard_handler.sync_folds(&self.state.fold_state);
         // Built over the retained tree, which `caret_scopes` reads without
         // parsing. `self.keyboard_handler` and `self.state` are disjoint
         // fields, so the mutable borrow of the handler coexists with the
@@ -564,7 +560,8 @@ impl Editor {
             &self.state.config,
             &scopes,
         );
-        self.consume_key_result(result)
+        let invocation = self.keyboard_handler.take_input_invocation();
+        self.consume_recorded_input(result, invocation, checkpoint)
     }
 
     // ========== Commands, keymaps and modes ==========
@@ -620,10 +617,17 @@ impl Editor {
         id: &str,
         args: CommandArgs,
     ) -> Result<EditorKeyResult, CommandRunError> {
+        let checkpoint = self
+            .change_session
+            .as_ref()
+            .map(|_| self.keyboard_handler.clone());
+        let invocation =
+            crate::commands::CommandInvocation::new(CommandId::new(id.to_owned()), args.clone());
         // See `handle_key`: a palette-invoked page motion must hop exactly the
         // page a keypress would.
         self.keyboard_handler
             .set_page_rows(self.state.viewport.visible_lines);
+        self.keyboard_handler.sync_folds(&self.state.fold_state);
         // See `handle_key`. A palette-invoked `edit.insertCharacter` reaches
         // the same suppression rule a typed character does — it has no event
         // to take a character from, so it inserts nothing, but the two paths
@@ -638,7 +642,7 @@ impl Editor {
             &self.state.config,
             &scopes,
         )?;
-        Ok(self.consume_key_result(result))
+        Ok(self.consume_recorded_input(result, Some(invocation), checkpoint))
     }
 
     /// Returns `true` when the kernel itself implements `id`.
@@ -747,6 +751,7 @@ impl Editor {
     /// covers a click elsewhere; a blur with no click does not, and a chord left
     /// pending across it would eat the first keystroke after the user returns.
     pub fn abort_pending_key_sequence(&mut self) -> bool {
+        self.finish_change();
         self.keyboard_handler.abort_pending_sequence()
     }
 
@@ -763,6 +768,7 @@ impl Editor {
     /// is for the host paths a keymap cannot see, such as forcing insert mode when
     /// a widget takes focus.
     pub fn set_mode(&mut self, mode: Option<ModeName>) {
+        self.finish_change();
         self.keyboard_handler.set_mode(mode);
     }
 
@@ -773,6 +779,38 @@ impl Editor {
     /// diverge.
     fn consume_key_result(&mut self, result: KeyResult) -> EditorKeyResult {
         match result {
+            KeyResult::Error(message) => EditorKeyResult::Error(message),
+            KeyResult::RepeatSequence(count) => {
+                if let Err(message) = self.repeat_command_sequence(count) {
+                    self.emit(&EditorEvent::Error {
+                        message: message.clone(),
+                        code: "SEQUENCE_FAILED".into(),
+                    });
+                    return EditorKeyResult::Error(message);
+                }
+                EditorKeyResult::None
+            },
+            KeyResult::FinishChange => {
+                self.finish_change();
+                EditorKeyResult::None
+            },
+            KeyResult::Sequence {
+                steps,
+                enters_mode,
+                record_input,
+            } => {
+                match self.run_input_sequence(&steps, enters_mode, record_input) {
+                    Ok(()) => {},
+                    Err(message) => {
+                        self.emit(&EditorEvent::Error {
+                            message: message.clone(),
+                            code: "SEQUENCE_FAILED".into(),
+                        });
+                        return EditorKeyResult::Error(message);
+                    },
+                }
+                EditorKeyResult::None
+            },
             KeyResult::Command(cmd) => {
                 if !self.state.read_only || matches!(cmd, Command::SetSelection { .. }) {
                     self.apply_command_internal(cmd);
@@ -800,6 +838,10 @@ impl Editor {
                 // `Command::SetSelection`, so it is undoable and read-only-safe
                 // for the same reasons every other selection change is.
                 self.perform_ast_request(request);
+                EditorKeyResult::None
+            },
+            KeyResult::AstRepeated { request, count } => {
+                self.perform_ast_request_repeated(request, count);
                 EditorKeyResult::None
             },
             KeyResult::HostCommand { command, args } => {
@@ -859,37 +901,24 @@ impl Editor {
                 self.apply_command_internal(cmd);
                 true
             },
-            KeyResult::Handled
+            KeyResult::Error(_)
+            | KeyResult::FinishChange
+            | KeyResult::RepeatSequence(_)
+            | KeyResult::Sequence { .. }
+            | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::History(_)
             | KeyResult::Ast(_)
+            | KeyResult::AstRepeated { .. }
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
             | KeyResult::Search(_) => false,
         }
     }
 
-    /// Handles a search action from keyboard input.
-    fn handle_search_action(&mut self, action: SearchAction) -> EditorKeyResult {
-        match action {
-            SearchAction::OpenSearch => EditorKeyResult::Search(action),
-            SearchAction::CloseSearch => {
-                self.close_search();
-                EditorKeyResult::Search(action)
-            },
-            SearchAction::NextMatch => {
-                self.goto_next_match();
-                EditorKeyResult::None
-            },
-            SearchAction::PreviousMatch => {
-                self.goto_previous_match();
-                EditorKeyResult::None
-            },
-        }
-    }
-
     /// Handles a mouse event.
     pub fn handle_mouse(&mut self, event: &MouseEvent) {
+        self.finish_change();
         let result = self.mouse_handler.handle_mouse(
             event,
             &self.state.document,
@@ -929,6 +958,14 @@ impl Editor {
     pub fn handle_ime(&mut self, event: &ImeEvent) -> Option<ImeState> {
         if self.state.read_only {
             return None;
+        }
+
+        if self.change_session.is_some() {
+            if let ImeEvent::Commit { text } = event {
+                self.paste(text);
+                self.ime_handler.reset();
+                return Some(ImeState::Inactive);
+            }
         }
 
         let result = self
@@ -1006,87 +1043,6 @@ impl Editor {
         });
     }
 
-    /// Applies a command to the document (public, host-driven entry point).
-    ///
-    /// This is the out-of-band command surface for host code (apply a bare
-    /// `Insert`/`Delete`/`Replace`, or push a `SetSelection`). Like every other
-    /// host-driven cursor mutation it first invalidates the keyboard handler's
-    /// transient state — the sticky vertical column and the multi-cursor
-    /// addition-order stack — so a `SetSelection` that reconstructs a
-    /// byte-identical `CursorState` cannot leave Ctrl+U/skip acting on a stale
-    /// stack. The internal keyboard/mouse/IME/paste paths deliberately bypass
-    /// this via [`Self::apply_command_internal`]: they manage that transient
-    /// state themselves (the keyboard handler through its own post-dispatch
-    /// bookkeeping, the others by resetting it explicitly before applying).
-    ///
-    /// Document modifications and selection changes both emit appropriate
-    /// events; errors during command application are emitted as error events.
-    pub fn apply_command(&mut self, command: Command) {
-        self.keyboard_handler.reset_vertical_state();
-        self.keyboard_handler.invalidate_cursor_order();
-        self.apply_command_internal(command);
-    }
-
-    /// Applies a command without touching the keyboard handler's transient
-    /// state.
-    ///
-    /// Used by the input paths that own that state themselves: the keyboard
-    /// handler (which runs its own post-dispatch bookkeeping in
-    /// `note_operation`, and for the add verbs *must* keep its addition-order
-    /// stack across command application) and the mouse/IME/paste/search paths
-    /// (which reset the sticky column and addition-order stack explicitly before
-    /// calling this).
-    fn apply_command_internal(&mut self, command: Command) {
-        let content_changed = command.modifies_content();
-        let selection_changed = command.modifies_selection();
-
-        // Computed before the edit lands, because the span is expressed in the
-        // pre-edit document's coordinates and that document is about to stop
-        // existing. An error here is not fatal: leaving the edit unreported
-        // makes the next sync parse the document whole, which is slower and
-        // still correct.
-        let span = compute_edit_span(&self.state.document, &command)
-            .ok()
-            .flatten();
-
-        // Apply the command
-        if let Err(e) = command.apply(&mut self.state.document, &mut self.state.cursor) {
-            self.emit(&EditorEvent::Error {
-                message: e.to_string(),
-                code: "COMMAND_FAILED".to_string(),
-            });
-            return;
-        }
-
-        if let Some(span) = span {
-            self.state.syntax.note_edit(&self.state.document, &span);
-        }
-
-        // Push to undo history if it modifies content
-        if content_changed {
-            // Folds are read by the renderer on the very next frame, so they
-            // are refreshed here rather than lazily. Before this the editor's
-            // regions were correct only until the first keystroke.
-            self.state.refresh_syntax();
-
-            self.state.history.push(command);
-
-            // Recorded search match ranges point into the pre-edit document;
-            // re-synchronize the active search so replace operations never
-            // act on stale ranges.
-            if self.state.refresh_search() {
-                self.emit_search_updated();
-            }
-
-            self.emit_content_changed();
-        }
-
-        // Emit selection changed if needed
-        if selection_changed || content_changed {
-            self.emit_selection_changed();
-        }
-    }
-
     /// Performs undo.
     ///
     /// Returns true if an action was undone.
@@ -1098,16 +1054,7 @@ impl Editor {
     /// calls), the cursor is explicitly placed at the edit site — see
     /// [`replayed_command_caret`] — instead of being left wherever it was.
     pub fn undo(&mut self) -> bool {
-        // Note: history.undo() already returns the inverse command, so it is
-        // applied directly without calling .inverse() again.
-        let Some(cmd) = self.state.history.undo() else {
-            return false;
-        };
-        if !self.apply_replayed_command(&cmd, "UNDO_FAILED") {
-            return false;
-        }
-        self.finish_history_replay(&cmd);
-        true
+        self.replay_history(crate::history::NavigationRequest::Undo)
     }
 
     /// Performs redo.
@@ -1118,14 +1065,7 @@ impl Editor {
     /// carrying a `SetSelection` restore the cursor state themselves, and
     /// bare content commands place the cursor at the edit site.
     pub fn redo(&mut self) -> bool {
-        let Some(cmd) = self.state.history.redo() else {
-            return false;
-        };
-        if !self.apply_replayed_command(&cmd, "REDO_FAILED") {
-            return false;
-        }
-        self.finish_history_replay(&cmd);
-        true
+        self.replay_history(crate::history::NavigationRequest::Redo)
     }
 
     /// Shared post-processing for a successfully applied undo/redo command.
@@ -1190,20 +1130,31 @@ impl Editor {
     /// `SetSelection` restores both text and the exact prior cursor state on
     /// undo.
     pub fn paste(&mut self, text: &str) {
-        if self.state.read_only || text.is_empty() {
-            return;
-        }
+        self.paste_with_result(text);
+    }
 
-        // Paste moves the cursor without going through handle_key.
+    /// Inserts pasted text, returning any recording-capacity error to the host.
+    pub fn paste_with_result(&mut self, text: &str) -> EditorKeyResult {
+        if self.state.read_only || text.is_empty() {
+            return EditorKeyResult::None;
+        }
+        let checkpoint = self
+            .change_session
+            .as_ref()
+            .map(|_| self.keyboard_handler.clone());
         self.keyboard_handler.reset_vertical_state();
         self.keyboard_handler.invalidate_cursor_order();
-
         let edits = editing::replace_all_edits(&self.state.cursor, text);
-        if let Some(command) =
+        let Some(command) =
             editing::build_multi_cursor_command(&self.state.document, &self.state.cursor, edits)
-        {
-            self.apply_command_internal(command);
-        }
+        else {
+            return EditorKeyResult::None;
+        };
+        let invocation = crate::commands::CommandInvocation::new(
+            crate::commands::builtin::EDIT_INSERT_TEXT,
+            CommandArgs::with_text(text),
+        );
+        self.consume_recorded_input(KeyResult::Command(command), Some(invocation), checkpoint)
     }
 
     /// Adds an event listener.
@@ -1498,235 +1449,6 @@ impl Editor {
         self.emit(&EditorEvent::FoldChanged {
             folded_count: self.state.fold_state.folded_count(),
             total_regions: self.state.fold_state.regions().len(),
-        });
-    }
-
-    // ==================== Search Methods (T121-T126) ====================
-
-    /// Starts a search with the given query and options.
-    ///
-    /// This finds all matches in the document and updates the search state.
-    /// The current match is set to the first match found (if any).
-    ///
-    /// # Arguments
-    ///
-    /// * `query` - The search query (plain text or regex pattern)
-    /// * `options` - Search options controlling matching behavior
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or `Err(String)` if the regex is invalid.
-    pub fn find(&mut self, query: &str, options: &SearchOptions) -> Result<(), String> {
-        self.state
-            .search
-            .find_all(query, options, &self.state.document)?;
-
-        // Move to nearest match from current cursor position
-        if self.state.search.has_matches() {
-            self.state
-                .search
-                .goto_nearest_match(self.state.cursor.primary.head);
-
-            // Move cursor to current match
-            if let Some(range) = self.state.search.current_range() {
-                self.keyboard_handler.reset_vertical_state();
-                self.keyboard_handler.invalidate_cursor_order();
-                self.state.cursor = CursorState::at(range.start);
-                self.emit_selection_changed();
-            }
-        }
-
-        self.emit_search_updated();
-        Ok(())
-    }
-
-    /// Updates the search query incrementally.
-    ///
-    /// This is useful for live search where the query is updated as the user types.
-    ///
-    /// # Arguments
-    ///
-    /// * `query` - The new search query
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(true)` if the matches changed, `Ok(false)` otherwise,
-    /// or `Err(String)` if the regex is invalid.
-    pub fn update_search(&mut self, query: &str) -> Result<bool, String> {
-        let changed = self
-            .state
-            .search
-            .update_query(query, &self.state.document)?;
-        if changed {
-            self.emit_search_updated();
-        }
-        Ok(changed)
-    }
-
-    /// Sets search options and re-runs the search.
-    pub fn set_search_options(&mut self, options: SearchOptions) -> Result<(), String> {
-        self.state
-            .search
-            .set_options(options, &self.state.document)?;
-        self.emit_search_updated();
-        Ok(())
-    }
-
-    /// Goes to the next search match.
-    ///
-    /// Wraps around to the first match when at the end.
-    pub fn goto_next_match(&mut self) {
-        self.state.search.next_match();
-
-        if let Some(range) = self.state.search.current_range() {
-            self.keyboard_handler.reset_vertical_state();
-            self.keyboard_handler.invalidate_cursor_order();
-            self.state.cursor = CursorState::at(range.start);
-            self.emit_selection_changed();
-        }
-
-        self.emit_search_updated();
-    }
-
-    /// Goes to the previous search match.
-    ///
-    /// Wraps around to the last match when at the beginning.
-    pub fn goto_previous_match(&mut self) {
-        self.state.search.previous_match();
-
-        if let Some(range) = self.state.search.current_range() {
-            self.keyboard_handler.reset_vertical_state();
-            self.keyboard_handler.invalidate_cursor_order();
-            self.state.cursor = CursorState::at(range.start);
-            self.emit_selection_changed();
-        }
-
-        self.emit_search_updated();
-    }
-
-    /// Replaces the current match with the replacement text.
-    ///
-    /// After replacement, moves to the next match.
-    ///
-    /// # Arguments
-    ///
-    /// * `replacement` - The text to replace the current match with
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if a replacement was made, `false` otherwise.
-    pub fn replace_current_match(&mut self, replacement: &str) -> bool {
-        if self.state.read_only {
-            return false;
-        }
-
-        let cmd = replace_current(
-            &self.state.search,
-            replacement,
-            &self.state.document,
-            &self.state.cursor,
-        );
-
-        if let Some(cmd) = cmd {
-            // The replace command carries a SetSelection that moves the
-            // cursor without going through handle_key.
-            self.keyboard_handler.reset_vertical_state();
-            self.keyboard_handler.invalidate_cursor_order();
-            self.apply_command_internal(cmd);
-
-            // Re-run search from the top so navigation restarts at the first
-            // match (apply_command already refreshed the stale ranges; this
-            // additionally resets the current-match index for the
-            // goto_next_match below, preserving long-standing behavior).
-            let query = self.state.search.query.clone();
-            let options = self.state.search.options.clone();
-            let _ = self
-                .state
-                .search
-                .find_all(&query, &options, &self.state.document);
-
-            // Move to next match
-            self.goto_next_match();
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Replaces all matches with the replacement text.
-    ///
-    /// This is a single undoable operation per FR-030.
-    ///
-    /// # Arguments
-    ///
-    /// * `replacement` - The text to replace each match with
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of replacements made.
-    pub fn replace_all_matches(&mut self, replacement: &str) -> usize {
-        if self.state.read_only {
-            return 0;
-        }
-
-        let result = replace_all(
-            &self.state.search,
-            replacement,
-            &self.state.document,
-            &self.state.cursor,
-        );
-
-        if let Some((cmd, replace_result)) = result {
-            // The replace command carries a SetSelection that moves the
-            // cursor without going through handle_key.
-            self.keyboard_handler.reset_vertical_state();
-            self.keyboard_handler.invalidate_cursor_order();
-            self.apply_command_internal(cmd);
-
-            // Clear search since all matches are replaced
-            self.close_search();
-
-            replace_result.count
-        } else {
-            0
-        }
-    }
-
-    /// Closes/clears the current search.
-    pub fn close_search(&mut self) {
-        self.state.search.clear();
-        self.emit_search_updated();
-    }
-
-    /// Returns true if a search is currently active.
-    #[must_use]
-    pub const fn is_searching(&self) -> bool {
-        self.state.search.is_active
-    }
-
-    /// Returns the current search state.
-    #[must_use]
-    pub const fn search_state(&self) -> &SearchState {
-        &self.state.search
-    }
-
-    /// Returns the number of search matches.
-    #[must_use]
-    pub fn search_match_count(&self) -> usize {
-        self.state.search.match_count()
-    }
-
-    /// Returns the current match index (0-based), if any.
-    #[must_use]
-    pub const fn current_match_index(&self) -> Option<usize> {
-        self.state.search.current_match
-    }
-
-    /// Emits a search updated event (T125).
-    fn emit_search_updated(&self) {
-        self.emit(&EditorEvent::SearchUpdated {
-            match_count: self.state.search.match_count(),
-            current_index: self.state.search.current_match,
         });
     }
 }
@@ -2149,9 +1871,9 @@ line 5";
         assert_eq!(
             heads,
             vec![
+                Position::new(0, 12),
                 Position::new(0, 0),
-                Position::new(0, 4),
-                Position::new(0, 12)
+                Position::new(0, 4)
             ]
         );
     }
@@ -2468,7 +2190,7 @@ line 5";
             .all_selections()
             .map(|sel| sel.head)
             .collect();
-        assert_eq!(heads, vec![Position::new(0, 8), Position::new(1, 2)]);
+        assert_eq!(heads, vec![Position::new(1, 2), Position::new(0, 8)]);
 
         // Type at both cursors, then undo the edit.
         editor.handle_key(&KeyEvent::simple(KeyCode::Char('z')));
@@ -2479,7 +2201,7 @@ line 5";
             .all_selections()
             .map(|sel| sel.head)
             .collect();
-        assert_eq!(heads, vec![Position::new(0, 8), Position::new(1, 2)]);
+        assert_eq!(heads, vec![Position::new(1, 2), Position::new(0, 8)]);
 
         // Add below again: the line-1 cursor's sticky column (8) survived the
         // undo, so it lands at (2, 8) — not the clamped column (2).
@@ -2493,9 +2215,9 @@ line 5";
         assert_eq!(
             heads,
             vec![
+                Position::new(2, 8),
                 Position::new(0, 8),
-                Position::new(1, 2),
-                Position::new(2, 8)
+                Position::new(1, 2)
             ]
         );
     }
@@ -2619,7 +2341,7 @@ line 5";
             .all_selections()
             .map(|sel| sel.head)
             .collect();
-        assert_eq!(heads, vec![Position::new(1, 2), Position::new(2, 8)]);
+        assert_eq!(heads, vec![Position::new(2, 8), Position::new(1, 2)]);
 
         // A content edit at both cursors, then undo it.
         editor.handle_key(&KeyEvent::simple(KeyCode::Char('z')));
@@ -2630,7 +2352,7 @@ line 5";
             .all_selections()
             .map(|sel| sel.head)
             .collect();
-        assert_eq!(heads, vec![Position::new(1, 2), Position::new(2, 8)]);
+        assert_eq!(heads, vec![Position::new(2, 8), Position::new(1, 2)]);
 
         // Add below again: the (2, 8) cursor's sticky column survived the undo,
         // so its clone lands at (3, 8) — not the clamped (3, 2).
@@ -2644,9 +2366,9 @@ line 5";
         assert_eq!(
             heads,
             vec![
+                Position::new(3, 8),
                 Position::new(1, 2),
-                Position::new(2, 8),
-                Position::new(3, 8)
+                Position::new(2, 8)
             ]
         );
     }

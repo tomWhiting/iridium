@@ -28,6 +28,7 @@ pub struct CommandArgs {
     count: Option<u32>,
     /// Characters captured by wildcard strokes, in sequence order.
     captures: Vec<char>,
+    text: Option<String>,
 }
 
 impl CommandArgs {
@@ -35,12 +36,33 @@ impl CommandArgs {
     pub const NONE: Self = Self {
         count: None,
         captures: Vec::new(),
+        text: None,
     };
 
     /// Builds arguments from a count and a capture list.
     #[must_use]
     pub const fn new(count: Option<u32>, captures: Vec<char>) -> Self {
-        Self { count, captures }
+        Self {
+            count,
+            captures,
+            text: None,
+        }
+    }
+
+    /// Builds a text-bearing invocation, used for typed or pasted input.
+    #[must_use]
+    pub fn with_text(text: impl Into<String>) -> Self {
+        Self {
+            count: None,
+            captures: Vec::new(),
+            text: Some(text.into()),
+        }
+    }
+
+    /// Captured text, kept distinct from key-sequence character captures.
+    #[must_use]
+    pub fn text(&self) -> Option<&str> {
+        self.text.as_deref()
     }
 
     /// Builds arguments carrying only a count.
@@ -49,6 +71,7 @@ impl CommandArgs {
         Self {
             count: Some(count),
             captures: Vec::new(),
+            text: None,
         }
     }
 
@@ -58,6 +81,7 @@ impl CommandArgs {
         Self {
             count: None,
             captures,
+            text: None,
         }
     }
 
@@ -94,7 +118,7 @@ impl CommandArgs {
     /// Returns `true` when neither a count nor a capture was carried.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.count.is_none() && self.captures.is_empty()
+        self.count.is_none() && self.captures.is_empty() && self.text.is_none()
     }
 }
 
@@ -138,6 +162,13 @@ impl CommandInvocation {
     #[must_use]
     pub const fn args(&self) -> &CommandArgs {
         &self.args
+    }
+
+    pub(crate) fn append_text(&mut self, text: &str) {
+        self.args
+            .text
+            .get_or_insert_with(String::new)
+            .push_str(text);
     }
 
     /// Splits into the command and its arguments.

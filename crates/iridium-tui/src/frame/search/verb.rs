@@ -9,7 +9,7 @@
 //! the enum — so a verb added to the kernel table and forgotten in the panel is
 //! a **compile error** rather than a key that quietly does nothing.
 //!
-//! # ⚠️ Two of these verbs are borrowed document commands
+//! # Shared editing and search verbs are borrowed document commands
 //!
 //! [`SEARCH_NEXT_MATCH`] and [`SEARCH_PREVIOUS_MATCH`] are **mode-free editor
 //! commands**, not members of the kernel's `search` panel table. The overlay's
@@ -25,17 +25,55 @@
 
 use iridium_editor::CommandId;
 use iridium_editor::commands::builtin::{
-    SEARCH_CARET_END, SEARCH_CARET_HOME, SEARCH_CARET_LEFT, SEARCH_CARET_RIGHT, SEARCH_DISMISS,
+    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, CURSOR_CHAR_LEFT_SELECT,
+    CURSOR_CHAR_RIGHT_SELECT, CURSOR_LINE_END_SELECT, CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT,
+    CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT,
+    EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, SEARCH_CARET_END, SEARCH_CARET_HOME,
+    SEARCH_CARET_LEFT, SEARCH_CARET_RIGHT, SEARCH_CLEAR_SCOPE, SEARCH_DISMISS,
     SEARCH_FIELD_BACKSPACE, SEARCH_FIELD_DELETE, SEARCH_NEXT_MATCH, SEARCH_PREVIOUS_MATCH,
-    SEARCH_REPLACE_ALL, SEARCH_REPLACE_CURRENT, SEARCH_TOGGLE_CASE_SENSITIVE, SEARCH_TOGGLE_FIELD,
-    SEARCH_TOGGLE_REGEX, SEARCH_TOGGLE_WHOLE_WORD,
+    SEARCH_REPLACE_ALL, SEARCH_REPLACE_CURRENT, SEARCH_SELECT_ALL_MATCHES,
+    SEARCH_TOGGLE_CASE_SENSITIVE, SEARCH_TOGGLE_FIELD, SEARCH_TOGGLE_REGEX,
+    SEARCH_TOGGLE_WHOLE_WORD, SELECTION_SELECT_ALL,
 };
 
 /// One thing the search overlay can be asked to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Verb {
+    /// Select all text in the focused field.
+    SelectAll,
+    /// Copy the selected field text.
+    Copy,
+    /// Cut the selected field text.
+    Cut,
+    /// Extend the field selection left.
+    SelectLeft,
+    /// Extend the field selection right.
+    SelectRight,
+    /// Extend to the field beginning.
+    SelectHome,
+    /// Extend to the field end.
+    SelectEnd,
+    /// Move left by code word.
+    WordLeft,
+    /// Move right by code word.
+    WordRight,
+    /// Extend left by code word.
+    SelectWordLeft,
+    /// Extend right by code word.
+    SelectWordRight,
+    /// Delete the selected text or preceding word.
+    DeleteWordLeft,
+    /// Delete the selected text or following word.
+    DeleteWordRight,
+
     /// Close the overlay, ending the search.
     Dismiss,
+    /// Request clipboard text for the focused field from the host.
+    Paste,
+    /// Select all search matches and return focus to the document.
+    SelectAllMatches,
+    /// Return the current query to the whole document.
+    ClearScope,
     /// Move the document to the next match. ⚠️ A borrowed document command.
     NextMatch,
     /// Move the document to the previous match. ⚠️ A borrowed document command.
@@ -74,7 +112,23 @@ impl Verb {
     /// verb is both bound by the default keymap and reachable from a
     /// configuration file.
     pub(super) const ALL: &'static [Self] = &[
+        Self::SelectAll,
+        Self::Copy,
+        Self::Cut,
+        Self::SelectLeft,
+        Self::SelectRight,
+        Self::SelectHome,
+        Self::SelectEnd,
+        Self::WordLeft,
+        Self::WordRight,
+        Self::SelectWordLeft,
+        Self::SelectWordRight,
+        Self::DeleteWordLeft,
+        Self::DeleteWordRight,
         Self::Dismiss,
+        Self::Paste,
+        Self::SelectAllMatches,
+        Self::ClearScope,
         Self::NextMatch,
         Self::PreviousMatch,
         Self::ToggleField,
@@ -98,7 +152,26 @@ impl Verb {
     /// subtract them by name instead of by a count that would drift. See the
     /// module documentation for why they are borrowed rather than duplicated.
     #[cfg(test)]
-    pub(super) const BORROWED: &'static [Self] = &[Self::NextMatch, Self::PreviousMatch];
+    pub(super) const BORROWED: &'static [Self] = &[
+        Self::SelectAll,
+        Self::Copy,
+        Self::Cut,
+        Self::SelectLeft,
+        Self::SelectRight,
+        Self::SelectHome,
+        Self::SelectEnd,
+        Self::WordLeft,
+        Self::WordRight,
+        Self::SelectWordLeft,
+        Self::SelectWordRight,
+        Self::DeleteWordLeft,
+        Self::DeleteWordRight,
+        Self::NextMatch,
+        Self::PreviousMatch,
+        Self::SelectAllMatches,
+        Self::ClearScope,
+        Self::Paste,
+    ];
 
     /// The command id this verb is.
     ///
@@ -106,7 +179,24 @@ impl Verb {
     /// one spelling in the repository and this file cannot drift from it.
     pub(super) const fn id(self) -> CommandId {
         match self {
+            Self::SelectAll => SELECTION_SELECT_ALL,
+            Self::Copy => CLIPBOARD_COPY,
+            Self::Cut => CLIPBOARD_CUT,
+            Self::SelectLeft => CURSOR_CHAR_LEFT_SELECT,
+            Self::SelectRight => CURSOR_CHAR_RIGHT_SELECT,
+            Self::SelectHome => CURSOR_LINE_START_SELECT,
+            Self::SelectEnd => CURSOR_LINE_END_SELECT,
+            Self::WordLeft => CURSOR_WORD_LEFT,
+            Self::WordRight => CURSOR_WORD_RIGHT,
+            Self::SelectWordLeft => CURSOR_WORD_LEFT_SELECT,
+            Self::SelectWordRight => CURSOR_WORD_RIGHT_SELECT,
+            Self::DeleteWordLeft => EDIT_DELETE_WORD_BACKWARD,
+            Self::DeleteWordRight => EDIT_DELETE_WORD_FORWARD,
+
             Self::Dismiss => SEARCH_DISMISS,
+            Self::Paste => CLIPBOARD_PASTE,
+            Self::SelectAllMatches => SEARCH_SELECT_ALL_MATCHES,
+            Self::ClearScope => SEARCH_CLEAR_SCOPE,
             Self::NextMatch => SEARCH_NEXT_MATCH,
             Self::PreviousMatch => SEARCH_PREVIOUS_MATCH,
             Self::ToggleField => SEARCH_TOGGLE_FIELD,

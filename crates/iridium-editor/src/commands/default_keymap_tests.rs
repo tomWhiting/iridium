@@ -26,13 +26,13 @@ use super::builtin::{
     AST_SELECT_LAST_CHILD, AST_SELECT_NEXT_SIBLING, AST_SELECT_NODE, AST_SELECT_PREVIOUS_SIBLING,
     BUILTIN_COMMAND_COUNT, COMMAND_NO_OP, EDIT_DELETE_TO_LINE_END, EDIT_DELETE_TO_LINE_START,
     EDIT_INSERT_CHARACTER, HISTORY_REDO_BRANCH, HISTORY_TOGGLE_PANEL, HOST_COMMAND_COUNT,
-    MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES,
-    TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
-    TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
-    TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
-    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, WORKSPACE_COMMAND_COUNT,
-    WORKSPACE_FIRST_TAB, WORKSPACE_LAST_TAB, builtin_registry, default_registry,
-    host_command_metas,
+    MULTI_CURSOR_SKIP_LAST_OCCURRENCE, PALETTE_OPEN, SEARCH_CLEAR_SCOPE, SEARCH_SELECT_ALL_MATCHES,
+    TRANSFORM_CAMEL_CASE, TRANSFORM_DEDUPE_LINES, TRANSFORM_KEBAB_CASE, TRANSFORM_LOWER_CASE,
+    TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES, TRANSFORM_SCREAMING_SNAKE_CASE,
+    TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES, TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE,
+    TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE, TRANSFORM_TRIM_TRAILING_WHITESPACE,
+    TRANSFORM_UPPER_CASE, WORKSPACE_COMMAND_COUNT, WORKSPACE_FIRST_TAB, WORKSPACE_LAST_TAB,
+    builtin_registry, default_registry, host_command_metas,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -217,8 +217,8 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
         .filter(|id| !bound.contains(*id))
         .collect();
 
-    // Forty-one commands are intentionally unbound by the *non-modal* default,
-    // and a forty-second entry here would mean a feature silently lost:
+    // These commands are intentionally unbound by the *non-modal* default.
+    // An unexpected entry here would mean a feature silently lost:
     //
     // - `edit.insertCharacter` is the typing fall-through; no key sequence can
     //   stand for "whatever the user typed".
@@ -282,11 +282,18 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   list because there is no such verb: no vendored query defines
     //   `@comment.inside`.
     //
+    // - `search.selectAllMatches` is bound to Alt+Enter by the terminal search
+    //   panel, which owns focus while previewing the query. The kernel command
+    //   is also callable by id or a user binding; panel keymap tests prove its
+    //   default binding and the transition back to editing.
+    //
     // This list is *ordered* and matches `registry.commands()` iteration order,
     // so a new entry goes where its id is registered, not at the end.
     assert_eq!(
         unbound,
         vec![
+            super::builtin::COMMAND_FINISH_CHANGE.as_str(),
+            super::builtin::EDIT_INSERT_TEXT.as_str(),
             EDIT_INSERT_CHARACTER.as_str(),
             EDIT_DELETE_TO_LINE_START.as_str(),
             EDIT_DELETE_TO_LINE_END.as_str(),
@@ -308,6 +315,11 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             HISTORY_REDO_BRANCH.as_str(),
             MULTI_CURSOR_SKIP_LAST_OCCURRENCE.as_str(),
             AST_SELECT_NODE.as_str(),
+            crate::commands::builtin::AST_NAVIGATE_FINER.as_str(),
+            crate::commands::builtin::AST_NAVIGATE_COARSER.as_str(),
+            crate::commands::builtin::AST_NAVIGATE_NEXT.as_str(),
+            crate::commands::builtin::AST_NAVIGATE_PREVIOUS.as_str(),
+            crate::commands::builtin::AST_DESCEND_SELECTION.as_str(),
             AST_SELECT_NEXT_SIBLING.as_str(),
             AST_SELECT_PREVIOUS_SIBLING.as_str(),
             AST_SELECT_FIRST_CHILD.as_str(),
@@ -327,6 +339,9 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             AST_PREVIOUS_FUNCTION.as_str(),
             AST_NEXT_CLASS.as_str(),
             AST_PREVIOUS_CLASS.as_str(),
+            SEARCH_SELECT_ALL_MATCHES.as_str(),
+            // Bound by the search panel; callable in the palette everywhere.
+            SEARCH_CLEAR_SCOPE.as_str(),
             COMMAND_NO_OP.as_str(),
             // Palette verbs by design: jumping to the ends of a tab strip
             // is not something anyone reaches for by key, and every bound
@@ -339,7 +354,7 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     // discover by key is a feature nobody finds.
     assert_eq!(
         bound.len(),
-        BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT + WORKSPACE_COMMAND_COUNT - 43
+        BUILTIN_COMMAND_COUNT + HOST_COMMAND_COUNT + WORKSPACE_COMMAND_COUNT - unbound.len()
     );
     assert!(bound.contains(PALETTE_OPEN.as_str()));
 }

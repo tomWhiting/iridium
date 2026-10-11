@@ -93,6 +93,7 @@ mod host_commands;
 mod keyboard;
 mod menu;
 mod menubar;
+mod native_events;
 mod paint;
 mod panel_mouse;
 mod pointer;

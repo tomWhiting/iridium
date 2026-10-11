@@ -46,6 +46,16 @@ impl std::fmt::Debug for SyntaxTree {
 }
 
 impl SyntaxTree {
+    /// Forks the retained tree with an independent parser for staged commands.
+    ///
+    /// # Errors
+    /// Returns the grammar initialization error if a parser cannot be created.
+    pub fn fork(&self) -> Result<Self, SyntaxError> {
+        let mut fork = Self::new(self.language)?;
+        fork.tree.clone_from(&self.tree);
+        Ok(fork)
+    }
+
     /// Creates a parser for the given language, with no tree yet.
     ///
     /// # Errors

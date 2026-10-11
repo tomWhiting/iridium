@@ -55,6 +55,8 @@ mod style;
 /// the `render::` path states where the discipline comes from.
 pub mod units;
 mod viewport;
+/// Soft-wrap boundaries over host-measured grapheme advances.
+pub mod wrapping;
 
 #[cfg(feature = "render")]
 mod compositor;

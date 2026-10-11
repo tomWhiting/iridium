@@ -182,6 +182,14 @@ pub const HISTORY_NEXT_BRANCH: CommandId = CommandId::from_static("history.nextB
 /// Point redo at the previous branch of the current node, without moving.
 pub const HISTORY_PREVIOUS_BRANCH: CommandId = CommandId::from_static("history.previousBranch");
 
+/// Turn every active search match into an editable selection.
+pub const SEARCH_SELECT_ALL_MATCHES: CommandId = CommandId::from_static("search.selectAllMatches");
+
+/// Search within the current nonempty selections.
+pub const SEARCH_IN_SELECTION: CommandId = CommandId::from_static("search.findInSelection");
+/// Return a scoped query to the entire document.
+pub const SEARCH_CLEAR_SCOPE: CommandId = CommandId::from_static("search.clearScope");
+
 // ===== Multi-cursor =====
 
 /// Select the word at the caret, or add a cursor at the next occurrence.
@@ -217,6 +225,17 @@ pub const AST_SELECT_NODE: CommandId = CommandId::from_static("ast.selectNode");
 pub const AST_EXPAND_SELECTION: CommandId = CommandId::from_static("ast.expandSelection");
 /// Undo one expansion, restoring the selections exactly as they were.
 pub const AST_SHRINK_SELECTION: CommandId = CommandId::from_static("ast.shrinkSelection");
+/// Descend to a child, retracing a structural expansion when available.
+/// Navigate through syntax, words and grapheme clusters.
+pub const AST_NAVIGATE_FINER: CommandId = CommandId::from_static("ast.navigateFiner");
+/// Navigate through syntax, words and grapheme clusters.
+pub const AST_NAVIGATE_COARSER: CommandId = CommandId::from_static("ast.navigateCoarser");
+/// Navigate through syntax, words and grapheme clusters.
+pub const AST_NAVIGATE_NEXT: CommandId = CommandId::from_static("ast.navigateNext");
+/// Navigate through syntax, words and grapheme clusters.
+pub const AST_NAVIGATE_PREVIOUS: CommandId = CommandId::from_static("ast.navigatePrevious");
+/// Retrace an expansion or descend to a syntax child.
+pub const AST_DESCEND_SELECTION: CommandId = CommandId::from_static("ast.descendSelection");
 
 // The verbs below carry no default binding. Chords are the scarce resource, not
 // commands: the four arrow keys that read as structural are already spoken for
@@ -300,3 +319,10 @@ pub const SEARCH_PREVIOUS_MATCH: CommandId = CommandId::from_static("search.prev
 /// letter — to this command is how a mode stops typing without the kernel
 /// knowing what a mode is.
 pub const COMMAND_NO_OP: CommandId = CommandId::from_static("command.noOp");
+
+/// Completes input recording and returns to the mode that began the change.
+pub const COMMAND_FINISH_CHANGE: CommandId = CommandId::from_static("command.finishChange");
+/// Inserts literal text supplied in command arguments at every selection.
+pub const EDIT_INSERT_TEXT: CommandId = CommandId::from_static("edit.insertText");
+/// Repeat the last successfully composed command sequence.
+pub const COMMAND_REPEAT_SEQUENCE: CommandId = CommandId::from_static("command.repeatSequence");

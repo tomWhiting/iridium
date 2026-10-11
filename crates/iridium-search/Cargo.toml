@@ -1,0 +1,17 @@
+[package]
+name = "iridium-search"
+description = "Bounded native project content search for Iridium hosts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+[lints]
+workspace = true
+[dependencies]
+regex.workspace = true
+regex-automata.workspace = true
+ignore.workspace = true
+[dev-dependencies]
+tempfile.workspace = true

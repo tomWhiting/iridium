@@ -27,7 +27,7 @@
 //! the buffer is a snapshot of.
 //!
 //! **That one row therefore carries both halves of the panel**, and it is why
-//! [`BROWSE_HINT`] is drawn where it is: the line that says what the keys mean
+//! the browse hint is drawn where it is: the line that says what the keys mean
 //! while editing is the line that says the editing screen is there at all. The
 //! feature was otherwise reachable only by already knowing about it — there is
 //! no menu to find `Tab` in and nothing else on the browse screen said a word.
@@ -37,6 +37,10 @@
 //! confirmation applies the plan, and `y` is a plain character. A query field
 //! left on screen there would be an invitation to type one.
 
+use iridium_editor::commands::builtin::{
+    EXPLORER_BEGIN_EDIT, EXPLORER_CONFIRM_APPLY, EXPLORER_CONFIRM_CANCEL, EXPLORER_EDIT_ASK_APPLY,
+    EXPLORER_EDIT_LEAVE, EXPLORER_REFUSED_DISMISS, EXPLORER_TOGGLE_HIDDEN,
+};
 use iridium_editor::theme::Theme;
 
 use super::buffer::Buffer;
@@ -46,34 +50,7 @@ use super::rows::{RowShape, depths, edited_name_column, edited_row, entry_row};
 use crate::line::{LineBuilder, scroll_for, skip_chars};
 use crate::row::{PanelBody, PanelCaret, PanelFit, PanelRow, Span};
 
-/// What the label at the top of an editing session says after its verb.
-const EDIT_HINT: &str = "⌘S to apply    esc to stop";
-
-/// What the query row says, on its right edge, about the screen next door.
-///
-/// "these rows", not "this file": the key edits the *listing* — rename, move,
-/// create, delete — and a hint in a file panel reading "tab to edit" would be
-/// read as opening the selected file, which is what `Enter` already does.
-///
-/// `pub(super)` so the tests assert against this string rather than a copy of
-/// it. A hint the tests spell out themselves is a hint that can be reworded
-/// here and still pass.
-pub(super) const BROWSE_HINT: &str = "tab to edit these rows";
-
-/// How the query row spells the key that reveals dot-prefixed entries.
-///
-/// The `⌘` glyph unconditionally, as [`EDIT_HINT`] already does: this face is
-/// built and shipped for macOS, and `Ctrl+.` is bound beside it for a keyboard
-/// without a command key rather than as a second platform to write hints for.
-///
-/// `pub(super)` for the same reason as [`BROWSE_HINT`] — a test that spells
-/// the string out itself proves only that two copies were typed the same way.
-pub(super) const HIDDEN_KEY: &str = "⌘.";
-
-/// The blank columns kept between the query caret and [`BROWSE_HINT`].
-///
-/// Two, which is the gap the editing label puts after its verb. One would
-/// leave the caret touching the hint on a panel exactly wide enough for both.
+/// Blank columns between the query and its right-aligned hints.
 const HINT_GAP: usize = 2;
 
 impl FileExplorer {
@@ -103,7 +80,7 @@ impl FileExplorer {
     /// it, and nothing else on screen.
     fn confirmation_body(&self, theme: &Theme, fit: PanelFit) -> PanelBody {
         let root = self.root_path();
-        let rows = self.mode.plan().map_or_else(Vec::new, |plan| {
+        let mut rows = self.mode.plan().map_or_else(Vec::new, |plan| {
             plan_rows(
                 plan,
                 &root,
@@ -112,6 +89,14 @@ impl FileExplorer {
                 fit.max_interior_rows,
             )
         });
+        if let Some(last) = rows.last_mut() {
+            let mut commands = Vec::new();
+            if self.mode.plan().is_some_and(|plan| !plan.is_empty()) {
+                commands.push((EXPLORER_CONFIRM_APPLY, "to apply"));
+            }
+            commands.push((EXPLORER_CONFIRM_CANCEL, "to go back"));
+            *last = self.hints_row(&commands, theme, fit.content_columns);
+        }
         PanelBody {
             content_columns: fit.content_columns,
             rows,
@@ -121,7 +106,7 @@ impl FileExplorer {
 
     /// Every reason the buffer cannot be applied, and nothing else on screen.
     fn refusal_body(&self, theme: &Theme, fit: PanelFit) -> PanelBody {
-        let rows = self.mode.buffer().map_or_else(Vec::new, |buffer| {
+        let mut rows = self.mode.buffer().map_or_else(Vec::new, |buffer| {
             refusal_rows(
                 buffer.rows(),
                 self.mode.refusals(),
@@ -130,6 +115,13 @@ impl FileExplorer {
                 fit.max_interior_rows,
             )
         });
+        if let Some(last) = rows.last_mut() {
+            *last = self.hints_row(
+                &[(EXPLORER_REFUSED_DISMISS, "to go back")],
+                theme,
+                fit.content_columns,
+            );
+        }
         PanelBody {
             content_columns: fit.content_columns,
             rows,
@@ -157,7 +149,7 @@ impl FileExplorer {
         let depths = depths(buffer);
 
         let mut rows = Vec::with_capacity(visible + 1);
-        rows.push(Self::editing_label(theme, fit.content_columns));
+        rows.push(self.editing_label(theme, fit.content_columns));
         for offset in 0..visible {
             let index = self.scroll + offset;
             match (buffer.get(index), depths.get(index)) {
@@ -224,11 +216,17 @@ impl FileExplorer {
     /// things, and a screen that looked like the browse screen would be a
     /// screen where `d` filters and `Ctrl+D` marks a directory for removal
     /// with nothing to tell the two apart.
-    fn editing_label(theme: &Theme, width: usize) -> PanelRow {
+    fn editing_label(&self, theme: &Theme, width: usize) -> PanelRow {
         let mut line = LineBuilder::new(width);
         line.push("edit", theme.editor.change_modified);
         line.push("  ", theme.editor.line_number);
-        line.push(EDIT_HINT, theme.editor.line_number);
+        line.push(
+            &self.hints_text(&[
+                (EXPLORER_EDIT_ASK_APPLY, "review"),
+                (EXPLORER_EDIT_LEAVE, "browse"),
+            ]),
+            theme.editor.line_number,
+        );
         PanelRow::new(line.finish())
     }
 
@@ -295,7 +293,7 @@ impl FileExplorer {
 
     /// Composes the query row and reports where its caret landed.
     ///
-    /// # [`BROWSE_HINT`] shares this row, and only while the field is empty
+    /// # the browse hint shares this row, and only while the field is empty
     ///
     /// There is no second line to put it on and no column to spare once
     /// something is being typed: the field owns everything right of the prompt
@@ -334,7 +332,7 @@ impl FileExplorer {
     /// something.
     ///
     /// ⭐ **When only one of the two fits, the hidden count is the one that
-    /// stays.** [`BROWSE_HINT`] advertises a feature, and the worst case of
+    /// stays.** the browse hint advertises a feature, and the worst case of
     /// losing it is that `Tab` stays undiscovered for another session. The
     /// count is the sentence that keeps hiding entries from being a lie about
     /// the disk — `iridium-explorer`'s own rule — and dropping it for want of
@@ -342,8 +340,19 @@ impl FileExplorer {
     /// nothing on screen admitting it.
     fn push_hints(&self, line: &mut LineBuilder, theme: &Theme, width: usize, caret_column: usize) {
         let hidden = self.hidden_on_screen();
-        let hidden_hint = (hidden > 0).then(|| format!("{hidden} hidden ({HIDDEN_KEY})"));
-        let tab_hint = self.tab_would_edit().then_some(BROWSE_HINT);
+        let hidden_hint = (hidden > 0).then(|| {
+            self.key_hint(&EXPLORER_TOGGLE_HIDDEN).map_or_else(
+                || format!("{hidden} hidden"),
+                |key| format!("{hidden} hidden ({key})"),
+            )
+        });
+        let edit_hint = self
+            .key_hint(&EXPLORER_BEGIN_EDIT)
+            .map(|key| format!("{key} to edit these rows"));
+        let tab_hint = self
+            .tab_would_edit()
+            .then_some(edit_hint.as_deref())
+            .flatten();
         let both = match (hidden_hint.as_deref(), tab_hint) {
             (Some(count), Some(tab)) => Some(format!("{count}{:gap$}{tab}", "", gap = HINT_GAP)),
             _ => None,
@@ -385,7 +394,13 @@ impl FileExplorer {
     /// [`super::buffer`] documents as unreachable — and where the cost of
     /// being wrong is a hint over a refusal that says exactly why.
     fn tab_would_edit(&self) -> bool {
-        self.wanted.is_none() && self.row_count() > 0
+        self.wanted.is_none()
+            && !self.is_waiting()
+            && self
+                .files
+                .info(self.files.root())
+                .is_some_and(|info| info.error.is_none())
+            && self.row_count() > 0
     }
 
     /// What an empty result list says.
@@ -413,6 +428,13 @@ impl FileExplorer {
         if let Some(reason) = self.pattern.invalid_reason() {
             return format!("Bad pattern — {reason}");
         }
+        if let Some(error) = self
+            .files
+            .info(self.files.root())
+            .and_then(|info| info.error)
+        {
+            return format!("Cannot read folder — {error}");
+        }
         if !self.crawl {
             return "No matches in what is open".to_owned();
         }
@@ -427,6 +449,16 @@ impl FileExplorer {
 
     /// One row of whichever list is showing.
     fn list_row(&self, index: usize, theme: &Theme, width: usize) -> PanelRow {
+        if let Some(error) = self
+            .files
+            .info(self.files.root())
+            .and_then(|info| info.error)
+        {
+            return PanelRow::new(vec![Span::new(
+                format!("Cannot read folder — {error}"),
+                theme.editor.line_number,
+            )]);
+        }
         if self.is_filtering() {
             let Some(row) = self.view.rows.get(index) else {
                 return PanelRow::new(vec![Span::new(
@@ -447,7 +479,13 @@ impl FileExplorer {
                 selected: index == self.filtered && row.is_selectable(),
                 positions: row.positions.clone(),
             };
-            return entry_row(&self.files, row.id, &shape, theme, width);
+            let mut painted = entry_row(&self.files, row.id, &shape, theme, width);
+            if let Some(path) = &row.path {
+                painted
+                    .spans
+                    .push(Span::new(format!("  — {path}"), theme.editor.line_number));
+            }
+            return painted;
         }
 
         let Some(row) = self.tree.row(index) else {

@@ -12,8 +12,8 @@
 //! Draw, present, block. Painting *before* waiting is what makes the editor
 //! feel immediate: the frame that answers a keystroke is on screen before this
 //! process goes to sleep on the next one, rather than one event behind. An idle
-//! editor costs nothing at all, because `termina`'s poll with no timeout blocks
-//! — there is no interval to tune and no sleep to get wrong.
+//! editor blocks with no timeout. While directory reads are pending, a bounded
+//! poll lets the next frame collect their results without another keystroke.
 //!
 //! # Leaving the terminal
 //!
@@ -60,7 +60,17 @@ impl From<ExitStatus> for ExitCode {
 /// Runs the program: parses the command line, then edits.
 #[must_use]
 pub fn main() -> ExitStatus {
-    match cli::parse(std::env::args_os().skip(1)) {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if args
+        .first()
+        .is_some_and(|arg| arg == crate::query_worker::WORKER_FLAG)
+    {
+        return match args.as_slice() {
+            [_, path] => crate::query_worker::run(std::path::Path::new(path)),
+            _ => fail("jq worker requires exactly one source snapshot path"),
+        };
+    }
+    match cli::parse(args) {
         Ok(Invocation::Help) => report(&mut io::stdout(), USAGE),
         Ok(Invocation::Version) => report(&mut io::stdout(), &format!("{}\n", cli::version())),
         Ok(Invocation::Edit(options)) => edit(options),
@@ -70,10 +80,14 @@ pub fn main() -> ExitStatus {
 
 /// Opens an editing session and runs it to its end.
 fn edit(options: Options) -> ExitStatus {
+    let clipboard_mode = options.clipboard;
     let mut app = match App::new(options) {
         Ok(app) => app,
         Err(error) => return fail(&format!("iridium: {error}\n")),
     };
+    let remote =
+        std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some();
+    app.configure_clipboard(clipboard_mode, remote);
     match session(&mut app) {
         Ok(()) => ExitStatus::Success,
         Err(error) => fail(&format!("iridium: {error}\n")),
@@ -83,6 +97,7 @@ fn edit(options: Options) -> ExitStatus {
 /// Enters the terminal, drives the editor, and leaves the terminal.
 fn session(app: &mut App) -> io::Result<()> {
     let mut driver = Driver::open().map_err(|error| explain_missing_terminal(&error))?;
+    app.prepare_configuration();
     let outcome = drive(app, &mut driver);
     let closed = driver.close();
     outcome.and(closed)
@@ -143,11 +158,15 @@ fn drive(app: &mut App, driver: &mut Driver) -> io::Result<()> {
         driver.set_cursor(cursor);
         driver.present()?;
 
-        match driver.next_event()? {
+        let Some(event) = driver.poll_event(app.next_frame_timeout())? else {
+            continue;
+        };
+        match event {
             DriverEvent::Input(input) => {
                 if app.handle_input(&input) == Flow::Exit {
                     return Ok(());
                 }
+                app.flush_terminal_clipboard(|text| driver.copy_to_clipboard(text))?;
             },
             // The surface has already been resized, which invalidates it, so
             // the next frame is a full repaint whatever the editor does.

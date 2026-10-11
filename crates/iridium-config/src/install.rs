@@ -156,9 +156,15 @@ fn refusal(refused: &KeyBinding, error: &KeymapError) -> Problem {
 /// second rendering that would agree with it until one of them changed.
 fn culprit(error: &KeymapError, bindings: &[KeyBinding]) -> Option<usize> {
     match error {
-        KeymapError::UnknownCommand { keymap, id } if keymap == KEYMAP_NAME => bindings
-            .iter()
-            .position(|binding| binding.command().is_some_and(|bound| bound.as_str() == id)),
+        KeymapError::UnknownCommand { keymap, id } if keymap == KEYMAP_NAME => {
+            bindings.iter().position(|binding| {
+                binding
+                    .command()
+                    .into_iter()
+                    .chain(binding.following_commands())
+                    .any(|bound| bound.as_str() == id)
+            })
+        },
 
         // Both halves are ours, and the one that can never fire is the longer
         // one. Dropping the prefix instead would silently change what the

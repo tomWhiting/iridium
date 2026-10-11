@@ -25,10 +25,15 @@
 //! `docs/CODING_STANDARDS.md`. Take a test count either side of any add,
 //! remove or rename here.
 
+mod field_editing;
 mod kernel;
 mod layout;
+mod paste;
+mod refresh;
 mod replace;
+mod scope;
 mod text;
+mod visibility;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -173,6 +178,7 @@ fn render(editor: &Editor, overlay: &SearchOverlay, width: usize, height: usize)
         status: crate::frame::Status::default(),
         search: Some(overlay),
         sidebar_columns: 0,
+        tab_bar: false,
     };
     let layout = frame.render(editor, chrome, &mut buffer);
     Screen { buffer, layout }

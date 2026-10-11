@@ -36,6 +36,7 @@
 //!   reports it, and the face opens the UI. See
 //!   [`builtin::host`](super::builtin) for why the id lives in the kernel.
 
+use super::builtin::COMMAND_REPEAT_SEQUENCE;
 use super::builtin::{
     AST_EXPAND_SELECTION, AST_SHRINK_SELECTION, CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE,
     COMMENT_TOGGLE_BLOCK, COMMENT_TOGGLE_LINE, CONFIG_RELOAD, CURSOR_CHAR_LEFT,
@@ -51,9 +52,9 @@ use super::builtin::{
     LINES_DELETE, LINES_DUPLICATE_DOWN, LINES_DUPLICATE_UP, LINES_JOIN, LINES_MOVE_DOWN,
     LINES_MOVE_UP, MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
-    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_NEXT_MATCH, SEARCH_OPEN,
-    SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME,
-    WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
+    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_IN_SELECTION, SEARCH_NEXT_MATCH,
+    SEARCH_OPEN, SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
+    VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -63,7 +64,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 69;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 71;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -517,6 +518,11 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         CHORD,
         CONFIG_RELOAD,
     ),
+    (
+        StrokePattern::new(KeyCode::Char('.'), CTRL_ALT),
+        CHORD,
+        COMMAND_REPEAT_SEQUENCE,
+    ),
     // ----- Command palette -----
     //
     // `Ctrl+K` must forbid `Shift`, or it would swallow the `Ctrl+Shift+K` that
@@ -562,6 +568,11 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
     // exhausts the chord space, and jumping to the ends of a tab strip is
     // not something anyone reaches for by key.
     // ----- Search -----
+    (
+        StrokePattern::new(KeyCode::Char('l'), CTRL_ALT),
+        CHORD,
+        SEARCH_IN_SELECTION,
+    ),
     (
         StrokePattern::new(KeyCode::Char('f'), CTRL_ANY_SHIFT),
         CHORD,

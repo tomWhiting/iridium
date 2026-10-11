@@ -102,6 +102,14 @@ pub struct SyntaxTree {
 }
 
 impl SyntaxTree {
+    /// Forks the parser-free placeholder for staged commands.
+    ///
+    /// # Errors
+    /// Never fails; mirrors the native parser API.
+    pub const fn fork(&self) -> Result<Self, SyntaxError> {
+        Ok(Self { tree: self.tree })
+    }
+
     /// Creates a stub tree. Never fails.
     ///
     /// # Errors
@@ -327,7 +335,7 @@ pub struct HighlightSpan {
 }
 
 /// Stub Highlighter - does nothing without syntax feature.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Highlighter;
 
 impl Highlighter {

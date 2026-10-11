@@ -1,57 +1,19 @@
-//! The search overlay's default keymap — the same chords, now as data.
-//!
-//! Every key the overlay answers is a [`KeyBinding`] in this layer, scoped to
-//! [`SEARCH_MODE`]. What used to be a `match` on `(Chord, KeyCode)` is now a
-//! table a user's `[keys]` layer can be pushed on top of.
-//!
-//! # ⛔ Shift is `Any` on every binding **except the two `Enter` spellings**
-//!
-//! This is the one panel of the seven where shift carries meaning. The `chord`
-//! function these bindings replaced classified the modifiers *without* looking
-//! at shift, and then the `Enter` arm **re-read `event.modifiers.shift`** to
-//! decide between next match and previous match. Reproducing that faithfully
-//! means two bindings on one key:
-//!
-//! | binding | shift |
-//! |---|---|
-//! | `enter` → next match | [`Forbidden`] |
-//! | `shift+enter` → previous match | [`Required`] |
-//! | everything else | [`Any`] |
-//!
-//! Everywhere else `Any` is a faithfulness requirement in the usual way: a
-//! pattern that does not spell shift `Any` *requires it absent*, so a binding
-//! that forgot would silently drop chords that work today. #91 measured that
-//! nothing else catches this, so this panel carries its own ratchets over its
-//! own table — see [`super::keymap_tests`].
-//!
-//! `AltGraph` is `Any` on **every** binding including the two `Enter` ones: the
-//! old function did not read it either, and on a great many layouts it is how a
-//! character is typed at all.
-//!
-//! # ⚠️ `Up` and `Down` are bound to the same two verbs, and must stay that way
-//!
-//! The legacy xterm encoding **cannot express `Shift+Enter` at all** (see
-//! [`crate::input`]). `Up` and `Down` exist so that nothing is unreachable on a
-//! terminal without the kitty protocol. Four bindings, two verbs, on purpose.
-//!
-//! # There is a fall-through, and it is below this table
-//!
-//! A printable key nothing here claims becomes text in the focused field, which
-//! is what makes the overlay typable. A user who binds a bare letter to a verb
-//! gets the verb, and every other letter still types. Anything else unclaimed is
-//! [`SearchOutcome::Ignored`](super::SearchOutcome) and stays the host's, so a
-//! binding such as save is not dead while the overlay is open.
-//!
-//! [`Any`]: ModifierState::Any
-//! [`Forbidden`]: ModifierState::Forbidden
-//! [`Required`]: ModifierState::Required
+//! Rebindable search-field and match commands, scoped to `SEARCH_MODE`.
+//! Shift extends field selections on arrows/Home/End and reverses Enter.
+//! Other legacy bindings retain their shift-blind spelling. Up/Down provide
+//! previous/next match on terminals unable to encode Shift+Enter.
+//! Unclaimed host commands, including save and undo, remain reachable.
 
 use iridium_editor::commands::builtin::{
-    SEARCH_CARET_END, SEARCH_CARET_HOME, SEARCH_CARET_LEFT, SEARCH_CARET_RIGHT, SEARCH_DISMISS,
+    CLIPBOARD_COPY, CLIPBOARD_CUT, CLIPBOARD_PASTE, CURSOR_CHAR_LEFT_SELECT,
+    CURSOR_CHAR_RIGHT_SELECT, CURSOR_LINE_END_SELECT, CURSOR_LINE_START_SELECT, CURSOR_WORD_LEFT,
+    CURSOR_WORD_LEFT_SELECT, CURSOR_WORD_RIGHT, CURSOR_WORD_RIGHT_SELECT,
+    EDIT_DELETE_WORD_BACKWARD, EDIT_DELETE_WORD_FORWARD, SEARCH_CARET_END, SEARCH_CARET_HOME,
+    SEARCH_CARET_LEFT, SEARCH_CARET_RIGHT, SEARCH_CLEAR_SCOPE, SEARCH_DISMISS,
     SEARCH_FIELD_BACKSPACE, SEARCH_FIELD_DELETE, SEARCH_MODE, SEARCH_NEXT_MATCH,
-    SEARCH_PREVIOUS_MATCH, SEARCH_REPLACE_ALL, SEARCH_REPLACE_CURRENT,
+    SEARCH_PREVIOUS_MATCH, SEARCH_REPLACE_ALL, SEARCH_REPLACE_CURRENT, SEARCH_SELECT_ALL_MATCHES,
     SEARCH_TOGGLE_CASE_SENSITIVE, SEARCH_TOGGLE_FIELD, SEARCH_TOGGLE_REGEX,
-    SEARCH_TOGGLE_WHOLE_WORD,
+    SEARCH_TOGGLE_WHOLE_WORD, SELECTION_SELECT_ALL,
 };
 use iridium_editor::{
     CommandId, KeyBinding, KeyCode, Keymap, ModifierPattern, ModifierState, StrokePattern,
@@ -64,13 +26,13 @@ pub const KEYMAP_NAME: &str = "terminal-search";
 
 /// The number of bindings in the overlay's default keymap.
 ///
-/// Seventeen bindings for fifteen verbs: `Up`/`Down` duplicate the two match
+/// Thirty-three bindings for thirty-one verbs: `Up`/`Down` duplicate the two match
 /// verbs so the legacy encoding can reach them. Asserted in the module tests so
 /// the documented count cannot drift, and `#[cfg(test)]` because that is the
 /// only thing it is for: this face hands no `FaceKeys` to `iridium_config` yet,
 /// so nothing outside the tests has asked what the count is.
 #[cfg(test)]
-pub(super) const DEFAULT_BINDING_COUNT: usize = 17;
+pub(super) const DEFAULT_BINDING_COUNT: usize = 33;
 
 /// Shorthand for a modifier pattern, in the field order of [`ModifierPattern`].
 const fn pattern(
@@ -92,14 +54,14 @@ const CTRL: ModifierPattern = pattern(Any, Required, Forbidden, Forbidden, Any);
 /// Control and Alt together — the old `Chord::CtrlAlt`.
 const CTRL_ALT: ModifierPattern = pattern(Any, Required, Required, Forbidden, Any);
 
-/// `Enter` with shift **released** — next match.
-///
-/// ⚠️ The only two patterns in this table that constrain shift are this and
-/// [`ENTER_SHIFT`], and they do so because the code they replaced read shift on
-/// exactly this key. See the module documentation.
+/// Plain field movement and next match.
 const ENTER_PLAIN: ModifierPattern = pattern(Forbidden, Forbidden, Forbidden, Forbidden, Any);
-/// `Enter` with shift **held** — previous match.
+/// Selection extension and previous match.
 const ENTER_SHIFT: ModifierPattern = pattern(Required, Forbidden, Forbidden, Forbidden, Any);
+/// Word movement.
+const WORD_PLAIN: ModifierPattern = pattern(Forbidden, Required, Forbidden, Forbidden, Any);
+/// Word selection extension.
+const WORD_SHIFT: ModifierPattern = pattern(Required, Required, Forbidden, Forbidden, Any);
 
 /// Every modifier pattern that ignores shift, for the shift ratchet to walk.
 ///
@@ -109,10 +71,10 @@ const ENTER_SHIFT: ModifierPattern = pattern(Required, Forbidden, Forbidden, For
 #[cfg(test)]
 pub(super) const SHIFT_BLIND_PATTERNS: &[ModifierPattern] = &[PLAIN, ALT, CTRL, CTRL_ALT];
 
-/// The two patterns that deliberately constrain shift.
+/// Plain and shifted navigation patterns.
 ///
-/// Listed so the ratchet can assert they are the **only** exceptions, and that
-/// between them they partition shift rather than leaving a state unreachable.
+/// Listed so the ratchet verifies that they partition shift. Word movement
+/// uses the same shift distinction with Control required.
 #[cfg(test)]
 pub(super) const ENTER_PATTERNS: &[ModifierPattern] = &[ENTER_PLAIN, ENTER_SHIFT];
 
@@ -129,6 +91,19 @@ fn bind(modifiers: ModifierPattern, key: KeyCode, command: CommandId) -> KeyBind
 pub fn default_keymap() -> Keymap {
     let mut keymap = Keymap::new(KEYMAP_NAME);
     keymap.extend(vec![
+        bind(CTRL, KeyCode::Char('a'), SELECTION_SELECT_ALL),
+        bind(CTRL, KeyCode::Char('c'), CLIPBOARD_COPY),
+        bind(CTRL, KeyCode::Char('x'), CLIPBOARD_CUT),
+        bind(ENTER_SHIFT, KeyCode::Left, CURSOR_CHAR_LEFT_SELECT),
+        bind(ENTER_SHIFT, KeyCode::Right, CURSOR_CHAR_RIGHT_SELECT),
+        bind(ENTER_SHIFT, KeyCode::Home, CURSOR_LINE_START_SELECT),
+        bind(ENTER_SHIFT, KeyCode::End, CURSOR_LINE_END_SELECT),
+        bind(WORD_PLAIN, KeyCode::Left, CURSOR_WORD_LEFT),
+        bind(WORD_PLAIN, KeyCode::Right, CURSOR_WORD_RIGHT),
+        bind(WORD_SHIFT, KeyCode::Left, CURSOR_WORD_LEFT_SELECT),
+        bind(WORD_SHIFT, KeyCode::Right, CURSOR_WORD_RIGHT_SELECT),
+        bind(CTRL, KeyCode::Backspace, EDIT_DELETE_WORD_BACKWARD),
+        bind(CTRL, KeyCode::Delete, EDIT_DELETE_WORD_FORWARD),
         // The way out.
         bind(PLAIN, KeyCode::Escape, SEARCH_DISMISS),
         // Walking the matches. Two spellings each, because the legacy xterm
@@ -137,12 +112,17 @@ pub fn default_keymap() -> Keymap {
         bind(ENTER_SHIFT, KeyCode::Enter, SEARCH_PREVIOUS_MATCH),
         bind(PLAIN, KeyCode::Down, SEARCH_NEXT_MATCH),
         bind(PLAIN, KeyCode::Up, SEARCH_PREVIOUS_MATCH),
+        // Alt+Enter is representable as an escape prefix in legacy terminals.
+        bind(ALT, KeyCode::Enter, SEARCH_SELECT_ALL_MATCHES),
+        bind(ALT, KeyCode::Char('s'), SEARCH_CLEAR_SCOPE),
+        // Clipboard text is supplied by the host, including in read-only documents.
+        bind(CTRL, KeyCode::Char('v'), CLIPBOARD_PASTE),
         // The two fields.
         bind(PLAIN, KeyCode::Tab, SEARCH_TOGGLE_FIELD),
-        bind(PLAIN, KeyCode::Left, SEARCH_CARET_LEFT),
-        bind(PLAIN, KeyCode::Right, SEARCH_CARET_RIGHT),
-        bind(PLAIN, KeyCode::Home, SEARCH_CARET_HOME),
-        bind(PLAIN, KeyCode::End, SEARCH_CARET_END),
+        bind(ENTER_PLAIN, KeyCode::Left, SEARCH_CARET_LEFT),
+        bind(ENTER_PLAIN, KeyCode::Right, SEARCH_CARET_RIGHT),
+        bind(ENTER_PLAIN, KeyCode::Home, SEARCH_CARET_HOME),
+        bind(ENTER_PLAIN, KeyCode::End, SEARCH_CARET_END),
         bind(PLAIN, KeyCode::Backspace, SEARCH_FIELD_BACKSPACE),
         bind(PLAIN, KeyCode::Delete, SEARCH_FIELD_DELETE),
         // Replacing. `CTRL` forbids alt, which is what keeps these two apart.

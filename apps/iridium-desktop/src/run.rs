@@ -28,7 +28,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::app::{DesktopApp, Options};
 use crate::commands;
-use crate::menubar::MenuCommand;
+use crate::events::DesktopEvent;
 
 /// What an invocation looks like, shown for a command line that is not one.
 pub const USAGE: &str = "\
@@ -97,14 +97,8 @@ pub fn main() -> ExitStatus {
         Err(error) => return fail(&format!("iridium-desktop: {error}\n")),
     };
 
-    // ⭐ **`with_user_event` rather than `EventLoop::new`, for exactly one
-    // reason**: the macOS menu bar. An `AppKit` menu action fires while
-    // `run_app` holds the app, so it cannot touch it; the item sends the
-    // command id through an [`EventLoopProxy`] instead, which both enqueues it
-    // *and* wakes the loop — and with `ControlFlow::Wait` the loop is asleep
-    // whenever nothing is happening, which is precisely when somebody reaches
-    // for a menu.
-    let event_loop = match EventLoop::<MenuCommand>::with_user_event().build() {
+    // Native menus and Finder requests enqueue work on the editor thread.
+    let event_loop = match EventLoop::<DesktopEvent>::with_user_event().build() {
         Ok(event_loop) => event_loop,
         Err(error) => {
             return fail(&format!(
@@ -117,6 +111,14 @@ pub fn main() -> ExitStatus {
     // `ActiveEventLoop`, which is all `resumed` gets, cannot. The app holds it
     // until `resumed` installs the bar and then hands it to the menu target.
     app.attach_menu_proxy(event_loop.create_proxy());
+    // winit guarantees it does not install an application delegate. Install
+    // after creating its event loop and retain through run_app: AppKit's
+    // delegate property is weak.
+    #[cfg(target_os = "macos")]
+    let _file_delegate = match crate::macos_files::install(event_loop.create_proxy()) {
+        Ok(delegate) => delegate,
+        Err(error) => return fail(&format!("iridium-desktop: {error}\n")),
+    };
 
     match event_loop.run_app(&mut app) {
         // A failure inside the loop had no way out but the field; see

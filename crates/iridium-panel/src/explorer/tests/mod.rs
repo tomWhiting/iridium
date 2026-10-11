@@ -1,5 +1,6 @@
 //! The explorer panel's tests.
 
+mod bookmark;
 mod buffer;
 mod crawl;
 mod filter;

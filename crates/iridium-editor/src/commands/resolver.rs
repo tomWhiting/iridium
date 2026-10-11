@@ -17,6 +17,16 @@ pub enum Resolution {
     /// [`CommandArgs::NONE`].
     Matched(CommandInvocation),
 
+    /// Composed commands; apply a requested mode transition only on success.
+    Sequence {
+        /// Ordered stable command IDs and arguments.
+        steps: Vec<CommandInvocation>,
+        /// Mode to enter after the sequence commits.
+        enters_mode: Option<ModeName>,
+        /// Capture following editing input as part of this change.
+        record_input: bool,
+    },
+
     /// A complete sequence matched and only switched the editing mode.
     ///
     /// Produced by a [`KeyBinding::enter_mode`](super::KeyBinding::enter_mode)
@@ -85,7 +95,11 @@ impl Resolution {
     pub const fn command(&self) -> Option<&CommandId> {
         match self {
             Self::Matched(invocation) => Some(invocation.command()),
-            Self::ModeEntered(_) | Self::Pending | Self::Aborted | Self::NoMatch => None,
+            Self::Sequence { .. }
+            | Self::ModeEntered(_)
+            | Self::Pending
+            | Self::Aborted
+            | Self::NoMatch => None,
         }
     }
 
@@ -94,7 +108,11 @@ impl Resolution {
     pub const fn args(&self) -> Option<&CommandArgs> {
         match self {
             Self::Matched(invocation) => Some(invocation.args()),
-            Self::ModeEntered(_) | Self::Pending | Self::Aborted | Self::NoMatch => None,
+            Self::Sequence { .. }
+            | Self::ModeEntered(_)
+            | Self::Pending
+            | Self::Aborted
+            | Self::NoMatch => None,
         }
     }
 }
@@ -361,6 +379,27 @@ impl KeymapResolver {
                     let entered = binding.enters_mode().cloned();
                     let count = self.count;
                     self.clear_sequence();
+                    if binding.records_input() || !binding.following_commands().is_empty() {
+                        let mut steps = Vec::with_capacity(1 + binding.following_commands().len());
+                        if let Some(id) = command {
+                            steps.push(CommandInvocation::new(
+                                id,
+                                CommandArgs::new(count, captures),
+                            ));
+                        }
+                        steps.extend(
+                            binding
+                                .following_commands()
+                                .iter()
+                                .cloned()
+                                .map(CommandInvocation::bare),
+                        );
+                        return Resolution::Sequence {
+                            steps,
+                            enters_mode: entered,
+                            record_input: binding.records_input(),
+                        };
+                    }
                     if entered.is_some() {
                         self.mode.clone_from(&entered);
                     }

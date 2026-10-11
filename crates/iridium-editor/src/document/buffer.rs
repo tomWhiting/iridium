@@ -228,13 +228,8 @@ impl Document {
     /// Returns `None` if the line number is out of bounds.
     #[must_use]
     pub fn line(&self, line_number: usize) -> Option<String> {
-        if line_number >= self.line_count() {
-            return None;
-        }
-        let line = self.content.line(line_number, LINE_TYPE);
-        // Remove trailing newline if present
-        let text = line.to_string();
-        Some(text.trim_end_matches(['\r', '\n']).to_string())
+        self.line_byte_range(line_number)
+            .map(|range| self.content.slice(range).to_string())
     }
 
     /// Returns the number of lines in the document.
@@ -281,7 +276,8 @@ impl Document {
     /// Returns the length of a specific line in characters (without line ending).
     #[must_use]
     pub fn line_len(&self, line_number: usize) -> Option<usize> {
-        self.line(line_number).map(|l| l.chars().count())
+        self.line_byte_range(line_number)
+            .map(|range| self.content.slice(range).len_chars())
     }
 
     /// Returns a slice of the document for the given range.
@@ -388,6 +384,12 @@ impl Document {
                     line: range.end.line,
                     column: range.end.column,
                 })?;
+
+        // Ranges can arrive through public fields or deserialization, bypassing
+        // Range::new. Reject reversed offsets before entering the rope API.
+        if start_offset > end_offset {
+            return Err(IridiumError::InvalidRange);
+        }
 
         let deleted = self.content.slice(start_offset..end_offset).to_string();
         self.content.remove(start_offset..end_offset);

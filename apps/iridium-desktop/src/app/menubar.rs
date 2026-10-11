@@ -29,6 +29,7 @@
 use winit::event_loop::EventLoopProxy;
 
 use super::state::{DesktopApp, Flow};
+use crate::events::DesktopEvent;
 use crate::menubar::{self, MenuCommand};
 use crate::verbs::Availability;
 
@@ -39,7 +40,7 @@ impl DesktopApp {
     /// proxy and the app is built before one exists. A session that is never
     /// given one gets **no menu bar**, which is the honest outcome — see the
     /// module docs.
-    pub fn attach_menu_proxy(&mut self, proxy: EventLoopProxy<MenuCommand>) {
+    pub fn attach_menu_proxy(&mut self, proxy: EventLoopProxy<DesktopEvent>) {
         self.menu_proxy = Some(proxy);
     }
 
@@ -53,7 +54,7 @@ impl DesktopApp {
     /// than per open: what a menu offers must not change under the hand
     /// reaching for it, and the only thing that varies between sessions —
     /// which commands are registered — is fixed by the time the loop resumes.
-    pub(super) fn install_menubar(&self, proxy: &EventLoopProxy<MenuCommand>) {
+    pub(super) fn install_menubar(&self, proxy: &EventLoopProxy<DesktopEvent>) {
         let Some(editor) = self.workspace.active_editor() else {
             return;
         };
@@ -157,6 +158,7 @@ mod platform {
     use objc2_foundation::{NSObjectProtocol, NSString};
     use winit::event_loop::EventLoopProxy;
 
+    use crate::events::DesktopEvent;
     use crate::menubar::{Menu, MenuCommand};
 
     thread_local! {
@@ -177,7 +179,7 @@ mod platform {
     /// What the target needs to answer a click.
     struct TargetIvars {
         /// The channel back into the winit event loop.
-        proxy: EventLoopProxy<MenuCommand>,
+        proxy: EventLoopProxy<DesktopEvent>,
         /// Every command the bar can run, indexed by the tag its item carries.
         ///
         /// ⚠️ **A tag rather than the item's title.** Titles are shown to a
@@ -245,8 +247,8 @@ mod platform {
         fn proxy_send(
             &self,
             command: MenuCommand,
-        ) -> Result<(), winit::event_loop::EventLoopClosed<MenuCommand>> {
-            self.ivars().proxy.send_event(command)
+        ) -> Result<(), winit::event_loop::EventLoopClosed<DesktopEvent>> {
+            self.ivars().proxy.send_event(DesktopEvent::Menu(command))
         }
     }
 
@@ -266,7 +268,7 @@ mod platform {
                   because it is deliberately leaked. There is no safe wrapper \
                   for hanging a menu off NSApp, and a menu bar is what #108 is"
     )]
-    pub(super) fn install(menus: &[Menu], proxy: &EventLoopProxy<MenuCommand>) {
+    pub(super) fn install(menus: &[Menu], proxy: &EventLoopProxy<DesktopEvent>) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
@@ -379,7 +381,8 @@ mod platform {
 mod platform {
     use winit::event_loop::EventLoopProxy;
 
-    use crate::menubar::{Menu, MenuCommand};
+    use crate::events::DesktopEvent;
+    use crate::menubar::Menu;
 
     /// There are no items to enable, because there is no menu bar.
     pub(super) fn set_enabled(_is_enabled: &dyn Fn(&iridium_editor::CommandId) -> bool) {}
@@ -390,5 +393,5 @@ mod platform {
     /// an absent menu is not something a user can press and get silence from.
     /// There is simply nothing on the bar, and the palette is the way in — the
     /// same way in the terminal face has.
-    pub(super) fn install(_menus: &[Menu], _proxy: &EventLoopProxy<MenuCommand>) {}
+    pub(super) fn install(_menus: &[Menu], _proxy: &EventLoopProxy<DesktopEvent>) {}
 }

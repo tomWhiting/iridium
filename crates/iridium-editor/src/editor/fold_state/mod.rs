@@ -14,7 +14,7 @@
 //! different with and without the `syntax` feature.
 
 mod detect;
-mod line_mapping;
+pub(super) mod line_mapping;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -112,6 +112,11 @@ impl FoldState {
     /// Rebuilds the line mapping cache after fold state changes.
     fn rebuild_line_mapping(&mut self) {
         self.line_mapping = LineMapping::build(&self.folded_lines, self.regions());
+    }
+
+    /// Share the immutable mapping with a dispatch, without copying fold rows.
+    pub(crate) fn navigation_mapping(&self) -> LineMapping {
+        self.line_mapping.clone()
     }
 
     /// The fold-state generation: moves on every mutation that can change
@@ -358,6 +363,38 @@ impl FoldState {
         self.bump_generation();
     }
 
+    /// Unfold every region hiding a requested line, rebuilding the mapping once.
+    /// Returns whether visibility changed. Header lines do not open their folds.
+    pub fn unfold_containing_lines(&mut self, lines: &[usize]) -> bool {
+        if self.folded_lines.is_empty() || lines.is_empty() {
+            return false;
+        }
+        let mut lines = lines.to_vec();
+        lines.sort_unstable();
+        lines.dedup();
+        let remove: HashSet<_> = self
+            .regions()
+            .iter()
+            .filter(|region| {
+                if !self.folded_lines.contains(&region.start_line) {
+                    return false;
+                }
+                let index = lines.partition_point(|line| *line <= region.start_line);
+                lines
+                    .get(index)
+                    .is_some_and(|line| *line <= region.end_line)
+            })
+            .map(|region| region.start_line)
+            .collect();
+        if remove.is_empty() {
+            return false;
+        }
+        self.folded_lines.retain(|line| !remove.contains(line));
+        self.rebuild_line_mapping();
+        self.bump_generation();
+        true
+    }
+
     /// Folds all regions of a specific kind.
     pub fn fold_all_of_kind(&mut self, kind: FoldKind) {
         let starts: Vec<usize> = self
@@ -430,6 +467,13 @@ impl FoldState {
     #[must_use]
     pub fn document_to_visual_line(&self, doc_line: usize) -> Option<usize> {
         self.line_mapping.document_to_visual(doc_line)
+    }
+
+    /// The outer visible fold header hiding `line`, or `line` if already visible.
+    #[must_use]
+    pub fn visible_header_for_line(&self, line: usize) -> usize {
+        self.line_mapping
+            .visual_to_document(self.line_mapping.project_document(line))
     }
 
     /// Returns the visible lines count (total lines minus hidden lines).

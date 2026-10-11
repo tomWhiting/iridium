@@ -287,10 +287,20 @@ pub(super) enum KeyboardAction {
     // ----- Syntax -----
     /// Snap every selection to the smallest node covering it.
     AstSelectNode,
+    /// Replay the previous successful composition.
+    RepeatSequence,
+    FinishChange,
+    InsertText,
     /// Widen every selection to the smallest node strictly containing it.
     AstExpandSelection,
     /// Undo one expansion, restoring the previous selections exactly.
     AstShrinkSelection,
+    /// Retrace a structural expansion or descend to a child.
+    AstDescendSelection,
+    AstNavigatePrevious,
+    AstNavigateNext,
+    AstNavigateCoarser,
+    AstNavigateFiner,
     /// Select the next node beside the current one.
     AstSelectNextSibling,
     /// Select the previous node beside the current one.
@@ -337,6 +347,12 @@ pub(super) enum KeyboardAction {
     // ----- Search -----
     /// Open the search panel.
     SearchOpen,
+    /// Capture current selections and open their scoped search.
+    SearchInSelection,
+    /// Return the current query to the whole document.
+    SearchClearScope,
+    /// Select every match of the active search.
+    SearchSelectAllMatches,
     /// Go to the next search match.
     SearchNextMatch,
     /// Go to the previous search match.

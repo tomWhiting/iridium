@@ -51,9 +51,12 @@ mod auto_pair_record;
 mod backspace_pairs;
 mod behaviors;
 mod comments;
+mod cursor_addition;
 mod dispatch;
 pub mod editing;
 mod edits;
+mod folded_navigation;
+mod graphemes;
 mod keymap_api;
 mod line_ops;
 pub mod motions;
@@ -61,8 +64,12 @@ mod multi_char_pairs;
 mod multi_cursor;
 mod multi_cursor_verbs;
 mod navigation;
+mod recording;
+mod selection_motion;
 mod transform;
 mod types;
+pub mod visual_navigation;
+mod words;
 
 #[cfg(test)]
 mod behavior_tests;
@@ -102,7 +109,9 @@ use crate::commands::{
     CommandArgs, KeyHintIndex, KeyPress, Keymap, KeymapError, KeymapResolver, KeymapStack,
     ModeName, default_keymap_stack,
 };
-use crate::document::{CursorState, Document, Selection};
+#[cfg(test)]
+use crate::document::Selection;
+use crate::document::{CursorState, Document};
 use crate::editor::{CaretScopes, EditorConfig};
 use crate::history::{Command, UndoTree};
 
@@ -121,8 +130,10 @@ pub(super) use crate::document::Position;
 ///
 /// One instance per input focus, because a half-typed key sequence belongs to the
 /// surface it was typed into.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KeyboardHandler {
+    visual_navigation: Option<std::sync::Arc<dyn visual_navigation::VisualNavigation>>,
+    last_invocation: Option<crate::commands::CommandInvocation>,
     /// The binding layers consulted for every keypress, highest precedence last.
     ///
     /// Seeded with [`default_keymap_stack`]. A host layers its own keymap on top
@@ -195,13 +206,12 @@ pub struct KeyboardHandler {
     /// still revives the columns while a live round trip does not.
     sticky_dirty: bool,
 
-    /// Secondary cursors in the order they were added, most recent last.
+    /// Added cursors and their previous focus, most recent last.
     ///
     /// Populated by the multi-cursor add verbs (add-selection-to-next-match,
     /// add-cursor-above/below, select-all-occurrences) and consumed by
     /// remove-last-cursor and [`Self::skip_last_added_occurrence`], which pop the
-    /// most recently added cursor. Each entry is the exact [`Selection`] of a
-    /// secondary cursor.
+    /// most recently added cursor, restoring the focus that preceded it.
     ///
     /// The stack is only meaningful while it describes the *current* cursor
     /// state; [`Self::add_order_anchor`] records the state it was last
@@ -209,7 +219,7 @@ pub struct KeyboardHandler {
     /// edit, a collapse, a host-driven `set_cursor`/`set_selection`, undo/redo)
     /// self-invalidates the stack the next time a multi-cursor verb runs. See
     /// [`Self::sync_add_order`].
-    cursor_add_order: Vec<Selection>,
+    cursor_add_order: Vec<cursor_addition::CursorAddition>,
 
     /// The cursor state that [`Self::cursor_add_order`] was last consistent
     /// with (the state each add verb produced), or `None` when the stack is
@@ -269,6 +279,8 @@ pub struct KeyboardHandler {
     /// Zero — the initial value, and legitimate whenever chrome consumes every
     /// row — pages one line (see [`Self::page_motion`]).
     page_rows: usize,
+    /// Immutable visible-line mapping shared with the editor at dispatch.
+    fold_mapping: crate::editor::LineMapping,
 }
 
 impl Default for KeyboardHandler {
@@ -296,6 +308,8 @@ impl KeyboardHandler {
     pub fn new() -> Self {
         let keymap = default_keymap_stack();
         Self {
+            visual_navigation: None,
+            last_invocation: None,
             key_hints: KeyHintIndex::build(&keymap),
             keymap,
             resolver: KeymapResolver::new(),
@@ -308,6 +322,7 @@ impl KeyboardHandler {
             add_order_revision: None,
             auto_pair: None,
             page_rows: 0,
+            fold_mapping: crate::editor::LineMapping::default(),
         }
     }
 

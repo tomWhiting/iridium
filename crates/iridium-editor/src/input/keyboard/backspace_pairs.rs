@@ -78,7 +78,14 @@ pub(super) fn backspace_edits_with_pairs(
                     Position::new(sel.head.line, sel.head.column + 1),
                 ))
             } else {
-                CursorEdit::delete(Range::new(motions::char_left(document, sel.head), sel.head))
+                CursorEdit::delete(Range::new(
+                    motions::char_left(document, sel.head),
+                    super::graphemes::move_to(
+                        document,
+                        sel.head,
+                        super::graphemes::Boundary::Ceiling,
+                    ),
+                ))
             }
         })
         .collect()

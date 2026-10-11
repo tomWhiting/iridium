@@ -76,7 +76,10 @@ pub use commands::{
     Resolution, StrokeCapture, StrokePattern,
 };
 pub use document::{CursorState, Document, Position, Range, Selection};
-pub use editor::{Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError};
+pub use editor::{
+    CheckedEdit, Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError,
+    SyntaxSimilarity,
+};
 pub use history::{Command, UndoTree};
 pub use input::ImeHandler;
 pub use input::{

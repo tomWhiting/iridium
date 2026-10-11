@@ -16,13 +16,22 @@ mod config;
 mod core;
 mod fold_state;
 mod history_nav;
+mod search_selection;
+mod viewport;
+
+#[cfg(test)]
+mod atomicity_tests;
+
+#[cfg(test)]
+mod search_selection_tests;
 
 #[cfg(test)]
 mod command_api_tests;
 
 pub use ast::{CaretScopes, SyntaxDelta, SyntaxState};
 pub use config::EditorConfig;
-pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
+pub use core::{CheckedEdit, Editor, EditorEvent, EditorKeyResult, EditorState, SyntaxSimilarity};
+pub use fold_state::line_mapping::LineMapping;
 pub use fold_state::{FoldInfo, FoldState};
 
 use thiserror::Error;

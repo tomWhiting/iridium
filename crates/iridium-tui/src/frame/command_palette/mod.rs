@@ -65,7 +65,7 @@ use super::field::Field;
 use super::palette::Palette;
 use crate::cell::CellBuffer;
 
-use self::keymap::default_keymap;
+pub use self::keymap::default_keymap;
 
 /// What became of a key handed to the palette.
 ///

@@ -46,19 +46,19 @@ fn the_skip_occurrence_chord_advances_the_most_recently_added_cursor() {
     // Bootstrap onto the word, then add the second occurrence.
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
-    assert_eq!(heads(&cursor), vec![(0, 3), (0, 7)]);
+    assert_eq!(heads(&cursor), vec![(0, 7), (0, 3)]);
 
     // Ctrl+K Ctrl+D moves the added cursor from the second to the third match.
     press(&mut handler, &CHORD_LEADER, &mut doc, &mut cursor);
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
-    assert_eq!(heads(&cursor), vec![(0, 3), (0, 11)]);
+    assert_eq!(heads(&cursor), vec![(0, 11), (0, 3)]);
     assert!(handler.pending_sequence().is_empty());
 
     // A second skip wraps back onto the middle match, which is only possible if
     // the addition-order stack survived the first skip.
     press(&mut handler, &CHORD_LEADER, &mut doc, &mut cursor);
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
-    assert_eq!(heads(&cursor), vec![(0, 3), (0, 7)]);
+    assert_eq!(heads(&cursor), vec![(0, 7), (0, 3)]);
     assert_eq!(doc.text(), "foo foo foo", "skip must not edit the text");
 }
 
@@ -116,7 +116,7 @@ fn holding_the_chord_leader_down_does_not_change_what_the_next_stroke_means() {
 
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
-    assert_eq!(heads(&cursor), vec![(0, 3), (0, 7)]);
+    assert_eq!(heads(&cursor), vec![(0, 7), (0, 3)]);
 
     let repeat = KeyEvent {
         key: CHORD_LEADER.key,
@@ -135,7 +135,7 @@ fn holding_the_chord_leader_down_does_not_change_what_the_next_stroke_means() {
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor);
     assert_eq!(
         heads(&cursor),
-        vec![(0, 3), (0, 11)],
+        vec![(0, 11), (0, 3)],
         "the chord must still mean skip-occurrence after the leader was held"
     );
     assert_eq!(

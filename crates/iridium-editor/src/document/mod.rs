@@ -10,6 +10,7 @@
 mod buffer;
 mod cursor;
 mod edit_span;
+mod line_access;
 mod position;
 
 pub use buffer::Document;

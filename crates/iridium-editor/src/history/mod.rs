@@ -10,3 +10,12 @@ mod undo_tree;
 
 pub use commands::Command;
 pub use undo_tree::{UndoNodeId, UndoNodeInfo, UndoTree, UndoTreeInfo, UndoTreeSnapshot};
+
+/// Content-replaying navigation, excluding preference-only branch cycling.
+#[derive(Clone, Copy)]
+pub(crate) enum NavigationRequest {
+    Undo,
+    Redo,
+    Branch(usize),
+    Jump(UndoNodeId),
+}

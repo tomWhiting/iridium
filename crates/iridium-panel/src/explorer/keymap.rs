@@ -80,7 +80,7 @@ pub const KEYMAP_NAME: &str = "explorer";
 /// The number of bindings in the explorer's default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_BINDING_COUNT: usize = 42;
+pub const DEFAULT_BINDING_COUNT: usize = 43;
 
 /// Shorthand for a modifier pattern, in the field order of [`ModifierPattern`].
 const fn pattern(
@@ -197,6 +197,7 @@ fn editing() -> Vec<KeyBinding> {
         // pair long before the oil buffer existed.
         bind(CTRL, KeyCode::Enter, EXPLORER_EDIT_NEW_ROW, mode()),
         bind(META, KeyCode::Char('s'), EXPLORER_EDIT_ASK_APPLY, mode()),
+        bind(CTRL, KeyCode::Char('s'), EXPLORER_EDIT_ASK_APPLY, mode()),
         bind(PLAIN, KeyCode::Up, EXPLORER_EDIT_CURSOR_UP, mode()),
         bind(CTRL, KeyCode::Char('p'), EXPLORER_EDIT_CURSOR_UP, mode()),
         bind(PLAIN, KeyCode::Down, EXPLORER_EDIT_CURSOR_DOWN, mode()),

@@ -96,6 +96,9 @@ impl KeyboardHandler {
         direction: VerticalDirection,
         lines: usize,
     ) -> KeyResult {
+        if self.visual_navigation.is_some() {
+            return self.visual_motion(document, cursor, extend, direction, lines.max(1));
+        }
         let new_cursor = self.move_vertically(document, cursor, extend, direction, lines.max(1));
         Self::create_selection_command(cursor, &new_cursor)
     }
@@ -116,6 +119,9 @@ impl KeyboardHandler {
         pages: usize,
     ) -> KeyResult {
         let lines = self.page_rows.max(1).saturating_mul(pages.max(1));
+        if self.visual_navigation.is_some() {
+            return self.visual_motion(document, cursor, extend, direction, lines);
+        }
         let new_cursor = self.move_vertically(document, cursor, extend, direction, lines);
         Self::create_selection_command(cursor, &new_cursor)
     }
@@ -152,17 +158,35 @@ impl KeyboardHandler {
         // Reuse the sticky columns from the previous vertical move only when
         // they were captured for this exact cursor state; otherwise start from
         // the current head columns.
-        let mut preferred = self.take_sticky_columns_for(cursor, revision);
-
-        let new_cursor = motions::apply_to_all(cursor, extend_selection, |index, sel| {
-            let target = preferred.get(index).copied().unwrap_or(sel.head.column);
-            let (head, sticky) =
-                motions::vertical_move_by(document, sel.head, target, direction, lines);
-            if let Some(slot) = preferred.get_mut(index) {
-                *slot = sticky;
-            }
-            head
-        });
+        let reusable = self.has_sticky_columns(cursor, revision);
+        let mut preferred = if reusable {
+            self.take_sticky_columns_for(cursor, revision)
+        } else {
+            cursor
+                .all_selections()
+                .map(|sel| self.vertical_origin(sel, extend_selection).column)
+                .collect()
+        };
+        let preserve = !extend_selection && self.preserves_vertical_selection();
+        let new_cursor = super::selection_motion::map_targets(
+            cursor,
+            extend_selection,
+            preserve,
+            |index, sel| {
+                let target = preferred.get(index).copied().unwrap_or(sel.head.column);
+                let (head, sticky) = self.folded_vertical_move(
+                    document,
+                    self.vertical_origin(sel, extend_selection),
+                    target,
+                    direction,
+                    lines,
+                );
+                if let Some(slot) = preferred.get_mut(index) {
+                    *slot = sticky;
+                }
+                head
+            },
+        );
 
         // If cursors merged, the per-cursor mapping is gone; rebuild from the
         // actual columns on the next vertical move. Otherwise remember the

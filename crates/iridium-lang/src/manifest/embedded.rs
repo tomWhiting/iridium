@@ -92,6 +92,10 @@ const SOURCES: &[(&str, &str)] = &[
         "rust",
         include_str!("../languages/queries/rust/config.toml"),
     ),
+    (
+        "toml",
+        include_str!("../languages/queries/toml/config.toml"),
+    ),
     ("tsx", include_str!("../languages/queries/tsx/config.toml")),
     (
         "typescript",

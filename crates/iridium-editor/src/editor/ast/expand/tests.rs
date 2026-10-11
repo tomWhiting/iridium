@@ -6,6 +6,8 @@
 //! behaviour, and a test against the stack in isolation would prove them of a
 //! component nobody uses.
 
+mod fan_out;
+
 use iridium_lang::Language;
 
 use crate::commands::builtin::{

@@ -6,17 +6,8 @@
 //! not read `[keys]` at all**, and a binding somebody wrote worked in the
 //! desktop app and silently did nothing here.
 //!
-//! # This face reads the file and does not write it
-//!
-//! [`iridium_config::create_if_absent`] writes a file listing the layers the
-//! *calling* face hands over, and no face can reach another's. A second writer
-//! would therefore make the contents of `config.toml` depend on which binary
-//! the user happened to run first — a desktop-less file for somebody who
-//! started in the terminal, and no way to tell by looking. That is worse than
-//! the gap it would close, so the desktop stays the sole writer and this face
-//! reads what it finds. The terminal layer's own chords being absent from the
-//! written file is a real and separate defect, and needs a ruling rather than a
-//! guess.
+//! The terminal writes a separate generated reference and offers live reload.
+//! See `config_actions` and `binding_reference`; user settings are never overwritten.
 //!
 //! # A refused binding costs the binding, not the file
 //!
@@ -36,19 +27,23 @@
 use std::path::Path;
 
 use iridium_config::{Problem, Refusal};
-use iridium_editor::{Editor, KeyBinding};
+use iridium_editor::KeyBinding;
+use iridium_editor::workspace::{FaceSetupError, Workspace};
 
 /// Pushes the user's key bindings, returning what had to be dropped.
 ///
-/// [`Editor::push_keymap`] validates against the registry and leaves the stack
+/// [`Workspace::push_keymap`] validates against the registry and leaves the stack
 /// untouched when it refuses, which is exactly what [`iridium_config::install`]
 /// requires of it — so a refused binding is dropped and the rest go in.
-pub(super) fn install_user_bindings(
-    editor: &mut Editor,
+pub(super) fn install_user_bindings<T>(
+    workspace: &mut Workspace<T>,
     bindings: Vec<KeyBinding>,
 ) -> Vec<Problem> {
     iridium_config::install(bindings, |layer| {
-        editor.push_keymap(layer).map_err(Refusal::from)
+        workspace.push_keymap(layer).map_err(|error| match error {
+            FaceSetupError::Keymap(error) => Refusal::Keymap(error),
+            FaceSetupError::Registry(error) => Refusal::Face(error.to_string()),
+        })
     })
 }
 
@@ -100,9 +95,13 @@ mod tests {
     /// the user.
     #[test]
     fn a_binding_from_the_file_changes_what_a_key_does() {
-        let mut editor = Editor::with_defaults();
+        let mut editor = iridium_editor::workspace::Workspace::<()>::new(
+            iridium_editor::EditorConfig::default(),
+            iridium_editor::Theme::default(),
+        );
+        editor.open("", "test", None).expect("root tab");
         assert_eq!(
-            resolves_to(&editor, KeyCode::F9),
+            resolves_to(editor.active_editor().expect("active"), KeyCode::F9),
             None,
             "F9 must start unbound, or this test would agree with itself"
         );
@@ -116,7 +115,7 @@ mod tests {
         );
 
         assert_eq!(
-            resolves_to(&editor, KeyCode::F9),
+            resolves_to(editor.active_editor().expect("active"), KeyCode::F9),
             Some(EDIT_DELETE_TO_LINE_END),
             "the user's binding did not reach the terminal face's stack"
         );
@@ -128,7 +127,11 @@ mod tests {
     /// bad line would punish the whole configuration for a typo.
     #[test]
     fn an_unknown_command_costs_its_own_binding_and_no_other() {
-        let mut editor = Editor::with_defaults();
+        let mut editor = iridium_editor::workspace::Workspace::<()>::new(
+            iridium_editor::EditorConfig::default(),
+            iridium_editor::Theme::default(),
+        );
+        editor.open("", "test", None).expect("root tab");
         let good = KeyBinding::parse("f9", EDIT_DELETE_TO_LINE_END)
             .expect("the fixture is a key sequence");
         let bad = KeyBinding::parse("f10", iridium_editor::CommandId::new("nobody.registered"))
@@ -144,12 +147,12 @@ mod tests {
         );
 
         assert_eq!(
-            resolves_to(&editor, KeyCode::F9),
+            resolves_to(editor.active_editor().expect("active"), KeyCode::F9),
             Some(EDIT_DELETE_TO_LINE_END),
             "a good binding was lost along with the bad one"
         );
         assert_eq!(
-            resolves_to(&editor, KeyCode::F10),
+            resolves_to(editor.active_editor().expect("active"), KeyCode::F10),
             None,
             "the refused binding must not be installed"
         );

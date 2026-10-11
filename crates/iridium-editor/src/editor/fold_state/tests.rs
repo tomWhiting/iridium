@@ -544,3 +544,26 @@ mod keystroke {
         );
     }
 }
+
+#[test]
+fn navigation_snapshot_remains_immutable_after_unfolding() {
+    let mut state = setup_rust_fold_state("fn a() {\n    if x {\n        y();\n    }\n}\ntail\n");
+    state.fold_all();
+    let snapshot = state.navigation_mapping();
+    assert_eq!(snapshot.visual_to_document(1), 5);
+    assert_eq!(state.visible_header_for_line(2), 0);
+    state.unfold_all();
+    assert_eq!(state.visual_to_document_line(1), 1);
+    assert_eq!(snapshot.visual_to_document(1), 5);
+    assert!(snapshot.is_hidden(2));
+}
+
+#[test]
+fn visible_header_projects_each_nested_hidden_line_to_the_outer_header() {
+    let mut state = setup_rust_fold_state("fn a() {\n    if x {\n        y();\n    }\n}\ntail\n");
+    state.fold_all();
+    for line in 0..=4 {
+        assert_eq!(state.visible_header_for_line(line), 0);
+    }
+    assert_eq!(state.visible_header_for_line(5), 5);
+}

@@ -12,6 +12,7 @@
 
 use crate::document::{CursorState, Document, Position, Range, Selection};
 
+use super::super::graphemes::{self, Boundary};
 use super::super::motions;
 use super::CursorEdit;
 
@@ -41,7 +42,8 @@ pub fn backspace_edits(document: &Document, cursor: &CursorState, word: bool) ->
                 } else {
                     motions::char_left(document, sel.head)
                 };
-                CursorEdit::delete(Range::new(start, sel.head))
+                let end = graphemes::move_to(document, sel.head, Boundary::Ceiling);
+                CursorEdit::delete(Range::new(start, end))
             } else {
                 CursorEdit::delete(sel.range())
             }
@@ -117,7 +119,8 @@ pub fn delete_forward_edits(
                 } else {
                     motions::char_right(document, sel.head)
                 };
-                CursorEdit::delete(Range::new(sel.head, end))
+                let start = graphemes::move_to(document, sel.head, Boundary::Floor);
+                CursorEdit::delete(Range::new(start, end))
             } else {
                 CursorEdit::delete(sel.range())
             }

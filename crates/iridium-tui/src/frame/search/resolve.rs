@@ -123,6 +123,23 @@ impl SearchOverlay {
         if !layer.is_empty() {
             stack.push(layer);
         }
+        let hints = iridium_editor::KeyHintIndex::build(&stack);
+        self.scope_hint = hints
+            .primary_hint(iridium_editor::commands::builtin::SEARCH_CLEAR_SCOPE.as_str())
+            .map(|hint| {
+                format!(
+                    "{}: whole document",
+                    hint.label(iridium_editor::KeyLabelStyle::Portable)
+                )
+            });
+        self.selection_hint = hints
+            .primary_hint(iridium_editor::commands::builtin::SEARCH_SELECT_ALL_MATCHES.as_str())
+            .map(|hint| {
+                format!(
+                    "{}: select all matches",
+                    hint.label(iridium_editor::KeyLabelStyle::Portable)
+                )
+            });
         self.keys = stack;
         // A sequence half-typed against the old bindings means nothing against
         // the new ones.

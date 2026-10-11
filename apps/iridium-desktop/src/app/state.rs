@@ -27,11 +27,11 @@ use super::startup::Shell;
 use super::theme::ThemeSource;
 use crate::command_palette::CommandPalette;
 use crate::context_menu::ContextMenu;
+use crate::events::DesktopEvent;
 use crate::file_tree::FileExplorer;
 use crate::highlight::HighlightCache;
 use crate::history_overlay::HistoryPanel;
 use crate::latency::LatencyMonitor;
-use crate::menubar::MenuCommand;
 use crate::mouse::Pointer;
 use crate::overlay::{PaintedFrame, PanelKind};
 use crate::prompt::{Message, Prompt};
@@ -233,7 +233,9 @@ pub struct DesktopApp {
     /// a menu item reaches a command, and a menu that cannot run what it
     /// offers is furniture. `run.rs` attaches one; the test suite builds
     /// sessions without, and those sessions correctly have no menu bar.
-    pub(super) menu_proxy: Option<EventLoopProxy<MenuCommand>>,
+    pub(super) menu_proxy: Option<EventLoopProxy<DesktopEvent>>,
+    /// Finder requests wait while a dialog owns the active document.
+    pub(super) pending_open: Vec<Result<std::path::PathBuf, String>>,
     /// What the menu bar was last told about what may run.
     ///
     /// ⭐ **The whole cost of the greying push, in one comparison.**

@@ -78,7 +78,10 @@
 
 use iridium_editor::{KeyEvent, KeyPress};
 use termina::escape::{csi::Csi, dcs::Dcs, osc::Osc};
-use terminput::{Event, KeyEventKind, MouseEvent, UnsupportedEvent};
+use terminput::{Event, KeyEventKind, UnsupportedEvent};
+pub use terminput::{
+    KeyModifiers as MouseModifiers, MouseButton, MouseEvent, MouseEventKind, ScrollDirection,
+};
 
 mod keys;
 #[cfg(test)]

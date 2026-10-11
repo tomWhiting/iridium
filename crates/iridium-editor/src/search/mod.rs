@@ -37,7 +37,10 @@
 //! ```
 
 mod find;
+mod literal;
+mod positions;
 mod replace;
+mod scope;
 
 pub use find::{SearchOptions, SearchState};
 pub use replace::{

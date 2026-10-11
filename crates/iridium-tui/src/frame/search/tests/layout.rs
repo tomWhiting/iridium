@@ -26,6 +26,7 @@ fn the_panel_takes_its_rows_from_the_document() {
             status: crate::frame::Status::default(),
             search: Some(&overlay),
             sidebar_columns: 0,
+            tab_bar: false,
         },
     );
     assert_eq!(with.text_rows, 5, "two rows go to the panel");
@@ -43,6 +44,7 @@ fn the_kernels_viewport_shrinks_with_the_panel() {
         status: crate::frame::Status::default(),
         search: Some(&overlay),
         sidebar_columns: 0,
+        tab_bar: false,
     };
 
     Frame::sync_viewport(&mut editor, 60, 8, Chrome::default());

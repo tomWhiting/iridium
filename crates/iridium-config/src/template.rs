@@ -109,6 +109,14 @@ pub fn default_config(faces: &[FaceKeys<'_>]) -> String {
     }
 
     text.push_str(&crate::template_keys::section(faces));
+    text.push_str(concat!(
+        "\n# Terminal structural mode: optional replacement entry/exit keys.\n",
+        "# f7 = { command = \"ast.selectNode\", enter_mode = \"structural\" }\n",
+        "# f8 = { enter_mode = \"insert\", mode = \"structural\" }\n",
+        "# Use count = true on a command binding to accept numeric prefixes.\n",
+        "# Compose a selection and edit as one undo unit (count applies to the first).\n",
+        "# f9 = { command = \"selection.selectAll\", then = [\"transform.upperCase\"] }\n",
+    ));
     text
 }
 

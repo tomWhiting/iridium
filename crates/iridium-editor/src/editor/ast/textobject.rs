@@ -107,6 +107,11 @@ impl Region {
             AstRequest::SelectNode
             | AstRequest::ExpandSelection
             | AstRequest::ShrinkSelection
+            | AstRequest::NavigateFiner
+            | AstRequest::NavigateCoarser
+            | AstRequest::NavigateNext
+            | AstRequest::NavigatePrevious
+            | AstRequest::DescendSelection
             | AstRequest::SelectNextSibling
             | AstRequest::SelectPreviousSibling
             | AstRequest::SelectFirstChild

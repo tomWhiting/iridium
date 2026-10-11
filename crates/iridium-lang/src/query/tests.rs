@@ -48,6 +48,7 @@ const EVERYTHING: &[QueryKind] = &[
 /// be filled — the loader models every kind as optional, and each feature
 /// degrades to nothing for a language that ships no query for it.
 const SHIPS: &[(Language, &[QueryKind])] = &[
+    (Language::Toml, &[QueryKind::Highlights]),
     // Hand-written queries from the aion repository, covering what AWL needs.
     (Language::Awl, &[QueryKind::Highlights, QueryKind::Indents]),
     // The four listed with no grammar linked. Each ships highlights it cannot

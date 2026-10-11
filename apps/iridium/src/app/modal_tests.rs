@@ -162,3 +162,23 @@ fn insert_colon_is_literal_and_delete_yanks_source_for_paste() {
     key(&mut app, KeyCode::Char('p'));
     assert_eq!(app.editor().expect("editor").content(), ":");
 }
+
+#[test]
+fn insert_completion_uses_buffer_words_and_one_undo() -> Result<(), Box<dyn std::error::Error>> {
+    let mut app = App::with_config(Options::default(), iridium_config::UserConfig::default(), None)?;
+    let editor = app.workspace.active_editor_mut().ok_or("no editor")?;
+    editor.set_content("alphabet al");
+    editor.set_cursor(iridium_editor::Position::new(0, 11));
+    editor.enter_mode(STRUCTURAL_INSERT);
+    app.handle_input(&TerminalInput::Key(KeyEvent {
+        key: KeyCode::Char('n'),
+        modifiers: iridium_editor::Modifiers::ctrl(),
+        is_repeat: false,
+    }));
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.editor().ok_or("no editor")?.content(), "alphabet alphabet");
+    key(&mut app, KeyCode::Escape);
+    key(&mut app, KeyCode::Char('u'));
+    assert_eq!(app.editor().ok_or("no editor")?.content(), "alphabet al");
+    Ok(())
+}

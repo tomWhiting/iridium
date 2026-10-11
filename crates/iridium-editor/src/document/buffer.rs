@@ -135,7 +135,7 @@ impl Document {
         let line_ending = LineEnding::detect(content);
         Self {
             content: Rope::from_str(content),
-            pub(super) fences: std::sync::OnceLock::new(),
+            fences: std::sync::OnceLock::new(),
             line_ending,
             language: None,
             revision: 0,

@@ -94,7 +94,11 @@ fn every_parseable_language_ships_the_highlights_query_the_highlighter_requires(
 #[test]
 fn every_registered_language_can_compile_its_queries() {
     for &language in Language::all() {
-        assert!(crate::grammar::has_grammar(language), "{} has no parser", language.id());
+        assert!(
+            crate::grammar::has_grammar(language),
+            "{} has no parser",
+            language.id()
+        );
     }
 }
 

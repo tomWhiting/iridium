@@ -178,9 +178,8 @@ impl HighlightType {
         // *value* stopped being free.
         let result = match name {
             // Keywords
-            "storageclass" | "special" | "tag.doctype" | "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
-                Some(Self::Keyword)
-            },
+            "storageclass" | "special" | "tag.doctype" | "keyword" | "keyword.function"
+            | "keyword.storage" | "keyword.modifier" => Some(Self::Keyword),
             "keyword.control" | "keyword.return" | "keyword.control.return" => {
                 Some(Self::KeywordControl)
             },
@@ -242,8 +241,8 @@ impl HighlightType {
             // `selector.class` joins them on the same argument: a CSS class
             // names an entity. ⚠️ Its sibling `selector.id` deliberately does
             // **not** live here — see the constant arm below.
-            "structure" | "type" | "type.name" | "type.definition" | "constructor" | "namespace" | "module"
-            | "selector.class" => Some(Self::Type),
+            "structure" | "type" | "type.name" | "type.definition" | "constructor"
+            | "namespace" | "module" | "selector.class" => Some(Self::Type),
             "type.builtin" | "type.primitive" => Some(Self::TypeBuiltin),
             "type.interface" | "interface" => Some(Self::TypeInterface),
 
@@ -343,7 +342,9 @@ impl HighlightType {
             "emphasis" | "markup.quote" | "emphasis.markup" => Some(Self::MarkupEmphasis),
             "emphasis.strong" | "emphasis.strong.markup" => Some(Self::MarkupStrong),
             "strikethrough.markup" => Some(Self::MarkupStrikethrough),
-            "markup" | "markup.raw" | "text.literal" | "text.literal.markup" => Some(Self::MarkupCode),
+            "markup" | "markup.raw" | "text.literal" | "text.literal.markup" => {
+                Some(Self::MarkupCode)
+            },
             "markup.link" | "link_text.markup" => Some(Self::MarkupLink),
             "link_uri.markup" | "markup.link.url" => Some(Self::MarkupUrl),
             "punctuation.list_marker.markup" => Some(Self::MarkupList),

@@ -190,9 +190,12 @@ impl Language {
 
     /// Languages offered to document pickers, excluding injection-only grammars.
     pub fn visible() -> impl Iterator<Item = &'static Self> {
-        Self::all().iter().filter(|language| language.manifest().is_some_and(|manifest| !manifest.is_hidden()))
+        Self::all().iter().filter(|language| {
+            language
+                .manifest()
+                .is_some_and(|manifest| !manifest.is_hidden())
+        })
     }
-
 
     /// The stable identifier — the spelling used in a configuration file, a
     /// serialized document, and across the language boundary to TypeScript.

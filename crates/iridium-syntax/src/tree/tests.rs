@@ -240,7 +240,11 @@ fn every_parseable_language_can_own_a_tree() {
 fn every_registered_language_receives_a_parse_tree() -> Result<(), crate::SyntaxError> {
     for &language in Language::all() {
         let mut syntax = SyntaxTree::new(language)?;
-        assert!(syntax.parse("").is_some(), "{} cannot parse an empty document", language.id());
+        assert!(
+            syntax.parse("").is_some(),
+            "{} cannot parse an empty document",
+            language.id()
+        );
     }
     Ok(())
 }

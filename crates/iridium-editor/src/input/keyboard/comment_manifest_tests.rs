@@ -87,6 +87,23 @@ const EXPECTED: &[CommentRow] = &[
     ("bash", Some("#"), None),
     ("c", Some("//"), Some(("/*", "*/"))),
     ("cpp", Some("//"), Some(("/*", "*/"))),
+    ("cypher", Some("//"), Some(("/*", "*/"))),
+    ("glsl", Some("//"), Some(("/*", "*/"))),
+    ("html", None, Some(("<!--", "-->"))),
+    ("java", Some("//"), Some(("/*", "*/"))),
+    ("just", Some("#"), None),
+    ("nu", Some("#"), None),
+    ("proto", Some("//"), Some(("/*", "*/"))),
+    ("sql", Some("--"), Some(("/*", "*/"))),
+    ("query", Some(";"), None),
+    ("typst", Some("//"), Some(("/*", "*/"))),
+    ("wgsl", Some("//"), Some(("/*", "*/"))),
+    ("zig", Some("//"), None),
+    ("xml", None, Some(("<!--", "-->"))),
+    ("dtd", None, Some(("<!--", "-->"))),
+    ("jsdoc", None, None),
+    ("markdown-inline", None, None),
+    ("regex", None, None),
 ];
 
 /// A document tagged with a language identifier and nothing else.

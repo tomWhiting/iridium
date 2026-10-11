@@ -2,7 +2,10 @@
 
 use crate::Language;
 
-#[expect(unsafe_code, reason = "the generated C parser symbols implement the tree-sitter language ABI")]
+#[expect(
+    unsafe_code,
+    reason = "the generated C parser symbols implement the tree-sitter language ABI"
+)]
 const VENDORED: [tree_sitter_language::LanguageFn; 4] = {
     unsafe extern "C" {
         fn tree_sitter_awl() -> *const ();
@@ -10,12 +13,14 @@ const VENDORED: [tree_sitter_language::LanguageFn; 4] = {
         fn tree_sitter_typst() -> *const ();
         fn tree_sitter_wgsl() -> *const ();
     }
-    unsafe { [
-        tree_sitter_language::LanguageFn::from_raw(tree_sitter_awl),
-        tree_sitter_language::LanguageFn::from_raw(tree_sitter_just),
-        tree_sitter_language::LanguageFn::from_raw(tree_sitter_typst),
-        tree_sitter_language::LanguageFn::from_raw(tree_sitter_wgsl),
-    ] }
+    unsafe {
+        [
+            tree_sitter_language::LanguageFn::from_raw(tree_sitter_awl),
+            tree_sitter_language::LanguageFn::from_raw(tree_sitter_just),
+            tree_sitter_language::LanguageFn::from_raw(tree_sitter_typst),
+            tree_sitter_language::LanguageFn::from_raw(tree_sitter_wgsl),
+        ]
+    }
 };
 
 /// Returns the tree-sitter grammar for a language, if one is linked.

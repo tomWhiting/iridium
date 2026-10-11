@@ -165,7 +165,11 @@ fn insert_colon_is_literal_and_delete_yanks_source_for_paste() {
 
 #[test]
 fn insert_completion_uses_buffer_words_and_one_undo() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::with_config(Options::default(), iridium_config::UserConfig::default(), None)?;
+    let mut app = App::with_config(
+        Options::default(),
+        iridium_config::UserConfig::default(),
+        None,
+    )?;
     let editor = app.workspace.active_editor_mut().ok_or("no editor")?;
     editor.set_content("alphabet al");
     editor.set_cursor(iridium_editor::Position::new(0, 11));
@@ -176,7 +180,10 @@ fn insert_completion_uses_buffer_words_and_one_undo() -> Result<(), Box<dyn std:
         is_repeat: false,
     }));
     key(&mut app, KeyCode::Enter);
-    assert_eq!(app.editor().ok_or("no editor")?.content(), "alphabet alphabet");
+    assert_eq!(
+        app.editor().ok_or("no editor")?.content(),
+        "alphabet alphabet"
+    );
     key(&mut app, KeyCode::Escape);
     key(&mut app, KeyCode::Char('u'));
     assert_eq!(app.editor().ok_or("no editor")?.content(), "alphabet al");

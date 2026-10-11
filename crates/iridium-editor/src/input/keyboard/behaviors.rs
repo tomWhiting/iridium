@@ -540,7 +540,17 @@ pub(super) fn enter_edits(
         .all_selections()
         .map(|sel| {
             if config.auto_indent {
-                enter_edit_for(document, sel, config, line_ending, if document.language() == Some("markdown") { PairRules::for_position(document, sel.head) } else { pairs })
+                enter_edit_for(
+                    document,
+                    sel,
+                    config,
+                    line_ending,
+                    if document.language() == Some("markdown") {
+                        PairRules::for_position(document, sel.head)
+                    } else {
+                        pairs
+                    },
+                )
             } else {
                 let text = line_ending.to_string();
                 let placement = CaretPlacement::collapsed(text.len());
@@ -711,7 +721,9 @@ pub(super) fn auto_pair_char_edits(
         .map(|sel| {
             let local = if document.language() == Some("markdown") {
                 PairRules::for_position(document, sel.head)
-            } else { pairs };
+            } else {
+                pairs
+            };
             let (edit, placement, closer) = auto_pair_edit_for(document, sel, c, local, scopes);
             ((edit, placement), closer)
         })
@@ -746,7 +758,11 @@ fn auto_pair_edit_for(
 
     if c == '>' {
         if let Some(text) = super::tag_pairs::closing_edit(document, sel.head) {
-            return (CursorEdit::replace(sel.range(), text), CaretPlacement::collapsed(1), None);
+            return (
+                CursorEdit::replace(sel.range(), text),
+                CaretPlacement::collapsed(1),
+                None,
+            );
         }
     }
 

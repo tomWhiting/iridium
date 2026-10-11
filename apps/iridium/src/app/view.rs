@@ -55,7 +55,11 @@ impl App {
         let layout = session.frame.render(editor, chrome, surface.back_mut());
 
         if let Some(menu) = &self.completion {
-            menu.paint(surface.back_mut(), layout.caret(), &Palette::from_theme(editor.get_theme()));
+            menu.paint(
+                surface.back_mut(),
+                layout.caret(),
+                &Palette::from_theme(editor.get_theme()),
+            );
         }
 
         let mut cursor = layout

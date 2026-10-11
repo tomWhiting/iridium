@@ -4,6 +4,7 @@ path_suffixes = ["xml", "xsd", "xsl", "xslt", "svg", "plist", "xhtml"]
 tab_size = 2
 block_comment = { start = "<!--", end = "-->" }
 brackets = [
+    { start = "<!--", end = " -->", close = true, newline = false, not_in = ["string", "comment"] },
     { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
     { start = "'", end = "'", close = true, newline = false, not_in = ["string", "comment"] },
 ]

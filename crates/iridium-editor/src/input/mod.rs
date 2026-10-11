@@ -13,6 +13,7 @@ mod mouse;
 
 pub use ime::{ImeEvent, ImeHandler, ImeResult, ImeState};
 pub use keyboard::{
+    CompletionError, CompletionSession,
     AstRequest, ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
     KeyboardHandler, Modifiers, SearchAction,
 };

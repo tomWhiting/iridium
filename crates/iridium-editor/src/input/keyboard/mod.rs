@@ -50,6 +50,8 @@ mod actions;
 mod auto_pair_record;
 mod backspace_pairs;
 mod behaviors;
+mod completion;
+pub use completion::{CompletionError, CompletionSession};
 mod tag_pairs;
 mod comments;
 mod cursor_addition;

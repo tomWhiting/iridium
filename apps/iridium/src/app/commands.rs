@@ -69,6 +69,7 @@ use iridium_editor::{
 use ModifierState::{Any, Forbidden, Required};
 
 /// Open an untitled document in a new tab.
+pub const COMPLETE_WORD: CommandId = CommandId::from_static("editor.completeWord");
 pub const FILE_NEW: CommandId = CommandId::from_static("file.new");
 /// Write the document to its file.
 pub const FILE_SAVE: CommandId = CommandId::from_static("file.save");
@@ -116,6 +117,12 @@ pub static COMMANDS: &[CommandMeta] = &[
         CommandCategory::NAVIGATION,
     )
     .with_aliases(&["syntax mode", "node navigation", "structural mode", "Enter Structural Navigation", "Structural Motions"]),
+    CommandMeta::described(
+        COMPLETE_WORD,
+        "Complete Buffer Word",
+        "Offers matching words near the caret; accepts one edit across matching cursors.",
+        CommandCategory::from_static("Edit"),
+    ),
     CommandMeta::described(
         FILE_NEW,
         "New Tab",

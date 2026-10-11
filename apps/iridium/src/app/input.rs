@@ -7,6 +7,7 @@ impl App {
     /// Handles one key press.
     pub(super) fn handle_key(&mut self, event: &KeyEvent) -> Flow {
         self.stop_mouse_drag();
+        if self.drive_completion(event) { return Flow::Running; }
         if self.similar.is_some() {
             return self.drive_similar(event);
         }

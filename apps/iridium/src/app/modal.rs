@@ -101,6 +101,12 @@ pub(super) fn keymap() -> Keymap {
         );
     }
     keys.push(
+        KeyBinding::new(
+            StrokePattern::new(KeyCode::Char('n'), ModifierPattern::exact(iridium_editor::Modifiers::ctrl())),
+            &[], super::commands::COMPLETE_WORD,
+        ).in_mode(STRUCTURAL_INSERT),
+    );
+    keys.push(
         KeyBinding::new(StrokePattern::plain(KeyCode::Escape), &[], AST_SELECT_NODE)
             .in_mode(STRUCTURAL_INSERT)
             .then_enter_mode(STRUCTURAL),

@@ -67,7 +67,7 @@ fn append_at(
                 continue;
             }
             let range = capture.node.byte_range();
-            if range.start >= range.end || range.end <= window.start || range.start >= window.end {
+            if range.is_empty() || range.end.min(window.end) <= range.start.max(window.start) {
                 continue;
             }
             if depth >= 16 || (embedded == language && range == (0..source.len())) {

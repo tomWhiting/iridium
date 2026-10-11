@@ -25,23 +25,42 @@ impl FenceIndex {
         let first = rope.byte_to_line_idx(range.start, LineType::LF_CR);
         for line in first..rope.len_lines(LineType::LF_CR) {
             let start = rope.line_to_byte_idx(line, LineType::LF_CR);
-            if start >= range.end { break; }
+            if start >= range.end {
+                break;
+            }
             let text = rope.line(line, LineType::LF_CR);
             // Only a short line prefix can contain an opening fence and its label.
             let prefix: String = text.chars().take(256).collect();
             let indent = prefix.bytes().take_while(|&b| b == b' ').count();
-            if indent > 3 { continue; }
+            if indent > 3 {
+                continue;
+            }
             let trimmed = &prefix[indent..];
-            let Some(delimiter @ (b'`' | b'~')) = trimmed.bytes().next() else { continue; };
+            let Some(delimiter @ (b'`' | b'~')) = trimmed.bytes().next() else {
+                continue;
+            };
             let width = trimmed.bytes().take_while(|&b| b == delimiter).count();
-            if width < 3 { continue; }
+            if width < 3 {
+                continue;
+            }
             let info = trimmed[width..].trim();
-            if delimiter == b'`' && info.contains('`') { continue; }
+            if delimiter == b'`' && info.contains('`') {
+                continue;
+            }
             let label = info.split_whitespace().next().map_or("", |label| label);
             let language = if label.eq_ignore_ascii_case("jsonc") {
                 Some(Language::Json)
-            } else { Language::from_id(label) };
-            self.markers.push(Marker { start, end: start + text.len(), delimiter, width, language, bare: info.is_empty() });
+            } else {
+                Language::from_id(label)
+            };
+            self.markers.push(Marker {
+                start,
+                end: start + text.len(),
+                delimiter,
+                width,
+                language,
+                bare: info.is_empty(),
+            });
         }
         self.markers.sort_by_key(|marker| marker.start);
     }
@@ -66,7 +85,9 @@ impl Document {
     #[must_use]
     pub fn language_at(&self, position: Position) -> Option<Language> {
         let language = self.language().and_then(Language::from_id)?;
-        if language != Language::Markdown { return Some(language); }
+        if language != Language::Markdown {
+            return Some(language);
+        }
         let byte = self.position_to_offset(position)?;
         let index = self.fences.get_or_init(|| {
             let mut index = FenceIndex::default();
@@ -81,14 +102,29 @@ impl Document {
         let rope = self.rope();
         let first = rope.byte_to_line_idx(start, LineType::LF_CR);
         let last = rope.byte_to_line_idx(end, LineType::LF_CR) + 1;
-        let end = if last < self.line_count() { rope.line_to_byte_idx(last, LineType::LF_CR) } else { self.byte_count() };
+        let end = if last < self.line_count() {
+            rope.line_to_byte_idx(last, LineType::LF_CR)
+        } else {
+            self.byte_count()
+        };
         Some(rope.line_to_byte_idx(first, LineType::LF_CR)..end)
     }
 
-    pub(super) fn update_fences(&mut self, affected: Option<Range<usize>>, removed: usize, inserted: usize) {
-        let Some(range) = affected else { return; };
-        let Some(mut index) = self.fences.take() else { return; };
-        index.markers.retain(|marker| !range.contains(&marker.start));
+    pub(super) fn update_fences(
+        &mut self,
+        affected: Option<Range<usize>>,
+        removed: usize,
+        inserted: usize,
+    ) {
+        let Some(range) = affected else {
+            return;
+        };
+        let Some(mut index) = self.fences.take() else {
+            return;
+        };
+        index
+            .markers
+            .retain(|marker| !range.contains(&marker.start));
         for marker in &mut index.markers {
             if marker.start >= range.end {
                 marker.start = marker.start - removed + inserted;
@@ -105,19 +141,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fence_cache_tracks_insert_delete_and_language_changes() -> Result<(), Box<dyn std::error::Error>> {
+    fn fence_cache_tracks_insert_delete_and_language_changes()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut document = Document::new("```rust\nhello\n```\nprose\n~~~xml\n<note\n~~~");
         document.set_language(Some("markdown".to_owned()));
-        assert_eq!(document.language_at(Position::new(1, 0)), Some(Language::Rust));
-        assert_eq!(document.language_at(Position::new(3, 0)), Some(Language::Markdown));
-        assert_eq!(document.language_at(Position::new(5, 0)), Some(Language::Xml));
+        assert_eq!(
+            document.language_at(Position::new(1, 0)),
+            Some(Language::Rust)
+        );
+        assert_eq!(
+            document.language_at(Position::new(3, 0)),
+            Some(Language::Markdown)
+        );
+        assert_eq!(
+            document.language_at(Position::new(5, 0)),
+            Some(Language::Xml)
+        );
         document.insert(Position::new(0, 0), "intro\n")?;
-        assert_eq!(document.language_at(Position::new(2, 0)), Some(Language::Rust));
-        document.delete(super::super::Range::new(Position::new(1, 3), Position::new(1, 7)))?;
+        assert_eq!(
+            document.language_at(Position::new(2, 0)),
+            Some(Language::Rust)
+        );
+        document.delete(super::super::Range::new(
+            Position::new(1, 3),
+            Position::new(1, 7),
+        ))?;
         document.insert(Position::new(1, 3), "json")?;
-        assert_eq!(document.language_at(Position::new(2, 0)), Some(Language::Json));
-        document.delete(super::super::Range::new(Position::new(3, 0), Position::new(4, 0)))?;
-        assert_eq!(document.language_at(Position::new(3, 0)), Some(Language::Json));
+        assert_eq!(
+            document.language_at(Position::new(2, 0)),
+            Some(Language::Json)
+        );
+        document.delete(super::super::Range::new(
+            Position::new(3, 0),
+            Position::new(4, 0),
+        ))?;
+        assert_eq!(
+            document.language_at(Position::new(3, 0)),
+            Some(Language::Json)
+        );
         Ok(())
     }
 }

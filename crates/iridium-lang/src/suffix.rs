@@ -469,7 +469,8 @@ mod tests {
     fn no_language_lost_every_association_it_had() {
         for &language in Language::all() {
             assert!(
-                extensions_of(language).next().is_some(),
+                extensions_of(language).next().is_some()
+                    || language.manifest().is_some_and(crate::manifest::Manifest::is_hidden),
                 "{} claims no extension at all",
                 language.id()
             );

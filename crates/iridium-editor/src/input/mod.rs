@@ -13,9 +13,8 @@ mod mouse;
 
 pub use ime::{ImeEvent, ImeHandler, ImeResult, ImeState};
 pub use keyboard::{
-    CompletionError, CompletionSession,
-    AstRequest, ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
-    KeyboardHandler, Modifiers, SearchAction,
+    AstRequest, ClipboardOperation, CommandRunError, CompletionError, CompletionSession,
+    HistoryRequest, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers, SearchAction,
 };
 pub use mouse::{
     GutterClickConfig, MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult,

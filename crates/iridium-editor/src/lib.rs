@@ -83,7 +83,8 @@ pub use editor::{
 pub use history::{Command, UndoTree};
 pub use input::ImeHandler;
 pub use input::{
-    CompletionError, CompletionSession, ClipboardOperation, CommandRunError, KeyCode, KeyEvent, KeyResult, KeyboardHandler, Modifiers,
+    ClipboardOperation, CommandRunError, CompletionError, CompletionSession, KeyCode, KeyEvent,
+    KeyResult, KeyboardHandler, Modifiers,
 };
 pub use input::{MouseButton, MouseEvent, MouseEventKind, MouseHandler, MouseResult};
 pub use render::{CurrentLineRenderer, CursorRenderer, SelectionRenderer};

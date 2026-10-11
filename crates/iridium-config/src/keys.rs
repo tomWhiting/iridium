@@ -12,6 +12,19 @@
 //! [`KeyBinding::parse_sequence`] reads it and exactly as a diagnostic quotes
 //! it back — one spelling, in the file and in every message about the file.
 //!
+//! An inline table can scope a binding and change modes:
+//!
+//! ```toml
+//! [keys]
+//! f7 = { command = "ast.selectNode", enter_mode = "structural" }
+//! f8 = { enter_mode = "insert", mode = "structural" }
+//! down = { command = "ast.selectNextSibling", mode = "structural", count = true }
+//! ```
+//!
+//! Counts are explicit; ordinary string bindings never capture typed digits.
+//! The preset declares whether unbound keys type in each mode. Binding options
+//! change keys, not that typing policy. Unknown or malformed options are reported.
+//!
 //! # What `cmd` means
 //!
 //! `cmd`, `meta`, `super` and `win` are one modifier, and on a Mac it is the
@@ -36,6 +49,10 @@ use iridium_editor::{CommandId, KeyBinding, Keymap};
 use toml::{Table, Value};
 
 use crate::problem::Problem;
+
+mod options;
+#[cfg(test)]
+mod options_tests;
 
 /// The heading this section is written under.
 pub const SECTION: &str = "keys";
@@ -94,6 +111,9 @@ pub fn keymap(bindings: impl IntoIterator<Item = KeyBinding>) -> Keymap {
 
 /// Turns one `sequence = command` line into a binding.
 fn binding(sequence: &str, value: &Value) -> Result<KeyBinding, Problem> {
+    if value.is_table() {
+        return options::binding(sequence, value);
+    }
     let Some(command) = value.as_str() else {
         return Err(Problem::keys(format!(
             "`{sequence}` must name a command as a string, not {}",
@@ -129,9 +149,9 @@ fn unparsable(sequence: &str, error: &iridium_editor::KeymapError) -> Problem {
 /// looks like it was ignored for no reason.
 fn duplicate(bindings: &[KeyBinding], candidate: &KeyBinding, sequence: &str) -> Option<Problem> {
     let written = candidate.display_sequence();
-    let existing = bindings
-        .iter()
-        .find(|binding| binding.display_sequence() == written)?;
+    let existing = bindings.iter().find(|binding| {
+        binding.display_sequence() == written && binding.mode() == candidate.mode()
+    })?;
     let winner = existing.command().map_or_else(
         || "nothing (it is unbound)".to_owned(),
         |id| format!("`{id}`"),
@@ -181,8 +201,8 @@ mod tests {
         // `KeyBinding::parse`, so a `[keys]` line can bind a sequence whose
         // matched character is handed to the command as an argument. Pinned
         // here because it is the *reachable* half of `CommandArgs` from a
-        // configuration file — a count prefix is not: `KeyBinding::parse`
-        // builds through `new` and never sets one.
+        // configuration file. The inline-table form additionally enables
+        // count prefixes; the string form remains unchanged.
         //
         // ⚠️ Why it is worth knowing: `no_host_command_is_bound_to_a_sequence_that_carries_arguments`
         // and its two face counterparts keep argument-carrying sequences off
@@ -201,11 +221,9 @@ mod tests {
     }
 
     #[test]
-    fn a_configuration_file_cannot_ask_for_a_count_prefix() {
-        // The other half, asserted rather than assumed. There is no spelling
-        // for it: `accepts_count` is only ever set by `with_count_prefix`,
-        // which the parser does not call. A plain chord is the control, so
-        // this fails if `parse` ever starts setting it for everything.
+    fn a_string_binding_does_not_enable_a_count_prefix() {
+        // The string form remains ordinary typing; counts require the explicit
+        // inline-table option and must not spread to every parsed binding.
         let (bindings, problems) = read("[keys]\n\"ctrl+alt+j\" = \"edit.toggleLineComment\"\n");
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(bindings.len(), 1);

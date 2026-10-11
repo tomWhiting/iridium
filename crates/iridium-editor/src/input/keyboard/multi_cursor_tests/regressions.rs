@@ -20,7 +20,7 @@ fn stale_addition_stack_invalidated_by_bare_document_edit() {
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor); // add "foo" @4..7
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7))]
+        vec![((0, 4), (0, 7)), ((0, 0), (0, 3))]
     );
 
     // Bare insert of "x" at the document start: the cursor positions are left
@@ -34,16 +34,23 @@ fn stale_addition_stack_invalidated_by_bare_document_edit() {
     assert_eq!(doc.text(), "xfoo foo foo");
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7))]
+        vec![((0, 4), (0, 7)), ((0, 0), (0, 3))]
     );
 
-    // Skip must not trust the stale 4..7 entry. The revision bump clears the
-    // stack, so skip finds no occurrence cursor to advance and is a no-op —
-    // never selecting a malformed " fo" range.
-    assert!(skip(&mut handler, &mut doc, &mut cursor).is_none());
+    // The bare edit invalidates addition identities even though coordinates
+    // did not move. Removal must not consume the stale occurrence entry.
+    assert!(press(&mut handler, &UNDO_CURSOR, &mut doc, &mut cursor).is_none());
+    // With no tracked additions, skip uses the active selection's current
+    // text (" fo"), then finds its next live occurrence at 8..11.
+    assert!(skip(&mut handler, &mut doc, &mut cursor).is_some());
     assert_eq!(
-        selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7))]
+        cursor.primary.range(),
+        crate::Range::new(Position::new(0, 8), Position::new(0, 11))
+    );
+    assert_eq!(doc.slice(cursor.primary.range()), " fo");
+    assert_eq!(
+        cursor.secondary,
+        vec![Selection::new(Position::new(0, 0), Position::new(0, 3))]
     );
 }
 
@@ -54,10 +61,10 @@ fn select_all_records_new_cursors_even_when_count_shrinks() {
     // Ctrl+U can peel them.
     let mut handler = KeyboardHandler::new();
     let mut doc = Document::new("foo\nfoo\nfoo\nbar\nbaz");
-    let mut cursor = cursors_at(&[(0, 1)]);
+    let mut cursor = cursors_at(&[(4, 1)]);
 
     for _ in 0..4 {
-        press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor);
+        press(&mut handler, &ADD_ABOVE, &mut doc, &mut cursor);
     }
     assert_eq!(cursor.cursor_count(), 5);
 
@@ -129,7 +136,7 @@ fn ctrl_d_fills_gap_left_by_skip() {
     assert!(skip(&mut handler, &mut doc, &mut cursor).is_some());
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7)), ((0, 12), (0, 15))]
+        vec![((0, 12), (0, 15)), ((0, 0), (0, 3)), ((0, 4), (0, 7))]
     );
 
     // Ctrl+D fills the @8 gap.
@@ -137,9 +144,9 @@ fn ctrl_d_fills_gap_left_by_skip() {
     assert_eq!(
         selections(&cursor),
         vec![
+            ((0, 8), (0, 11)),
             ((0, 0), (0, 3)),
             ((0, 4), (0, 7)),
-            ((0, 8), (0, 11)),
             ((0, 12), (0, 15))
         ]
     );
@@ -166,8 +173,8 @@ fn skip_advances_last_occurrence_past_vertical_cursors() {
     assert_eq!(
         selections(&cursor),
         vec![
-            ((0, 0), (0, 3)),
             ((0, 8), (0, 11)),
+            ((0, 0), (0, 3)),
             ((1, 3), (1, 3)),
             ((1, 7), (1, 7))
         ]
@@ -269,12 +276,12 @@ fn add_below_over_adjacent_occurrences_preserves_them() {
     assert_eq!(
         selections(&cursor),
         vec![
+            ((1, 9), (1, 9)),
             ((0, 0), (0, 3)),
             ((0, 3), (0, 6)),
             ((0, 6), (0, 9)),
             ((1, 3), (1, 3)),
-            ((1, 6), (1, 6)),
-            ((1, 9), (1, 9)),
+            ((1, 6), (1, 6))
         ]
     );
 }
@@ -295,13 +302,13 @@ fn skip_over_adjacent_occurrences_preserves_remaining() {
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor); // add adjacent @6
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 3), (0, 6)), ((0, 6), (0, 9))]
+        vec![((0, 6), (0, 9)), ((0, 0), (0, 3)), ((0, 3), (0, 6))]
     );
 
     assert!(skip(&mut handler, &mut doc, &mut cursor).is_some());
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 3), (0, 6)), ((0, 10), (0, 13))]
+        vec![((0, 10), (0, 13)), ((0, 0), (0, 3)), ((0, 3), (0, 6))]
     );
 }
 
@@ -319,7 +326,7 @@ fn ctrl_d_from_misaligned_selection_adds_next_untaken_match() {
     assert_eq!(cursor.cursor_count(), 2);
     assert_eq!(
         selections(&cursor),
-        vec![((0, 1), (0, 3)), ((0, 3), (0, 5))]
+        vec![((0, 3), (0, 5)), ((0, 1), (0, 3))]
     );
 }
 
@@ -382,7 +389,7 @@ fn horizontal_round_trip_does_not_resurrect_sticky_column() {
     assert_eq!(heads(&cursor), vec![(1, 2)]);
 
     assert!(press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor).is_some());
-    assert_eq!(heads(&cursor), vec![(1, 2), (2, 2)]);
+    assert_eq!(heads(&cursor), vec![(2, 2), (1, 2)]);
 }
 
 #[test]
@@ -416,7 +423,7 @@ fn skip_round_trip_discards_stale_sticky_column() {
     // Add-cursor-below seeds from the live head column (2), not the sticky
     // snapshot (8) the skips invalidated.
     assert!(press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor).is_some());
-    assert_eq!(heads(&cursor), vec![(1, 2), (2, 2)]);
+    assert_eq!(heads(&cursor), vec![(2, 2), (1, 2)]);
 }
 
 #[test]

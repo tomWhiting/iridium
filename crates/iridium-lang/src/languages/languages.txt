@@ -86,3 +86,5 @@ gowork            GoWork
 # `MANIFEST_ALIASES` in `suffix.rs` — the two manifests declare the same
 # comment token, the same brackets and the same indent size, so promoting it to
 # a language of its own would gain nothing and cost it the JSON grammar.
+
+toml Toml

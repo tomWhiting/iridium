@@ -25,8 +25,10 @@
 //! assert_eq!(state.current_match, Some(1));
 //! ```
 
+use super::positions::MatchPositions;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
+use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
 use crate::document::{Document, Position, Range};
 use crate::input::keyboard::motions;
@@ -90,6 +92,11 @@ pub struct SearchState {
     pub current_match: Option<usize>,
     /// Cached regex pattern (if regex mode)
     compiled_regex: Option<String>,
+    /// Diagnostic from the latest search, including automatic refresh.
+    error: Option<String>,
+    searched_revision: Option<u64>,
+    /// Selected-text scope, independent of the moving search caret.
+    pub(super) scope: Option<super::scope::SearchScope>,
     /// Whether the search is active
     pub is_active: bool,
 }
@@ -181,51 +188,78 @@ impl SearchState {
         options: &SearchOptions,
         document: &Document,
     ) -> Result<(), String> {
+        self.run_search(query, options, document);
+        self.error.clone().map_or(Ok(()), Err)
+    }
+
+    /// Returns the latest diagnostic. A successful search or clear removes it.
+    #[must_use]
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Re-runs the current query and preserves the nearest current match.
+    /// Diagnostics remain available through [`Self::error`]; invalid queries
+    /// leave no stale matches. Returns whether a nonempty query was refreshed.
+    pub fn refresh(&mut self, document: &Document) -> bool {
+        if self.query.is_empty() && self.scope.is_none() {
+            return false;
+        }
+        let previous = self.current_range().map(|range| range.start);
+        self.run_search(&self.query.clone(), &self.options.clone(), document);
+        if let Some(position) = previous {
+            self.goto_nearest_match(position);
+        }
+        true
+    }
+
+    /// Publishes results or a diagnostic as one authoritative search outcome.
+    fn run_search(&mut self, query: &str, options: &SearchOptions, document: &Document) {
+        self.searched_revision = Some(document.revision());
         self.query = query.to_string();
         self.options = options.clone();
         self.matches.clear();
         self.current_match = None;
+        self.compiled_regex = None;
+        self.error = None;
         self.is_active = !query.is_empty();
-
+        if let Some(scope) = &mut self.scope {
+            if !scope.is_current(document) {
+                scope.invalidate();
+                self.error = Some(super::scope::STALE_SCOPE.to_owned());
+                return;
+            }
+        }
         if query.is_empty() {
-            return Ok(());
+            return;
         }
-
         let text = document.text();
-
-        if options.regex {
-            self.find_regex_matches(&text, query, options, document)?;
+        self.error = if options.regex {
+            self.find_regex_matches(&text, query, options)
         } else {
-            self.find_literal_matches(&text, query, options, document)?;
+            self.find_literal_matches(&text, query, options)
         }
-
-        // Set current match to first if there are matches
-        if !self.matches.is_empty() {
+        .err();
+        if self.error.is_some() {
+            self.matches.clear();
+        } else if !self.matches.is_empty() {
             self.current_match = Some(0);
         }
-
-        Ok(())
     }
 
     /// Finds all literal (non-regex) matches.
     ///
-    /// The case-sensitive path uses direct substring search. The case-insensitive
-    /// path delegates to the regex engine with an escaped pattern so that all
-    /// reported byte offsets refer to the *original* text and are always aligned
-    /// to character boundaries. Lowercasing the haystack and needle is not safe
-    /// here: some characters change UTF-8 byte length when lowercased (e.g. 'İ'
-    /// U+0130 lowercases to "i\u{307}", and 'ẞ' U+1E9E lowercases to 'ß' U+00DF),
-    /// which would desynchronize offsets from the original text.
-    ///
-    /// Returns `Err(String)` if the case-insensitive matcher cannot be built
-    /// (e.g. the escaped query exceeds the regex engine's size limit).
+    /// The case-sensitive path uses substring search. The case-insensitive
+    /// path uses Unicode simple case folding with original-text byte offsets;
+    /// neither lowercasing nor normalization rewrites the document being searched.
+    /// Matcher construction errors are returned to the search UI.
     fn find_literal_matches(
         &mut self,
         text: &str,
         query: &str,
         options: &SearchOptions,
-        document: &Document,
     ) -> Result<(), String> {
+        let mut positions = MatchPositions::new(text);
         if options.case_sensitive {
             let mut start = 0;
             while let Some(offset) = text[start..].find(query) {
@@ -246,52 +280,20 @@ impl SearchState {
                     continue;
                 }
 
-                // Convert byte offsets to positions
-                if let (Some(start_pos), Some(end_pos)) = (
-                    document.offset_to_position(match_start),
-                    document.offset_to_position(match_end),
-                ) {
-                    self.matches.push(Range::new(start_pos, end_pos));
+                if self.within_scope(match_start, match_end) {
+                    self.matches.push(positions.range(match_start, match_end)?);
                 }
             }
             return Ok(());
         }
 
-        // Case-insensitive: search the original text with a case-insensitive
-        // regex built from the escaped query. The regex engine performs Unicode
-        // case folding internally and reports offsets in the original haystack,
-        // so match ranges are always char-boundary-aligned in the original text.
-        let regex = RegexBuilder::new(&regex::escape(query))
-            .case_insensitive(true)
-            .build()
-            .map_err(|e| format!("Invalid search query: {e}"))?;
-
-        // Mirror the case-sensitive path's overlap semantics: after each match,
-        // resume searching one character past the match start.
-        let mut search_from = 0;
-        while search_from <= text.len() {
-            let Some(mat) = regex.find_at(text, search_from) else {
-                break;
-            };
-            let match_start = mat.start();
-            let match_end = mat.end();
-
-            // Advance to the next character boundary after the match start so
-            // overlapping matches are found and `find_at` stays boundary-aligned.
-            search_from =
-                match_start + text[match_start..].chars().next().map_or(1, char::len_utf8);
-
-            // Check whole-word boundary if required
-            if options.whole_word && !Self::is_word_boundary(text, match_start, match_end) {
+        let matcher = super::literal::FoldedLiteral::new(query)?;
+        for range in matcher.matches(text) {
+            if options.whole_word && !Self::is_word_boundary(text, range.start, range.end) {
                 continue;
             }
-
-            // Convert byte offsets to positions
-            if let (Some(start_pos), Some(end_pos)) = (
-                document.offset_to_position(match_start),
-                document.offset_to_position(match_end),
-            ) {
-                self.matches.push(Range::new(start_pos, end_pos));
+            if self.within_scope(range.start, range.end) {
+                self.matches.push(positions.range(range.start, range.end)?);
             }
         }
 
@@ -304,8 +306,8 @@ impl SearchState {
         text: &str,
         pattern: &str,
         options: &SearchOptions,
-        document: &Document,
     ) -> Result<(), String> {
+        let mut positions = MatchPositions::new(text);
         // Build regex with options
         let regex = RegexBuilder::new(pattern)
             .case_insensitive(!options.case_sensitive)
@@ -323,43 +325,30 @@ impl SearchState {
                 continue;
             }
 
-            // Convert byte offsets to positions
-            if let (Some(start_pos), Some(end_pos)) = (
-                document.offset_to_position(match_start),
-                document.offset_to_position(match_end),
-            ) {
-                self.matches.push(Range::new(start_pos, end_pos));
+            if self.within_scope(match_start, match_end) {
+                self.matches.push(positions.range(match_start, match_end)?);
             }
         }
 
         Ok(())
     }
 
-    /// Whether the match spanning `start..end` has a non-word character (or
-    /// nothing at all) on both sides.
-    ///
-    /// The neighbours are read as **characters**, through
-    /// [`motions::is_word_char`] — the editor's one definition of a word
-    /// character, the same one word motions and double-click use. This used to
-    /// inspect a single *byte* on each side and ask whether it was ASCII
-    /// alphanumeric, which is a proxy that agrees with the real answer only
-    /// while the neighbour is ASCII: every byte of a non-ASCII character is
-    /// `>= 0x80`, so `ï` read as "not a word character" and whole-word search
-    /// happily reported `na` as a whole word inside `naïve`. The error was one
-    /// directional — over-matching, never under-matching — which is why it
-    /// survived: it never hid a result the user was looking for, it just
-    /// offered ones that were not there.
-    ///
-    /// An offset that cannot slice `text` — out of range, or inside a
-    /// character — yields no neighbour and therefore reads as a boundary,
-    /// which is what the byte form's `unwrap_or(b' ')` did with the same
-    /// inputs. Every caller passes offsets that came out of a matcher, so the
-    /// case is unreachable rather than merely tolerable.
+    /// Whole-word matches require complete graphemes with non-word neighbours.
+    /// Invalid offsets are rejected instead of being treated as boundaries.
+    /// Both search and regex replacement use this predicate against full text.
     pub(super) fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
-        let before = text.get(..start).and_then(|head| head.chars().next_back());
-        let after = text.get(end..).and_then(|tail| tail.chars().next());
-
-        !before.is_some_and(motions::is_word_char) && !after.is_some_and(motions::is_word_char)
+        if start > end || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+            return false;
+        }
+        for offset in [start, end] {
+            if GraphemeCursor::new(offset, text.len(), true).is_boundary(text, 0) != Ok(true) {
+                return false;
+            }
+        }
+        let before = text[..start].graphemes(true).next_back();
+        let after = text[end..].graphemes(true).next();
+        !before.is_some_and(motions::is_word_cluster)
+            && !after.is_some_and(motions::is_word_cluster)
     }
 
     /// Updates the search with new query, returning whether matches changed.
@@ -388,11 +377,25 @@ impl SearchState {
 
     /// Clears the search state.
     pub fn clear(&mut self) {
+        self.searched_revision = None;
         self.query.clear();
         self.matches.clear();
         self.current_match = None;
         self.compiled_regex = None;
+        self.error = None;
         self.is_active = false;
+        self.scope = None;
+    }
+
+    pub(crate) fn clear_scope(&mut self) {
+        self.scope = None;
+        if self.query.is_empty() {
+            self.error = None;
+        }
+    }
+
+    pub(crate) fn refresh_if_stale(&mut self, document: &Document) -> bool {
+        self.searched_revision != Some(document.revision()) && self.refresh(document)
     }
 
     /// Returns all match ranges.
@@ -420,364 +423,4 @@ impl SearchState {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-mod tests {
-    use super::*;
-
-    fn create_test_doc() -> Document {
-        Document::new("foo bar foo baz foo\nfoo in line 2")
-    }
-
-    #[test]
-    fn find_all_basic() {
-        let doc = create_test_doc();
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 4);
-        assert_eq!(state.current_match, Some(0));
-    }
-
-    #[test]
-    fn find_all_case_insensitive() {
-        let doc = Document::new("FOO foo Foo fOO");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        // Default is case-insensitive
-        assert_eq!(state.match_count(), 4);
-    }
-
-    #[test]
-    fn find_all_case_sensitive() {
-        let doc = Document::new("FOO foo Foo fOO");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::case_sensitive(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 1);
-    }
-
-    #[test]
-    fn find_all_whole_word() {
-        let doc = Document::new("foo foobar barfoo foo");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::whole_word(), &doc)
-            .unwrap();
-
-        // Should only match standalone "foo", not "foobar" or "barfoo"
-        assert_eq!(state.match_count(), 2);
-    }
-
-    #[test]
-    fn find_all_regex() {
-        let doc = Document::new("foo123 bar456 baz789");
-        let mut state = SearchState::new();
-        state
-            .find_all(r"\w+\d+", &SearchOptions::regex_mode(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 3);
-    }
-
-    #[test]
-    fn find_all_regex_invalid() {
-        let doc = Document::new("test");
-        let mut state = SearchState::new();
-        let result = state.find_all("[invalid", &SearchOptions::regex_mode(), &doc);
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid regex"));
-    }
-
-    #[test]
-    fn next_match_wraps() {
-        let doc = Document::new("foo foo");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.current_match, Some(0));
-        state.next_match();
-        assert_eq!(state.current_match, Some(1));
-        state.next_match();
-        assert_eq!(state.current_match, Some(0)); // Wrapped
-    }
-
-    #[test]
-    fn previous_match_wraps() {
-        let doc = Document::new("foo foo");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.current_match, Some(0));
-        state.previous_match();
-        assert_eq!(state.current_match, Some(1)); // Wrapped to last
-    }
-
-    #[test]
-    fn current_range() {
-        let doc = Document::new("foo bar");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        let range = state.current_range().unwrap();
-        assert_eq!(range.start, Position::new(0, 0));
-        assert_eq!(range.end, Position::new(0, 3));
-    }
-
-    #[test]
-    fn goto_nearest_match() {
-        let doc = Document::new("foo bar foo baz foo");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        // Start at position after second foo
-        state.goto_nearest_match(Position::new(0, 10));
-
-        // Should go to third foo at position 16
-        assert_eq!(state.current_match, Some(2));
-    }
-
-    #[test]
-    fn clear_resets_state() {
-        let doc = Document::new("foo bar");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-        assert!(state.has_matches());
-
-        state.clear();
-        assert!(!state.has_matches());
-        assert!(state.query.is_empty());
-        assert!(!state.is_active);
-    }
-
-    #[test]
-    fn empty_query_clears_matches() {
-        let doc = Document::new("foo bar");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-        assert!(state.has_matches());
-
-        state.find_all("", &SearchOptions::default(), &doc).unwrap();
-        assert!(!state.has_matches());
-        assert!(!state.is_active);
-    }
-
-    #[test]
-    fn multiline_search() {
-        let doc = Document::new("foo bar\nfoo baz");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 2);
-
-        // First match on line 0
-        let first = &state.matches[0];
-        assert_eq!(first.start.line, 0);
-        assert_eq!(first.start.column, 0);
-
-        // Second match on line 1
-        let second = &state.matches[1];
-        assert_eq!(second.start.line, 1);
-        assert_eq!(second.start.column, 0);
-    }
-
-    #[test]
-    fn update_query_detects_changes() {
-        let doc = Document::new("foo bar baz");
-        let mut state = SearchState::new();
-        state
-            .find_all("foo", &SearchOptions::default(), &doc)
-            .unwrap();
-        assert_eq!(state.match_count(), 1);
-
-        // Query that finds different number of matches
-        let changed = state.update_query("a", &doc).unwrap();
-        assert!(changed);
-        assert_eq!(state.match_count(), 2); // "a" in bar and baz
-    }
-
-    #[test]
-    fn escape_regex_special_chars() {
-        assert_eq!(SearchState::escape_regex("foo.bar"), r"foo\.bar");
-        assert_eq!(SearchState::escape_regex("[test]"), r"\[test\]");
-    }
-
-    /// Converts every match back to byte offsets and asserts each range is
-    /// valid and char-boundary-aligned in the original text, returning the
-    /// matched slices.
-    fn assert_matches_slice_cleanly<'a>(
-        state: &SearchState,
-        doc: &Document,
-        text: &'a str,
-    ) -> Vec<&'a str> {
-        state
-            .all_matches()
-            .iter()
-            .map(|range| {
-                let start = doc
-                    .position_to_offset(range.start)
-                    .expect("match start must map to a valid offset");
-                let end = doc
-                    .position_to_offset(range.end)
-                    .expect("match end must map to a valid offset");
-                text.get(start..end)
-                    .expect("match range must be char-boundary-aligned in the original text")
-            })
-            .collect()
-    }
-
-    #[test]
-    fn find_case_insensitive_dotted_capital_i_is_boundary_safe() {
-        // 'İ' (U+0130) lowercases to "i\u{307}" (2 bytes -> 3 bytes). The old
-        // lowercase-both-sides approach desynced byte offsets from the original
-        // text here. Unicode simple case folding (used by the regex engine)
-        // does not fold 'İ' to 'i', so "istanbul" does not match "İstanbul" —
-        // and crucially, no misaligned range is ever produced.
-        let text = "İstanbul";
-        let doc = Document::new(text);
-        let mut state = SearchState::new();
-        state
-            .find_all("istanbul", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 0);
-        assert!(assert_matches_slice_cleanly(&state, &doc, text).is_empty());
-    }
-
-    #[test]
-    fn find_case_insensitive_ascii_mixed_case_ranges() {
-        let text = "Hello HELLO hello hElLo";
-        let doc = Document::new(text);
-        let mut state = SearchState::new();
-        state
-            .find_all("hello", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 4);
-        let slices = assert_matches_slice_cleanly(&state, &doc, text);
-        assert_eq!(slices, vec!["Hello", "HELLO", "hello", "hElLo"]);
-    }
-
-    #[test]
-    fn find_case_insensitive_sharp_s_no_misaligned_ranges() {
-        // 'ẞ' (U+1E9E, 3 bytes) lowercases to 'ß' (U+00DF, 2 bytes), so the
-        // lowercased haystack is shorter than the original. The old approach
-        // produced ranges that were out of sync with (and not boundary-aligned
-        // in) the original text. Property: every reported match must slice
-        // cleanly out of the original haystack.
-        let text = "GROẞE straße";
-        let doc = Document::new(text);
-        let mut state = SearchState::new();
-        state
-            .find_all("ße", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        // Matches "ẞE" in "GROẞE" (via case folding) and "ße" in "straße".
-        assert_eq!(state.match_count(), 2);
-        let slices = assert_matches_slice_cleanly(&state, &doc, text);
-        assert_eq!(slices, vec!["ẞE", "ße"]);
-        for slice in slices {
-            assert_eq!(slice.to_lowercase(), "ße");
-        }
-    }
-
-    #[test]
-    fn find_case_insensitive_multibyte_whole_word() {
-        // Whole-word filtering must keep working on the case-insensitive path.
-        let text = "straße straßenbahn STRAẞE";
-        let doc = Document::new(text);
-        let mut state = SearchState::new();
-        state
-            .find_all("straße", &SearchOptions::whole_word(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 2);
-        let slices = assert_matches_slice_cleanly(&state, &doc, text);
-        assert_eq!(slices, vec!["straße", "STRAẞE"]);
-    }
-
-    #[test]
-    fn find_case_insensitive_overlapping_matches_preserved() {
-        // The literal search historically reports overlapping matches (resume
-        // one position past each match start); the case-insensitive path must
-        // preserve that.
-        let text = "aAa";
-        let doc = Document::new(text);
-        let mut state = SearchState::new();
-        state
-            .find_all("aa", &SearchOptions::default(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 2);
-        let slices = assert_matches_slice_cleanly(&state, &doc, text);
-        assert_eq!(slices, vec!["aA", "Aa"]);
-    }
-
-    #[test]
-    fn find_case_sensitive_multibyte_query_resumes_on_a_character_boundary() {
-        // The case-sensitive literal path resumes one *byte* past each match
-        // start. When the match starts on a multi-byte character that byte is
-        // inside it, and the next `text[start..]` panics on a non-boundary
-        // index — a hard crash in the search path for any accented query.
-        let text = "ééé";
-        let doc = Document::new(text);
-        let mut state = SearchState::new();
-        state
-            .find_all("é", &SearchOptions::case_sensitive(), &doc)
-            .unwrap();
-
-        assert_eq!(state.match_count(), 3);
-        let slices = assert_matches_slice_cleanly(&state, &doc, text);
-        assert_eq!(slices, vec!["é", "é", "é"]);
-    }
-
-    #[test]
-    fn whole_word_reads_a_non_ascii_neighbour_as_part_of_the_word() {
-        // The boundary test inspects one *byte* on each side, so every
-        // non-ASCII neighbour reads as a non-word character and the match is
-        // reported as a whole word. `na` is not a word in `naïve`.
-        let doc = Document::new("naïve");
-        let mut state = SearchState::new();
-        state
-            .find_all("na", &SearchOptions::whole_word(), &doc)
-            .unwrap();
-        assert_eq!(state.match_count(), 0, "`na` is not a whole word here");
-
-        // The same divergence on the leading side: the character before `ve`
-        // is `ï`, which is as much a word character as `i` is.
-        state
-            .find_all("ve", &SearchOptions::whole_word(), &doc)
-            .unwrap();
-        assert_eq!(state.match_count(), 0, "`ve` is not a whole word here");
-    }
-
-    #[test]
-    fn validate_regex_valid() {
-        assert!(SearchState::validate_regex(r"\w+").is_ok());
-    }
-
-    #[test]
-    fn validate_regex_invalid() {
-        assert!(SearchState::validate_regex("[invalid").is_err());
-    }
-}
+mod tests;

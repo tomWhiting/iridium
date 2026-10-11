@@ -165,6 +165,17 @@ impl CursorState {
         Self::new(Selection::collapsed(position))
     }
 
+    /// Builds a selection set, sorting and merging it once after collection.
+    ///
+    /// Prefer this to repeated `add_cursor` calls for a batch of search results:
+    /// the batch does not need to re-sort every prefix of the same result set.
+    #[must_use]
+    pub fn from_selections(primary: Selection, secondary: Vec<Selection>) -> Self {
+        let mut state = Self { primary, secondary };
+        state.merge_overlapping();
+        state
+    }
+
     /// Returns the total number of cursors.
     #[must_use]
     pub fn cursor_count(&self) -> usize {

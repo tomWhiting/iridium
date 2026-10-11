@@ -23,7 +23,7 @@ fn undo_last_cursor_removes_most_recent_after_ctrl_d() {
     assert!(press(&mut handler, &UNDO_CURSOR, &mut doc, &mut cursor).is_some());
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7))]
+        vec![((0, 4), (0, 7)), ((0, 0), (0, 3))]
     );
 
     assert!(press(&mut handler, &UNDO_CURSOR, &mut doc, &mut cursor).is_some());
@@ -41,11 +41,11 @@ fn undo_last_cursor_orders_across_add_above_and_below() {
 
     press(&mut handler, &ADD_ABOVE, &mut doc, &mut cursor); // add (0,1)
     press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor); // add (2,1)
-    assert_eq!(heads(&cursor), vec![(1, 1), (0, 1), (2, 1)]);
+    assert_eq!(heads(&cursor), vec![(2, 1), (0, 1), (1, 1)]);
 
     // Most recent is the (2,1) added by ADD_BELOW.
     assert!(press(&mut handler, &UNDO_CURSOR, &mut doc, &mut cursor).is_some());
-    assert_eq!(heads(&cursor), vec![(1, 1), (0, 1)]);
+    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1)]);
 
     assert!(press(&mut handler, &UNDO_CURSOR, &mut doc, &mut cursor).is_some());
     assert_eq!(heads(&cursor), vec![(1, 1)]);
@@ -116,14 +116,14 @@ fn skip_drops_last_and_advances_with_wrap() {
     press(&mut handler, &ADD_NEXT, &mut doc, &mut cursor); // add @8
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7)), ((0, 8), (0, 11))]
+        vec![((0, 8), (0, 11)), ((0, 0), (0, 3)), ((0, 4), (0, 7))]
     );
 
     // Skip drops the @8 cursor and advances to the next match @12.
     assert!(skip(&mut handler, &mut doc, &mut cursor).is_some());
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7)), ((0, 12), (0, 15))]
+        vec![((0, 12), (0, 15)), ((0, 0), (0, 3)), ((0, 4), (0, 7))]
     );
 
     // Skip again drops @12; no match after it, so it wraps to the first
@@ -131,7 +131,7 @@ fn skip_drops_last_and_advances_with_wrap() {
     assert!(skip(&mut handler, &mut doc, &mut cursor).is_some());
     assert_eq!(
         selections(&cursor),
-        vec![((0, 0), (0, 3)), ((0, 4), (0, 7)), ((0, 8), (0, 11))]
+        vec![((0, 8), (0, 11)), ((0, 0), (0, 3)), ((0, 4), (0, 7))]
     );
 }
 

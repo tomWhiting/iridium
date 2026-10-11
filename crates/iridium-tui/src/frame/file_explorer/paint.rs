@@ -181,6 +181,11 @@ pub(super) fn paint(
         paint_row(buffer, screen_row, content, row, styles);
     }
     placement.close(buffer, first + drawn, base);
+    if let Placement::Sidebar(band) = placement {
+        for row in 0..band.rows {
+            buffer.set_style(band.width - 1, row, styles.overlay_quiet());
+        }
+    }
 
     caret_position(body.caret, placement, drawn)
 }

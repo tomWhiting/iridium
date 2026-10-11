@@ -15,11 +15,12 @@
 //! [`KeyboardHandler::sync_add_order`] first and that discards a stack any other
 //! path has invalidated.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::document::{CursorState, Document, Position, Range, Selection};
 use crate::history::Command;
 
+use super::cursor_addition::CursorAddition;
 use super::motions::VerticalDirection;
 use super::types::KeyResult;
 use super::{KeyboardHandler, motions, multi_cursor};
@@ -81,12 +82,12 @@ impl KeyboardHandler {
         }
 
         // Find the next occurrence that is not already selected, starting after
-        // the last cursor and wrapping. Using the shared occurrence scan (which
+        // the active cursor and wrapping. Using the shared occurrence scan (which
         // skips ranges already `taken`) rather than a bare first-match search
         // means add-next-match composes with skip: after skip leaves an earlier
         // occurrence unselected, the next add fills that gap instead of
         // stopping on the first (already selected) match.
-        let search_start = Self::last_selection_end(&new_cursor);
+        let search_start = new_cursor.primary.end();
         let after = document.position_to_offset(search_start).unwrap_or(0);
         let taken: Vec<Range> = new_cursor.all_selections().map(Selection::range).collect();
 
@@ -97,18 +98,8 @@ impl KeyboardHandler {
         };
 
         new_cursor.add_cursor(next);
+        Self::focus_selection(&mut new_cursor, next);
         self.finish_cursor_command(cursor, &new_cursor)
-    }
-
-    /// Gets the position after the last selection (for add-next-match).
-    fn last_selection_end(cursor: &CursorState) -> Position {
-        let mut last_end = cursor.primary.end();
-        for sel in &cursor.secondary {
-            if sel.end() > last_end {
-                last_end = sel.end();
-            }
-        }
-        last_end
     }
 
     /// Selects every occurrence of the primary selection's text (or the word
@@ -157,8 +148,8 @@ impl KeyboardHandler {
         // to the primary rather than a zero-based partition, so a primary that
         // does not fall on a non-overlapping boundary (columns 1..3 of "aaa")
         // still yields the correct set. Building the secondary list directly —
-        // never via `add_cursor`, whose adjacency merge would fuse touching
-        // occurrences — keeps every match its own edit target. The occurrences
+        // rather than re-normalizing each prefix of the matches — keeps
+        // collection linear in the number of results. The occurrences
         // are non-overlapping by construction, so the state upholds the
         // `CursorState` invariants.
         let secondary =
@@ -183,7 +174,7 @@ impl KeyboardHandler {
         self.finish_cursor_command(cursor, &new_state)
     }
 
-    /// Removes the most recently added secondary cursor.
+    /// Removes the most recently added cursor and restores the previous focus.
     ///
     /// The cursor to remove is the top of the addition-order stack (see
     /// [`Self::cursor_add_order`]). With a single cursor, or when the stack has
@@ -201,7 +192,7 @@ impl KeyboardHandler {
             return KeyResult::Handled;
         };
 
-        let new_state = Self::remove_secondary(cursor, &target);
+        let new_state = Self::remove_added_cursor(cursor, target);
         self.add_order_anchor = Some(new_state.clone());
         Self::create_selection_command(cursor, &new_state)
     }
@@ -222,6 +213,9 @@ impl KeyboardHandler {
         direction: VerticalDirection,
     ) -> KeyResult {
         let revision = document.revision();
+        if self.visual_navigation.is_some() {
+            self.reset_vertical_state();
+        }
         self.sync_add_order(cursor, revision);
 
         // Reuse the sticky columns from a previous vertical move/add only when
@@ -230,26 +224,14 @@ impl KeyboardHandler {
         let preferred: Vec<usize> = self.take_sticky_columns_for(cursor, revision);
 
         // Clone each cursor one line in `direction`, keeping its sticky column.
-        let last_line = document.line_count().saturating_sub(1);
         let mut clones: Vec<(Selection, usize)> = Vec::new();
         for (index, sel) in cursor.all_selections().enumerate() {
             let sticky = preferred.get(index).copied().unwrap_or(sel.head.column);
-            let clone_line = match direction {
-                VerticalDirection::Up => {
-                    if sel.head.line == 0 {
-                        continue; // At the top: no cursor above.
-                    }
-                    sel.head.line - 1
-                },
-                VerticalDirection::Down => {
-                    if sel.head.line >= last_line {
-                        continue; // At the bottom: no cursor below.
-                    }
-                    sel.head.line + 1
-                },
-            };
-            let line_len = document.line_len(clone_line).unwrap_or(0);
-            let clone_pos = Position::new(clone_line, sticky.min(line_len));
+            let (clone_pos, _) =
+                self.folded_vertical_move(document, sel.head, sticky, direction, 1);
+            if clone_pos.line == sel.head.line {
+                continue;
+            }
             clones.push((Selection::collapsed(clone_pos), sticky));
         }
 
@@ -262,12 +244,26 @@ impl KeyboardHandler {
         }
 
         // Build the new cursor state: all originals plus the clones, merged.
-        let mut new_state = CursorState::new(cursor.primary);
-        for sel in &cursor.secondary {
-            new_state.add_cursor(*sel);
-        }
-        for (sel, _) in &clones {
-            new_state.add_cursor(*sel);
+        let secondary = cursor
+            .secondary
+            .iter()
+            .copied()
+            .chain(clones.iter().map(|(selection, _)| *selection))
+            .collect();
+        let mut new_state = CursorState::from_selections(cursor.primary, secondary);
+        let originals: HashSet<_> = cursor.all_selections().copied().collect();
+        let mut added: Vec<Selection> = new_state
+            .all_selections()
+            .copied()
+            .filter(|selection| !originals.contains(selection))
+            .collect();
+        added.sort_by_key(Selection::start);
+        let focus = match direction {
+            VerticalDirection::Up => added.first(),
+            VerticalDirection::Down => added.last(),
+        };
+        if let Some(focus) = focus {
+            Self::focus_selection(&mut new_state, *focus);
         }
 
         // Rebuild the sticky columns aligned to the new cursor order. Clones
@@ -350,7 +346,7 @@ impl KeyboardHandler {
         let occ_index = self
             .cursor_add_order
             .iter()
-            .rposition(|sel| !sel.is_collapsed());
+            .rposition(|entry| !entry.selection.is_collapsed());
 
         let Some(idx) = occ_index else {
             // No occurrence cursor to drop: bootstrap or move the primary.
@@ -366,7 +362,8 @@ impl KeyboardHandler {
             return self.skip_move_primary(document, cursor);
         };
 
-        let dropped = self.cursor_add_order[idx];
+        let entry = self.cursor_add_order[idx];
+        let dropped = entry.selection;
         let source = document.slice(dropped.range());
         if source.is_empty() {
             // A non-collapsed selection should always carry text; nothing safe
@@ -374,7 +371,7 @@ impl KeyboardHandler {
             return KeyResult::Handled;
         }
 
-        let remaining = Self::remove_secondary(cursor, &dropped);
+        let remaining = Self::remove_added_cursor(cursor, entry);
         let taken: Vec<Range> = remaining.all_selections().map(Selection::range).collect();
         let after = document
             .position_to_offset(dropped.range().end)
@@ -382,13 +379,18 @@ impl KeyboardHandler {
 
         match multi_cursor::next_occurrence(document, &source, after, &taken) {
             Some(next) if next.range() != dropped.range() => {
+                let remaining_primary = remaining.primary;
                 let mut new_state = remaining;
                 new_state.add_cursor(next);
+                Self::focus_selection(&mut new_state, next);
                 // Replace the dropped occurrence entry with the newly added
                 // one, keeping it the most recent occurrence for a following
                 // skip while leaving any collapsed (vertical) entries in place.
                 self.cursor_add_order.remove(idx);
-                self.cursor_add_order.push(next);
+                self.cursor_add_order.push(CursorAddition {
+                    selection: next,
+                    previous_primary: remaining_primary,
+                });
                 self.add_order_anchor = Some(new_state.clone());
                 Self::create_selection_command(cursor, &new_state)
             },
@@ -421,66 +423,6 @@ impl KeyboardHandler {
             },
             _ => KeyResult::Handled,
         }
-    }
-
-    /// Removes the secondary cursor whose selection equals `target`, rebuilding
-    /// the cursor state from the primary and remaining secondaries.
-    fn remove_secondary(cursor: &CursorState, target: &Selection) -> CursorState {
-        let mut new_state = CursorState::new(cursor.primary);
-        for sel in &cursor.secondary {
-            if sel != target {
-                new_state.add_cursor(*sel);
-            }
-        }
-        new_state
-    }
-
-    /// Ensures the addition-order stack is consistent with `cursor`.
-    ///
-    /// If the incoming cursor state differs from the one the stack was last
-    /// consistent with ([`Self::add_order_anchor`]), or the document content
-    /// changed since ([`Self::add_order_revision`] vs `revision`), some other
-    /// path moved, added, or removed a cursor — or shifted the text under
-    /// otherwise-unchanged cursors — so the stack is stale and is cleared.
-    /// Otherwise the stack is left intact (and any entry that somehow no longer
-    /// corresponds to a current secondary is dropped defensively).
-    fn sync_add_order(&mut self, cursor: &CursorState, revision: u64) {
-        if self.add_order_anchor.as_ref() != Some(cursor)
-            || self.add_order_revision != Some(revision)
-        {
-            self.cursor_add_order.clear();
-            self.add_order_anchor = Some(cursor.clone());
-            self.add_order_revision = Some(revision);
-            return;
-        }
-        let secondaries: Vec<Selection> = cursor.secondary.clone();
-        self.cursor_add_order
-            .retain(|sel| secondaries.contains(sel));
-    }
-
-    /// Records the cursor transition produced by a multi-cursor add verb.
-    ///
-    /// Every secondary cursor in `new_state` that was not already a selection
-    /// in `old` is pushed onto the addition-order stack in document order, and
-    /// the anchor is advanced to `new_state` so the next verb trusts the stack.
-    /// The comparison is by selection identity, not cursor *count*: select-all
-    /// can create fresh occurrence selections while *reducing* the count (five
-    /// vertical cursors collapsing to three matches), and those new selections
-    /// must still be recorded so remove-last-cursor/skip can peel them. Verbs
-    /// that only reshape the primary (the add-next-match word bootstrap) add no
-    /// new secondary and so push nothing.
-    ///
-    /// [`Self::add_order_revision`] is intentionally left untouched here: an
-    /// add verb never changes document content, so the revision recorded by
-    /// the preceding [`Self::sync_add_order`] still describes `new_state`.
-    fn record_cursor_change(&mut self, old: &CursorState, new_state: &CursorState) {
-        let old_selections: Vec<Selection> = old.all_selections().copied().collect();
-        for sel in &new_state.secondary {
-            if !old_selections.contains(sel) {
-                self.cursor_add_order.push(*sel);
-            }
-        }
-        self.add_order_anchor = Some(new_state.clone());
     }
 
     /// Records the cursor change and emits the resulting selection command.

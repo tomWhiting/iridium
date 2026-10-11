@@ -324,6 +324,10 @@ impl DesktopApp {
     /// Acts on what the kernel made of a key.
     fn consume(&mut self, result: EditorKeyResult) -> Flow {
         match result {
+            EditorKeyResult::Error(message) => {
+                self.message = Some(Message::error(message));
+                Flow::Running
+            },
             EditorKeyResult::None => Flow::Running,
             EditorKeyResult::Clipboard(operation) => {
                 self.clipboard(operation);
@@ -359,7 +363,11 @@ impl DesktopApp {
                     self.search.close(editor);
                 }
             },
-            SearchAction::NextMatch | SearchAction::PreviousMatch => {},
+            SearchAction::NextMatch
+            | SearchAction::PreviousMatch
+            | SearchAction::SelectAllMatches
+            | SearchAction::OpenInSelection
+            | SearchAction::ClearScope => {},
         }
     }
 }

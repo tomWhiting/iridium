@@ -183,8 +183,14 @@ impl KeyEvent {
 /// Search-related actions triggered by keyboard input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchAction {
+    /// Turn the active search results into editable selections.
+    SelectAllMatches,
     /// Open the search panel (Ctrl+F)
     OpenSearch,
+    /// Capture selected text and open a scoped search.
+    OpenInSelection,
+    /// Return a scoped query to the full document.
+    ClearScope,
     /// Go to next match (F3 or Enter in search)
     NextMatch,
     /// Go to previous match (Shift+F3)
@@ -267,6 +273,16 @@ pub enum AstRequest {
     ExpandSelection,
     /// Undo one expansion, restoring the selections exactly as they were.
     ShrinkSelection,
+    /// Retrace a parent expansion to nodes, or select a first child.
+    DescendSelection,
+    /// Navigate through syntax, words and grapheme clusters.
+    NavigatePrevious,
+    /// Navigate through syntax, words and grapheme clusters.
+    NavigateNext,
+    /// Navigate through syntax, words and grapheme clusters.
+    NavigateCoarser,
+    /// Navigate through syntax, words and grapheme clusters.
+    NavigateFiner,
 
     /// Select the next node beside the current one, climbing when it is last.
     SelectNextSibling,
@@ -351,11 +367,28 @@ pub enum AstRequest {
 /// Result of handling a keyboard event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyResult {
+    /// A rejected operation; the host must display the diagnostic.
+    Error(String),
     /// The event was handled, no further action needed
     Handled,
 
     /// The event was handled and a command was produced
     Command(Command),
+
+    /// Repeat the last successful composed command sequence.
+    RepeatSequence(u32),
+    /// Finish the current recorded change.
+    FinishChange,
+
+    /// A preflighted composition, committed by the editor as one undo unit.
+    Sequence {
+        /// Ordered command invocations.
+        steps: Vec<crate::commands::CommandInvocation>,
+        /// Mode transition delayed until successful commit.
+        enters_mode: Option<crate::commands::ModeName>,
+        /// Capture following editing input as part of this change.
+        record_input: bool,
+    },
 
     /// The event triggered a clipboard operation
     Clipboard(ClipboardOperation),
@@ -374,6 +407,14 @@ pub enum KeyResult {
     /// See [`AstRequest`] for why this is a request rather than a
     /// [`Self::Command`].
     Ast(AstRequest),
+
+    /// Repeat a structural selection, stopping at a tree boundary.
+    AstRepeated {
+        /// The tree operation to repeat.
+        request: AstRequest,
+        /// Requested steps; zero leaves the selection unchanged.
+        count: u32,
+    },
 
     /// A binding resolved to a command this kernel does not implement.
     ///

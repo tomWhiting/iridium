@@ -121,10 +121,6 @@ impl FloatingBox {
     }
 }
 
-/// The widest a sidebar gets. Wide enough for a nested path, narrow enough
-/// that the document keeps most of the screen.
-const SIDEBAR_WIDTH: usize = 32;
-
 /// A full-height band down the left edge, holding a panel that takes its
 /// columns **from** the document rather than floating over it (R4).
 ///
@@ -171,11 +167,20 @@ impl SidebarBox {
     /// which fits screens a band cannot.
     ///
     /// The band never takes more than half the screen, whatever
-    /// [`SIDEBAR_WIDTH`] says: a file tree that leaves the document narrower
+    /// the requested width says: a file tree that leaves the document narrower
     /// than itself has inverted which one is the point.
-    pub(in crate::frame) const fn fitted(columns: usize, rows: usize) -> Option<Self> {
-        let width = if SIDEBAR_WIDTH < columns / 2 {
-            SIDEBAR_WIDTH
+    pub(in crate::frame) const fn fitted(
+        columns: usize,
+        rows: usize,
+        requested: usize,
+    ) -> Option<Self> {
+        let requested = if requested < MIN_WIDTH {
+            MIN_WIDTH
+        } else {
+            requested
+        };
+        let width = if requested < columns / 2 {
+            requested
         } else {
             columns / 2
         };

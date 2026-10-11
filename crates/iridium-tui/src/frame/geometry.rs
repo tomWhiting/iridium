@@ -58,6 +58,8 @@ pub struct Chrome<'a> {
     /// many columns are gone and nothing else about what took them, exactly as
     /// it takes `SearchOverlay::rows` and not the overlay's contents.
     pub sidebar_columns: usize,
+    /// Reserve a row immediately above the statusline for the host's tabs.
+    pub tab_bar: bool,
 }
 
 /// Where everything went: the geometry one frame was drawn with.
@@ -89,12 +91,15 @@ pub struct FrameLayout {
     pub search_rows: Option<(usize, usize)>,
     /// The row the statusline occupies, if the screen has one.
     pub status_row: Option<usize>,
+    /// The host tab strip, above the statusline when requested and space permits.
+    pub tab_row: Option<usize>,
     /// The kernel's viewport, driven in cell units.
     pub viewport: Viewport,
     /// Where the primary caret landed, if it is on screen.
     pub primary_caret: Option<CellPosition>,
     /// Where the caret in the search panel's focused field landed.
     pub search_caret: Option<CellPosition>,
+    pub(super) wrapped: Option<super::wrapping::Wrapped>,
 }
 
 impl FrameLayout {
@@ -147,6 +152,22 @@ pub const fn document_rows(rows: usize, search_open: bool) -> usize {
 
 /// The geometry a screen of this size would be drawn with.
 pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) -> FrameLayout {
+    let mut geometry = hit_layout(editor, columns, rows, chrome);
+    geometry.primary_caret = if let Some(wrapped) = &geometry.wrapped {
+        wrapped.caret(editor.cursor(), geometry.text.origin, geometry.text.width)
+    } else {
+        caret_cell(
+            editor,
+            &geometry.viewport,
+            geometry.text,
+            editor.state().cursor.primary.head,
+        )
+    };
+    geometry
+}
+
+/// Document geometry without laying out an unused caret line.
+pub fn hit_layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) -> FrameLayout {
     let state = editor.state();
     let total_lines = state.document.line_count();
     // The band comes off the screen FIRST, and everything on the X axis is
@@ -162,23 +183,37 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
     let gutter_width = gutter::width(total_lines, state.config.show_line_numbers).min(available);
     let text_width = available - gutter_width;
     let status_row = rows.checked_sub(1);
-    let below_status = rows.saturating_sub(1);
+    let tab_row = if chrome.tab_bar {
+        rows.checked_sub(2)
+    } else {
+        None
+    };
+    let content_rows = rows.saturating_sub(usize::from(tab_row.is_some()));
+    let below_status = content_rows.saturating_sub(1);
 
     let panel_rows = chrome
         .search
         .map_or(0, |_| SearchOverlay::rows(below_status));
-    let text_rows = document_rows(rows, chrome.search.is_some());
+    let text_rows = document_rows(content_rows, chrome.search.is_some());
     let search_rows = if panel_rows == 0 {
         None
     } else {
         Some((text_rows, panel_rows))
     };
-    let scroll = whole_cells(state.viewport.scroll_offset_x);
+    let scroll = if state.config.word_wrap {
+        0
+    } else {
+        whole_cells(state.viewport.scroll_offset_x)
+    };
 
     let viewport = Viewport {
         first_line: state.viewport.first_line,
-        scroll_offset_y: 0.0,
-        scroll_offset_x: state.viewport.scroll_offset_x,
+        scroll_offset_y: if state.config.word_wrap {
+            state.viewport.scroll_offset_y
+        } else {
+            0.0
+        },
+        scroll_offset_x: cell_units(scroll),
         width: cell_units(text_width),
         height: cell_units(text_rows),
         visible_lines: text_rows,
@@ -191,8 +226,6 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
         scroll,
     };
 
-    let primary_caret = caret_cell(editor, &viewport, text, state.cursor.primary.head);
-
     FrameLayout {
         sidebar_columns,
         gutter_width,
@@ -200,11 +233,16 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
         text_rows,
         search_rows,
         status_row,
+        tab_row,
         viewport,
-        primary_caret,
+        primary_caret: None,
         // Filled in by the render pass, which is what knows whether the
         // panel's focused field had room to be drawn.
         search_caret: None,
+        wrapped: state
+            .config
+            .word_wrap
+            .then(|| super::wrapping::Wrapped::build(editor, text_width, text_rows)),
     }
 }
 
@@ -221,13 +259,18 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
 /// Scroll position is left alone: where the document is scrolled to is kernel
 /// state, and a resize does not move it.
 pub fn sync_viewport(editor: &mut Editor, columns: usize, rows: usize, chrome: Chrome<'_>) {
-    let geometry = layout(editor, columns, rows, chrome);
-    let state = editor.state_mut();
-    state.viewport.width = geometry.viewport.width;
-    state.viewport.height = geometry.viewport.height;
-    state.viewport.line_height = 1.0;
-    state.viewport.visible_lines = geometry.viewport.visible_lines;
-    state.viewport.scroll_offset_y = 0.0;
+    let geometry = hit_layout(editor, columns, rows, chrome);
+    let navigation = editor.state().config.word_wrap.then(|| {
+        std::sync::Arc::new(super::visual_navigation::Navigation {
+            width: geometry.text.width.max(1),
+            tab_width: editor.state().config.tab_width,
+        })
+            as std::sync::Arc<
+                dyn iridium_editor::input::keyboard::visual_navigation::VisualNavigation,
+            >
+    });
+    editor.set_visual_navigation(navigation);
+    editor.set_viewport(geometry.viewport);
 }
 
 /// Where a document position lands on screen, if it is visible at all.
@@ -243,8 +286,19 @@ fn caret_cell(
     if row >= viewport.visible_lines {
         return None;
     }
-    let text = state.document.line(position.line)?;
-    let cell = LineLayout::new(&text, state.config.tab_width).column_to_cell(position.column);
+    let layout = match LineLayout::document_prefix(
+        &state.document,
+        position.line,
+        state.config.tab_width,
+        area.scroll.saturating_add(area.width).saturating_add(1),
+    ) {
+        Ok(layout) => layout,
+        Err(error) => {
+            tracing::warn!(%error,"cannot place caret; the line renderer reports the read error");
+            return None;
+        },
+    };
+    let cell = layout.column_to_cell(position.column);
     if cell < area.scroll || cell >= area.scroll + area.width {
         return None;
     }

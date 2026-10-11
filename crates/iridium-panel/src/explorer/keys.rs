@@ -68,6 +68,7 @@ impl FileExplorer {
     /// into a filename is an unclaimed key in `explorer.edit` mode, and the
     /// screen decides where an unclaimed key goes.
     pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
+        self.restoring = None;
         let editing = self.mode.is_editing();
         let resolved = self.resolve_key(event);
         if editing {
@@ -321,7 +322,14 @@ impl FileExplorer {
     /// answer is to say so rather than to open a session that cannot be
     /// applied.
     fn begin_editing(&mut self) -> ExplorerOutcome {
-        if self.wanted.is_some() {
+        if let Some(error) = self
+            .files
+            .info(self.files.root())
+            .and_then(|info| info.error)
+        {
+            return ExplorerOutcome::Failed(format!("cannot edit an unread folder: {error}"));
+        }
+        if self.wanted.is_some() || self.is_waiting() {
             return ExplorerOutcome::Failed(
                 "still reading this folder — nothing to edit yet".to_owned(),
             );
@@ -356,6 +364,7 @@ impl FileExplorer {
     /// The field refuses control characters, so a multi-line paste
     /// contributes its printable characters only.
     pub fn paste(&mut self, text: &str) {
+        self.restoring = None;
         if self.mode.is_editing() {
             // Nothing to paste into while a refusal or a confirmation is on
             // screen: neither is showing the rows, so the characters would

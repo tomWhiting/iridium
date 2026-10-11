@@ -33,12 +33,15 @@ pub struct KeyBinding {
     sequence: Vec<StrokePattern>,
     /// The command to run, or `None` when the binding runs nothing.
     command: Option<CommandId>,
+    /// Commands composed after the first, without its count or captures.
+    following: Vec<CommandId>,
     /// The mode the binding is scoped to, or `None` for every mode.
     mode: Option<ModeName>,
     /// The mode to switch to when the binding matches.
     enters_mode: Option<ModeName>,
     /// Whether a decimal count may be typed into this sequence.
     accepts_count: bool,
+    record_input: bool,
 }
 
 impl KeyBinding {
@@ -52,10 +55,35 @@ impl KeyBinding {
         Self {
             sequence: Self::build_sequence(first, rest),
             command: Some(command),
+            following: Vec::new(),
             mode: None,
             enters_mode: None,
             accepts_count: false,
+            record_input: false,
         }
+    }
+
+    /// Composes an ordinary command after this binding's first command.
+    /// The first receives the key sequence's count/captures; later commands run
+    /// once. The editor stages the whole composition as one undoable operation.
+    #[must_use]
+    pub fn then_command(mut self, command: CommandId) -> Self {
+        if self.command.is_none() {
+            self.command = Some(command);
+        } else {
+            self.following.push(command);
+        }
+        self
+    }
+
+    /// The commands run after the first command.
+    #[must_use]
+    pub fn following_commands(&self) -> &[CommandId] {
+        &self.following
+    }
+
+    pub(super) fn following_commands_mut(&mut self) -> &mut [CommandId] {
+        &mut self.following
     }
 
     /// Explicitly unbinds a sequence.
@@ -72,9 +100,11 @@ impl KeyBinding {
         Self {
             sequence: Self::build_sequence(first, rest),
             command: None,
+            following: Vec::new(),
             mode: None,
             enters_mode: None,
             accepts_count: false,
+            record_input: false,
         }
     }
 
@@ -90,9 +120,11 @@ impl KeyBinding {
         Self {
             sequence: Self::build_sequence(first, rest),
             command: None,
+            following: Vec::new(),
             mode: None,
             enters_mode: Some(mode),
             accepts_count: false,
+            record_input: false,
         }
     }
 
@@ -116,6 +148,21 @@ impl KeyBinding {
     pub fn then_enter_mode(mut self, mode: ModeName) -> Self {
         self.enters_mode = Some(mode);
         self
+    }
+
+    /// Begins a change session after the command commits, recording input
+    /// until it is finished or the editor leaves `mode`.
+    #[must_use]
+    pub fn then_record_input(mut self, mode: ModeName) -> Self {
+        self.enters_mode = Some(mode);
+        self.record_input = true;
+        self
+    }
+
+    /// Whether this binding records subsequent editing input.
+    #[must_use]
+    pub const fn records_input(&self) -> bool {
+        self.record_input
     }
 
     /// Declares that a decimal count may be typed into this sequence.
@@ -344,6 +391,9 @@ struct BindingData {
     /// The command, `null` to unbind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     command: Option<CommandId>,
+    /// Commands composed after the first, without its count or captures.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    following: Vec<CommandId>,
     /// The mode scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<ModeName>,
@@ -354,6 +404,8 @@ struct BindingData {
     // `Not::not` is implemented for `&bool`, which is the shape serde passes.
     #[serde(default, skip_serializing_if = "core::ops::Not::not")]
     count_prefix: bool,
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    record_input: bool,
 }
 
 impl From<KeyBinding> for BindingData {
@@ -361,9 +413,11 @@ impl From<KeyBinding> for BindingData {
         Self {
             keys: binding.sequence,
             command: binding.command,
+            following: binding.following,
             mode: binding.mode,
             enters_mode: binding.enters_mode,
             count_prefix: binding.accepts_count,
+            record_input: binding.record_input,
         }
     }
 }
@@ -384,12 +438,24 @@ impl<'de> Deserialize<'de> for KeyBinding {
                 .to_string(),
             ));
         };
+        if data.record_input && (data.command.is_none() || data.enters_mode.is_none()) {
+            return Err(D::Error::custom(
+                "recording input requires a command and target mode",
+            ));
+        }
+        if data.command.is_none() && !data.following.is_empty() {
+            return Err(D::Error::custom(
+                "following commands require a first command",
+            ));
+        }
         Ok(Self {
             sequence: Self::build_sequence(*first, rest),
             command: data.command,
+            following: data.following,
             mode: data.mode,
             enters_mode: data.enters_mode,
             accepts_count: data.count_prefix,
+            record_input: data.record_input,
         })
     }
 }

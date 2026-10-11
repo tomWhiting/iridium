@@ -337,7 +337,7 @@ fn a_horizontal_round_trip_does_not_revive_the_addition_order_stack() {
     let mut handler = KeyboardHandler::new();
 
     press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor);
-    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1)]);
+    assert_eq!(heads(&cursor), vec![(1, 1), (0, 1)]);
 
     press(
         &mut handler,
@@ -353,7 +353,7 @@ fn a_horizontal_round_trip_does_not_revive_the_addition_order_stack() {
     );
     assert_eq!(
         heads(&cursor),
-        vec![(0, 1), (1, 1)],
+        vec![(1, 1), (0, 1)],
         "the round trip must return to the same two cursors"
     );
 
@@ -373,7 +373,7 @@ fn an_edit_that_round_trips_does_not_revive_the_addition_order_stack() {
     let mut handler = KeyboardHandler::new();
 
     press(&mut handler, &ADD_BELOW, &mut doc, &mut cursor);
-    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1)]);
+    assert_eq!(heads(&cursor), vec![(1, 1), (0, 1)]);
 
     press(
         &mut handler,
@@ -388,7 +388,7 @@ fn an_edit_that_round_trips_does_not_revive_the_addition_order_stack() {
         &mut cursor,
     );
     assert_eq!(doc.text(), "aaa\nbbb\nccc");
-    assert_eq!(heads(&cursor), vec![(0, 1), (1, 1)]);
+    assert_eq!(heads(&cursor), vec![(1, 1), (0, 1)]);
 
     assert_eq!(
         probe(&mut handler, &REMOVE_LAST, &doc, &cursor),

@@ -53,6 +53,8 @@ use iridium_explorer::{FileTree, NodeId};
 pub struct FilterRow {
     /// The node this row draws.
     pub id: NodeId,
+    /// Relative path shown beside a ranked hit.
+    pub path: Option<String>,
     /// How far the row is indented, counted from the root at zero.
     pub depth: usize,
     /// Character positions **into the node's name** to highlight.
@@ -165,6 +167,7 @@ pub fn filter(files: &FileTree, pattern: &Pattern) -> FilterView {
         }
         rows.push(FilterRow {
             id: visit.id,
+            path: None,
             depth: visit.depth,
             positions: visit.positions,
             score: visit.score,
@@ -262,4 +265,44 @@ fn keep_flags(visits: &[Visit]) -> Vec<bool> {
         }
     }
     keep
+}
+
+/// How a host presents narrowed results. The unfiltered Oil tree is unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FilterOrder {
+    /// Preserve ancestors and tree order.
+    #[default]
+    Tree,
+    /// Best matches first, with relative paths beside each name.
+    Relevance,
+}
+
+/// Ranked hits only; stable tree order breaks equal-score ties.
+#[must_use]
+pub fn ranked(files: &FileTree, pattern: &Pattern, query: &str) -> FilterView {
+    let mut visits = walk(files, pattern);
+    // A plain fuzzy query names a file, rather than every descendant of a
+    // matching folder. Include a slash to match across the relative path.
+    if matches!(pattern, Pattern::Fuzzy(_)) && !query.contains(['/', '\\']) {
+        for visit in &mut visits {
+            let name = visit.relative.rsplit('/').next().unwrap_or("");
+            let hit = pattern.find(name);
+            visit.score = hit.as_ref().map(|hit| hit.score);
+            visit.positions = hit.map(|hit| hit.positions).unwrap_or_default();
+        }
+    }
+    visits.retain(|visit| visit.score.is_some());
+    visits.sort_by_key(|visit| std::cmp::Reverse(visit.score));
+    let rows: Vec<_> = visits
+        .into_iter()
+        .map(|visit| FilterRow {
+            id: visit.id,
+            path: Some(visit.relative),
+            depth: 0,
+            positions: visit.positions,
+            score: visit.score,
+        })
+        .collect();
+    let best = (!rows.is_empty()).then_some(0);
+    FilterView { rows, best }
 }

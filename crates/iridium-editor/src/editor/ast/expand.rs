@@ -45,8 +45,9 @@ use crate::syntax_stubs::Tree;
 /// The cursor states an expansion walked out through, newest last.
 #[derive(Debug, Default, Clone)]
 pub struct ExpandStack {
-    /// The states to return to, in the order they were left.
-    frames: Vec<CursorState>,
+    /// Saved states and whether structural descent may retrace them. Ordinary
+    /// shrink restores every state, including arbitrary text selections.
+    frames: Vec<(CursorState, bool)>,
     /// The state the last push or pop produced.
     ///
     /// Compared against the live cursors to decide whether this stack still
@@ -106,15 +107,31 @@ impl ExpandStack {
     }
 
     /// Records a widening: `previous` becomes the state a shrink returns to.
-    fn push(&mut self, previous: CursorState, produced: &CursorState) {
-        self.frames.push(previous);
+    fn push(
+        &mut self,
+        previous: CursorState,
+        produced: &CursorState,
+        root: Node<'_>,
+        document: &Document,
+    ) {
+        // Structural extension may span several siblings without matching one
+        // node. Preserve that deliberate extent, but not a manually selected
+        // fragment that mode entry merely snapped onto the tree.
+        let retrace = previous
+            .all_selections()
+            .all(|selection| !selection.is_collapsed())
+            && (self.produced.as_ref() == Some(&previous)
+                || previous
+                    .all_selections()
+                    .all(|selection| is_node_selection(root, document, *selection)));
+        self.frames.push((previous, retrace));
         self.produced = Some(produced.clone());
     }
 
     /// Returns to the most recently recorded state, if there is one.
-    fn pop(&mut self) -> Option<CursorState> {
+    fn pop(&mut self) -> Option<(CursorState, bool)> {
         let frame = self.frames.pop()?;
-        self.produced = Some(frame.clone());
+        self.produced = Some(frame.0.clone());
         Some(frame)
     }
 
@@ -150,23 +167,38 @@ pub(super) fn selection_for(
         // ----- Widening: the state left behind becomes a frame -----
         AstRequest::SelectNode => {
             let next = map_selections(root, document, cursor, walk::select_node)?;
-            stack.push(cursor.clone(), &next);
+            stack.push(cursor.clone(), &next, root, document);
             return Some(next);
         },
         AstRequest::ExpandSelection => {
             let next = map_selections(root, document, cursor, walk::expand)?;
-            stack.push(cursor.clone(), &next);
+            stack.push(cursor.clone(), &next, root, document);
             return Some(next);
         },
 
         // ----- Retracing: a recorded frame if there is one, a walk if not -----
         AstRequest::ShrinkSelection => {
-            if let Some(frame) = stack.pop() {
+            if let Some((frame, _)) = stack.pop() {
                 return Some(frame);
             }
             // A downward walk must not become a frame: pushing here would make
             // the *next* shrink widen the selection again.
             let next = map_selections(root, document, cursor, walk::shrink)?;
+            stack.record(&next);
+            return Some(next);
+        },
+
+        AstRequest::NavigateFiner
+        | AstRequest::NavigateCoarser
+        | AstRequest::NavigateNext
+        | AstRequest::NavigatePrevious => return None,
+        AstRequest::DescendSelection => {
+            while let Some((frame, retrace)) = stack.pop() {
+                if retrace {
+                    return Some(frame);
+                }
+            }
+            let next = map_selections(root, document, cursor, walk::first_child)?;
             stack.record(&next);
             return Some(next);
         },
@@ -233,6 +265,23 @@ pub(super) fn selection_for(
     Some(next)
 }
 
+/// Structural descent retraces whole nodes, never a partial text selection
+/// that was snapped on entry. Ordinary shrink still restores the exact frame.
+#[cfg(feature = "syntax")]
+fn is_node_selection(root: Node<'_>, document: &Document, selection: Selection) -> bool {
+    if selection.is_collapsed() {
+        return false;
+    }
+    let (Some(start), Some(end)) = (
+        document.position_to_offset(selection.start()),
+        document.position_to_offset(selection.end()),
+    ) else {
+        return false;
+    };
+    let range = start..end;
+    walk::select_node(root, &range).as_ref() == Some(&range)
+}
+
 /// The stub build has no tree to read, so every structural verb does nothing.
 ///
 /// The verbs still exist, with the same ids and the same default bindings, so a
@@ -284,9 +333,9 @@ fn map_selections(
         return None;
     }
 
-    // `add_cursor` merges anything that now overlaps, which is exactly what
-    // should happen when two cursors expand onto the same node — and precisely
-    // why the stack keeps whole states rather than one stack per cursor.
+    // Batch normalization merges overlapping nodes while preserving primary
+    // identity. The stack keeps whole states so shrinking can restore cursors
+    // that merged during expansion.
     gather(next.into_iter())
 }
 
@@ -380,15 +429,20 @@ fn fan_out(
             continue;
         };
 
+        let mut produced = false;
         for range in spread(root, &(start..end)) {
             let Some(spread) = to_selection(document, &range, selection.is_backward()) else {
                 continue;
             };
+            produced = true;
             if leading.is_none() && selection == primary && range.contains(&start) {
                 leading = Some(spread);
             } else {
                 rest.push(spread);
             }
+        }
+        if !produced {
+            rest.push(selection);
         }
     }
 
@@ -403,11 +457,10 @@ fn fan_out(
 #[cfg(feature = "syntax")]
 fn gather(selections: impl Iterator<Item = Selection>) -> Option<CursorState> {
     let mut selections = selections;
-    let mut state = CursorState::new(selections.next()?);
-    for selection in selections {
-        state.add_cursor(selection);
-    }
-    Some(state)
+    Some(CursorState::from_selections(
+        selections.next()?,
+        selections.collect(),
+    ))
 }
 
 /// Moves one selection to the range a walk returns for it.

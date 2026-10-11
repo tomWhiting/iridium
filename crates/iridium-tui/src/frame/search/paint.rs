@@ -124,6 +124,8 @@ pub(super) struct Panel<'a> {
     pub(super) editor: &'a Editor,
     /// The resolved theme.
     pub(super) palette: &'a Palette,
+    /// Matches without a visible range or empty-position marker this frame.
+    pub(super) offscreen: usize,
 }
 
 /// Paints one panel row and returns where its field's caret landed.
@@ -164,6 +166,7 @@ fn paint_row(
     };
     let style = panel.palette.overlay_field(field == panel.overlay.focus);
     text.paint(buffer, row, area, style);
+    text.paint_selection(buffer, row, area, panel.palette.selected(style));
 
     Some(CellPosition {
         column: area.origin + (caret - area.scroll),
@@ -197,7 +200,13 @@ fn paint_right_side(
 
 /// Paints the toggles and the match count, and returns the cells they took.
 fn paint_counters(buffer: &mut CellBuffer, row: usize, budget: usize, panel: Panel<'_>) -> usize {
-    let (count, is_error) = count_segment(panel);
+    let (mut count, is_error) = count_segment(panel);
+    if !is_error && !count.is_empty() && panel.offscreen > 0 {
+        let expanded = format!("{count} · {} off-screen", panel.offscreen);
+        if display_width(&expanded) <= budget {
+            count = expanded;
+        }
+    }
     let count_cells = display_width(&count);
     let width = buffer.width();
 
@@ -263,7 +272,7 @@ fn paint_toggles(
 
 /// Paints the feedback message, clipped to `budget`, and returns its cells.
 fn paint_feedback(buffer: &mut CellBuffer, row: usize, budget: usize, panel: Panel<'_>) -> usize {
-    let Some((message, is_error)) = feedback_segment(panel.overlay) else {
+    let Some((message, is_error)) = feedback_segment(panel.overlay, panel.editor) else {
         return 0;
     };
     let used = display_width(&message).min(budget);
@@ -293,11 +302,22 @@ fn paint_feedback(buffer: &mut CellBuffer, row: usize, budget: usize, panel: Pan
 /// user has not asked a question yet, and answering one they did not ask reads
 /// as a failure.
 fn count_segment(panel: Panel<'_>) -> (String, bool) {
+    let (count, error) = unscoped_count_segment(panel);
+    let count = match panel.editor.search_state().scope_range_count() {
+        Some(scopes) => format!("{scopes} sel · {count}"),
+        None => count,
+    };
+    (count, error)
+}
+
+fn unscoped_count_segment(panel: Panel<'_>) -> (String, bool) {
     if panel.overlay.query.is_empty() {
         return (String::new(), false);
     }
-    if panel.overlay.has_error() {
-        let text = if panel.overlay.options.regex {
+    if panel.editor.search_state().error().is_some() {
+        let text = if panel.editor.search_state().scope_is_stale() {
+            "Scope changed"
+        } else if panel.editor.search_state().options.regex {
             "Invalid regex"
         } else {
             "Invalid query"
@@ -323,14 +343,22 @@ fn count_segment(panel: Panel<'_>) -> (String, bool) {
 /// to say *that* the pattern is broken; this is where the engine says how, and
 /// a stale `Replaced 4 matches` sitting in its place would leave the user with
 /// no way to find out.
-fn feedback_segment(overlay: &SearchOverlay) -> Option<(String, bool)> {
-    if let Some(message) = overlay.error() {
+fn feedback_segment(overlay: &SearchOverlay, editor: &Editor) -> Option<(String, bool)> {
+    if let Some(message) = editor.search_state().error() {
         return Some((message.to_owned(), true));
     }
     Some(match overlay.feedback {
-        Feedback::None => return None,
+        Feedback::None => {
+            let hint = if editor.search_state().scope_range_count().is_some() {
+                &overlay.scope_hint
+            } else {
+                &overlay.selection_hint
+            };
+            return hint.as_ref().map(|hint| (hint.clone(), false));
+        },
         Feedback::Replaced(1) => ("Replaced 1 match".to_owned(), false),
         Feedback::Replaced(count) => (format!("Replaced {count} matches"), false),
+        Feedback::NoSelection => ("No matches to select".to_owned(), true),
         Feedback::NoMatch => ("No match to replace".to_owned(), true),
         Feedback::ReadOnly => ("Document is read-only".to_owned(), true),
     })

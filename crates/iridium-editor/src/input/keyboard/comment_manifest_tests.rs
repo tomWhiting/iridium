@@ -53,6 +53,7 @@ type CommentRow = (
 ///
 /// Hand-written and not derived — see the module note on why that is the point.
 const EXPECTED: &[CommentRow] = &[
+    ("toml", Some("#"), None),
     // AWL has no block pair at all, so `Ctrl+Shift+/` correctly does nothing
     // in a `.awl` file. Its `///` and `//!` are distinct grammar tokens rather
     // than a convention over `//`, so — unlike Rust, which lists all three —

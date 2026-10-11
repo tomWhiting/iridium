@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::commands::Command;
 
 mod info;
+mod navigation;
 
 pub use info::{UndoNodeInfo, UndoTreeInfo, UndoTreeSnapshot};
 
@@ -100,6 +101,7 @@ pub struct UndoTree {
     next_id: u64,
     /// Time of last edit (for grouping)
     last_edit_time: Option<Instant>,
+    explicit_group: Option<UndoNodeId>,
     /// Grouping timeout in milliseconds
     group_timeout_ms: u64,
 }
@@ -134,6 +136,7 @@ impl UndoTree {
             current: root_id,
             next_id: 1,
             last_edit_time: None,
+            explicit_group: None,
             group_timeout_ms: 500,
         }
     }
@@ -154,6 +157,23 @@ impl UndoTree {
     /// parts would invent undo steps the user never saw.
     pub const fn set_group_timeout_ms(&mut self, timeout_ms: u64) {
         self.group_timeout_ms = timeout_ms;
+    }
+
+    /// Ends the current typing group without adding an undo step.
+    pub const fn finish_group(&mut self) {
+        self.last_edit_time = None;
+        self.explicit_group = None;
+    }
+
+    /// Keeps subsequent commands in the current leaf edit until explicitly finished.
+    /// Returns false at the root or a node with existing redo branches.
+    pub fn begin_group(&mut self) -> bool {
+        let eligible = self
+            .nodes
+            .get(&self.current)
+            .is_some_and(|node| node.command.is_some() && node.children.is_empty());
+        self.explicit_group = eligible.then_some(self.current);
+        eligible
     }
 
     /// Pushes a new command onto the tree.
@@ -218,154 +238,6 @@ impl UndoTree {
         }
 
         self.last_edit_time = Some(now);
-    }
-
-    /// Undoes the current node's command and moves to parent.
-    ///
-    /// Returns the inverse command that was applied, or `None` if at root.
-    pub fn undo(&mut self) -> Option<Command> {
-        let current_node = self.nodes.get(&self.current)?;
-        let parent_id = current_node.parent?;
-        let command = current_node.command.clone()?;
-
-        // Remember which branch we came from so `redo` retraces this exact
-        // step instead of re-entering a sibling that was abandoned earlier.
-        let departed = self.current;
-        if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
-            parent_node.preferred_child = Some(departed);
-        }
-
-        self.current = parent_id;
-        self.last_edit_time = None;
-
-        Some(command.inverse())
-    }
-
-    /// Redoes by moving back down the active path.
-    ///
-    /// Returns to the child recorded by the most recent [`UndoTree::undo`],
-    /// [`UndoTree::redo_branch`], or [`UndoTree::push`] at this node, so redo
-    /// always reverses the traversal that led here. When no such child is
-    /// recorded, the most recently created branch is taken — never the oldest,
-    /// which would silently resurrect abandoned work.
-    ///
-    /// Returns the command to apply, or `None` if no children.
-    pub fn redo(&mut self) -> Option<Command> {
-        let current_node = self.nodes.get(&self.current)?;
-
-        // Fall back to the newest branch; `preferred_child` is authoritative
-        // whenever it still names a live child of this node.
-        let child_id = current_node
-            .preferred_child
-            .filter(|id| current_node.children.contains(id))
-            .or_else(|| current_node.children.last().copied())?;
-
-        self.redo_into(child_id)
-    }
-
-    /// Redoes by moving to a specific child branch.
-    ///
-    /// `branch_index` indexes [`UndoTree::branch_count`] in creation order.
-    /// The chosen branch becomes the active path, so a subsequent undo/redo
-    /// round-trip returns to it.
-    ///
-    /// Returns the command to apply, or `None` if branch doesn't exist.
-    pub fn redo_branch(&mut self, branch_index: usize) -> Option<Command> {
-        let current_node = self.nodes.get(&self.current)?;
-        let child_id = current_node.children.get(branch_index).copied()?;
-
-        self.redo_into(child_id)
-    }
-
-    /// Moves down into `child_id`, recording it as the active path.
-    ///
-    /// Returns the command to apply, or `None` if the child carries none.
-    fn redo_into(&mut self, child_id: UndoNodeId) -> Option<Command> {
-        let command = self.nodes.get(&child_id)?.command.clone()?;
-
-        if let Some(current_node) = self.nodes.get_mut(&self.current) {
-            current_node.preferred_child = Some(child_id);
-        }
-
-        self.current = child_id;
-        self.last_edit_time = None;
-
-        Some(command)
-    }
-
-    /// Jumps to a specific node in the tree.
-    ///
-    /// Returns the sequence of commands needed to reach that node, which the
-    /// caller MUST apply to the document — this method moves the tree pointer
-    /// but does not touch document state.
-    ///
-    /// Every edge traversed is recorded as the active path, so a subsequent
-    /// [`UndoTree::redo`] retraces the jump rather than re-entering a branch
-    /// abandoned earlier. Where the upward and downward walks meet, the
-    /// downward step wins, because that is the branch the caller ends up on.
-    pub fn jump_to_node(&mut self, target_id: UndoNodeId) -> Option<Vec<Command>> {
-        if !self.nodes.contains_key(&target_id) {
-            return None;
-        }
-
-        // Find path from current to target via common ancestor
-        let path_to_root_current = self.path_to_root(self.current);
-        let path_to_root_target = self.path_to_root(target_id);
-
-        // Find common ancestor
-        let current_set: std::collections::HashSet<_> = path_to_root_current.iter().collect();
-        let common_ancestor = path_to_root_target
-            .iter()
-            .find(|id| current_set.contains(id))
-            .copied()?;
-
-        let mut commands = Vec::new();
-        // (parent, child) edges traversed, applied only once the whole walk
-        // succeeds so a failed jump leaves no partial preference behind.
-        let mut traversed = Vec::new();
-
-        // Undo from current to common ancestor
-        let mut node = self.current;
-        while node != common_ancestor {
-            if let Some(current_node) = self.nodes.get(&node) {
-                if let Some(cmd) = &current_node.command {
-                    commands.push(cmd.inverse());
-                }
-                let parent = current_node.parent?;
-                traversed.push((parent, node));
-                node = parent;
-            } else {
-                break;
-            }
-        }
-
-        // Redo from common ancestor to target
-        let redo_path: Vec<_> = path_to_root_target
-            .into_iter()
-            .take_while(|id| *id != common_ancestor)
-            .collect();
-
-        let mut parent = common_ancestor;
-        for node_id in redo_path.into_iter().rev() {
-            if let Some(node_data) = self.nodes.get(&node_id) {
-                if let Some(cmd) = &node_data.command {
-                    commands.push(cmd.clone());
-                }
-            }
-            traversed.push((parent, node_id));
-            parent = node_id;
-        }
-
-        for (parent_id, child_id) in traversed {
-            if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
-                parent_node.preferred_child = Some(child_id);
-            }
-        }
-
-        self.current = target_id;
-        self.last_edit_time = None;
-
-        Some(commands)
     }
 
     /// Returns true if undo is available.
@@ -462,6 +334,12 @@ impl UndoTree {
 
     /// Determines if the new edit should be grouped with the current one.
     fn should_group(&self, now: Instant) -> bool {
+        if self.explicit_group == Some(self.current) {
+            return self
+                .nodes
+                .get(&self.current)
+                .is_some_and(|node| node.command.is_some() && node.children.is_empty());
+        }
         if let Some(last_time) = self.last_edit_time {
             let elapsed = now.duration_since(last_time);
             if elapsed.as_millis() < u128::from(self.group_timeout_ms) {

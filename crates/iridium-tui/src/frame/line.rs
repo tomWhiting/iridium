@@ -21,6 +21,11 @@
 //! measures *within* one line, which the kernel expresses in pixels against a
 //! fixed character width — an assumption a terminal cannot make.
 
+mod prefix;
+#[cfg(test)]
+mod prefix_tests;
+pub use prefix::PREFIX_BYTE_BUDGET;
+
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::cell::Grapheme;
@@ -35,6 +40,7 @@ pub struct PlacedCluster {
     grapheme: Option<Grapheme>,
     /// Whether this cluster is a tab.
     is_tab: bool,
+    pub(super) break_after: bool,
     /// The first display column this cluster occupies.
     column: usize,
     /// How many display columns it occupies: zero, one, two, or a tab's run.
@@ -112,40 +118,37 @@ impl LineLayout {
     /// `iridium_editor::input::keyboard`): a tab must always advance, or a
     /// caret could never move past one.
     pub fn new(text: &str, tab_width: usize) -> Self {
+        let mut layout = Self::default();
+        for cluster in text.graphemes(true) {
+            layout.push_cluster(cluster, tab_width);
+        }
+        layout
+    }
+
+    fn push_cluster(&mut self, cluster: &str, tab_width: usize) {
         let tab_width = tab_width.max(1);
-        let mut clusters = Vec::new();
-        let mut column = 0;
-        let mut char_index = 0;
-
-        for (byte_index, cluster) in text.grapheme_indices(true) {
-            let char_count = cluster.chars().count();
-            let grapheme = Grapheme::new(cluster);
-            let is_tab = cluster == "\t";
-            let width = if is_tab {
-                tab_width - (column % tab_width)
-            } else {
-                grapheme.as_ref().map_or(0, Grapheme::width)
-            };
-            clusters.push(PlacedCluster {
-                grapheme,
-                is_tab,
-                column,
-                width,
-                char_index,
-                char_count,
-                byte_index,
-                byte_count: cluster.len(),
-            });
-            column += width;
-            char_index += char_count;
-        }
-
-        Self {
-            clusters,
-            width: column,
-            char_count: char_index,
-            byte_count: text.len(),
-        }
+        let char_count = cluster.chars().count();
+        let grapheme = Grapheme::new(cluster);
+        let is_tab = cluster == "\t";
+        let width = if is_tab {
+            tab_width - (self.width % tab_width)
+        } else {
+            grapheme.as_ref().map_or(0, Grapheme::width)
+        };
+        self.clusters.push(PlacedCluster {
+            grapheme,
+            is_tab,
+            break_after: cluster.chars().all(char::is_whitespace),
+            column: self.width,
+            width,
+            char_index: self.char_count,
+            char_count,
+            byte_index: self.byte_count,
+            byte_count: cluster.len(),
+        });
+        self.width += width;
+        self.char_count += char_count;
+        self.byte_count += cluster.len();
     }
 
     /// The number of display columns the whole line occupies.

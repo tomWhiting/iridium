@@ -23,6 +23,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod adding;
+mod focus;
 mod history;
 mod narrowing;
 mod regressions;

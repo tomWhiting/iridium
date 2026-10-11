@@ -41,7 +41,10 @@ impl KeyHintIndex {
                 let Some(command) = binding.command() else {
                     continue;
                 };
-                if !stack.binding_is_reachable(binding) {
+                // A composition may edit after selecting. Advertising its key
+                // as a shortcut for the selection alone would be destructive.
+                if !binding.following_commands().is_empty() || !stack.binding_is_reachable(binding)
+                {
                     continue;
                 }
                 by_command

@@ -14,11 +14,11 @@ use winit::window::{Theme as WinitTheme, WindowId};
 
 use super::startup::Shell;
 use super::state::{DesktopApp, Flow};
+use crate::events::DesktopEvent;
 use crate::keys;
-use crate::menubar::MenuCommand;
 use crate::units::pixel_from_f64;
 
-impl ApplicationHandler<MenuCommand> for DesktopApp {
+impl ApplicationHandler<DesktopEvent> for DesktopApp {
     /// Creates the window and everything behind it, once.
     ///
     /// winit delivers `resumed` before any window event and may deliver it
@@ -64,16 +64,9 @@ impl ApplicationHandler<MenuCommand> for DesktopApp {
         }
     }
 
-    /// Runs a command the macOS menu bar chose.
-    ///
-    /// ⭐ **This is the only reason the loop carries a user event.** An
-    /// `AppKit` menu action cannot touch [`DesktopApp`] — `run_app` borrows it
-    /// for the loop's whole lifetime — so the item sends the id through an
-    /// `EventLoopProxy`, which both enqueues it and wakes a `ControlFlow::
-    /// Wait` loop that would otherwise be asleep. It arrives here, on the main
-    /// thread, between events, and runs down the same path a chord takes.
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: MenuCommand) {
-        if self.run_menu_command(&event) == Flow::Exit {
+    /// Delivers native menu and file-open events on the editor thread.
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: DesktopEvent) {
+        if self.native_event(event) == Flow::Exit {
             event_loop.exit();
         }
     }
@@ -90,6 +83,7 @@ impl ApplicationHandler<MenuCommand> for DesktopApp {
     /// [`refresh_menubar`](DesktopApp::refresh_menubar) returns immediately
     /// when the answer has not moved, so an idle loop still costs nothing.
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.drain_native_files();
         self.refresh_menubar();
     }
 

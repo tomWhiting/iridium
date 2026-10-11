@@ -51,6 +51,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::clipboard::ClipboardMode;
 use crate::theme::ThemeChoice;
 
 /// The name the help text uses for this program.
@@ -75,9 +76,23 @@ Options:
       --theme <T>     `dark`, `light`, or a path to a theme file. A theme file
                       may be in Iridium's own JSON format or VS Code's.
       --read-only     Open the file without allowing edits.
+      --non-modal     Start in ordinary typing mode instead of structural mode.
+      --clipboard <M> auto (default): system locally, terminal over SSH.
+                      system: native copy/paste; terminal: OSC 52 copy and
+                      terminal paste shortcut; internal: this process only.
   -h, --help          Print this help and exit.
   -V, --version       Print the version and exit.
       --              Stop reading options; the next argument is the path.
+
+In the editor (rebindable):
+  Arrows / h j k l    Structural motions by default. i types; Escape returns.
+  : / Alt+K           Command palette: w, q, wq, qa; q! / qa! discard edits.
+  Alt+O               Browse files; ranked filename filter, Tab for Oil editing.
+  :jq <filter>        Live JSON/JSONL source selections; Enter keeps, Esc cancels.
+  Ctrl+N              New tab; :q closes the current tab.
+  Alt+, / Alt+.       Previous tab / next tab.
+  Ctrl+F              Find; Alt+R toggles regex, Alt+Enter selects all matches.
+  :w / :q / :wq      Write / quit tab / write and quit. :qa quits all.
 ";
 
 /// What the command line asked for.
@@ -102,6 +117,10 @@ pub struct Options {
     pub theme: Option<ThemeChoice>,
     /// Whether the document refuses edits.
     pub read_only: bool,
+    /// Start with ordinary typing instead of structural modal editing.
+    pub non_modal: bool,
+    /// Native, terminal or explicit process-only clipboard.
+    pub clipboard: ClipboardMode,
 }
 
 /// Why a command line could not be understood.
@@ -113,6 +132,8 @@ pub enum CliError {
     MissingValue(&'static str),
     /// A line number that was not a positive integer.
     InvalidLine(String),
+    /// Unsupported clipboard mode.
+    InvalidClipboard(String),
     /// A second file name, when only one file can be opened.
     ExtraPath(PathBuf),
     /// An empty string where a path was expected.
@@ -122,6 +143,10 @@ pub enum CliError {
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidClipboard(value) => write!(
+                f,
+                "unknown clipboard mode `{value}`: use auto, system, terminal or internal"
+            ),
             Self::UnknownFlag(flag) => write!(f, "unknown option `{flag}`"),
             Self::MissingValue(option) => write!(f, "`{option}` needs a value"),
             Self::InvalidLine(value) => {
@@ -173,9 +198,16 @@ where
             "-h" | "--help" => return Ok(Invocation::Help),
             "-V" | "--version" => return Ok(Invocation::Version),
             "--read-only" => options.read_only = true,
+            "--non-modal" => options.non_modal = true,
             "-l" | "--line" => {
                 let value = arguments.next().ok_or(CliError::MissingValue("--line"))?;
                 options.line = Some(parse_line(&value)?);
+            },
+            "--clipboard" => {
+                let value = arguments
+                    .next()
+                    .ok_or(CliError::MissingValue("--clipboard"))?;
+                options.clipboard = parse_clipboard(&value)?;
             },
             "--theme" => {
                 let value = arguments.next().ok_or(CliError::MissingValue("--theme"))?;
@@ -183,6 +215,9 @@ where
             },
             _ => match split_inline(text) {
                 Some(("--line", value)) => options.line = Some(parse_line(OsStr::new(value))?),
+                Some(("--clipboard", value)) => {
+                    options.clipboard = parse_clipboard(OsStr::new(value))?;
+                },
                 Some(("--theme", value)) => {
                     options.theme = Some(ThemeChoice::parse(OsStr::new(value)));
                 },
@@ -269,6 +304,13 @@ fn parse_line(value: &OsStr) -> Result<usize, CliError> {
 #[must_use]
 pub fn version() -> String {
     format!("{PROGRAM} {}", env!("CARGO_PKG_VERSION"))
+}
+
+fn parse_clipboard(value: &OsStr) -> Result<ClipboardMode, CliError> {
+    value
+        .to_str()
+        .and_then(ClipboardMode::parse)
+        .ok_or_else(|| CliError::InvalidClipboard(value.to_string_lossy().into_owned()))
 }
 
 #[cfg(test)]

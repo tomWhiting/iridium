@@ -1,9 +1,7 @@
 //! What the terminal search overlay's keymap guarantees — #117.
 //!
-//! Two kinds of assertion live here. The first are about the *table*: every verb
-//! reachable, every binding shift-blind **except the two the old code read shift
-//! on**, the count documented. The second are about the *seam*: a line a user
-//! could write in `config.toml` reaching the overlay and moving a real key.
+//! Table checks cover scope, vocabulary, Shift distinctions and legacy bindings.
+//! Behavioral checks exercise bindings parsed from user configuration.
 //!
 //! ⭐ The second kind is the point of the task, and is deliberately written
 //! against [`KeyBinding::parse`] — the same parser `iridium_config` calls on the
@@ -126,7 +124,7 @@ fn every_default_binding_names_a_verb_this_overlay_answers() {
 /// Every binding is scoped to the overlay's mode, which is what keeps these
 /// chords out of the document.
 ///
-/// ⚠️ This is about the **binding**, not the command. Two of the verbs are
+/// ⚠️ This is about the **binding**, not the command. Three of the verbs are
 /// mode-free editor commands (see [`Verb::BORROWED`]); the overlay's own
 /// bindings on them are still scoped, which is what stops `Enter` in the
 /// document meaning what `Enter` means here.
@@ -142,14 +140,10 @@ fn every_default_binding_is_scoped_to_the_overlay() {
     }
 }
 
-/// ⛔ **The invisible regression, with this panel's exception.** The `chord`
-/// function this table replaced read `ctrl`, `alt` and `meta` and never looked
-/// at shift or `AltGraph` — *except* on `Enter`, where the arm re-read shift to
-/// choose between next and previous. So every binding must spell shift `Any`
-/// **but the two `Enter` ones**, and this test names them rather than skipping
-/// anything that happens to constrain shift.
+/// Shift distinguishes field selection and match direction; other bindings
+/// retain legacy shift-blind behavior, including all option chords.
 #[test]
-fn every_default_binding_ignores_shift_except_the_two_enter_spellings() {
+fn default_bindings_distinguish_shift_on_enter_and_field_navigation() {
     for binding in default_keymap().bindings() {
         for stroke in binding.sequence() {
             assert_eq!(
@@ -158,11 +152,15 @@ fn every_default_binding_ignores_shift_except_the_two_enter_spellings() {
                 "`{}` constrains AltGraph; the table it replaced never did",
                 binding.display_sequence()
             );
-            if stroke.key == KeyCode::Enter {
+            if matches!(
+                stroke.key,
+                KeyCode::Enter | KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End
+            ) && stroke.modifiers.alt == ModifierState::Forbidden
+            {
                 assert_ne!(
                     stroke.modifiers.shift,
                     ModifierState::Any,
-                    "`{}` must decide shift: it is what picks next from previous",
+                    "`{}` must distinguish shift for navigation or selection",
                     binding.display_sequence()
                 );
                 continue;
@@ -207,10 +205,10 @@ fn the_patterns_the_table_offers_are_blind_or_partition_shift() {
 /// ⭐ And the same rule *behaviourally*, which the two above cannot say.
 ///
 /// A pattern-level assertion proves the table spells shift `Any`; this proves
-/// **resolution honours it**, which is the property a user holding shift
-/// actually depends on. `Enter` is excluded and gets its own test below.
+/// **resolution honours it**. Selection/navigation bindings deliberately
+/// distinguish shift and are exercised separately.
 #[test]
-fn holding_shift_changes_nothing_about_what_a_non_enter_binding_resolves_to() {
+fn shift_blind_bindings_resolve_identically_with_shift_held() {
     let keymap = default_keymap();
     for binding in keymap.bindings() {
         let strokes = binding.sequence();
@@ -221,7 +219,11 @@ fn holding_shift_changes_nothing_about_what_a_non_enter_binding_resolves_to() {
             binding.display_sequence()
         );
         let stroke = &strokes[0];
-        if stroke.key == KeyCode::Enter {
+        if matches!(
+            stroke.key,
+            KeyCode::Enter | KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End
+        ) && stroke.modifiers.alt == ModifierState::Forbidden
+        {
             continue;
         }
         let id = binding

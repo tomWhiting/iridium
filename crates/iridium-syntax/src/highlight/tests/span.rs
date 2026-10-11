@@ -456,3 +456,27 @@ fn a_trailing_comma_costs_an_error_node_and_nothing_else() {
         "recovery must not produce a degenerate or out-of-bounds span"
     );
 }
+
+#[test]
+fn toml_tables_arrays_dates_and_comments_parse_and_highlight() {
+    let source = "# config\n[server]\nport = 8081\nnames = [\"a\", \"猫\"]\nenabled = true\nwhen = 1979-05-27T07:32:00Z\n";
+    let mut tree = SyntaxTree::new(Language::Toml).expect("grammar");
+    assert!(!tree.parse(source).expect("parse").root_node().has_error());
+    let spans = spans_for(Language::Toml, source);
+    for kind in [
+        HighlightType::Comment,
+        HighlightType::String,
+        HighlightType::Number,
+        HighlightType::Boolean,
+    ] {
+        assert!(
+            spans.iter().any(|span| span.highlight == kind),
+            "missing {kind:?}"
+        );
+    }
+    assert_eq!(
+        Language::for_path(std::path::Path::new("Cargo.lock")),
+        Some(Language::Toml)
+    );
+    assert_eq!(Language::from_extension("toml"), Some(Language::Toml));
+}

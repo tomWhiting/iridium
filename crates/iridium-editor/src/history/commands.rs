@@ -79,7 +79,8 @@ impl Command {
     /// # Errors
     ///
     /// Returns an error if the command references invalid positions or ranges
-    /// in the document.
+    /// in the document. An error leaves text, document metadata/revision and
+    /// cursor state unchanged, including when a nested compound fails.
     ///
     /// # Example
     ///
@@ -98,6 +99,28 @@ impl Command {
     /// assert_eq!(doc.text(), "Hello, World");
     /// ```
     pub fn apply(
+        &self,
+        document: &mut Document,
+        cursor: &mut CursorState,
+    ) -> Result<(), IridiumError> {
+        if matches!(self, Self::Compound { .. }) {
+            // A rope clone shares its storage until edited. Stage the complete
+            // transaction once, including nested compounds, so failure cannot
+            // publish an intermediate text, revision or selection state.
+            let mut staged_document = document.clone();
+            let mut staged_cursor = cursor.clone();
+            self.apply_in_order(&mut staged_document, &mut staged_cursor)?;
+            *document = staged_document;
+            *cursor = staged_cursor;
+            Ok(())
+        } else {
+            self.apply_in_order(document, cursor)
+        }
+    }
+
+    /// Executes children against the preceding child's result. Only `apply`
+    /// owns the staging boundary; nested compounds must not clone each prefix.
+    fn apply_in_order(
         &self,
         document: &mut Document,
         cursor: &mut CursorState,
@@ -123,7 +146,7 @@ impl Command {
 
             Self::Compound { commands } => {
                 for cmd in commands {
-                    cmd.apply(document, cursor)?;
+                    cmd.apply_in_order(document, cursor)?;
                 }
             },
         }

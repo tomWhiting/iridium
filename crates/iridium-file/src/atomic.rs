@@ -43,6 +43,10 @@
 //! * The directory `fsync` is done on Unix only. Elsewhere a directory cannot
 //!   be opened as a file, and the durability of the rename is the platform's.
 
+mod replacement;
+use crate::Publication;
+pub use replacement::Replacement;
+
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
@@ -64,8 +68,9 @@ static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// Writes `contents` to `path`, atomically.
 ///
 /// After this returns `Ok`, `path` holds exactly `contents`. After it returns
-/// `Err`, `path` holds exactly what it held before — including the case where
-/// it did not exist.
+/// `Err` before publication, the destination is unchanged. A directory-sync
+/// failure after publication also returns `Err`; callers needing to distinguish
+/// these outcomes should use `write_atomically_report`.
 ///
 /// # Errors
 ///
@@ -89,28 +94,18 @@ pub fn write_atomically_with<F>(path: &Path, write_contents: F) -> io::Result<()
 where
     F: FnOnce(&mut File) -> io::Result<()>,
 {
-    let target = resolve(path)?;
-    let directory = parent_of(&target);
-    let existing = fs::metadata(&target).ok();
+    write_atomically_report(path, write_contents)?.into_result()
+}
 
-    let (mut file, temporary) = create_temporary(&directory, &target)?;
-
-    write_contents(&mut file)?;
-
-    // Permissions before the rename, so the file is never visible under its
-    // real name with the wrong ones. A document that is `0600` because it holds
-    // something private must not spend even an instant as `0644`.
-    if let Some(metadata) = existing {
-        file.set_permissions(metadata.permissions())?;
-    }
-
-    file.sync_all()?;
-    drop(file);
-
-    fs::rename(temporary.path(), &target)?;
-    temporary.disarm();
-
-    sync_directory(&directory)
+/// Publish a prepared file and report directory durability separately.
+/// `Err` means publication did not happen; `Ok` always means it did.
+pub fn write_atomically_report(
+    path: &Path,
+    write_contents: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<Publication> {
+    let mut replacement = Replacement::new(path)?;
+    write_contents(replacement.file_mut())?;
+    replacement.prepare()?.commit()
 }
 
 /// Resolves a path to the file a write should replace.
@@ -126,7 +121,9 @@ where
 fn resolve(path: &Path) -> io::Result<PathBuf> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path),
-        _ => Ok(path.to_path_buf()),
+        Ok(_) => Ok(path.to_path_buf()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path.to_path_buf()),
+        Err(error) => Err(error),
     }
 }
 
@@ -193,7 +190,7 @@ fn temporary_name(target: &Path, attempt: u32) -> String {
 /// platform where a directory cannot be opened as a file this is skipped, and
 /// the durability of the rename is the platform's own.
 #[cfg(unix)]
-fn sync_directory(directory: &Path) -> io::Result<()> {
+fn sync_directory(directory: &Path) -> io::Result<bool> {
     match File::open(directory) {
         Ok(handle) => match handle.sync_all() {
             // A filesystem that does not implement `fsync` on a directory says
@@ -206,9 +203,9 @@ fn sync_directory(directory: &Path) -> io::Result<()> {
                     io::ErrorKind::InvalidInput | io::ErrorKind::Unsupported
                 ) =>
             {
-                Ok(())
+                Ok(false)
             },
-            other => other,
+            other => other.map(|()| true),
         },
         Err(error) => Err(error),
     }
@@ -216,8 +213,8 @@ fn sync_directory(directory: &Path) -> io::Result<()> {
 
 /// Nothing to do on a platform whose directories are not openable files.
 #[cfg(not(unix))]
-fn sync_directory(_directory: &Path) -> io::Result<()> {
-    Ok(())
+fn sync_directory(_directory: &Path) -> io::Result<bool> {
+    Ok(false)
 }
 
 /// Removes the temporary file unless the rename claimed it.

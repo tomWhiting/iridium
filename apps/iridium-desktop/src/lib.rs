@@ -98,12 +98,15 @@ pub mod command_palette;
 pub mod commands;
 pub mod context_menu;
 pub mod dialog;
+pub mod events;
 pub mod file_tree;
 pub mod highlight;
 pub mod history_overlay;
 pub mod keys;
 pub mod latency;
 mod line;
+#[cfg(target_os = "macos")]
+mod macos_files;
 pub mod menubar;
 pub mod mouse;
 pub mod overlay;

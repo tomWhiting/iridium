@@ -37,6 +37,7 @@ mod grammar;
 mod highlight;
 pub mod navigate;
 pub mod query;
+pub mod similar;
 mod tree;
 
 pub use folding::{FoldCache, FoldDetector, FoldKind, FoldRegion};

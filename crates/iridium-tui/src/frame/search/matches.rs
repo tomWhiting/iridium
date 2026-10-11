@@ -32,10 +32,24 @@ use crate::frame::text::{self, TextArea};
 #[derive(Debug, Clone, Default)]
 pub(in crate::frame) struct MatchHighlights {
     /// Each match in the painted span, and whether it is the current one.
-    matches: Vec<(Range, bool)>,
+    matches: Vec<Highlight>,
+}
+
+/// One retained match, including whether this frame painted its position.
+#[derive(Debug, Clone)]
+struct Highlight {
+    range: Range,
+    current: bool,
+    visible: bool,
 }
 
 impl MatchHighlights {
+    /// Number of matches represented by painted ranges or empty-match markers.
+    /// A multiline match is counted once, even when it paints several rows.
+    pub(in crate::frame) fn visible_count(&self) -> usize {
+        self.matches.iter().filter(|item| item.visible).count()
+    }
+
     /// The matches touching `first_line..=last_line`, current one marked.
     ///
     /// An inactive search has no matches, so this is empty whenever the user is
@@ -48,7 +62,11 @@ impl MatchHighlights {
             .iter()
             .enumerate()
             .filter(|(_, range)| range.start.line <= last_line && range.end.line >= first_line)
-            .map(|(index, range)| (*range, current == Some(index)))
+            .map(|(index, range)| Highlight {
+                range: *range,
+                current: current == Some(index),
+                visible: false,
+            })
             .collect();
         Self { matches }
     }
@@ -60,21 +78,20 @@ impl MatchHighlights {
     /// `aa` in `aAa` is two ranges sharing a cell, and the one the user is
     /// standing on is the one that must be visible.
     pub(in crate::frame) fn paint(
-        &self,
+        &mut self,
         buffer: &mut CellBuffer,
         row: usize,
         line: MatchedLine<'_>,
         palette: &Palette,
         area: TextArea,
     ) {
-        for &(range, is_current) in &self.matches {
-            if !is_current {
-                paint_one(buffer, row, line, range, is_current, palette, area);
-            }
-        }
-        for &(range, is_current) in &self.matches {
-            if is_current {
-                paint_one(buffer, row, line, range, is_current, palette, area);
+        for current in [false, true] {
+            for item in self
+                .matches
+                .iter_mut()
+                .filter(|item| item.current == current)
+            {
+                item.visible |= paint_one(buffer, row, line, item.range, current, palette, area);
             }
         }
     }
@@ -106,9 +123,9 @@ fn paint_one(
     is_current: bool,
     palette: &Palette,
     area: TextArea,
-) {
+) -> bool {
     if line.number < range.start.line || line.number > range.end.line {
-        return;
+        return false;
     }
     let from = if line.number == range.start.line {
         line.layout.column_to_cell(range.start.column)
@@ -120,13 +137,19 @@ fn paint_one(
     } else {
         line.layout.width() + 1
     };
-    // A zero-width match — an anchor such as `^` in regex mode — covers no
-    // cell. Marking one cell anyway would claim the character beside it was
-    // found, which it was not.
-    if from >= to {
-        return;
+    // Empty matches mark a position with an underline, preserving the glyph
+    // and its background: this does not claim the adjacent character matched.
+    let empty = range.start == range.end;
+    let to = if empty { from + 1 } else { to };
+    if from >= to || from >= area.scroll + area.width || to <= area.scroll || area.width == 0 {
+        return false;
     }
     text::restyle_columns(buffer, row, from..to, area, |style| {
-        palette.search_match(style, is_current)
+        if empty {
+            style.with_attributes(style.attributes.union(crate::cell::Attributes::UNDERLINE))
+        } else {
+            palette.search_match(style, is_current)
+        }
     });
+    true
 }

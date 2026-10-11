@@ -23,6 +23,7 @@ use crate::query::{self, QueryKind};
 /// The query itself is borrowed from the process-wide cache in [`crate::query`]:
 /// `highlights.scm` runs to thousands of patterns, and every open buffer of a
 /// language compiling its own copy put that cost on the path that opens a file.
+#[derive(Clone)]
 pub struct Highlighter {
     language: crate::Language,
     query: &'static Query,

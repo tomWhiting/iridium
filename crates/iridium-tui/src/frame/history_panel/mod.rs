@@ -65,7 +65,7 @@ use iridium_editor::history::UndoNodeId;
 use iridium_editor::history::tree_view::{TreeViewRow, TreeViewSelection, linearize};
 use iridium_editor::{Editor, KeyEvent, KeyPress, Keymap, KeymapStack};
 
-use self::keymap::default_keymap;
+pub use self::keymap::default_keymap;
 use self::resolve::Resolved;
 use self::verb::Verb;
 use super::palette::Palette;

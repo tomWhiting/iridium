@@ -1,23 +1,11 @@
 #!/usr/bin/env bash
 # Installs BOTH faces — the "machines that build it" distribution path.
 #
-# iridium.app into /Applications, the terminal face onto the PATH, and the
-# `iridium` command that reaches either. Runs bundle.sh for the desktop
-# release build and the bundle assembly, builds the terminal face beside
-# it, then replaces the installed copies. Nothing here signs differently
-# from bundle.sh: the ad-hoc signature it applies is CORRECT for this path
-# and is not a placeholder for a Developer ID.
-#
-# WHY AD-HOC IS ENOUGH HERE, since it looks like a shortcut and is not:
-# Gatekeeper refuses an app because of the com.apple.quarantine extended
-# attribute, which the *downloader* sets — Safari, curl, an unzip of a
-# downloaded archive. A bundle produced by a local `cargo build` never
-# acquires it, so it launches with no prompt and no Developer ID. The $99
-# Apple Developer Program buys distribution to people who did NOT build
-# the app; it buys nothing for a build-from-source install. If prebuilt
-# artifacts are ever published, THAT is when hardened runtime, notarytool
-# and stapling become necessary — and this comment should be revisited
-# rather than trusted.
+# iridium.app into /Applications and terminal-first `ir` and `iridium`
+# commands on PATH. Both binaries are rebuilt before installation.
+# Signing follows bundle.sh: set IRIDIUM_SIGNING_IDENTITY to use a certificate.
+# Apple Development signs local builds; Developer ID and notarization are
+# required for distribution outside the development machine.
 #
 # Destination override: DEST=/somewhere ./install.sh
 set -euo pipefail
@@ -59,7 +47,8 @@ fi
 "$here/bundle.sh"
 
 root="$(cd "$here/../../.." && pwd)"
-staged="$root/target/release/bundle/iridium.app"
+target_dir="${CARGO_TARGET_DIR:-$root/target}"
+staged="$target_dir/release/bundle/iridium.app"
 if [[ ! -d "$staged" ]]; then
   echo "install: $staged was not produced by bundle.sh" >&2
   exit 1
@@ -79,7 +68,7 @@ fi
 # ---------------------------------------------------------------------------
 cargo build --release -p iridium --manifest-path "$root/Cargo.toml"
 
-tui_binary="$root/target/release/iridium"
+tui_binary="$target_dir/release/iridium"
 if [[ ! -x "$tui_binary" ]]; then
   echo "install: $tui_binary was not produced by the build" >&2
   exit 1
@@ -119,7 +108,7 @@ codesign --verify --strict "$dest"
 echo "installed $dest (the desktop face)"
 
 # ---------------------------------------------------------------------------
-# The two commands: the terminal face, and the `iridium` shim over both.
+# Terminal commands: the binary plus the `ir` and `iridium` launchers.
 #
 # ⚠️ THE INSTALL IS NOT FINISHED UNTIL BOTH EXIST. An app in /Applications
 # and nothing on the PATH is how a walkthrough came to tell Tom to run
@@ -183,7 +172,9 @@ if [[ -e "$target" ]] && ! cmp -s "$shim" "$target"; then
 fi
 
 place "$shim" "$target"
-echo "installed $target (the command)"
+echo "installed $target (the terminal command)"
+place "$shim" "$bin_dir/ir"
+echo "installed $bin_dir/ir (the short terminal command)"
 
 case ":${PATH}:" in
   *":$bin_dir:"*) ;;
@@ -194,7 +185,7 @@ case ":${PATH}:" in
 esac
 
 echo
-echo "  iridium ~/some/project     open a project"
-echo "  iridium notes.md           open a file"
-echo "  iridium --tui notes.md     the same file, in this terminal"
+echo "  ir ~/some/project          open a project in the terminal"
+echo "  iridium notes.md           open a file in the terminal"
+echo "  Desktop: open $dest from Applications or Finder"
 echo "  iridium --help             everything else"

@@ -21,8 +21,7 @@ path = "src/lib.rs"
 # public because nothing outside a test should ever want it.
 test-support = []
 
-# No dependencies, deliberately: this crate touches the disk and nothing else.
-# Line endings are the kernel's business and stay out of it (see the crate
-# documentation); pulling the kernel in here would invert the dependency every
-# face relies on.
+# Disk I/O stays independent of the kernel. Paged storage uses unnamed temporary
+# files for immutable snapshots and appended edits, with automatic cleanup.
 [dependencies]
+tempfile.workspace = true

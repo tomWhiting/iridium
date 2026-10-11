@@ -393,3 +393,40 @@ fn escape_takes_back_a_regular_expression_query_like_any_other() {
     );
     assert_eq!(lines(&mut explorer), before);
 }
+
+#[test]
+fn ranked_results_show_paths_without_context_rows_or_parent_only_fuzzy_hits() {
+    use crate::explorer::filter::FilterOrder;
+    let directory = project();
+    let mut explorer = opened_project(&directory);
+    explorer.set_filter_order(FilterOrder::Relevance);
+    type_query(&mut explorer, "mod");
+    let rows = lines(&mut explorer);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(
+        rows.iter().any(|row| row.contains("engine/mod.rs")),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains("widgets/mod.rs")),
+        "{rows:?}"
+    );
+    let scores: Vec<_> = explorer
+        .view
+        .rows
+        .iter()
+        .filter_map(|row| row.score)
+        .collect();
+    assert!(scores.windows(2).all(|pair| pair[0] >= pair[1]));
+
+    for _ in 0..3 {
+        explorer.handle_key(&press(KeyCode::Backspace));
+    }
+    type_query(&mut explorer, "engine");
+    let rows = lines(&mut explorer);
+    assert_eq!(
+        rows.len(),
+        1,
+        "a folder match must not admit all children: {rows:?}"
+    );
+}

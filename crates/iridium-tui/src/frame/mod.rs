@@ -7,14 +7,11 @@
 //!
 //! # The kernel owns layout
 //!
-//! Which document lines are visible, and which row each one lands on, is the
-//! kernel's fold-aware [`Viewport`](iridium_editor::render::Viewport). The
-//! terminal drives that same viewport in
-//! **cell units** — `line_height = 1.0`, `width = columns` — so one cell is one
-//! unit and `screen_y_for_line` returns a row directly. There is no second
-//! layout model and no second fold model; a competing one is exactly why
-//! termwiz was rejected, and three separate bugs this year were a face
-//! reimplementing a kernel verb.
+//! The kernel owns folded document order and soft-wrap boundaries. The terminal
+//! supplies measured grapheme widths, then uses those same rows for painting,
+//! hit testing, scrolling and vertical keyboard movement. Viewport `first_line`
+//! remains a folded document index; in wrapped mode `scroll_offset_y` identifies
+//! the continuation row at the top of that line.
 //!
 //! What is *not* the kernel's is the mapping from a document column to a screen
 //! cell. The kernel expresses a line's geometry in pixels against a fixed
@@ -42,11 +39,14 @@
 
 mod command_palette;
 mod field;
+mod text_field;
+pub use text_field::{TextField, TextFieldCut};
 mod file_explorer;
 mod geometry;
 mod gutter;
 mod highlight;
 mod history_panel;
+mod hit_test;
 mod line;
 mod palette;
 mod panel;
@@ -54,9 +54,13 @@ mod search;
 mod status;
 mod text;
 mod units;
+mod visual_navigation;
+mod wrapping;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wrapping_tests;
 
 use std::collections::HashSet;
 
@@ -68,12 +72,12 @@ use self::units::whole_cells;
 use crate::cell::{CellBuffer, Color, Style};
 
 pub use self::command_palette::{CommandPalette, PaletteOutcome};
-pub use self::file_explorer::{ExplorerAction, FileExplorerPanel};
+pub use self::file_explorer::{ExplorerAction, FileExplorerBookmark, FileExplorerPanel};
 pub use self::geometry::{CellPosition, Chrome, FrameLayout, document_rows};
 pub use self::history_panel::{HistoryOutcome, HistoryPanel};
-pub use self::line::{LineLayout, PlacedCluster};
+pub use self::line::{LineLayout, PREFIX_BYTE_BUDGET, PlacedCluster};
 pub use self::palette::Palette;
-pub use self::search::{SearchOutcome, SearchOverlay};
+pub use self::search::{SearchCut, SearchOutcome, SearchOverlay};
 pub use self::status::Status;
 pub use self::text::TextArea;
 
@@ -102,6 +106,8 @@ struct PaintedLine {
     row: usize,
     /// Whether a caret sits on this line.
     is_active: bool,
+    area: TextArea,
+    continuation: bool,
 }
 
 impl core::fmt::Debug for Frame {
@@ -129,6 +135,17 @@ impl Frame {
     /// to be drawn is decided while drawing it.
     pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) -> FrameLayout {
         geometry::layout(editor, columns, rows, chrome)
+    }
+
+    /// Mouse geometry with the same document bounds as rendering, without
+    /// calculating caret glyphs that hit testing never consumes.
+    pub fn hit_layout(
+        editor: &Editor,
+        columns: usize,
+        rows: usize,
+        chrome: Chrome<'_>,
+    ) -> FrameLayout {
+        geometry::hit_layout(editor, columns, rows, chrome)
     }
 
     /// Writes the cell-unit geometry of a screen of this size into the kernel's
@@ -163,10 +180,15 @@ impl Frame {
 
         let state = editor.state();
         let total_lines = state.document.line_count();
-        let visible: Vec<usize> = geometry
-            .viewport
-            .visible_document_lines(&state.fold_state, total_lines)
-            .collect();
+        let visible: Vec<usize> = geometry.wrapped.as_ref().map_or_else(
+            || {
+                geometry
+                    .viewport
+                    .visible_document_lines(&state.fold_state, total_lines)
+                    .collect()
+            },
+            |view| view.rows.iter().map(|row| row.line).collect(),
+        );
         // The highlight cache derives spans for this frame's window only —
         // the whole-document derive was the parser tax
         // (docs/design/PARSER-TAX-MAP.md). An empty screen requests an empty
@@ -183,39 +205,83 @@ impl Frame {
             .all_selections()
             .map(|selection| selection.head.line)
             .collect();
-        let highlights = match (visible.first(), visible.last()) {
+        let mut highlights = match (visible.first(), visible.last()) {
             (Some(&first), Some(&last)) => MatchHighlights::collect(editor, first, last),
             _ => MatchHighlights::default(),
         };
 
-        for document_line in visible {
-            let Some(y) = geometry
-                .viewport
-                .screen_y_for_line(document_line, &state.fold_state)
-            else {
-                continue;
-            };
-            let row = whole_cells(y);
-            if row >= geometry.text_rows {
-                continue;
-            }
+        let placements: Vec<_> = geometry.wrapped.as_ref().map_or_else(
+            || {
+                visible
+                    .into_iter()
+                    .filter_map(|document_line| {
+                        let row = whole_cells(
+                            geometry
+                                .viewport
+                                .screen_y_for_line(document_line, &state.fold_state)?,
+                        );
+                        (row < geometry.text_rows).then_some(PaintedLine {
+                            document_line,
+                            row,
+                            is_active: cursor_lines.contains(&document_line),
+                            area: geometry.text,
+                            continuation: false,
+                        })
+                    })
+                    .collect()
+            },
+            |view| {
+                view.rows
+                    .iter()
+                    .enumerate()
+                    .map(|(row, segment)| PaintedLine {
+                        document_line: segment.line,
+                        row,
+                        is_active: cursor_lines.contains(&segment.line),
+                        area: geometry.row_area(segment),
+                        continuation: segment.index > 0,
+                    })
+                    .collect()
+            },
+        );
+        for placement in placements {
             self.paint_line(
                 buffer,
                 editor,
                 &palette,
                 &geometry,
-                &highlights,
-                PaintedLine {
-                    document_line,
-                    row,
-                    is_active: cursor_lines.contains(&document_line),
-                },
+                &mut highlights,
+                placement,
             );
+        }
+        if let Some(error) = geometry
+            .wrapped
+            .as_ref()
+            .and_then(|view| view.error.as_ref())
+        {
+            let row = geometry.wrapped.as_ref().map_or(0, |view| view.rows.len());
+            if row < geometry.text_rows {
+                text::paint_text(
+                    buffer,
+                    row,
+                    0,
+                    &format!("[Wrap: {error}; use :nowrap]"),
+                    palette.text(),
+                    TextArea {
+                        scroll: 0,
+                        ..geometry.text
+                    },
+                );
+            }
         }
 
         if let (Some(overlay), Some((first_row, row_count))) = (chrome.search, geometry.search_rows)
         {
-            geometry.search_caret = overlay.paint(buffer, first_row, row_count, editor, &palette);
+            let offscreen = editor
+                .search_match_count()
+                .saturating_sub(highlights.visible_count());
+            geometry.search_caret =
+                overlay.paint(buffer, first_row, row_count, editor, &palette, offscreen);
         }
 
         if let Some(row) = geometry.status_row {
@@ -233,17 +299,17 @@ impl Frame {
         editor: &Editor,
         palette: &Palette,
         geometry: &FrameLayout,
-        highlights: &MatchHighlights,
+        highlights: &mut MatchHighlights,
         placement: PaintedLine,
     ) {
         let PaintedLine {
             document_line,
             row,
             is_active,
+            area,
+            continuation,
         } = placement;
         let state = editor.state();
-        let text = state.document.line(document_line).unwrap_or_default();
-        let layout = LineLayout::new(&text, state.config.tab_width);
 
         let background = if is_active && state.config.highlight_current_line {
             palette.current_line()
@@ -251,16 +317,46 @@ impl Frame {
             palette.text().background
         };
         let blank = palette.text().with_background(background);
-        fill_text_area(buffer, row, geometry.text, blank);
-        gutter::paint(
-            buffer,
-            editor,
-            document_line,
-            row,
-            is_active,
-            palette,
-            geometry.gutter_area(),
-        );
+        fill_text_area(buffer, row, area, blank);
+        if !continuation {
+            gutter::paint(
+                buffer,
+                editor,
+                document_line,
+                row,
+                is_active,
+                palette,
+                geometry.gutter_area(),
+            );
+        }
+
+        let layout = if let Some(layout) = geometry
+            .wrapped
+            .as_ref()
+            .and_then(|view| view.lines.get(&document_line))
+        {
+            std::borrow::Cow::Borrowed(layout)
+        } else {
+            match LineLayout::document_prefix(
+                &state.document,
+                document_line,
+                state.config.tab_width,
+                area.scroll.saturating_add(area.width).saturating_add(1),
+            ) {
+                Ok(layout) => std::borrow::Cow::Owned(layout),
+                Err(error) => {
+                    text::paint_text(
+                        buffer,
+                        row,
+                        area.scroll,
+                        &format!("[Cannot display line: {error}]"),
+                        blank,
+                        area,
+                    );
+                    return;
+                },
+            }
+        };
 
         let line_start = state
             .document
@@ -268,7 +364,7 @@ impl Frame {
             .unwrap_or(0);
         let styles = self.cluster_styles(line_start, &layout, palette, background);
         for (cluster, style) in layout.clusters().iter().zip(styles) {
-            text::paint_cluster(buffer, row, cluster, style, geometry.text);
+            text::paint_cluster(buffer, row, cluster, style, area);
         }
 
         if editor.is_folded(document_line) {
@@ -279,7 +375,7 @@ impl Frame {
                 layout.width() + 1,
                 &placeholder,
                 palette.gutter(false),
-                geometry.text,
+                area,
             );
         }
 
@@ -291,7 +387,7 @@ impl Frame {
                 &layout,
                 selection,
                 palette,
-                geometry.text,
+                area,
             );
         }
 
@@ -303,7 +399,7 @@ impl Frame {
                 layout: &layout,
             },
             palette,
-            geometry.text,
+            area,
         );
 
         for selection in state.cursor.all_selections() {
@@ -311,8 +407,14 @@ impl Frame {
                 continue;
             }
             let cell = layout.column_to_cell(selection.head.column);
-            text::restyle_columns(buffer, row, cell..cell + 1, geometry.text, |style| {
-                palette.caret(style)
+            text::restyle_columns(buffer, row, cell..cell + 1, area, |style| {
+                let caret = palette.caret(style);
+                if selection == &state.cursor.primary && state.cursor.cursor_count() > 1 {
+                    caret
+                        .with_attributes(caret.attributes.union(crate::cell::Attributes::UNDERLINE))
+                } else {
+                    caret
+                }
             });
         }
     }
@@ -417,3 +519,7 @@ fn fold_placeholder(editor: &Editor, document_line: usize) -> String {
         .find(|placeholder| placeholder.line == document_line)
         .map_or_else(String::new, |placeholder| placeholder.text)
 }
+
+pub use self::command_palette::default_keymap as command_palette_keymap;
+pub use self::history_panel::default_keymap as history_panel_keymap;
+pub use self::search::default_keymap as search_keymap;

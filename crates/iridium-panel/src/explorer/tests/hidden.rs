@@ -17,9 +17,10 @@ use iridium_editor::{KeyCode, Modifiers};
 use iridium_file::test_support::TempDir;
 
 use super::support::{
-    FIT, PATIENCE, all_lines, chord, lines, meta, opened, press, select_row, type_query,
+    BROWSE_HINT, FIT, HIDDEN_KEY, PATIENCE, all_lines, chord, lines, meta, opened, press,
+    select_row, type_query,
 };
-use crate::explorer::compose::{BROWSE_HINT, HIDDEN_KEY};
+
 use crate::explorer::{ExplorerOutcome, FileExplorer};
 use crate::row::PanelFit;
 

@@ -59,28 +59,37 @@
 //! |---|---|
 //! | any printable | insert into the focused field |
 //! | `Left` `Right` `Home` `End` `Backspace` `Delete` | edit the focused field |
+//! | `Ctrl+A`, `Ctrl+C/X/V` | select all, copy/cut/paste within the focused field |
+//! | `Shift+Left/Right/Home/End` | extend the field selection |
+//! | `Ctrl+Left/Right`, with optional `Shift` | move or select by word |
+//! | `Ctrl+Backspace/Delete` | delete a word |
 //! | `Tab` | move between the query and the replacement |
 //! | `Enter`, `Down` | next match |
 //! | `Shift+Enter`, `Up` | previous match |
 //! | `Ctrl+R` | replace the current match |
 //! | `Ctrl+Alt+R` | replace every match |
 //! | `Alt+C` `Alt+W` `Alt+R` | case-sensitive, whole-word, regex |
+//! | `Alt+Enter` | select all matches and return to editing |
 //! | `Escape` | close |
 //!
-//! Every chord is representable under the legacy xterm encoding as well as the
-//! kitty protocol — `Alt` is an escape prefix there, and `Ctrl` is a C0 byte —
-//! except `Shift+Enter`, which the legacy encoding cannot express at all (see
-//! [`crate::input`]). `Up` and `Down` are bound to the same two actions for
-//! exactly that reason, so nothing is unreachable on a terminal without the
-//! kitty protocol.
+//! Modified input depends on what the terminal transmits. If a shortcut is
+//! indistinguishable from another key, rebind its command. In particular, the
+//! legacy encoding cannot express Shift+Enter; Up/Down provide previous/next
+//! match independently. Modified arrows and Home/End extend field selections.
 //!
 //! Anything else is [`SearchOutcome::Ignored`] and stays the host's to handle,
 //! so a binding such as save is not dead while the panel is open.
 
+mod field_editing;
+pub use field_editing::SearchCut;
 mod keymap;
+mod selection;
+
 mod matches;
 mod paint;
 mod resolve;
+#[cfg(test)]
+mod selection_tests;
 mod verb;
 
 #[cfg(test)]
@@ -91,11 +100,11 @@ mod tests;
 use iridium_editor::search::SearchOptions;
 use iridium_editor::{Editor, KeyCode, KeyEvent, KeyPress, Keymap, KeymapStack};
 
-use self::keymap::default_keymap;
+pub use self::keymap::default_keymap;
 use self::resolve::{Resolved, types_text};
 use self::verb::Verb;
 use super::CellPosition;
-use super::field::Field;
+use super::field::{Field, Motion};
 use super::palette::Palette;
 use crate::cell::CellBuffer;
 
@@ -105,10 +114,16 @@ pub(super) use self::matches::{MatchHighlights, MatchedLine};
 const PANEL_ROWS: usize = 2;
 
 /// What became of a key handed to the overlay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchOutcome {
     /// The overlay does not bind this key. It is still the host's to handle.
     Ignored,
+    /// The host should supply clipboard text to the focused field via `paste`.
+    PasteRequested,
+    /// Store copied or cut field text in the host clipboard.
+    Copied(String),
+    /// Store the field text before committing its deletion with `finish_cut`.
+    CutRequested(SearchCut),
     /// The overlay handled it and the document is unchanged.
     Handled,
     /// The overlay handled it and the document changed, replacing this many
@@ -116,6 +131,8 @@ pub enum SearchOutcome {
     Replaced(usize),
     /// The overlay was closed, and the kernel's search with it.
     Closed,
+    /// The matches became selections and the overlay closed.
+    Selected(usize),
 }
 
 /// Which of the two fields keystrokes go into.
@@ -142,6 +159,8 @@ enum Feedback {
     Replaced(usize),
     /// A replacement was asked for and there was nothing to replace.
     NoMatch,
+    /// Selection was requested but the query has no matches.
+    NoSelection,
     /// A replacement was asked for in a document that cannot be edited.
     ReadOnly,
 }
@@ -162,7 +181,8 @@ pub struct SearchOverlay {
     focus: Focus,
     /// The options the search runs with.
     options: SearchOptions,
-    /// The engine's complaint about the current query, if it has one.
+    /// The diagnostic from the last query initiated by this overlay.
+    /// Painting reads the kernel's current outcome to include external refreshes.
     error: Option<String>,
     /// What the last action had to say.
     feedback: Feedback,
@@ -170,6 +190,10 @@ pub struct SearchOverlay {
     keys: KeymapStack,
     /// The strokes of a multi-stroke sequence typed so far.
     pending: Vec<KeyPress>,
+    /// The reachable select-matches shortcut, rebuilt when bindings change.
+    selection_hint: Option<String>,
+    /// Reachable command that explicitly clears a selection scope.
+    scope_hint: Option<String>,
 }
 
 impl SearchOverlay {
@@ -197,6 +221,8 @@ impl SearchOverlay {
             feedback: Feedback::default(),
             keys: KeymapStack::with_base(default_keymap()),
             pending: Vec::new(),
+            selection_hint: None,
+            scope_hint: None,
         };
         overlay.set_user_keymap(user_keys);
         overlay
@@ -255,7 +281,8 @@ impl SearchOverlay {
         &self.options
     }
 
-    /// The engine's complaint about the current query, if it has one.
+    /// The diagnostic from the last query initiated by this overlay.
+    /// Painting reads the kernel's current outcome to include external refreshes.
     ///
     /// `Some` means the query does not compile — almost always a
     /// half-typed regex. It is a state, not a failure: the panel keeps working
@@ -263,11 +290,6 @@ impl SearchOverlay {
     #[must_use]
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
-    }
-
-    /// Whether the current query failed to compile.
-    const fn has_error(&self) -> bool {
-        self.error.is_some()
     }
 
     /// Handles one key press, driving the kernel for anything it binds.
@@ -290,6 +312,27 @@ impl SearchOverlay {
     /// Runs one resolved verb.
     fn run(&mut self, verb: Verb, editor: &mut Editor) -> SearchOutcome {
         match verb {
+            Verb::SelectAll => self.edit(editor, Field::select_all, false),
+            Verb::Copy => self.copy_field(false),
+            Verb::Cut => self.copy_field(true),
+            Verb::SelectLeft => self.move_field(editor, Motion::Left, true),
+            Verb::SelectRight => self.move_field(editor, Motion::Right, true),
+            Verb::SelectHome => self.move_field(editor, Motion::Home, true),
+            Verb::SelectEnd => self.move_field(editor, Motion::End, true),
+            Verb::WordLeft => self.move_field(editor, Motion::WordLeft, false),
+            Verb::WordRight => self.move_field(editor, Motion::WordRight, false),
+            Verb::SelectWordLeft => self.move_field(editor, Motion::WordLeft, true),
+            Verb::SelectWordRight => self.move_field(editor, Motion::WordRight, true),
+            Verb::DeleteWordLeft => self.edit(editor, |field| field.delete_word(false), true),
+            Verb::DeleteWordRight => self.edit(editor, |field| field.delete_word(true), true),
+            Verb::Paste => SearchOutcome::PasteRequested,
+            Verb::SelectAllMatches => self.select_matches(editor),
+            Verb::ClearScope => {
+                editor.clear_search_scope();
+                self.feedback = Feedback::None;
+                self.error = editor.search_state().error().map(str::to_owned);
+                SearchOutcome::Handled
+            },
             Verb::Dismiss => {
                 self.close(editor);
                 SearchOutcome::Closed
@@ -341,6 +384,13 @@ impl SearchOverlay {
         }
     }
 
+    /// Pastes exact text into the focused find or replacement field.
+    /// Search runs once for the complete query, including multiline pastes.
+    pub fn paste(&mut self, text: &str, editor: &mut Editor) {
+        self.pending.clear();
+        self.edit_field(editor, |field| field.insert_text(text), true);
+    }
+
     /// Applies an edit to the focused field, re-searching when it changed the
     /// query.
     ///
@@ -353,17 +403,28 @@ impl SearchOverlay {
         edit: impl FnOnce(&mut Field) -> bool,
         rewrites: bool,
     ) -> SearchOutcome {
+        self.edit_field(editor, edit, rewrites);
+        SearchOutcome::Handled
+    }
+
+    fn edit_field(
+        &mut self,
+        editor: &mut Editor,
+        edit: impl FnOnce(&mut Field) -> bool,
+        rewrites: bool,
+    ) {
         let is_query = self.focus == Focus::Find;
         let field = match self.focus {
             Focus::Find => &mut self.query,
             Focus::Replace => &mut self.replacement,
         };
         let changed = edit(field);
-        if changed && rewrites && is_query {
-            self.refresh(editor);
+        if changed && rewrites {
+            if is_query {
+                self.refresh(editor);
+            }
             self.feedback = Feedback::None;
         }
-        SearchOutcome::Handled
     }
 
     /// Flips one option and re-runs the search with it.
@@ -433,6 +494,7 @@ impl SearchOverlay {
         row_count: usize,
         editor: &Editor,
         palette: &Palette,
+        offscreen: usize,
     ) -> Option<CellPosition> {
         paint::paint(
             buffer,
@@ -442,6 +504,7 @@ impl SearchOverlay {
                 overlay: self,
                 editor,
                 palette,
+                offscreen,
             },
         )
     }

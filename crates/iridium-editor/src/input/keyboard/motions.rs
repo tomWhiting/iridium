@@ -7,9 +7,11 @@
 //! [`apply_to_all`] is the shared applicator: it computes a new head for the
 //! primary cursor and every secondary cursor, optionally extending the
 //! existing selections, and merges any cursors that end up overlapping or
-//! adjacent (via [`CursorState::add_cursor`], which maintains the sorted,
+//! adjacent (via [`CursorState::from_selections`], which maintains the sorted,
 //! non-overlapping invariants of the cursor state).
 
+pub(crate) use super::words::{is_word_cluster, select_run_at};
+pub use super::words::{select_word_at, word_left, word_left_byte, word_right, word_right_byte};
 use crate::document::{CursorState, Document, Position, Selection};
 
 /// Returns true for characters that belong to a word (alphanumeric or `_`).
@@ -63,133 +65,27 @@ where
     };
 
     let primary_head = new_head(0, &cursor.primary);
-    let mut state = CursorState::new(make(&cursor.primary, primary_head));
-
-    for (idx, sel) in cursor.secondary.iter().enumerate() {
-        let head = new_head(idx + 1, sel);
-        state.add_cursor(make(sel, head));
-    }
-
-    state
+    let primary = make(&cursor.primary, primary_head);
+    let secondary = cursor
+        .secondary
+        .iter()
+        .enumerate()
+        .map(|(idx, sel)| {
+            let head = new_head(idx + 1, sel);
+            make(sel, head)
+        })
+        .collect();
+    CursorState::from_selections(primary, secondary)
 }
 
-/// Moves a position one character to the left (wrapping to the end of the
-/// previous line at column 0).
+/// Moves one extended grapheme left, crossing line endings as a unit.
 pub fn char_left(document: &Document, head: Position) -> Position {
-    if head.column > 0 {
-        Position::new(head.line, head.column - 1)
-    } else if head.line > 0 {
-        let prev_line = head.line - 1;
-        let line_len = document.line_len(prev_line).unwrap_or(0);
-        Position::new(prev_line, line_len)
-    } else {
-        head // Already at start of document
-    }
+    super::graphemes::move_to(document, head, super::graphemes::Boundary::Previous)
 }
 
-/// Moves a position one character to the right (wrapping to the start of the
-/// next line at end of line).
+/// Moves one extended grapheme right, crossing line endings as a unit.
 pub fn char_right(document: &Document, head: Position) -> Position {
-    let line_len = document.line_len(head.line).unwrap_or(0);
-
-    if head.column < line_len {
-        Position::new(head.line, head.column + 1)
-    } else if head.line < document.line_count().saturating_sub(1) {
-        Position::new(head.line + 1, 0)
-    } else {
-        head // Already at end of document
-    }
-}
-
-/// Finds the word boundary to the left of a position.
-pub fn word_left(document: &Document, pos: Position) -> Position {
-    // If at start of line, go to end of previous line
-    if pos.column == 0 {
-        if pos.line == 0 {
-            return pos;
-        }
-        let prev_line = pos.line - 1;
-        let line_len = document.line_len(prev_line).unwrap_or(0);
-        return Position::new(prev_line, line_len);
-    }
-
-    let line_text = document.line(pos.line).unwrap_or_default();
-    let chars: Vec<char> = line_text.chars().collect();
-    let mut col = pos.column.min(chars.len());
-
-    // Skip whitespace
-    while col > 0
-        && chars
-            .get(col.saturating_sub(1))
-            .is_some_and(|c| c.is_whitespace())
-    {
-        col -= 1;
-    }
-
-    // Skip word characters
-    if col > 0
-        && chars
-            .get(col.saturating_sub(1))
-            .is_some_and(|c| is_word_char(*c))
-    {
-        while col > 0
-            && chars
-                .get(col.saturating_sub(1))
-                .is_some_and(|c| is_word_char(*c))
-        {
-            col -= 1;
-        }
-    } else {
-        // Skip non-word, non-whitespace characters (punctuation)
-        while col > 0
-            && chars
-                .get(col.saturating_sub(1))
-                .is_some_and(|c| !is_word_char(*c) && !c.is_whitespace())
-        {
-            col -= 1;
-        }
-    }
-
-    Position::new(pos.line, col)
-}
-
-/// Finds the word boundary to the right of a position.
-pub fn word_right(document: &Document, pos: Position) -> Position {
-    let line_text = document.line(pos.line).unwrap_or_default();
-    let chars: Vec<char> = line_text.chars().collect();
-    let line_len = chars.len();
-
-    // If at end of line, go to start of next line
-    if pos.column >= line_len {
-        if pos.line >= document.line_count().saturating_sub(1) {
-            return pos;
-        }
-        return Position::new(pos.line + 1, 0);
-    }
-
-    let mut col = pos.column;
-
-    // Skip current word or punctuation
-    if chars.get(col).is_some_and(|c| is_word_char(*c)) {
-        while col < line_len && chars.get(col).is_some_and(|c| is_word_char(*c)) {
-            col += 1;
-        }
-    } else if chars.get(col).is_some_and(|c| !c.is_whitespace()) {
-        while col < line_len
-            && chars
-                .get(col)
-                .is_some_and(|c| !is_word_char(*c) && !c.is_whitespace())
-        {
-            col += 1;
-        }
-    }
-
-    // Skip whitespace
-    while col < line_len && chars.get(col).is_some_and(|c| c.is_whitespace()) {
-        col += 1;
-    }
-
-    Position::new(pos.line, col)
+    super::graphemes::move_to(document, head, super::graphemes::Boundary::Next)
 }
 
 /// Moves a position to the start of its line (smart home).
@@ -211,7 +107,12 @@ pub fn line_start_smart(document: &Document, head: Position) -> Position {
         first_non_ws
     };
 
-    Position::new(head.line, new_column)
+    snap_to_grapheme(document, Position::new(head.line, new_column))
+}
+
+/// Snap an interactive caret before its containing grapheme, if necessary.
+pub(crate) fn snap_to_grapheme(document: &Document, position: Position) -> Position {
+    super::graphemes::move_to(document, position, super::graphemes::Boundary::Floor)
 }
 
 /// Moves a position to the end of its line.
@@ -278,7 +179,11 @@ pub fn vertical_move_by(
                 let line = head.line.saturating_sub(lines);
                 let line_len = document.line_len(line).unwrap_or(0);
                 (
-                    Position::new(line, target_column.min(line_len)),
+                    super::graphemes::move_to(
+                        document,
+                        Position::new(line, target_column.min(line_len)),
+                        super::graphemes::Boundary::Floor,
+                    ),
                     target_column,
                 )
             }
@@ -293,46 +198,14 @@ pub fn vertical_move_by(
                 let line = head.line.saturating_add(lines).min(last_line);
                 let line_len = document.line_len(line).unwrap_or(0);
                 (
-                    Position::new(line, target_column.min(line_len)),
+                    super::graphemes::move_to(
+                        document,
+                        Position::new(line, target_column.min(line_len)),
+                        super::graphemes::Boundary::Floor,
+                    ),
                     target_column,
                 )
             }
         },
     }
-}
-
-/// Selects the word at the given position.
-///
-/// Returns a collapsed selection when the position is not on a word
-/// character.
-pub fn select_word_at(document: &Document, position: Position) -> Selection {
-    let line_text = document.line(position.line).unwrap_or_default();
-    let chars: Vec<char> = line_text.chars().collect();
-
-    if chars.is_empty() {
-        return Selection::collapsed(position);
-    }
-
-    let col = position.column.min(chars.len().saturating_sub(1));
-
-    // Check if we're on a word character
-    if !chars.get(col).is_some_and(|c| is_word_char(*c)) {
-        return Selection::collapsed(position);
-    }
-
-    // Find word boundaries
-    let mut start = col;
-    let mut end = col;
-
-    while start > 0 && chars.get(start - 1).is_some_and(|c| is_word_char(*c)) {
-        start -= 1;
-    }
-    while end < chars.len() && chars.get(end).is_some_and(|c| is_word_char(*c)) {
-        end += 1;
-    }
-
-    Selection::new(
-        Position::new(position.line, start),
-        Position::new(position.line, end),
-    )
 }

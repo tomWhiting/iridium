@@ -15,8 +15,9 @@ use iridium_editor::commands::builtin::{
     HISTORY_REDO, HISTORY_TOGGLE_PANEL, HISTORY_UNDO, LINES_DELETE, LINES_JOIN,
     MULTI_CURSOR_ADD_CURSOR_ABOVE, MULTI_CURSOR_ADD_CURSOR_BELOW,
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
-    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_OPEN, SELECTION_SELECT_ALL,
-    VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
+    MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_IN_SELECTION, SEARCH_OPEN,
+    SELECTION_SELECT_ALL, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB,
+    WORKSPACE_PREVIOUS_TAB,
 };
 use iridium_editor::{
     CommandId, KeyBinding, KeyCode, Keymap, ModifierPattern, ModifierState, StrokePattern,
@@ -125,6 +126,10 @@ const CHORD: &[StrokePattern] = &[];
 
 /// The binding table: `(stroke, command)`.
 pub(super) const BINDINGS: &[(StrokePattern, CommandId)] = &[
+    (
+        StrokePattern::new(KeyCode::Char('.'), META_ALT),
+        iridium_editor::commands::builtin::COMMAND_REPEAT_SEQUENCE,
+    ),
     // ⚠️ **The save rows forbid `Shift` — they used to ignore it.** `⌘⇧S` and
     // `Ctrl+⇧S` reached `file.save` until 12 Aug 2026 simply because nothing
     // else claimed them; they are Save As on every editor a hand arrives from,
@@ -190,6 +195,10 @@ pub(super) const BINDINGS: &[(StrokePattern, CommandId)] = &[
         SELECTION_SELECT_ALL,
     ),
     (StrokePattern::new(KeyCode::Char('f'), META), SEARCH_OPEN),
+    (
+        StrokePattern::new(KeyCode::Char('l'), META_ALT),
+        SEARCH_IN_SELECTION,
+    ),
     // `Shift` forbidden for the reason the default keymap's `Ctrl+K` forbids
     // it: the shifted spelling must stay free to mean something else.
     (

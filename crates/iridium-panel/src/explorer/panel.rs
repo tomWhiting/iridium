@@ -14,7 +14,7 @@ use iridium_tree::{Tree, TreeSource as _};
 
 use super::buffer::Buffer;
 use super::chosen_root;
-use super::filter::{FilterView, filter};
+use super::filter::{FilterOrder, FilterView, filter, ranked};
 use super::mode::Mode;
 use crate::Entry;
 
@@ -157,6 +157,7 @@ pub struct FileExplorer {
     /// The selected row within [`Self::view`]. Meaningless when not
     /// filtering, where the selection lives in the tree.
     pub(super) filtered: usize,
+    pub(super) filter_order: FilterOrder,
     /// Whether a query may read directories nobody opened.
     ///
     /// Decided once, by whichever face opened the panel — the desktop's
@@ -182,6 +183,8 @@ pub struct FileExplorer {
     /// See `docs/IN-FLIGHT-91-panel-keys.md` D-3 for why the panel resolves
     /// rather than being driven by the editor's resolver.
     pub(super) keys: KeymapStack,
+    pub(super) hints: iridium_editor::KeyHintIndex,
+    pub(super) key_label_style: iridium_editor::KeyLabelStyle,
     /// The strokes of a multi-stroke sequence that has begun but not finished.
     ///
     /// Empty almost always: nothing in the default table is a chord. It exists
@@ -189,6 +192,8 @@ pub struct FileExplorer {
     /// and a binding a configuration file accepts and the panel silently never
     /// fires is the defect class this repository does not ship.
     pub(super) pending: Vec<KeyPress>,
+    /// Navigation awaiting fresh directory reads after reopening.
+    pub(super) restoring: Option<super::bookmark::Navigation>,
 }
 
 impl FileExplorer {
@@ -212,6 +217,8 @@ impl FileExplorer {
         let root_id = files.root();
         let mut tree = Tree::new(&mut files);
         tree.select(0);
+        let keys = KeymapStack::with_base(super::keymap::default_keymap());
+        let hints = iridium_editor::KeyHintIndex::build(&keys);
         Ok(Self {
             files,
             tree,
@@ -222,10 +229,14 @@ impl FileExplorer {
             pattern: Pattern::Unfiltered,
             view: FilterView::default(),
             filtered: 0,
+            filter_order: FilterOrder::Tree,
             crawl,
             mode: Mode::Browse,
-            keys: KeymapStack::with_base(super::keymap::default_keymap()),
+            keys,
+            hints,
+            key_label_style: iridium_editor::KeyLabelStyle::Portable,
             pending: Vec::new(),
+            restoring: None,
         })
     }
 
@@ -288,13 +299,16 @@ impl FileExplorer {
     /// structural rather than a check here that could be forgotten.
     pub(super) fn reroot(&mut self, root: &Path) -> ExplorerOutcome {
         let chosen = chosen_root(root.to_path_buf());
-        let opened = match Self::open(chosen.path, chosen.crawl) {
+        let mut opened = match Self::open(chosen.path, chosen.crawl) {
             Ok(opened) => opened,
             // The reader thread would not start. Nothing has been touched at
             // this point, so the old root is still on screen and still works
             // — which is the right thing to leave behind.
             Err(error) => return ExplorerOutcome::Failed(format!("the file explorer: {error}")),
         };
+        opened.keys = self.keys.clone();
+        opened.hints = self.hints.clone();
+        opened.key_label_style = self.key_label_style;
         *self = opened;
         ExplorerOutcome::Handled
     }
@@ -355,6 +369,7 @@ impl FileExplorer {
         }
         self.tree.refresh(&mut self.files);
         self.open_what_was_wanted();
+        self.restore_navigation();
         if self.is_filtering() {
             // Keep the selection on the node it was on. A read landing
             // elsewhere in the project can change which row scores best, and
@@ -543,7 +558,10 @@ impl FileExplorer {
     /// Rebuilds the filtered view, landing the selection on `held` if that
     /// node is still a result and on the best match otherwise.
     pub(super) fn refilter(&mut self, held: Option<NodeId>) {
-        self.view = filter(&self.files, &self.pattern);
+        self.view = match self.filter_order {
+            FilterOrder::Tree => filter(&self.files, &self.pattern),
+            FilterOrder::Relevance => ranked(&self.files, &self.pattern, self.query.text()),
+        };
         self.filtered = held
             .and_then(|id| {
                 self.view
@@ -553,5 +571,13 @@ impl FileExplorer {
             })
             .or(self.view.best)
             .unwrap_or(0);
+    }
+}
+
+impl FileExplorer {
+    /// Choose presentation without changing directory expansion or file edits.
+    pub fn set_filter_order(&mut self, order: FilterOrder) {
+        self.filter_order = order;
+        self.refilter(None);
     }
 }

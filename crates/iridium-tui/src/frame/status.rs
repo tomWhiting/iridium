@@ -13,6 +13,7 @@
 //! absent rather than blank.
 
 use iridium_editor::Editor;
+use iridium_editor::commands::structural_keymap::{STRUCTURAL, STRUCTURAL_CHANGE, STRUCTURAL_VERB};
 
 use super::line::LineLayout;
 use super::palette::Palette;
@@ -73,9 +74,67 @@ fn left_segment(editor: &Editor, status: Status<'_>) -> String {
     if status.dirty {
         segment.push_str(" [+]");
     }
+    if let Some(count) = editor.pending_key_count() {
+        segment.push_str("  count:");
+        segment.push_str(&count.to_string());
+    }
+    for key in editor.pending_key_sequence() {
+        segment.push(' ');
+        segment.push_str(
+            &iridium_editor::commands::StrokePattern::new(
+                key.key,
+                iridium_editor::commands::ModifierPattern::exact(key.modifiers),
+            )
+            .to_string(),
+        );
+        segment.push('…');
+    }
     if let Some(mode) = editor.mode() {
         segment.push_str("  ");
         segment.push_str(mode.as_str());
+        if mode == &STRUCTURAL_CHANGE {
+            segment.push_str("  Esc: finish change");
+        }
+        if mode == &STRUCTURAL || mode == &STRUCTURAL_VERB {
+            if editor.state().syntax.tree().is_none() {
+                segment.push_str(" [text] i: type");
+            } else {
+                if let Some(kind) = editor
+                    .state()
+                    .syntax
+                    .navigation_label(&editor.state().document, &editor.state().cursor)
+                    .or_else(|| editor.selected_syntax_kind())
+                {
+                    segment.push_str(" [");
+                    segment.push_str(kind);
+                    segment.push(']');
+                }
+                if !editor.pending_key_sequence().is_empty() || editor.pending_key_count().is_some()
+                {
+                    segment.push_str("  Esc: cancel");
+                } else if editor
+                    .keymap()
+                    .layers()
+                    .iter()
+                    .any(|layer| layer.name() == "terminal-modal")
+                {
+                    segment.push_str("  arrows: move , smaller . larger i: type");
+                } else {
+                    segment.push_str("  ↑↓ move ← coarser → finer i: type");
+                }
+            }
+        }
+    }
+    if editor.mode() != Some(&STRUCTURAL)
+        && editor.mode() != Some(&STRUCTURAL_VERB)
+        && editor.mode() != Some(&STRUCTURAL_CHANGE)
+        && editor
+            .keymap()
+            .layers()
+            .iter()
+            .any(|layer| layer.name() == "structural-navigation")
+    {
+        segment.push_str("  Ctrl+K: structural mode");
     }
     segment
 }
@@ -85,7 +144,10 @@ fn left_segment(editor: &Editor, status: Status<'_>) -> String {
 fn right_segment(editor: &Editor) -> String {
     let cursor = editor.cursor();
     let count = editor.state().cursor.cursor_count();
-    let position = format!("Ln {}, Col {} ", cursor.line + 1, cursor.column + 1);
+    let scope = editor
+        .selected_syntax_kind()
+        .map_or_else(String::new, |kind| format!("{}  ", kind.replace('_', " ")));
+    let position = format!("{scope}Ln {}, Col {} ", cursor.line + 1, cursor.column + 1);
     if count > 1 {
         return format!("{count} cursors  {position}");
     }
@@ -230,5 +292,19 @@ mod tests {
         let palette = Palette::from_theme(editor.get_theme());
         paint(&mut buffer, 0, &editor, Status::default(), &palette);
         assert_eq!(buffer.width(), 0);
+    }
+    #[test]
+    fn status_names_the_exact_primary_syntax_selection() {
+        let mut editor = Editor::with_defaults();
+        editor.set_content("[11,22]");
+        editor.set_language(iridium_editor::Language::Json);
+        editor.set_selection(
+            iridium_editor::Position::new(0, 1),
+            iridium_editor::Position::new(0, 3),
+        );
+        let line = painted(&editor, Status::default(), 80);
+        assert!(line.contains("number  Ln 1, Col 4"), "{line}");
+        editor.set_cursor(iridium_editor::Position::new(0, 1));
+        assert!(!painted(&editor, Status::default(), 80).contains("number"));
     }
 }

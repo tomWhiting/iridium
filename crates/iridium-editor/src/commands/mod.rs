@@ -117,6 +117,9 @@ mod resolver;
 mod stack;
 mod stroke;
 mod stroke_text;
+pub mod structural_keymap;
+#[cfg(test)]
+mod structural_keymap_tests;
 
 #[cfg(test)]
 mod default_keymap_tests;

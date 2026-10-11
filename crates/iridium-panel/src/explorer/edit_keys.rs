@@ -241,9 +241,7 @@ impl FileExplorer {
                     self.mode.discard();
                     return ExplorerOutcome::Handled;
                 }
-                ExplorerOutcome::Failed(
-                    "there are unapplied edits — esc again to throw them away".to_owned(),
-                )
+                ExplorerOutcome::Failed(self.discard_message("again"))
             },
         }
     }
@@ -257,9 +255,7 @@ impl FileExplorer {
     fn close_from_edit(&mut self) -> ExplorerOutcome {
         match self.mode.leave() {
             Leaving::Left => ExplorerOutcome::Closed,
-            Leaving::Unsaved => ExplorerOutcome::Failed(
-                "there are unapplied edits — esc twice to throw them away first".to_owned(),
-            ),
+            Leaving::Unsaved => ExplorerOutcome::Failed(self.unapplied_edits_message()),
         }
     }
 

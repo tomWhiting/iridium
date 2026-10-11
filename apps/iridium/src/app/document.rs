@@ -21,9 +21,10 @@
 //! asked for, and the surprise belongs to the disk, not to them.
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use iridium_editor::{KeymapError, Language, Position, RegistryError};
+use iridium_editor::Language;
+use iridium_editor::workspace::FaceSetupError;
 
 use super::prompt::{Deed, Message, Prompt};
 use super::{App, Flow};
@@ -38,9 +39,9 @@ use crate::theme::ThemeError;
 #[derive(Debug)]
 pub enum StartupError {
     /// A command this face contributes could not be registered.
-    Command(RegistryError),
-    /// The keymap layer this face pushes was refused.
-    Keymap(KeymapError),
+    Setup(FaceSetupError),
+    /// The shared workspace could not create or activate a document.
+    Session(&'static str),
     /// The theme could not be loaded.
     Theme(ThemeError),
     /// The file could not be opened.
@@ -50,8 +51,8 @@ pub enum StartupError {
 impl fmt::Display for StartupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Command(error) => write!(f, "{error}"),
-            Self::Keymap(error) => write!(f, "{error}"),
+            Self::Setup(error) => write!(f, "{error}"),
+            Self::Session(message) => f.write_str(message),
             Self::Theme(error) => write!(f, "{error}"),
             Self::File(error) => write!(f, "{error}"),
         }
@@ -61,8 +62,8 @@ impl fmt::Display for StartupError {
 impl std::error::Error for StartupError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Command(error) => Some(error),
-            Self::Keymap(error) => Some(error),
+            Self::Setup(error) => Some(error),
+            Self::Session(_) => None,
             Self::Theme(error) => Some(error),
             Self::File(error) => Some(error),
         }
@@ -83,12 +84,9 @@ impl App {
     /// document's length — costs a comparison of two integers.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        let saved = self
-            .file
-            .as_ref()
-            .and_then(TextFile::saved_text)
-            .unwrap_or("");
-        *self.editor.state().document.rope() != saved
+        self.workspace
+            .active_document()
+            .is_some_and(|id| self.document_is_dirty(id))
     }
 
     /// Writes the document to its file.
@@ -96,30 +94,44 @@ impl App {
     /// An unnamed buffer is not a dead end: it asks for a name, which is what
     /// the command line promises when it is given no file.
     pub(super) fn save(&mut self, force: bool) -> Flow {
-        if self.editor.state().read_only {
+        self.write_file(force);
+        Flow::Running
+    }
+
+    pub(super) fn write_file(&mut self, force: bool) -> super::ex::WriteOutcome {
+        let Some((editor, session)) = self.workspace.active_editor_and_payload_mut() else {
+            self.message = Some(Message::error("there is no document to save"));
+            return super::ex::WriteOutcome::Refused;
+        };
+        if editor.state().read_only {
             // Nothing could have changed, so a save here can only write a
             // stale buffer over a file that something else may have moved on.
             self.message = Some(Message::error("the document is read-only"));
-            return Flow::Running;
+            return super::ex::WriteOutcome::Refused;
         }
-        if self.file.is_none() {
+        if session.file.is_none() {
             self.prompt = Some(Prompt::save_as());
-            return Flow::Running;
+            return super::ex::WriteOutcome::NeedsName;
         }
 
-        let text = self.editor.content();
+        let text = editor.content();
         // Unreachable: the check above returned. Reported rather than ignored
         // so that a later edit cannot make it silent.
-        let Some(file) = self.file.as_mut() else {
+        let Some(file) = session.file.as_mut() else {
             self.message = Some(Message::error("there is no file to write"));
-            return Flow::Running;
+            return super::ex::WriteOutcome::Refused;
         };
         let outcome = file.save(&text, force).map(|()| file.display_name());
+        let succeeded = outcome.is_ok();
         self.message = Some(match outcome {
             Ok(name) => Message::notice(format!("wrote {name}")),
             Err(error) => Message::error(error.to_string()),
         });
-        Flow::Running
+        if succeeded {
+            super::ex::WriteOutcome::Saved
+        } else {
+            super::ex::WriteOutcome::Refused
+        }
     }
 
     /// Writes an unnamed buffer to a path for the first time.
@@ -129,31 +141,63 @@ impl App {
     /// — so it is reported rather than overwritten. The buffer takes the name
     /// only when the write succeeded; a failed save-as leaves it unnamed, which
     /// is what it still is.
-    pub(super) fn save_as(&mut self, path: &Path) -> Flow {
-        let mut file = TextFile::new(path);
-        let text = self.editor.content();
-        match file.save(&text, false) {
-            Ok(()) => {
-                self.message = Some(Message::notice(format!("wrote {}", file.display_name())));
-                self.file = Some(file);
-                // The name is what says what the document is written in, so a
-                // new name is believed — including when it says nothing. This
-                // face holds one buffer for the session, so a rename from
-                // `a.rs` to `notes.log` would otherwise leave Rust
-                // highlighting a log file for as long as the program ran.
-                match language_of(path) {
-                    Some(language) => self.editor.set_language(language),
-                    None => self.editor.clear_language(),
-                }
+    pub(super) fn write_as(&mut self, path: &Path) -> super::ex::WriteOutcome {
+        let project_path = self
+            .project
+            .as_ref()
+            .filter(|_| path.is_relative())
+            .map(|root| root.join(path));
+        let path = project_path.as_deref().unwrap_or(path);
+        let path = match super::session::file_identity(path) {
+            Ok(path) => path,
+            Err(error) => {
+                self.message = Some(Message::error(error.to_string()));
+                return super::ex::WriteOutcome::Refused;
             },
-            Err(error) => self.message = Some(Message::error(error.to_string())),
+        };
+        if self
+            .tab_for_path(&path)
+            .is_some_and(|tab| Some(tab) != self.workspace.active())
+        {
+            self.message = Some(Message::error("that file is already open in another tab"));
+            return super::ex::WriteOutcome::Refused;
         }
-        Flow::Running
+        let Some((editor, session)) = self.workspace.active_editor_and_payload_mut() else {
+            self.message = Some(Message::error("there is no document to save"));
+            return super::ex::WriteOutcome::Refused;
+        };
+        if editor.state().read_only {
+            self.message = Some(Message::error("the document is read-only"));
+            return super::ex::WriteOutcome::Refused;
+        }
+        let mut file = TextFile::new(&path);
+        match file.save(&editor.content(), false) {
+            Ok(()) => {
+                let name = file.display_name();
+                session.file = Some(file);
+                match language_of(&path) {
+                    Some(language) => editor.set_language(language),
+                    None => editor.clear_language(),
+                }
+                self.message = Some(Message::notice(format!("wrote {name}")));
+                if let Some(tab) = self.workspace.active() {
+                    if !self.workspace.rename(tab, name) {
+                        self.message =
+                            Some(Message::error("saved, but could not update the tab title"));
+                    }
+                }
+                super::ex::WriteOutcome::Saved
+            },
+            Err(error) => {
+                self.message = Some(Message::error(error.to_string()));
+                super::ex::WriteOutcome::Refused
+            },
+        }
     }
 
     /// Asks before re-reading a file over unsaved changes.
     pub(super) fn request_reload(&mut self) -> Flow {
-        if self.file.is_none() {
+        if self.file().is_none() {
             self.message = Some(Message::error("there is no file to re-read"));
             return Flow::Running;
         }
@@ -169,14 +213,18 @@ impl App {
 
     /// Re-reads the file, discarding unsaved changes.
     pub(super) fn reload(&mut self) -> Flow {
-        let Some(file) = self.file.as_mut() else {
+        let Some((editor, session)) = self.workspace.active_editor_and_payload_mut() else {
+            self.message = Some(Message::error("there is no document to re-read"));
+            return Flow::Running;
+        };
+        let Some(file) = session.file.as_mut() else {
             self.message = Some(Message::error("there is no file to re-read"));
             return Flow::Running;
         };
         let outcome = file.reload().map(|text| (text, file.display_name()));
         match outcome {
             Ok((text, name)) => {
-                self.editor.set_content(&text);
+                editor.set_content(&text);
                 self.ensure_caret_visible();
                 self.message = Some(Message::notice(format!("re-read {name}")));
             },
@@ -185,54 +233,21 @@ impl App {
         Flow::Running
     }
 
-    /// Asks before replacing the document with another file.
-    ///
-    /// ⚠️ **The same guard `request_reload` has, for the same reason and not
-    /// by analogy: this face edits one buffer, so opening a file *discards*
-    /// the one on screen.** The GPU face's answer to the identical
-    /// `ExplorerOutcome::Open` is a new tab and loses nothing — the outcome
-    /// means "the user picked this file", and what that costs is the face's to
-    /// know. Recorded here because the word "open" reads as harmless and is
-    /// not.
-    pub(super) fn request_open(&mut self, path: PathBuf) -> Flow {
-        if self.is_dirty() {
-            let name = path.file_name().map_or_else(
-                || path.display().to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
-            self.prompt = Some(Prompt::confirm(
-                format!("Unsaved changes. Open {name} and lose them? (y/n)"),
-                Deed::Open(path),
-            ));
-            return Flow::Running;
-        }
-        self.open_file(&path)
-    }
-
-    /// Replaces the document with `path`, discarding unsaved changes.
-    ///
-    /// The language is re-derived rather than kept: a session that opened a
-    /// `.rs` and then a `.json` would otherwise highlight the second as the
-    /// first, which is #39's defect wearing a different hat. `set_language`
-    /// takes `None` for a name nothing claims, which is what makes a plain
-    /// text file plain rather than the previous file's language.
+    /// Opens the selected path through the shared workspace.
     pub(super) fn open_file(&mut self, path: &Path) -> Flow {
-        match TextFile::open(path) {
-            Ok((file, text)) => {
-                let name = file.display_name();
-                self.file = Some(file);
-                self.editor.set_content(&text);
-                // ⚠️ Cleared, not left alone, when the new name claims no
-                // language. That is #39's defect exactly: a session that
-                // opened a `.rs` and then a plain `NOTES` would highlight the
-                // second as Rust, because nothing had ever said "stop".
-                match language_of(path) {
-                    Some(language) => self.editor.set_language(language),
-                    None => self.editor.clear_language(),
+        match self.add_file(path) {
+            Ok(_) => {
+                if self
+                    .explorer
+                    .as_ref()
+                    .is_some_and(iridium_tui::frame::FileExplorerPanel::is_sidebar)
+                {
+                    self.focus = crate::app::sidebar::Focus::Document;
+                } else {
+                    self.close_explorer();
                 }
-                self.editor.set_cursor(Position::new(0, 0));
-                self.ensure_caret_visible();
-                self.message = Some(Message::notice(format!("opened {name}")));
+                self.sync_viewport();
+                self.message = Some(Message::notice(format!("opened {}", path.display())));
             },
             Err(error) => self.message = Some(Message::error(error.to_string())),
         }
@@ -241,7 +256,12 @@ impl App {
 
     /// Leaves, asking again when there are unsaved changes.
     pub(super) fn request_quit(&mut self) -> Flow {
-        if self.is_dirty() {
+        if self.workspace.tabs().into_iter().any(|tab| {
+            self.workspace
+                .node(tab)
+                .and_then(iridium_editor::workspace::Node::document)
+                .is_some_and(|id| self.document_is_dirty(id))
+        }) {
             self.prompt = Some(Prompt::confirm(
                 "Unsaved changes. Quit without saving? (y/n)",
                 Deed::Quit,

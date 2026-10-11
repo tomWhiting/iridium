@@ -5,6 +5,7 @@
 
 mod config;
 mod menubar;
+mod native_events;
 mod panel_mouse;
 mod panels;
 mod project;

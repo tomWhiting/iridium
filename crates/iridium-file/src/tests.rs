@@ -538,3 +538,27 @@ fn concurrent_writes_to_one_directory_do_not_collide() {
         "the two writes shared a temporary name: {seen:?}"
     );
 }
+
+#[test]
+fn bounded_open_and_streamed_baseline_comparison_preserve_exact_bytes() {
+    use std::io::Write as _;
+    let dir = TempDir::new("bounded-file");
+    let path = dir.path().join("file");
+    let text = format!("{}tail", "x".repeat(70_000));
+    std::fs::write(&path, &text).expect("file");
+    assert!(TextFile::open_with_limit(&path, text.len() - 1).is_err());
+    let (file, loaded) = TextFile::open_with_limit(&path, text.len()).expect("exact limit");
+    assert_eq!(loaded, text);
+    assert_eq!(file.disk_state().expect("state"), DiskState::Agrees);
+    let changed = format!("{}fail", "x".repeat(70_000));
+    std::fs::write(&path, changed).expect("external");
+    assert_eq!(file.disk_state().expect("state"), DiskState::Differs);
+    std::fs::write(&path, &text).expect("restore");
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("append")
+        .write_all(b"longer")
+        .expect("write");
+    assert_eq!(file.disk_state().expect("state"), DiskState::Differs);
+}

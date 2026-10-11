@@ -155,7 +155,7 @@ pub(in crate::explorer) fn all_lines(explorer: &mut FileExplorer) -> Vec<String>
 /// What the user has typed into the query field.
 ///
 /// ⚠️ **Read by colour, not by position.** The prompt, the padding and
-/// [`BROWSE_HINT`](crate::explorer::compose::BROWSE_HINT) are all drawn in
+/// the browse hint are all drawn in
 /// the quiet colour and the typed text is the only run in the foreground one,
 /// so this is the one reading that stays true whether or not the hint is
 /// sharing the row. Asserting on the flat text of row zero would make every
@@ -212,3 +212,6 @@ pub(in crate::explorer) fn selected_text(explorer: &mut FileExplorer) -> Option<
     let index = selected_row(explorer)?;
     lines(explorer).get(index).cloned()
 }
+
+pub(super) const BROWSE_HINT: &str = "Tab to edit these rows";
+pub(super) const HIDDEN_KEY: &str = "Ctrl+.";

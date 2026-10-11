@@ -129,6 +129,14 @@ impl Driver {
         self.negotiation.capabilities()
     }
 
+    /// Sends a copy through OSC 52. The terminal may decline it in its settings.
+    ///
+    /// # Errors
+    /// Returns payload-limit, write or flush errors without confirming a copy.
+    pub fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
+        super::clipboard::write_clipboard(&mut self.terminal, text)
+    }
+
     /// The buffers a frame is drawn into.
     #[must_use]
     pub const fn surface(&self) -> &Surface {
@@ -197,12 +205,25 @@ impl Driver {
     /// Returns any error from polling or reading the terminal.
     pub fn next_event(&mut self) -> io::Result<DriverEvent> {
         loop {
-            self.terminal.poll(|_| true, None)?;
-            let event = self.terminal.read(|_| true)?;
-            if let Some(driver_event) = self.classify(event) {
+            if let Some(driver_event) = self.poll_event(None)? {
                 return Ok(driver_event);
             }
         }
+    }
+
+    /// Waits for input up to `timeout`, or indefinitely when it is `None`.
+    ///
+    /// Returns `None` on timeout or a consumed capability reply. Hosts can
+    /// repaint background work between calls without manufacturing key input.
+    ///
+    /// # Errors
+    /// Returns terminal polling and reading failures unchanged.
+    pub fn poll_event(&mut self, timeout: Option<Duration>) -> io::Result<Option<DriverEvent>> {
+        if !self.terminal.poll(|_| true, timeout)? {
+            return Ok(None);
+        }
+        let event = self.terminal.read(|_| true)?;
+        Ok(self.classify(event))
     }
 
     /// Sorts one terminal event, returning `None` for one that was consumed by

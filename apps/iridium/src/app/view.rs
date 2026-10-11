@@ -8,7 +8,7 @@
 //! frame rather than given a row of its own. See [`prompt`](super::prompt) for
 //! why it displaces the statusline instead of shrinking the document.
 
-use iridium_editor::{EditorState, Position};
+use iridium_editor::{EditorState, Position, Selection};
 use iridium_tui::cell::Surface;
 use iridium_tui::driver::CursorState;
 use iridium_tui::frame::{Chrome, Frame, Palette, Status};
@@ -28,18 +28,31 @@ impl App {
             self.resize(columns, rows);
         }
 
-        let name = self.file.as_ref().map(TextFile::display_name);
+        self.poll_mouse_scroll(std::time::Instant::now());
+        self.poll_query();
+        self.poll_project_search();
+        // Complete reads even while a narrow screen temporarily hides the band.
+        if let Some(explorer) = self.explorer.as_mut() {
+            explorer.poll();
+        }
+        let name = self.file().map(TextFile::display_name);
         let dirty = self.is_dirty();
         let band_rows = self.band_rows();
+        let sidebar_columns = self.sidebar_columns();
+        let tabs = self.tab_strip();
+        let Some((editor, session)) = self.workspace.active_editor_and_payload_mut() else {
+            return CursorState::Hidden;
+        };
         let chrome = Chrome {
             status: Status {
                 name: name.as_deref(),
                 dirty,
             },
-            search: self.search_open.then_some(&self.search),
-            sidebar_columns: self.sidebar_columns(),
+            search: self.search_open.then_some(&session.search),
+            sidebar_columns,
+            tab_bar: true,
         };
-        let layout = self.frame.render(&self.editor, chrome, surface.back_mut());
+        let layout = session.frame.render(editor, chrome, surface.back_mut());
 
         let mut cursor = layout
             .caret()
@@ -49,7 +62,7 @@ impl App {
             });
 
         if let Some(row) = layout.status_row {
-            let palette = Palette::from_theme(self.editor.get_theme());
+            let palette = Palette::from_theme(editor.get_theme());
             if let Some(prompt) = self.prompt.as_ref() {
                 // A question owns the caret while it is open: typing goes into
                 // it, and a cursor left in the document would say otherwise.
@@ -62,29 +75,31 @@ impl App {
             }
         }
 
-        if self.palette_open {
-            // The palette floats over everything, prompt line included, and is
-            // modal — so its query field owns the caret while it is open.
-            let styles = Palette::from_theme(self.editor.get_theme());
-            cursor = self
-                .palette
-                .paint(surface.back_mut(), &self.editor, &self.mru, &styles)
+        if let Some(explorer) = self
+            .explorer
+            .as_mut()
+            .filter(|_| self.focus == crate::app::sidebar::Focus::Explorer || sidebar_columns > 0)
+        {
+            let styles = Palette::from_theme(editor.get_theme());
+            let theme = editor.get_theme().clone();
+            let explorer_cursor = explorer
+                .paint(surface.back_mut(), band_rows, &theme, &styles)
                 .map_or(CursorState::Hidden, |cell| CursorState::At {
                     row: cell.row,
                     column: cell.column,
                 });
+            if self.focus == crate::app::sidebar::Focus::Explorer {
+                cursor = explorer_cursor;
+            }
         }
 
-        if let Some(explorer) = self.explorer.as_mut() {
-            // ⚠️ Polled here, on the frame, because the filesystem source
-            // reads on a worker thread and nothing wakes this loop when a
-            // listing lands. Skipping it leaves a panel permanently saying
-            // "Reading…".
-            explorer.poll();
-            let styles = Palette::from_theme(self.editor.get_theme());
-            let theme = self.editor.get_theme().clone();
-            cursor = explorer
-                .paint(surface.back_mut(), band_rows, &theme, &styles)
+        if self.palette_open {
+            // The palette floats over everything, prompt line included, and is
+            // modal — so its query field owns the caret while it is open.
+            let styles = Palette::from_theme(editor.get_theme());
+            cursor = self
+                .palette
+                .paint(surface.back_mut(), editor, &self.mru, &styles)
                 .map_or(CursorState::Hidden, |cell| CursorState::At {
                     row: cell.row,
                     column: cell.column,
@@ -95,12 +110,21 @@ impl App {
             // The undo-tree panel has no text field, so no cell owns the
             // caret while it is open: a visible cursor would claim typing
             // goes somewhere it does not.
-            let styles = Palette::from_theme(self.editor.get_theme());
-            self.history
-                .paint(surface.back_mut(), &self.editor, &styles);
+            let styles = Palette::from_theme(editor.get_theme());
+            self.history.paint(surface.back_mut(), editor, &styles);
             cursor = CursorState::Hidden;
         }
 
+        if let Some(row) = layout.tab_row {
+            tabs.paint(
+                surface.back_mut(),
+                row,
+                &Palette::from_theme(editor.get_theme()),
+            );
+        }
+        if let Some(panel) = self.project_search.as_ref().filter(|p| p.open) {
+            return panel.paint(surface.back_mut(), &Palette::from_theme(editor.get_theme()));
+        }
         cursor
     }
 
@@ -127,8 +151,8 @@ impl App {
     /// nor a panel that already took its rows from the same place. A second
     /// copy of that arithmetic in this file would be a second thing to keep
     /// true, and it would be wrong the first time the panel's height changed.
-    const fn band_rows(&self) -> usize {
-        iridium_tui::frame::document_rows(self.rows, self.search_open)
+    pub(super) const fn band_rows(&self) -> usize {
+        iridium_tui::frame::document_rows(self.rows.saturating_sub(1), self.search_open)
     }
 
     /// Moves the caret to a line, counting from one.
@@ -137,7 +161,10 @@ impl App {
     /// the request was understood and answered as closely as it can be, which
     /// is more use than refusing it.
     pub(super) fn goto(&mut self, line: usize) {
-        let last = self.editor.state().document.line_count().saturating_sub(1);
+        let Some(editor) = self.workspace.active_editor() else {
+            return;
+        };
+        let last = editor.state().document.line_count().saturating_sub(1);
         let target = line.saturating_sub(1).min(last);
         if target + 1 != line {
             self.message = Some(Message::notice(format!(
@@ -146,7 +173,9 @@ impl App {
             )));
         }
         self.reveal(target);
-        self.editor.set_cursor(Position::new(target, 0));
+        if let Some(editor) = self.workspace.active_editor_mut() {
+            editor.set_cursor(Position::new(target, 0));
+        }
         self.ensure_caret_visible();
     }
 
@@ -157,9 +186,11 @@ impl App {
     /// the kernel's own `FoldState::region_containing` is what decides which
     /// region that is.
     pub(super) fn toggle_fold(&mut self) -> Flow {
-        let line = self.editor.cursor().line;
-        let start = self
-            .editor
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return Flow::Running;
+        };
+        let line = editor.cursor().line;
+        let start = editor
             .state()
             .fold_state
             .region_containing(line)
@@ -168,7 +199,8 @@ impl App {
             self.message = Some(Message::notice("nothing here folds"));
             return Flow::Running;
         };
-        self.editor.toggle_fold_at(start);
+        editor.toggle_fold_at(start);
+        self.fold_carets_to_headers();
         self.ensure_caret_visible();
         Flow::Running
     }
@@ -179,11 +211,14 @@ impl App {
     /// innermost one that still hides it, and the folded set shrinks every
     /// time, so this terminates.
     fn reveal(&mut self, line: usize) {
-        while self.editor.is_line_hidden(line) {
-            let Some(start) = innermost_folded_start(self.editor.state(), line) else {
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return;
+        };
+        while editor.is_line_hidden(line) {
+            let Some(start) = innermost_folded_start(editor.state(), line) else {
                 break;
             };
-            if !self.editor.unfold_at(start) {
+            if !editor.unfold_at(start) {
                 break;
             }
         }
@@ -196,64 +231,62 @@ impl App {
     /// Where the document is scrolled to is left alone: that is kernel state,
     /// and a resize does not move it.
     pub(super) fn sync_viewport(&mut self) {
-        let name = self.file.as_ref().map(TextFile::display_name);
-        let dirty = self.is_dirty();
-        let chrome = Chrome {
-            status: Status {
-                name: name.as_deref(),
-                dirty,
-            },
-            search: self.search_open.then_some(&self.search),
-            sidebar_columns: self.sidebar_columns(),
+        let sidebar_columns = self.sidebar_columns();
+        let Some((editor, session)) = self.workspace.active_editor_and_payload_mut() else {
+            return;
         };
-        Frame::sync_viewport(&mut self.editor, self.columns, self.rows, chrome);
+        let chrome = Chrome {
+            status: Status::default(),
+            search: self.search_open.then_some(&session.search),
+            sidebar_columns,
+            tab_bar: true,
+        };
+        Frame::sync_viewport(editor, self.columns, self.rows, chrome);
     }
 
-    /// Scrolls so the caret is on screen, as cheaply as the kernel allows.
-    ///
-    /// See the `app` module documentation for what the mutation at the end of
-    /// this costs, and why the two guards in front of it are there: a pending
-    /// key sequence means the caret has not moved and that aborting the chord
-    /// would eat the next keystroke, and a caret already on screen needs
-    /// nothing at all.
+    /// Follows the caret without disturbing keyboard navigation state.
+    /// A pending sequence must not trigger a fold-recovery cursor jump.
     pub(super) fn ensure_caret_visible(&mut self) {
-        if !self.editor.pending_key_sequence().is_empty() {
-            return;
-        }
-        self.lift_caret_out_of_a_fold();
-
-        let head = self.editor.cursor();
-        let state = self.editor.state();
-        if state
-            .viewport
-            .is_line_visible_with_folds(head.line, &state.fold_state)
+        if self
+            .workspace
+            .active_editor()
+            .is_none_or(|editor| !editor.pending_key_sequence().is_empty())
         {
             return;
         }
-
-        let state = self.editor.state_mut();
-        state
-            .viewport
-            .scroll_to_position_with_folds(head, &state.fold_state);
-    }
-
-    /// Moves a caret that a fold has hidden onto that fold's header line.
-    ///
-    /// Folding the region the caret is in leaves it on a line nobody can see,
-    /// and every later frame would then ask the viewport to scroll to a line
-    /// that is not there — paying the cost above on every keystroke. The header
-    /// is what the fold put on screen in its place, and moving to it is a
-    /// kernel `set_cursor` like any other.
-    fn lift_caret_out_of_a_fold(&mut self) {
-        let head = self.editor.cursor();
-        let state = self.editor.state();
-        if !state.fold_state.is_line_hidden(head.line) {
-            return;
-        }
-        let Some(start) = innermost_folded_start(state, head.line) else {
+        let Some(editor) = self.workspace.active_editor_mut() else {
             return;
         };
-        self.editor.set_cursor(Position::new(start, 0));
+        editor.reveal_selection_heads();
+        let Some(layout) = self.mouse_layout() else {
+            return;
+        };
+        if let Some(editor) = self.workspace.active_editor_mut()
+            && let Err(error) = layout.reveal_caret(editor)
+        {
+            self.message = Some(super::Message::error(error));
+        }
+    }
+
+    /// An explicit fold moves hidden carets to headers, preserving other targets.
+    /// Ordinary visibility handling unfolds instead of moving selections.
+    pub(super) fn fold_carets_to_headers(&mut self) {
+        let Some(editor) = self.workspace.active_editor_mut() else {
+            return;
+        };
+        let mut cursors = editor.state().cursor.clone();
+        let mut changed = false;
+        for selection in cursors.all_selections_mut() {
+            let line = selection.head.line;
+            if editor.is_line_hidden(line) {
+                let header = editor.fold_state().visible_header_for_line(line);
+                *selection = Selection::collapsed(Position::new(header, 0));
+                changed = true;
+            }
+        }
+        if changed {
+            editor.set_selections(cursors);
+        }
     }
 }
 

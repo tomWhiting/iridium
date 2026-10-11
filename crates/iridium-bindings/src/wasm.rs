@@ -648,6 +648,38 @@ impl WebEditor {
     /// exists in the kernel for exactly this reason.
     fn consume_key_result(&mut self, result: KeyResult) -> String {
         match result {
+            KeyResult::RepeatSequence(count) => match self.editor.repeat_command_sequence(count) {
+                Ok(()) => {
+                    self.needs_redraw = true;
+                    "handled".to_owned()
+                },
+                Err(error) => format!("error: {error}"),
+            },
+            KeyResult::FinishChange => {
+                self.editor.finish_change();
+                "handled".to_owned()
+            },
+            KeyResult::Sequence {
+                steps,
+                enters_mode,
+                record_input,
+            } => {
+                if record_input {
+                    return "error: browser input recording is not connected yet".to_owned();
+                }
+                match self.editor.run_command_sequence(&steps) {
+                    Ok(()) => {
+                        if let Some(mode) = enters_mode {
+                            self.keyboard_handler.set_mode(Some(mode));
+                        }
+                        self.compositor.reset_blink();
+                        self.needs_redraw = true;
+                        "handled".to_owned()
+                    },
+                    Err(error) => format!("error: {error}"),
+                }
+            },
+            KeyResult::Error(error) => format!("error: {error}"),
             KeyResult::Ignored => "ignored".to_string(),
             KeyResult::Handled => {
                 // Consumed without producing a command (e.g. Escape with a
@@ -667,6 +699,13 @@ impl WebEditor {
             // change needed, instead of a second implementation living here.
             KeyResult::Ast(request) => {
                 if self.editor.perform_ast_request(request) {
+                    self.compositor.reset_blink();
+                    self.needs_redraw = true;
+                }
+                "handled".to_string()
+            },
+            KeyResult::AstRepeated { request, count } => {
+                if self.editor.perform_ast_request_repeated(request, count) {
                     self.compositor.reset_blink();
                     self.needs_redraw = true;
                 }
@@ -1181,6 +1220,29 @@ impl WebEditor {
     /// `Editor::handle_search_action`.
     fn apply_search_result(&mut self, action: &SearchAction) -> String {
         match action {
+            SearchAction::SelectAllMatches => {
+                self.keyboard_handler.reset_vertical_state();
+                self.keyboard_handler.invalidate_cursor_order();
+                if let Err(message) = self.editor.select_search_matches() {
+                    web_sys::console::error_1(&JsValue::from_str(&message));
+                }
+                self.compositor.reset_blink();
+                self.needs_redraw = true;
+                self.ensure_cursor_visible();
+                "handled".to_owned()
+            },
+            SearchAction::OpenInSelection => match self.editor.search_in_selections() {
+                Ok(()) => "search:open".to_owned(),
+                Err(message) => {
+                    web_sys::console::error_1(&JsValue::from_str(&message));
+                    format!("search:error:{message}")
+                },
+            },
+            SearchAction::ClearScope => {
+                self.editor.clear_search_scope();
+                self.needs_redraw = true;
+                "handled".to_owned()
+            },
             SearchAction::OpenSearch => "search:open".to_string(),
             SearchAction::NextMatch => {
                 // goto_next_match moves the cursor outside handle_key.

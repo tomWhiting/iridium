@@ -86,6 +86,7 @@ pub fn grammar(language: Language) -> Option<tree_sitter::Language> {
         "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
         "go" => tree_sitter_go::LANGUAGE.into(),
         "json" => tree_sitter_json::LANGUAGE.into(),
+        "toml" => tree_sitter_toml_ng::LANGUAGE.into(),
         "yaml" => tree_sitter_yaml::LANGUAGE.into(),
         "markdown" => tree_sitter_md::LANGUAGE.into(),
         "css" => tree_sitter_css::LANGUAGE.into(),
@@ -120,6 +121,7 @@ mod tests {
     /// list would agree with that table however wrong it was. This is the claim
     /// "Iridium can parse these", and it is the thing a reader wants to check.
     const GRAMMARS_LINKED_FOR: &[&str] = &[
+        "toml",
         "awl",
         "rust",
         "python",

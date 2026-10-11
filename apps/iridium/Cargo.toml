@@ -45,6 +45,13 @@ iridium-file.workspace = true
 # unchanged when the desktop face grew the same flag; `src/lib.rs` re-exports
 # it as `theme`, the same shape as `file` above.
 iridium-config.workspace = true
+arboard.workspace = true
+iridium-query.workspace = true
+iridium-search.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 # The same crate again with its test fixtures on: `test_support::TempDir` is

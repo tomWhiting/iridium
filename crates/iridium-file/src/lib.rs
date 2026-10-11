@@ -56,18 +56,24 @@
 //! require it in.
 
 mod atomic;
+mod publication;
+pub use publication::{Durability, Publication};
+pub mod paged;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
 #[cfg(test)]
+mod publication_tests;
+#[cfg(test)]
 mod tests;
 
 use std::fmt;
 use std::io;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-pub use atomic::write_atomically;
+pub use atomic::{write_atomically, write_atomically_report};
 
 /// The bytes a UTF-8 byte-order mark is written as.
 const BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
@@ -127,6 +133,14 @@ pub enum FileError {
         /// The byte offset at which decoding failed.
         offset: usize,
     },
+    /// Bytes were replaced and the baseline updated, but directory durability
+    /// could not be confirmed. Retrying is not required to publish these bytes.
+    Published {
+        /// Destination that now holds the saved bytes.
+        path: PathBuf,
+        /// The directory synchronization failure after publication.
+        source: io::Error,
+    },
     /// The file changed on disk since it was read.
     Changed {
         /// The file.
@@ -143,27 +157,33 @@ pub enum FileError {
     },
 }
 
+// Put the cause before the path so narrow status lines show why an operation
+// failed even when a deeply nested filename consumes the remaining width.
 impl fmt::Display for FileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unreadable { path, source } => {
-                write!(f, "cannot read {}: {source}", name(path))
+                write!(f, "cannot read: {source} ({})", name(path))
             },
             Self::NotText { path, offset } => write!(
                 f,
-                "{} is not valid UTF-8 at byte {offset}: refusing to open it rather \
-                 than lose the bytes it cannot decode",
+                "not valid UTF-8 at byte {offset}: {} (file was not opened)",
+                name(path)
+            ),
+            Self::Published { path, source } => write!(
+                f,
+                "saved, but directory durability is unconfirmed: {source} ({})",
                 name(path)
             ),
             Self::Changed { path, state } => match state {
-                DiskState::Vanished => write!(f, "{} was deleted on disk", name(path)),
-                DiskState::Appeared => write!(f, "{} was created by something else", name(path)),
+                DiskState::Vanished => write!(f, "deleted on disk: {}", name(path)),
+                DiskState::Appeared => write!(f, "created by something else: {}", name(path)),
                 DiskState::Differs | DiskState::Agrees => {
-                    write!(f, "{} changed on disk", name(path))
+                    write!(f, "changed on disk: {}", name(path))
                 },
             },
             Self::Unwritable { path, source } => {
-                write!(f, "cannot write {}: {source}", name(path))
+                write!(f, "cannot write: {source} ({})", name(path))
             },
         }
     }
@@ -172,7 +192,9 @@ impl fmt::Display for FileError {
 impl std::error::Error for FileError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Unreadable { source, .. } | Self::Unwritable { source, .. } => Some(source),
+            Self::Unreadable { source, .. }
+            | Self::Unwritable { source, .. }
+            | Self::Published { source, .. } => Some(source),
             Self::NotText { .. } | Self::Changed { .. } => None,
         }
     }
@@ -196,7 +218,16 @@ impl TextFile {
     /// directory, a permission denial, an I/O failure — and
     /// [`FileError::NotText`] when it is not valid UTF-8.
     pub fn open(path: &Path) -> Result<(Self, String), FileError> {
-        let bytes = match std::fs::read(path) {
+        Self::open_with_limit(path, usize::MAX)
+    }
+
+    /// Open text while enforcing an actual byte-read limit, even if it grows
+    /// after metadata inspection. Refusal leaves the source unchanged.
+    ///
+    /// # Errors
+    /// Same errors as open, plus Unreadable when the byte limit is exceeded.
+    pub fn open_with_limit(path: &Path, limit: usize) -> Result<(Self, String), FileError> {
+        let bytes = match read_bounded(path, limit) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok((Self::new(path), String::new()));
@@ -271,31 +302,50 @@ impl TextFile {
     /// Any error from reading the file other than its absence, which is a
     /// [`DiskState`] rather than a failure.
     pub fn disk_state(&self) -> Result<DiskState, FileError> {
-        let current = match std::fs::read(&self.path) {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(source) => {
-                return Err(FileError::Unreadable {
-                    path: self.path.clone(),
-                    source,
+        self.compare_disk().map_err(|source| FileError::Unreadable {
+            path: self.path.clone(),
+            source,
+        })
+    }
+
+    fn compare_disk(&self) -> io::Result<DiskState> {
+        use std::io::Read as _;
+        let mut file = match std::fs::File::open(&self.path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(if self.baseline.is_none() {
+                    DiskState::Agrees
+                } else {
+                    DiskState::Vanished
                 });
             },
+            Err(error) => return Err(error),
         };
-        Ok(match (self.baseline.as_deref(), current.as_deref()) {
-            (None, None) => DiskState::Agrees,
-            (None, Some(_)) => DiskState::Appeared,
-            (Some(_), None) => DiskState::Vanished,
-            // The length is compared first only because it settles the common
-            // case without a byte-for-byte pass; equal lengths prove nothing
-            // and are never taken as agreement.
-            (Some(baseline), Some(current)) => {
-                if baseline.len() == current.len() && baseline == current {
+        let Some(baseline) = self.baseline.as_deref() else {
+            return Ok(DiskState::Appeared);
+        };
+        let mut offset = 0usize;
+        let mut block = vec![0u8; 64 * 1024];
+        loop {
+            let count = match file.read(&mut block) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                result => result?,
+            };
+            if count == 0 {
+                return Ok(if offset == baseline.len() {
                     DiskState::Agrees
                 } else {
                     DiskState::Differs
-                }
-            },
-        })
+                });
+            }
+            let Some(expected) = baseline.get(offset..offset.saturating_add(count)) else {
+                return Ok(DiskState::Differs);
+            };
+            if expected != &block[..count] {
+                return Ok(DiskState::Differs);
+            }
+            offset += count;
+        }
     }
 
     /// Writes `text` to the file.
@@ -309,8 +359,20 @@ impl TextFile {
     ///
     /// [`FileError::Changed`] when the file changed and the save was not
     /// forced, and [`FileError::Unwritable`] for anything the write itself
-    /// refuses.
+    /// refuses. [`FileError::Published`] means replacement succeeded and the
+    /// baseline was updated, but directory durability could not be confirmed.
     pub fn save(&mut self, text: &str, force: bool) -> Result<(), FileError> {
+        self.save_using(text, force, |path, bytes| {
+            write_atomically_report(path, |file| file.write_all(bytes))
+        })
+    }
+
+    fn save_using(
+        &mut self,
+        text: &str,
+        force: bool,
+        publish: impl FnOnce(&Path, &[u8]) -> io::Result<Publication>,
+    ) -> Result<(), FileError> {
         if !force {
             let state = self.disk_state()?;
             if !state.permits_save() {
@@ -322,12 +384,17 @@ impl TextFile {
         }
 
         let bytes = encode(text, self.bom);
-        write_atomically(&self.path, &bytes).map_err(|source| FileError::Unwritable {
+        let publication = publish(&self.path, &bytes).map_err(|source| FileError::Unwritable {
             path: self.path.clone(),
             source,
         })?;
         self.baseline = Some(bytes);
-        Ok(())
+        publication
+            .into_result()
+            .map_err(|source| FileError::Published {
+                path: self.path.clone(),
+                source,
+            })
     }
 
     /// Re-reads the file, discarding what we thought it held.
@@ -399,4 +466,18 @@ fn encode(text: &str, bom: bool) -> Vec<u8> {
     bytes.extend_from_slice(&BOM);
     bytes.extend_from_slice(text.as_bytes());
     bytes
+}
+
+fn read_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path)?;
+    let maximum = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+    let mut bytes = Vec::new();
+    file.take(maximum).read_to_end(&mut bytes)?;
+    if bytes.len() > limit {
+        return Err(io::Error::other(format!(
+            "file exceeds {limit} byte opening limit"
+        )));
+    }
+    Ok(bytes)
 }

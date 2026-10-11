@@ -69,6 +69,7 @@
 //! ```
 
 pub mod capabilities;
+pub mod clipboard;
 pub mod frame;
 pub mod lifecycle;
 mod terminal;

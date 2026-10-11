@@ -1,0 +1,21 @@
+[package]
+name = "iridium-query"
+description = "jq filters resolved to original JSON and JSONL source selections"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+jaq-core.workspace = true
+jaq-std.workspace = true
+jaq-json.workspace = true
+tree-sitter.workspace = true
+tree-sitter-json.workspace = true

@@ -146,6 +146,8 @@ fn entering_names_the_modes_it_is_supposed_to() {
             Op::Reset(7),
             Op::Set(2004),
             Op::Set(1004),
+            Op::Set(1002),
+            Op::Set(1006),
             Op::PushKeyboard(KEYBOARD_ENHANCEMENT_FLAGS.bits()),
             Op::Reset(25),
         ],
@@ -333,4 +335,13 @@ fn the_state_reports_what_it_turned_on() {
     let mut sink = Vec::new();
     write_setup(&mut sink, MODERN, &modern).expect("a `Vec` cannot fail");
     assert!(modern.are_keyboard_flags_pushed());
+}
+
+#[test]
+fn mouse_drag_and_extended_coordinates_are_enabled_and_restored() {
+    let (entry, exit) = round_trip(LEGACY);
+    for code in [1002, 1006] {
+        assert!(scan(&entry).contains(&Op::Set(code)));
+        assert!(scan(&exit).contains(&Op::Reset(code)));
+    }
 }

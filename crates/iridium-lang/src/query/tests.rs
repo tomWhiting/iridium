@@ -112,23 +112,114 @@ const SHIPS: &[(Language, &[QueryKind])] = &[
     (Language::Rust, EVERYTHING),
     (Language::Tsx, EVERYTHING),
     (Language::TypeScript, EVERYTHING),
-    (Language::Cypher, &[QueryKind::Highlights, QueryKind::Brackets, QueryKind::Indents]),
-    (Language::Glsl, &[QueryKind::Highlights, QueryKind::Brackets]),
-    (Language::Html, &[QueryKind::Highlights, QueryKind::Brackets, QueryKind::Indents, QueryKind::Injections, QueryKind::Outline]),
+    (
+        Language::Cypher,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::Indents,
+        ],
+    ),
+    (
+        Language::Glsl,
+        &[QueryKind::Highlights, QueryKind::Brackets],
+    ),
+    (
+        Language::Html,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::Indents,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
     (Language::Java, &[QueryKind::Highlights]),
-    (Language::Just, &[QueryKind::Highlights, QueryKind::TextObjects, QueryKind::Indents, QueryKind::Injections, QueryKind::Outline]),
-    (Language::Nu, &[QueryKind::Highlights, QueryKind::Brackets, QueryKind::TextObjects, QueryKind::Indents, QueryKind::Injections]),
-    (Language::Proto, &[QueryKind::Highlights, QueryKind::TextObjects, QueryKind::Indents, QueryKind::Outline]),
-    (Language::Sql, &[QueryKind::Highlights, QueryKind::Brackets, QueryKind::TextObjects, QueryKind::Indents, QueryKind::Injections, QueryKind::Outline]),
-    (Language::TsQuery, &[QueryKind::Highlights, QueryKind::Brackets, QueryKind::Injections, QueryKind::Outline]),
-    (Language::Typst, &[QueryKind::Highlights, QueryKind::Brackets, QueryKind::Indents, QueryKind::Injections, QueryKind::Outline]),
-    (Language::Wgsl, &[QueryKind::Highlights, QueryKind::Brackets]),
-    (Language::Zig, &[QueryKind::Highlights, QueryKind::Indents, QueryKind::Injections]),
+    (
+        Language::Just,
+        &[
+            QueryKind::Highlights,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::Nu,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Injections,
+        ],
+    ),
+    (
+        Language::Proto,
+        &[
+            QueryKind::Highlights,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::Sql,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::TsQuery,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::Typst,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
+            QueryKind::Indents,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    (
+        Language::Wgsl,
+        &[QueryKind::Highlights, QueryKind::Brackets],
+    ),
+    (
+        Language::Zig,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Indents,
+            QueryKind::Injections,
+        ],
+    ),
     (Language::Xml, &[QueryKind::Highlights]),
     (Language::Dtd, &[QueryKind::Highlights]),
-    (Language::JsDoc, &[QueryKind::Highlights, QueryKind::Brackets]),
-    (Language::MarkdownInline, &[QueryKind::Highlights, QueryKind::Injections]),
-    (Language::Regex, &[QueryKind::Highlights, QueryKind::Brackets]),
+    (
+        Language::JsDoc,
+        &[QueryKind::Highlights, QueryKind::Brackets],
+    ),
+    (
+        Language::MarkdownInline,
+        &[QueryKind::Highlights, QueryKind::Injections],
+    ),
+    (
+        Language::Regex,
+        &[QueryKind::Highlights, QueryKind::Brackets],
+    ),
 ];
 
 #[test]

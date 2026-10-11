@@ -334,9 +334,13 @@ mod tests {
         // save, quit, reload, go-to-line and the folds are pressed dozens of
         // times an hour, and "reachable through the palette" is the right
         // answer for the long tail, not for these.
-        let bound: BTreeSet<&str> = BINDINGS
+        let global = keymap();
+        let modal = super::super::modal::keymap();
+        let bound: BTreeSet<&str> = global
+            .bindings()
             .iter()
-            .map(|(_, command)| command.as_str())
+            .chain(modal.bindings())
+            .filter_map(|binding| binding.command().map(CommandId::as_str))
             .collect();
         for meta in COMMANDS {
             // The shared structural preset supplies F6/Ctrl+Space as a

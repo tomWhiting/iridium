@@ -35,6 +35,8 @@
 mod folding;
 mod grammar;
 mod highlight;
+#[cfg(test)]
+mod language_coverage_tests;
 pub mod navigate;
 pub mod query;
 pub mod similar;

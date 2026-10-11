@@ -177,18 +177,8 @@ impl HighlightType {
         // markup variants' note on the enum for why sharing a code capture's
         // *value* stopped being free.
         let result = match name {
-            "storageclass" | "special" | "tag.doctype" => Some(Self::Keyword),
-            "structure" => Some(Self::Type),
-            "cmd" => Some(Self::Function),
-            "character" => Some(Self::String),
-            "emphasis" | "markup.quote" => Some(Self::MarkupEmphasis),
-            "emphasis.strong" => Some(Self::MarkupStrong),
-            "markup" | "markup.raw" | "text.literal" => Some(Self::MarkupCode),
-            "markup.link" => Some(Self::MarkupLink),
-            "title" => Some(Self::MarkupHeading),
-
             // Keywords
-            "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
+            "storageclass" | "special" | "tag.doctype" | "keyword" | "keyword.function" | "keyword.storage" | "keyword.modifier" => {
                 Some(Self::Keyword)
             },
             "keyword.control" | "keyword.return" | "keyword.control.return" => {
@@ -213,7 +203,7 @@ impl HighlightType {
             },
 
             // Strings
-            "string" | "string.literal" | "string.special" => Some(Self::String),
+            "character" | "string" | "string.literal" | "string.special" => Some(Self::String),
             "string.escape" | "escape_sequence" | "escape" => Some(Self::StringEscape),
 
             // Numbers and booleans
@@ -225,7 +215,7 @@ impl HighlightType {
             "comment.doc" | "comment.documentation" => Some(Self::CommentDoc),
 
             // Functions
-            "function" | "function.call" | "function.builtin" => Some(Self::Function),
+            "cmd" | "function" | "function.call" | "function.builtin" => Some(Self::Function),
             "function.definition" | "function.name" => Some(Self::FunctionDefinition),
             "function.method" | "method" | "method.call" => Some(Self::FunctionMethod),
             "function.special" | "function.macro" | "macro" | "function.special.definition" => {
@@ -252,7 +242,7 @@ impl HighlightType {
             // `selector.class` joins them on the same argument: a CSS class
             // names an entity. ⚠️ Its sibling `selector.id` deliberately does
             // **not** live here — see the constant arm below.
-            "type" | "type.name" | "type.definition" | "constructor" | "namespace" | "module"
+            "structure" | "type" | "type.name" | "type.definition" | "constructor" | "namespace" | "module"
             | "selector.class" => Some(Self::Type),
             "type.builtin" | "type.primitive" => Some(Self::TypeBuiltin),
             "type.interface" | "interface" => Some(Self::TypeInterface),
@@ -349,12 +339,12 @@ impl HighlightType {
             // precisely the silent-mapping failure
             // `every_vendored_capture_maps_to_a_highlight_type` exists to
             // surface.
-            "title.markup" | "markup.heading" => Some(Self::MarkupHeading),
-            "emphasis.markup" => Some(Self::MarkupEmphasis),
-            "emphasis.strong.markup" => Some(Self::MarkupStrong),
+            "title" | "title.markup" | "markup.heading" => Some(Self::MarkupHeading),
+            "emphasis" | "markup.quote" | "emphasis.markup" => Some(Self::MarkupEmphasis),
+            "emphasis.strong" | "emphasis.strong.markup" => Some(Self::MarkupStrong),
             "strikethrough.markup" => Some(Self::MarkupStrikethrough),
-            "text.literal.markup" => Some(Self::MarkupCode),
-            "link_text.markup" => Some(Self::MarkupLink),
+            "markup" | "markup.raw" | "text.literal" | "text.literal.markup" => Some(Self::MarkupCode),
+            "markup.link" | "link_text.markup" => Some(Self::MarkupLink),
             "link_uri.markup" | "markup.link.url" => Some(Self::MarkupUrl),
             "punctuation.list_marker.markup" => Some(Self::MarkupList),
             "punctuation.markup" => Some(Self::MarkupPunctuation),

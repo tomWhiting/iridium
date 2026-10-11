@@ -55,8 +55,8 @@ use iridium_lang::manifest::{DelimiterPair, Manifest};
 use crate::document::{Document, Position, Range, Selection};
 use crate::editor::CaretScopes;
 
-use super::pair_rules::{PairRules, SUPPRESSIBLE_SCOPES};
 use super::editing::{CaretPlacement, CursorEdit};
+use super::pair_rules::{PairRules, SUPPRESSIBLE_SCOPES};
 
 /// The multi-character auto-close rows of one language, or nothing.
 ///

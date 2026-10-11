@@ -169,7 +169,7 @@ fn insert_completion_uses_buffer_words_and_one_undo() -> Result<(), Box<dyn std:
     let editor = app.workspace.active_editor_mut().ok_or("no editor")?;
     editor.set_content("alphabet al");
     editor.set_cursor(iridium_editor::Position::new(0, 11));
-    editor.enter_mode(STRUCTURAL_INSERT);
+    editor.set_mode(Some(STRUCTURAL_INSERT));
     app.handle_input(&TerminalInput::Key(KeyEvent {
         key: KeyCode::Char('n'),
         modifiers: iridium_editor::Modifiers::ctrl(),

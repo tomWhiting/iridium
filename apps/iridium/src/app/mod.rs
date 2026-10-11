@@ -45,6 +45,7 @@ pub mod prompt;
 
 mod binding_reference;
 mod clipboard;
+mod completion;
 mod config;
 mod config_actions;
 mod document;
@@ -153,6 +154,7 @@ pub struct App {
     prompt: Option<Prompt>,
     query: Option<query::QuerySession>,
     similar: Option<similar::Preview>,
+    completion: Option<completion::Menu>,
     project_search: Option<project_search::panel::Panel>,
     /// What the last key had to say, shown until the next one.
     message: Option<Message>,
@@ -278,6 +280,7 @@ impl App {
             prompt: None,
             query: None,
             similar: None,
+            completion: None,
             project_search: None,
             // A configuration problem is the first thing the session has to
             // say. Nothing else has run yet, so nothing is being overwritten.
@@ -387,7 +390,10 @@ impl App {
                 self.paste(text);
                 Flow::Running
             },
-            TerminalInput::Mouse(event) => self.handle_mouse(*event),
+            TerminalInput::Mouse(event) => {
+                self.completion = None;
+                self.handle_mouse(*event)
+            },
             TerminalInput::FocusLost => {
                 self.stop_mouse_drag();
                 // A chord left pending across a blur would eat the first
@@ -465,6 +471,9 @@ impl App {
         }
         if command == &commands::PROJECT_SEARCH {
             return Some(self.open_project_search(""));
+        }
+        if command == &commands::COMPLETE_WORD {
+            return Some(self.open_completion());
         }
         if command == &commands::FIND_SIMILAR {
             return Some(self.open_similar());

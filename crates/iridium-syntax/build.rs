@@ -1,33 +1,4 @@
-//! Compiles the grammars vendored as C source under `grammars/`.
-//!
-//! Most of Iridium's grammars arrive as published crates — `tree-sitter-rust`
-//! and its dozen siblings — which carry their own build scripts and need
-//! nothing here. This exists for grammars that have no published crate.
-//!
-//! AWL is the first and currently the only one. Its generated `parser.c` is
-//! vendored from `github.com/ablative-io/aion` at rev `8d4d63e`, and there is
-//! no crate to depend on instead.
-//!
-//! # Why vendoring the C is the right shape rather than a workaround
-//!
-//! tree-sitter's crate declares `links = "tree-sitter"`, which forbids two
-//! versions of it in one dependency graph. A grammar pulled from elsewhere
-//! that happened to want a different tree-sitter would therefore fail to
-//! resolve, and no feature flag can rescue that. A vendored `parser.c` links
-//! against *this* build's tree-sitter runtime by construction, so the question
-//! cannot arise.
-//!
-//! It also means the grammar is pinned to a revision that is reviewed and in
-//! the tree, rather than to whatever a registry serves.
-//!
-//! # ABI
-//!
-//! `parser.c` declares `LANGUAGE_VERSION 15`, which this workspace's
-//! tree-sitter 0.26 accepts. A grammar regenerated against an incompatible ABI
-//! fails at `Parser::set_language` rather than here, and the test module in
-//! `grammar.rs` sets every linked language on a parser precisely so that shows
-//! up as a failing test rather than as a language that silently stops
-//! highlighting.
+//! Compiles the pinned generated parsers that have no published grammar crate.
 
 use std::path::Path;
 

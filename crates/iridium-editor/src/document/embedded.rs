@@ -99,3 +99,25 @@ impl Document {
         self.fences = std::sync::OnceLock::from(index);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fence_cache_tracks_insert_delete_and_language_changes() -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = Document::new("```rust\nhello\n```\nprose\n~~~xml\n<note\n~~~");
+        document.set_language(Some("markdown".to_owned()));
+        assert_eq!(document.language_at(Position::new(1, 0)), Some(Language::Rust));
+        assert_eq!(document.language_at(Position::new(3, 0)), Some(Language::Markdown));
+        assert_eq!(document.language_at(Position::new(5, 0)), Some(Language::Xml));
+        document.insert(Position::new(0, 0), "intro\n")?;
+        assert_eq!(document.language_at(Position::new(2, 0)), Some(Language::Rust));
+        document.delete(super::super::Range::new(Position::new(1, 3), Position::new(1, 7)))?;
+        document.insert(Position::new(1, 3), "json")?;
+        assert_eq!(document.language_at(Position::new(2, 0)), Some(Language::Json));
+        document.delete(super::super::Range::new(Position::new(3, 0), Position::new(4, 0)))?;
+        assert_eq!(document.language_at(Position::new(3, 0)), Some(Language::Json));
+        Ok(())
+    }
+}

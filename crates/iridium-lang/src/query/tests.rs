@@ -112,10 +112,7 @@ const SHIPS: &[(Language, &[QueryKind])] = &[
     (Language::Rust, EVERYTHING),
     (Language::Tsx, EVERYTHING),
     (Language::TypeScript, EVERYTHING),
-    (
-        Language::Cypher,
-        &[QueryKind::Highlights],
-    ),
+    (Language::Cypher, &[QueryKind::Highlights]),
     (
         Language::Glsl,
         &[QueryKind::Highlights, QueryKind::Brackets],

@@ -503,11 +503,9 @@ mod tests {
         assert_eq!(cache.rebuilds(), 0);
     }
 
-    /// The four languages the registry admits with no grammar linked —
-    /// `diff`, `gitcommit`, `gomod`, `gowork`. Each claims files and opens as
-    /// itself; none can ever produce a span.
+    /// File associations and their newly linked parsers must reach the frame cache.
     #[test]
-    fn a_language_with_no_grammar_is_reported_inactive() {
+    fn formerly_registry_only_languages_produce_native_spans() {
         for (language, source) in [
             (Language::Diff, "--- a/file\n+++ b/file\n@@ -1 +1 @@\n"),
             (
@@ -524,15 +522,13 @@ mod tests {
             cache.refresh(&editor);
 
             assert!(
-                cache.index().is_none(),
-                "{} cannot be parsed, so it can never have spans",
+                cache.index().is_some(),
+                "{} must produce its own syntax cache",
                 language.id()
             );
             assert!(
-                !cache.language_active(),
-                "{} has no grammar: there is nothing to bridge to, and a file \
-                 without a grammar must never wear another language's keyword \
-                 colours",
+                cache.language_active(),
+                "{} must activate its linked highlighter",
                 language.id()
             );
         }

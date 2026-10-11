@@ -383,7 +383,26 @@ fn the_manifests_that_list_no_autoclose_before_are_named() {
         .collect();
     assert_eq!(
         silent,
-        vec!["awl", "diff", "gitcommit", "markdown-inline", "cypher", "glsl", "html", "java", "just", "nu", "proto", "sql", "query", "typst", "wgsl", "zig", "xml", "dtd"],
+        vec![
+            "awl",
+            "diff",
+            "gitcommit",
+            "markdown-inline",
+            "cypher",
+            "glsl",
+            "html",
+            "java",
+            "just",
+            "nu",
+            "proto",
+            "sql",
+            "query",
+            "typst",
+            "wgsl",
+            "zig",
+            "xml",
+            "dtd"
+        ],
         "an absent autoclose_before is a language that has not said"
     );
 }
@@ -600,7 +619,26 @@ fn the_languages_with_multi_character_openers_are_named() {
 
     assert_eq!(
         with_multi,
-        ["c", "cpp", "cypher", "dtd", "glsl", "go", "html", "java", "javascript", "proto", "python", "rust", "sql", "tsx", "typescript", "typst", "wgsl", "xml"],
+        [
+            "c",
+            "cpp",
+            "cypher",
+            "dtd",
+            "glsl",
+            "go",
+            "html",
+            "java",
+            "javascript",
+            "proto",
+            "python",
+            "rust",
+            "sql",
+            "tsx",
+            "typescript",
+            "typst",
+            "wgsl",
+            "xml"
+        ],
         "the set of languages with multi-character auto-close openers changed"
     );
 }

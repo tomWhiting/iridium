@@ -115,7 +115,7 @@ mod tests {
         command.apply(&mut document, &mut cursors)?;
         assert_eq!(document.text(), "café café");
         assert!(matches!(session.accept(0, &document, &cursors), Err(CompletionError::Stale)));
-        command.invert().apply(&mut document, &mut cursors)?;
+        command.inverse().apply(&mut document, &mut cursors)?;
         assert_eq!(document.text(), "café caf");
         Ok(())
     }

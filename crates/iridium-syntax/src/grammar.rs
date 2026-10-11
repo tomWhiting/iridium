@@ -1,41 +1,4 @@
-//! The one table mapping a supported language to its tree-sitter grammar.
-//!
-//! Before this module there were two — one inside the highlighter and one
-//! inside the fold detector — built as `HashMap`s at every construction. Two
-//! tables is one table too many: a grammar registered in one and forgotten in
-//! the other produces a language that highlights but never folds, and nothing
-//! in the type system notices.
-//!
-//! # Why this returns an `Option`
-//!
-//! This match used to be exhaustive over a closed `Language` enum, and the
-//! function was therefore total: every language Iridium supported had a
-//! grammar, and the signature said so.
-//!
-//! [`Language`] is now an index into a generated registry, and the set of
-//! languages is data. A grammar is not: it is a statically linked C symbol,
-//! which either got linked or did not. So the two sets can differ, and the
-//! signature has to admit it.
-//!
-//! **A language with no grammar is a supported language that cannot be
-//! parsed**, which is a real and useful state rather than a defect. File
-//! association and comment tokens come from the vendored manifest and need no
-//! parser — so `diff`, `go.mod` and a git commit message can be first-class
-//! here long before anyone links a grammar for them.
-//!
-//! ⚠️ Indent rules and auto-pairs are **not** manifest-driven yet, though an
-//! earlier version of this paragraph said they were. The manifests declare
-//! `brackets` and `autoclose_before`; the reader does not deserialize either,
-//! and the editor's auto-pair table is six hard-coded characters identical in
-//! every language. `docs/design/AUTO-PAIR-MAP.md` has the ground and the
-//! slices. The claim about a parser still holds — none of it needs one — but
-//! the capability is owed, not delivered.
-//!
-//! Callers must degrade rather than fail. The one that matters is
-//! `query::compile`, where no grammar means there is nothing to compile a query
-//! against, so the query resolves to the same routine absence it already models
-//! for a language shipping no `.scm` of that kind. No new error variant was
-//! needed, which is the sign the model was already right.
+//! Statically linked parsers for the language registry.
 
 use crate::Language;
 
@@ -62,6 +25,104 @@ const AWL: tree_sitter_language::LanguageFn = {
         fn tree_sitter_awl() -> *const ();
     }
     unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_awl) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const JUST: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_just() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_just) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const TYPST: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_typst() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_typst) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const JUST: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_just() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_just) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const WGSL: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_wgsl() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_wgsl) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const JUST: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_just() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_just) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const TYPST: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_typst() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_typst) }
+};
+
+#[expect(
+    unsafe_code,
+    reason = "the only way to reach a statically linked C symbol; the symbol is \
+              defined by the vendored parser.c that build.rs compiles, its ABI \
+              version is asserted by every_linked_grammar_is_one_a_parser_will_accept, \
+              and LanguageFn::from_raw is the interface tree-sitter provides for it"
+)]
+const JUST: tree_sitter_language::LanguageFn = {
+    unsafe extern "C" {
+        fn tree_sitter_just() -> *const ();
+    }
+    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_just) }
 };
 
 /// Returns the tree-sitter grammar for a language, if one is linked.
@@ -93,6 +154,27 @@ pub fn grammar(language: Language) -> Option<tree_sitter::Language> {
         "bash" => tree_sitter_bash::LANGUAGE.into(),
         "c" => tree_sitter_c::LANGUAGE.into(),
         "cpp" => tree_sitter_cpp::LANGUAGE.into(),
+        "cypher" => tree_sitter_cypher::LANGUAGE.into(),
+        "glsl" => tree_sitter_glsl::LANGUAGE_GLSL.into(),
+        "html" => tree_sitter_html::LANGUAGE.into(),
+        "java" => tree_sitter_java::LANGUAGE.into(),
+        "just" => JUST.into(),
+        "nu" => tree_sitter_nu::LANGUAGE.into(),
+        "proto" => tree_sitter_proto::LANGUAGE.into(),
+        "sql" => tree_sitter_sequel::LANGUAGE.into(),
+        "query" => tree_sitter_tsquery::LANGUAGE.into(),
+        "typst" => TYPST.into(),
+        "wgsl" => WGSL.into(),
+        "zig" => tree_sitter_zig::LANGUAGE.into(),
+        "xml" => tree_sitter_xml::LANGUAGE_XML.into(),
+        "dtd" => tree_sitter_dtd::LANGUAGE_DTD.into(),
+        "jsdoc" => tree_sitter_jsdoc::LANGUAGE.into(),
+        "markdown-inline" => tree_sitter_md::INLINE_LANGUAGE.into(),
+        "regex" => tree_sitter_regex::LANGUAGE.into(),
+        "diff" => tree_sitter_diff::LANGUAGE.into(),
+        "gitcommit" => tree_sitter_gitcommit::LANGUAGE.into(),
+        "gomod" => tree_sitter_gomod::LANGUAGE.into(),
+        "gowork" => tree_sitter_gowork::LANGUAGE.into(),
         _ => return None,
     })
 }
@@ -136,6 +218,27 @@ mod tests {
         "bash",
         "c",
         "cpp",
+        "cypher",
+        "glsl",
+        "html",
+        "java",
+        "just",
+        "nu",
+        "proto",
+        "sql",
+        "query",
+        "typst",
+        "wgsl",
+        "zig",
+        "xml",
+        "dtd",
+        "jsdoc",
+        "markdown-inline",
+        "regex",
+        "diff",
+        "gitcommit",
+        "gomod",
+        "gowork",
     ];
 
     #[test]

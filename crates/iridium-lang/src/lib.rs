@@ -173,6 +173,10 @@ const ALIASES: &[(&str, &str)] = &[
     ("c++", "cpp"),
     ("cxx", "cpp"),
     ("cc", "cpp"),
+    ("htm", "html"),
+    ("protobuf", "proto"),
+    ("nushell", "nu"),
+    ("tsquery", "query"),
 ];
 
 impl Language {

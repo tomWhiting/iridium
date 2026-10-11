@@ -89,6 +89,7 @@ impl LineEnding {
 pub struct Document {
     /// Text content stored in rope structure
     content: Rope,
+    pub(super) fences: std::sync::OnceLock<super::embedded::FenceIndex>,
     /// Line ending style
     line_ending: LineEnding,
     /// Language identifier for syntax highlighting
@@ -134,6 +135,7 @@ impl Document {
         let line_ending = LineEnding::detect(content);
         Self {
             content: Rope::from_str(content),
+            pub(super) fences: std::sync::OnceLock::new(),
             line_ending,
             language: None,
             revision: 0,
@@ -356,7 +358,9 @@ impl Document {
                 column: position.column,
             })?;
 
+        let affected = self.fence_edit_window(offset, offset);
         self.content.insert(offset, text);
+        self.update_fences(affected, 0, text.len());
         if !text.is_empty() {
             self.revision = self.revision.wrapping_add(1);
         }
@@ -392,7 +396,9 @@ impl Document {
         }
 
         let deleted = self.content.slice(start_offset..end_offset).to_string();
+        let affected = self.fence_edit_window(start_offset, end_offset);
         self.content.remove(start_offset..end_offset);
+        self.update_fences(affected, end_offset - start_offset, 0);
         if start_offset != end_offset {
             self.revision = self.revision.wrapping_add(1);
         }

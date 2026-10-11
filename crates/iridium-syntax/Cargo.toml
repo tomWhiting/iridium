@@ -40,6 +40,22 @@ tree-sitter-bash.workspace = true
 tree-sitter-c.workspace = true
 tree-sitter-cpp.workspace = true
 tree-sitter-javascript.workspace = true
+tree-sitter-cypher.workspace = true
+tree-sitter-diff.workspace = true
+tree-sitter-gitcommit.workspace = true
+tree-sitter-glsl.workspace = true
+tree-sitter-gomod.workspace = true
+tree-sitter-gowork.workspace = true
+tree-sitter-html.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-jsdoc.workspace = true
+tree-sitter-nu.workspace = true
+tree-sitter-proto.workspace = true
+tree-sitter-regex.workspace = true
+tree-sitter-sequel.workspace = true
+tree-sitter-tsquery.workspace = true
+tree-sitter-zig.workspace = true
+tree-sitter-xml.workspace = true
 
 # Serialization (highlight queries)
 serde.workspace = true

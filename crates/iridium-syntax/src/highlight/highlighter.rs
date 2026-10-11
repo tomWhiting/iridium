@@ -100,7 +100,7 @@ impl Highlighter {
     /// genuinely need every span at once.
     #[must_use]
     pub fn spans_in(&self, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
-        self.spans_with(QueryCursor::new(), tree, source)
+        self.spans_in_range(tree, source, 0..source.len())
     }
 
     /// Returns the highlight spans for the part of `tree` overlapping
@@ -146,8 +146,14 @@ impl Highlighter {
             return Vec::new();
         }
         let mut cursor = QueryCursor::new();
-        cursor.set_byte_range(range);
-        self.spans_with(cursor, tree, source)
+        cursor.set_byte_range(range.clone());
+        let mut spans = self.spans_with(cursor, tree, source);
+        if let Err(error) = super::injections::append(self.language, tree, source, range, &mut spans) {
+            tracing::error!(language = self.language.id(), %error, "Embedded syntax highlighting failed");
+        }
+        spans.sort();
+        spans.dedup_by(|later, earlier| later.start == earlier.start && later.end == earlier.end);
+        spans
     }
 
     /// The walk shared by [`Self::spans_in`] and [`Self::spans_in_range`]:
@@ -179,7 +185,7 @@ impl Highlighter {
     /// fallback — which is why the right colour is on screen today. This
     /// change makes that a guarantee rather than a coincidence, and by
     /// construction it alters no colour that is currently stable.
-    fn spans_with(&self, mut cursor: QueryCursor, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
+    pub(super) fn spans_with(&self, mut cursor: QueryCursor, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
         let mut spans = Vec::new();
 
         // Note: tree-sitter 0.26 uses StreamingIterator instead of Iterator

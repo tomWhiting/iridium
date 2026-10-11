@@ -36,7 +36,7 @@ use std::path::Path;
 /// Hand-listed rather than scanned, for the reason the language list itself is:
 /// a grammar appearing or vanishing must be a visible edit, not a consequence
 /// of what happens to be on disk.
-const VENDORED: &[&str] = &["awl"];
+const VENDORED: &[&str] = &["awl", "just", "typst", "wgsl"];
 
 fn main() {
     for grammar in VENDORED {

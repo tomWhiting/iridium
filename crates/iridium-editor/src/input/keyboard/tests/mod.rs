@@ -25,6 +25,7 @@
 
 mod clipboard;
 mod editing;
+mod embedded_languages;
 mod graphemes;
 mod navigation;
 mod single_cursor;

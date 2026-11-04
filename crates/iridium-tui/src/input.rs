@@ -76,9 +76,11 @@
 //! into an error string. Discarding them is how feature detection stops working
 //! without anyone noticing.
 
-use iridium_editor::{KeyEvent, KeyPress};
+use iridium_editor::{KeyEvent, KeyPress, Modifiers};
 use termina::escape::{csi::Csi, dcs::Dcs, osc::Osc};
-use terminput::{Event, KeyEventKind, MouseEvent, UnsupportedEvent};
+use terminput::{
+    Event, KeyEventKind, MouseEvent, MouseEventKind, ScrollDirection, UnsupportedEvent,
+};
 
 mod keys;
 #[cfg(test)]
@@ -166,7 +168,14 @@ pub enum TerminalInput {
         cols: u32,
     },
 
-    /// A pointer event, carried verbatim.
+    /// A mouse wheel notch, or a trackpad's equivalent.
+    ///
+    /// Split out of [`Self::Mouse`] because it needs no hit testing beyond
+    /// "over what", and because it is the one pointer event a terminal session
+    /// acts on today. Only reported while mouse capture is on.
+    Scroll(WheelScroll),
+
+    /// A pointer event other than the wheel, carried verbatim.
     ///
     /// Deliberately *not* converted to the kernel's
     /// [`MouseEvent`](iridium_editor::MouseEvent): that conversion needs the
@@ -182,6 +191,34 @@ pub enum TerminalInput {
     /// rather than dropped so a driver can log or ignore it deliberately; the
     /// kernel is the only place new key codes may be added.
     Unmapped(terminput::KeyEvent),
+}
+
+/// Which way a wheel turned, in the direction the content moves *towards*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WheelDirection {
+    /// Away from the user: earlier lines come into view.
+    Up,
+    /// Towards the user: later lines come into view.
+    Down,
+    /// A sideways swipe towards the start of the line.
+    Left,
+    /// A sideways swipe towards the end of the line.
+    Right,
+}
+
+/// One wheel notch, where the pointer was, and what was held.
+///
+/// In the kernel's vocabulary for modifiers, so `terminput` stops here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WheelScroll {
+    /// Which way the wheel turned.
+    pub direction: WheelDirection,
+    /// The cell column under the pointer, from the left.
+    pub column: u16,
+    /// The cell row under the pointer, from the top.
+    pub row: u16,
+    /// The modifiers held, as far as the terminal reports them.
+    pub modifiers: Modifiers,
 }
 
 /// Sorts one `termina` event into input or a capability reply.
@@ -232,12 +269,31 @@ pub fn from_termina(event: termina::Event) -> Result<TerminalEvent, UnsupportedE
 pub fn translate(event: Event) -> TerminalInput {
     match event {
         Event::Key(key) => translate_key(key),
-        Event::Mouse(mouse) => TerminalInput::Mouse(mouse),
+        Event::Mouse(mouse) => translate_mouse(mouse),
         Event::Paste(text) => TerminalInput::Paste(text),
         Event::FocusGained => TerminalInput::FocusGained,
         Event::FocusLost => TerminalInput::FocusLost,
         Event::Resize { rows, cols } => TerminalInput::Resize { rows, cols },
     }
+}
+
+/// Converts a pointer event: the wheel becomes [`TerminalInput::Scroll`], and
+/// everything else is carried as it came.
+const fn translate_mouse(mouse: MouseEvent) -> TerminalInput {
+    let MouseEventKind::Scroll(direction) = mouse.kind else {
+        return TerminalInput::Mouse(mouse);
+    };
+    TerminalInput::Scroll(WheelScroll {
+        direction: match direction {
+            ScrollDirection::Up => WheelDirection::Up,
+            ScrollDirection::Down => WheelDirection::Down,
+            ScrollDirection::Left => WheelDirection::Left,
+            ScrollDirection::Right => WheelDirection::Right,
+        },
+        column: mouse.column,
+        row: mouse.row,
+        modifiers: keys::modifiers(mouse.modifiers),
+    })
 }
 
 /// Converts one key event, reporting a key the kernel cannot name as

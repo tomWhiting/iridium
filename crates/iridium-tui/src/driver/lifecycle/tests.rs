@@ -334,3 +334,65 @@ fn the_state_reports_what_it_turned_on() {
     write_setup(&mut sink, MODERN, &modern).expect("a `Vec` cannot fail");
     assert!(modern.are_keyboard_flags_pushed());
 }
+
+// ===== mouse capture =====
+
+#[test]
+fn mouse_capture_asks_for_button_reports_in_sgr_form_and_takes_it_back() {
+    let state = TerminalState::new();
+    let mut on = Vec::new();
+    write_mouse_capture(&mut on, &state, true).expect("a `Vec` cannot fail");
+    assert_eq!(scan(&on), vec![Op::Set(1000), Op::Set(1006)]);
+    assert!(state.is_mouse_captured());
+    assert!(!state.is_clean(), "capture is something teardown must undo");
+
+    let mut off = Vec::new();
+    write_mouse_capture(&mut off, &state, false).expect("a `Vec` cannot fail");
+    assert_eq!(scan(&off), vec![Op::Reset(1006), Op::Reset(1000)]);
+    assert!(!state.is_mouse_captured());
+    assert!(state.is_clean());
+}
+
+#[test]
+fn asking_for_the_capture_already_in_force_writes_nothing() {
+    let state = TerminalState::new();
+    let mut sink = Vec::new();
+    write_mouse_capture(&mut sink, &state, false).expect("a `Vec` cannot fail");
+    assert!(sink.is_empty());
+    write_mouse_capture(&mut sink, &state, true).expect("a `Vec` cannot fail");
+    let once = sink.len();
+    write_mouse_capture(&mut sink, &state, true).expect("a `Vec` cannot fail");
+    assert_eq!(sink.len(), once);
+}
+
+#[test]
+fn leaving_with_the_mouse_captured_releases_it_first() {
+    for capabilities in [MODERN, LEGACY] {
+        let state = TerminalState::new();
+        let mut entry = Vec::new();
+        write_setup(&mut entry, capabilities, &state).expect("a `Vec` cannot fail");
+        write_mouse_capture(&mut entry, &state, true).expect("a `Vec` cannot fail");
+        let mut exit = Vec::new();
+        write_teardown(&mut exit, &state).expect("a `Vec` cannot fail");
+
+        let entered = scan(&entry);
+        let expected: Vec<Op> = entered.iter().rev().map(|op| op.inverse()).collect();
+        assert_eq!(scan(&exit), expected);
+        assert!(state.is_clean());
+    }
+}
+
+#[test]
+fn a_capture_whose_release_failed_is_still_released_on_the_way_out() {
+    let state = TerminalState::new();
+    let mut sink = Vec::new();
+    write_mouse_capture(&mut sink, &state, true).expect("a `Vec` cannot fail");
+    assert!(write_mouse_capture(&mut FlakySink::failing_at(0), &state, false).is_err());
+    assert!(
+        state.is_mouse_captured(),
+        "a release that may not have arrived is still owed"
+    );
+    let mut exit = Vec::new();
+    write_teardown(&mut exit, &state).expect("a `Vec` cannot fail");
+    assert_eq!(scan(&exit), vec![Op::Reset(1006), Op::Reset(1000)]);
+}

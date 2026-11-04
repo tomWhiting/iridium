@@ -14,6 +14,12 @@
 //! written only when there is something inside it: an editor that is idle
 //! writes nothing at all, not eight bytes of empty ceremony.
 //!
+//! # A scroll is moved, not repainted
+//!
+//! When the damage carries a [`RowShift`], the terminal moves those rows
+//! itself — margins, `SU` or `SD`, margins back — before the runs, which are
+//! already measured against the moved screen.
+//!
 //! # Cursor moves are minimised, but never guessed
 //!
 //! The writer tracks where the terminal's cursor is and emits the cheapest
@@ -64,7 +70,7 @@ use termina::style::{ColorSpec, RgbColor};
 
 use super::capabilities::Capabilities;
 use super::lifecycle::TerminalState;
-use crate::cell::{Attributes, Color, Damage, Style, Surface};
+use crate::cell::{Attributes, Color, Damage, RowShift, ShiftDirection, Style, Surface};
 
 #[cfg(test)]
 mod tests;
@@ -178,6 +184,9 @@ fn write_body<W: io::Write>(
         let mut style: Option<Style> = if frame.damage.requires_clear() {
             write_clear(out)?;
             Some(Style::DEFAULT)
+        } else if let Some(shift) = frame.damage.shift() {
+            write_shift(out, shift)?;
+            Some(Style::DEFAULT)
         } else {
             None
         };
@@ -224,6 +233,34 @@ fn write_clear<W: io::Write>(out: &mut W) -> io::Result<()> {
         out,
         "{}",
         Csi::Edit(Edit::EraseInDisplay(EraseInDisplay::EraseDisplay))
+    )
+}
+
+/// Moves a block of rows inside the terminal: margins around the block, a
+/// scroll, and the margins back to the whole screen.
+///
+/// The rendition is reset first for the reason [`write_clear`] gives: the rows
+/// a scroll uncovers are erased in the current background. Setting margins
+/// homes the cursor, which the caller already treats as unknown.
+fn write_shift<W: io::Write>(out: &mut W, shift: RowShift) -> io::Result<()> {
+    let distance = u32::try_from(shift.distance()).unwrap_or(u32::MAX);
+    let scroll = match shift.direction() {
+        ShiftDirection::Up => Edit::ScrollUp(distance),
+        ShiftDirection::Down => Edit::ScrollDown(distance),
+    };
+    write!(
+        out,
+        "{}{}{}{}",
+        Csi::Sgr(Sgr::Reset),
+        Csi::Cursor(Cursor::SetTopAndBottomMargins {
+            top: one_based(shift.top()),
+            bottom: one_based(shift.bottom()),
+        }),
+        Csi::Edit(scroll),
+        Csi::Cursor(Cursor::SetTopAndBottomMargins {
+            top: one_based(0),
+            bottom: OneBased::new(u16::MAX).unwrap_or_default(),
+        }),
     )
 }
 

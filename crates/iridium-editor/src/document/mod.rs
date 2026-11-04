@@ -6,13 +6,16 @@
 //! - [`Range`] - A span of text between two positions
 //! - [`Selection`] - A selection with anchor and head
 //! - [`CursorState`] - Multiple cursor support
+//! - [`TextSnapshot`] - The text at one revision, shared rather than copied
 
 mod buffer;
 mod cursor;
 mod edit_span;
 mod position;
+mod snapshot;
 
 pub use buffer::Document;
 pub use cursor::{CursorState, Selection};
 pub use edit_span::{EditSpan, EditSpanError, byte_point, compute_edit_span};
 pub use position::{Position, Range};
+pub use snapshot::TextSnapshot;

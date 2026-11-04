@@ -17,7 +17,7 @@ use terminput::UnsupportedEvent;
 
 use super::capabilities::{Capabilities, Negotiation};
 use super::frame::{CursorState, Frame, apply_resize, write_frame};
-use super::lifecycle::{TerminalState, write_setup, write_teardown};
+use super::lifecycle::{TerminalState, write_mouse_capture, write_setup, write_teardown};
 use crate::cell::Surface;
 use crate::input::{TerminalEvent, TerminalInput, from_termina};
 
@@ -203,6 +203,46 @@ impl Driver {
                 return Ok(driver_event);
             }
         }
+    }
+
+    /// Returns the next event if one is already waiting, without blocking.
+    ///
+    /// For draining a burst before painting: a trackpad sends wheel notches far
+    /// faster than frames are worth drawing, and painting each one makes the
+    /// view trail behind the hand.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error from polling or reading the terminal.
+    pub fn next_ready_event(&mut self) -> io::Result<Option<DriverEvent>> {
+        loop {
+            if !self.terminal.poll(|_| true, Some(Duration::ZERO))? {
+                return Ok(None);
+            }
+            let event = self.terminal.read(|_| true)?;
+            if let Some(driver_event) = self.classify(event) {
+                return Ok(Some(driver_event));
+            }
+        }
+    }
+
+    /// Turns the terminal's mouse reporting on or off.
+    ///
+    /// Recorded in the same state teardown reads, so a capture left on is
+    /// released on exit and from the panic hook alike.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error from writing or flushing.
+    pub fn set_mouse_capture(&mut self, capture: bool) -> io::Result<()> {
+        write_mouse_capture(&mut self.terminal, &self.state, capture)?;
+        self.terminal.flush()
+    }
+
+    /// Whether the terminal is reporting the mouse to this process.
+    #[must_use]
+    pub fn is_mouse_captured(&self) -> bool {
+        self.state.is_mouse_captured()
     }
 
     /// Sorts one terminal event, returning `None` for one that was consumed by

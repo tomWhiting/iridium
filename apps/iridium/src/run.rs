@@ -15,6 +15,10 @@
 //! editor costs nothing at all, because `termina`'s poll with no timeout blocks
 //! — there is no interval to tune and no sleep to get wrong.
 //!
+//! After the event that woke it, the loop takes whatever else is already
+//! waiting, for at most `DRAIN_BUDGET`, before drawing again: a burst of
+//! wheel notches becomes one frame instead of a queue of stale ones.
+//!
 //! # Leaving the terminal
 //!
 //! [`Driver`](iridium_tui::driver::Driver) restores everything it turned on from
@@ -33,6 +37,7 @@
 
 use std::io::{self, IsTerminal as _, Write};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 use iridium_tui::driver::{Driver, DriverEvent};
 
@@ -135,27 +140,53 @@ fn describe_missing_terminal(
     )
 }
 
+/// How long a burst of waiting events may be drained before a frame is drawn.
+///
+/// One frame at 120 Hz: a trackpad flick that arrives faster than this is
+/// applied whole and drawn once, so the view keeps up with the hand rather
+/// than replaying every notch after it has stopped.
+const DRAIN_BUDGET: Duration = Duration::from_millis(8);
+
 /// The loop itself.
 fn drive(app: &mut App, driver: &mut Driver) -> io::Result<()> {
     app.resize(driver.surface().width(), driver.surface().height());
     loop {
+        if driver.is_mouse_captured() != app.wants_mouse_capture() {
+            driver.set_mouse_capture(app.wants_mouse_capture())?;
+        }
         let cursor = app.render(driver.surface_mut());
         driver.set_cursor(cursor);
         driver.present()?;
 
-        match driver.next_event()? {
-            DriverEvent::Input(input) => {
-                if app.handle_input(&input) == Flow::Exit {
-                    return Ok(());
-                }
-            },
-            // The surface has already been resized, which invalidates it, so
-            // the next frame is a full repaint whatever the editor does.
-            DriverEvent::Resize { columns, rows } => app.resize(columns, rows),
-            // A key the VT parser could not name. There is nothing to act on
-            // and nothing changed, so the next frame writes no bytes at all.
-            DriverEvent::Unrecognised => {},
+        let event = driver.next_event()?;
+        if apply(app, event) == Flow::Exit {
+            return Ok(());
         }
+        let started = Instant::now();
+        while started.elapsed() < DRAIN_BUDGET {
+            let Some(event) = driver.next_ready_event()? else {
+                break;
+            };
+            if apply(app, event) == Flow::Exit {
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// Hands one driver event to the editor.
+fn apply(app: &mut App, event: DriverEvent) -> Flow {
+    match event {
+        DriverEvent::Input(input) => app.handle_input(&input),
+        // The surface has already been resized, which invalidates it, so the
+        // next frame is a full repaint whatever the editor does.
+        DriverEvent::Resize { columns, rows } => {
+            app.resize(columns, rows);
+            Flow::Running
+        },
+        // A key the VT parser could not name. There is nothing to act on and
+        // nothing changed, so the next frame writes no bytes at all.
+        DriverEvent::Unrecognised => Flow::Running,
     }
 }
 

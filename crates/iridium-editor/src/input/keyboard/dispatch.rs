@@ -211,6 +211,9 @@ impl KeyboardHandler {
     /// old behaviour, where such keys produced no cursor mutation and so returned
     /// early anyway.
     pub(super) fn note_operation(&mut self, action: Option<KeyboardAction>, result: &KeyResult) {
+        // Assigned on every dispatch, so it can only ever describe the last one.
+        self.view_follows_caret =
+            Self::moves_by_pages(action) && matches!(result, KeyResult::Command(_));
         if !Self::result_mutates_cursor(result) {
             return;
         }
@@ -245,6 +248,7 @@ impl KeyboardHandler {
             // sticky columns dormant on an undo that had nothing to undo.
             KeyResult::History(_)
             | KeyResult::Ast(_)
+            | KeyResult::View(_)
             | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }
@@ -272,13 +276,33 @@ impl KeyboardHandler {
             // As above: an undo restores the *exact* cursor state recorded at
             // its destination, sticky columns included, so treating it as a
             // cursor mutation here would discard the very state it restores.
+            // A view request moves the viewport and nothing else, so a scroll
+            // between two vertical motions keeps their sticky column.
             KeyResult::History(_)
+            | KeyResult::View(_)
             | KeyResult::Handled
             | KeyResult::Ignored
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
             | KeyResult::Search(_) => false,
         }
+    }
+
+    /// Returns true for the caret motions the view moves with: a page or half
+    /// page keeps the caret on the same screen row, which is what makes paging
+    /// readable rather than a jump to the bottom edge.
+    const fn moves_by_pages(action: Option<KeyboardAction>) -> bool {
+        matches!(
+            action,
+            Some(
+                KeyboardAction::PageUp
+                    | KeyboardAction::PageUpSelect
+                    | KeyboardAction::PageDown
+                    | KeyboardAction::PageDownSelect
+                    | KeyboardAction::HalfPageUp
+                    | KeyboardAction::HalfPageDown
+            )
+        )
     }
 
     /// Returns true when the command consumes and re-establishes the sticky
@@ -299,6 +323,8 @@ impl KeyboardHandler {
                     | KeyboardAction::PageUpSelect
                     | KeyboardAction::PageDown
                     | KeyboardAction::PageDownSelect
+                    | KeyboardAction::HalfPageUp
+                    | KeyboardAction::HalfPageDown
                     | KeyboardAction::AddCursorAbove
                     | KeyboardAction::AddCursorBelow
             )

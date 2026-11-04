@@ -34,6 +34,19 @@
 //! Runs never span rows, because moving to the next row is a cursor move
 //! whatever else happens.
 //!
+//! # Scrolling is a shift, not a repaint
+//!
+//! When most of the screen is the previous frame moved up or down by whole
+//! rows — what scrolling a document is — the diff says so as a [`RowShift`]:
+//! the terminal moves those rows itself (`DECSTBM` and `SU`/`SD`, which every
+//! VT100 descendant implements) and only the rows it uncovers are written. A
+//! one-line scroll of a full screen then costs one row, not all of them.
+//!
+//! The shift is *found*, from the two buffers, like every other part of the
+//! damage; nothing declares it. Candidates are picked by row hashes, and the
+//! runs are then computed exactly against the shifted screen, so a hash that
+//! collides can only make a shift less useful, never a frame wrong.
+//!
 //! # What is deliberately not modelled
 //!
 //! Erasing to the end of a line with `EL` is cheaper than writing a row of
@@ -42,13 +55,100 @@
 //! driver in step 3, not here.
 
 use super::buffer::{Cell, CellBuffer, CellContent};
-use super::color::ColorDepth;
+use super::color::{Color, ColorDepth};
 use super::style::Style;
 
 /// The widest run of unchanged cells that is cheaper to overwrite than to skip.
 ///
 /// See the module documentation for the byte accounting behind the number.
 pub const MAX_COALESCE_GAP: usize = 4;
+
+/// The fewest whole rows a shift must save to be worth its escape sequences.
+///
+/// The shift itself is about twenty bytes; a row is at least a cursor move and
+/// its text. Two rows is the smallest saving that is a saving on any width.
+const MIN_SHIFT_GAIN: usize = 2;
+
+/// Which way a [`RowShift`] moves the rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShiftDirection {
+    /// Rows move towards the top (`SU`); blank rows appear at the bottom.
+    Up,
+    /// Rows move towards the bottom (`SD`); blank rows appear at the top.
+    Down,
+}
+
+/// A block of rows the terminal moves itself, before the runs are written.
+///
+/// Within `top..=bottom`, every row moves `distance` rows in `direction`; the
+/// rows it uncovers become blank in the terminal's default colours. Rows
+/// outside the block are untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowShift {
+    top: usize,
+    bottom: usize,
+    distance: usize,
+    direction: ShiftDirection,
+}
+
+impl RowShift {
+    /// The first row of the block, from the top.
+    #[must_use]
+    pub const fn top(&self) -> usize {
+        self.top
+    }
+
+    /// The last row of the block, inclusive.
+    #[must_use]
+    pub const fn bottom(&self) -> usize {
+        self.bottom
+    }
+
+    /// How many rows the block moves.
+    #[must_use]
+    pub const fn distance(&self) -> usize {
+        self.distance
+    }
+
+    /// Which way the block moves.
+    #[must_use]
+    pub const fn direction(&self) -> ShiftDirection {
+        self.direction
+    }
+
+    /// Where the terminal's row `row` comes from once the shift is done:
+    /// another row, the same row, or nowhere (it is uncovered and blank).
+    const fn source(&self, row: usize) -> Source {
+        if row < self.top || row > self.bottom {
+            return Source::Row(row);
+        }
+        match self.direction {
+            ShiftDirection::Up => {
+                if row + self.distance <= self.bottom {
+                    Source::Row(row + self.distance)
+                } else {
+                    Source::Blank
+                }
+            },
+            ShiftDirection::Down => {
+                if row >= self.top + self.distance {
+                    Source::Row(row - self.distance)
+                } else {
+                    Source::Blank
+                }
+            },
+        }
+    }
+}
+
+/// What a terminal row shows after a shift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The row that was at this index before the shift.
+    Row(usize),
+    /// A row the shift uncovered.
+    Blank,
+}
 
 /// A stretch of text within a run that shares one style.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,12 +224,23 @@ impl DamageRun {
 pub struct Damage {
     runs: Vec<DamageRun>,
     requires_clear: bool,
+    shift: Option<RowShift>,
 }
 
 impl Damage {
     /// The writes, in top-to-bottom, left-to-right order.
+    ///
+    /// When there is a [`Self::shift`], these are measured against the screen
+    /// *after* it, so the shift must be written first.
     pub fn runs(&self) -> &[DamageRun] {
         &self.runs
+    }
+
+    /// Rows the terminal should move before the runs are written, if moving
+    /// them saves rewriting them. Never set alongside a clear.
+    #[must_use]
+    pub const fn shift(&self) -> Option<RowShift> {
+        self.shift
     }
 
     /// Whether the screen must be cleared before the runs are applied.
@@ -143,7 +254,7 @@ impl Damage {
 
     /// Whether there is nothing at all to do.
     pub fn is_empty(&self) -> bool {
-        self.runs.is_empty() && !self.requires_clear
+        self.runs.is_empty() && !self.requires_clear && self.shift.is_none()
     }
 
     /// The writes that turn `front` into `back`.
@@ -160,9 +271,26 @@ impl Damage {
         if front.width() != back.width() || front.height() != back.height() {
             return Self::full(back, depth);
         }
+        // A frame that changed fewer rows than a shift could save is the common
+        // case — a keystroke — and pays nothing for the search.
+        let changed = (0..back.height())
+            .filter(|&row| front.row(row) != back.row(row))
+            .count();
+        let shift = if changed >= MIN_SHIFT_GAIN {
+            find_shift(front, back)
+        } else {
+            None
+        };
+
+        let blank = vec![Cell::BLANK; back.width()];
         let mut runs = Vec::new();
         for row in 0..back.height() {
-            let (Some(front_row), Some(back_row)) = (front.row(row), back.row(row)) else {
+            let source = shift.map_or(Source::Row(row), |shift| shift.source(row));
+            let front_row = match source {
+                Source::Row(source) => front.row(source),
+                Source::Blank => Some(blank.as_slice()),
+            };
+            let (Some(front_row), Some(back_row)) = (front_row, back.row(row)) else {
                 continue;
             };
             append_row_runs(row, front_row, back_row, depth, &mut runs);
@@ -170,6 +298,7 @@ impl Damage {
         Self {
             runs,
             requires_clear: false,
+            shift,
         }
     }
 
@@ -193,7 +322,109 @@ impl Damage {
         Self {
             runs,
             requires_clear: true,
+            shift: None,
         }
+    }
+}
+
+/// The best block of rows to shift, if any saves at least [`MIN_SHIFT_GAIN`]
+/// rows over writing them.
+///
+/// For each distance and direction, the block is the span covering every row
+/// that the shift would bring into place and that is not already in place; its
+/// gain is the rows right after the shift less the rows right before it. The
+/// search is over row hashes, so it is O(rows²) comparisons of integers after
+/// one pass over the cells.
+fn find_shift(front: &CellBuffer, back: &CellBuffer) -> Option<RowShift> {
+    let height = back.height();
+    let before: Vec<u64> = (0..height).map(|row| row_hash(front.row(row))).collect();
+    let after: Vec<u64> = (0..height).map(|row| row_hash(back.row(row))).collect();
+    let blank_row = vec![Cell::BLANK; back.width()];
+    let blank = row_hash(Some(&blank_row));
+
+    let mut best: Option<(usize, RowShift)> = None;
+    for distance in 1..height {
+        for direction in [ShiftDirection::Up, ShiftDirection::Down] {
+            let source = |row: usize| match direction {
+                ShiftDirection::Up => row.checked_add(distance).filter(|&from| from < height),
+                ShiftDirection::Down => row.checked_sub(distance),
+            };
+            let mut useful = (0..height).filter(|&row| {
+                after[row] != before[row]
+                    && source(row).is_some_and(|from| after[row] == before[from])
+            });
+            let Some(first) = useful.next() else {
+                continue;
+            };
+            let last = useful.next_back().unwrap_or(first);
+            let (top, bottom) = match direction {
+                ShiftDirection::Up => (first, last + distance),
+                ShiftDirection::Down => (first - distance, last),
+            };
+            let shift = RowShift {
+                top,
+                bottom,
+                distance,
+                direction,
+            };
+            let mut mended = 0_usize;
+            let mut broken = 0_usize;
+            for row in top..=bottom {
+                let right_after = match shift.source(row) {
+                    Source::Row(from) => after[row] == before[from],
+                    Source::Blank => after[row] == blank,
+                };
+                let right_before = after[row] == before[row];
+                match (right_before, right_after) {
+                    (false, true) => mended += 1,
+                    (true, false) => broken += 1,
+                    _ => {},
+                }
+            }
+            let gain = mended.saturating_sub(broken);
+            if gain >= MIN_SHIFT_GAIN && best.is_none_or(|(most, _)| gain > most) {
+                best = Some((gain, shift));
+            }
+        }
+    }
+    best.map(|(_, shift)| shift)
+}
+
+/// A signature of one row: equal rows always agree, and different rows almost
+/// never do. It reads the style as stored rather than degraded, so on a
+/// lossy-colour terminal two rows that would paint alike may disagree; that
+/// costs a missed shift. Any wrong guess costs bytes, never a wrong screen,
+/// because the runs are always diffed cell by cell.
+fn row_hash(cells: Option<&[Cell]>) -> u64 {
+    cells.unwrap_or_default().iter().fold(0, |hash, cell| {
+        let content = match cell.content() {
+            CellContent::Grapheme(grapheme) => grapheme.fingerprint(),
+            CellContent::Continuation => u64::MAX,
+        };
+        mix(mix(hash, content), style_word(cell.style()))
+    })
+}
+
+/// One step of the `FxHash` mix.
+const fn mix(hash: u64, word: u64) -> u64 {
+    (hash.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
+}
+
+/// A style packed exactly into one word: two 26-bit colours and the attributes.
+fn style_word(style: Style) -> u64 {
+    color_word(style.foreground)
+        | color_word(style.background) << 26
+        | u64::from(style.attributes.bits()) << 52
+}
+
+/// A colour packed exactly into 26 bits: a two-bit tag and 24 bits of value.
+fn color_word(color: Color) -> u64 {
+    match color {
+        Color::Default => 0,
+        Color::Indexed(index) => 1 << 24 | u64::from(index),
+        Color::Rgb(red, green, blue) => {
+            2 << 24 | u64::from(red) << 16 | u64::from(green) << 8 | u64::from(blue)
+        },
     }
 }
 
@@ -368,6 +599,12 @@ mod tests {
         let damage = Damage::compute(front, back, depth);
         let mut screen = if damage.requires_clear() {
             CellBuffer::new(back.width(), back.height())
+        } else if let Some(shift) = damage.shift() {
+            // What the terminal does with `SU`/`SD` inside the margins.
+            front.remapped(|row| match shift.source(row) {
+                Source::Row(from) => Some(from),
+                Source::Blank => None,
+            })
         } else {
             front.clone()
         };
@@ -782,5 +1019,110 @@ mod tests {
         );
         assert_eq!(damage.runs()[0].columns(), 19);
         assert_repaints(&front, &back, ColorDepth::TrueColor);
+    }
+
+    // ===== shifts =====
+
+    /// A screen of `rows` text rows showing lines `first..`, and a fixed last
+    /// row, as an editor with a statusline draws it.
+    fn document_screen(first: usize, rows: usize) -> CellBuffer {
+        let mut buffer = CellBuffer::new(30, rows + 1);
+        for row in 0..rows {
+            buffer.set_str(
+                0,
+                row,
+                &format!("{:>4} line {}", first + row, first + row),
+                styled(3),
+            );
+        }
+        buffer.set_str(0, rows, "status", styled(7));
+        buffer
+    }
+
+    #[test]
+    fn scrolling_down_a_line_is_a_shift_and_one_new_row() {
+        let front = document_screen(10, 20);
+        let back = document_screen(11, 20);
+        let damage = Damage::compute(&front, &back, ColorDepth::TrueColor);
+        let shift = damage.shift().expect("a scrolled screen is a shift");
+        assert_eq!(shift.direction(), ShiftDirection::Up);
+        assert_eq!(shift.distance(), 1);
+        assert_eq!(
+            (shift.top(), shift.bottom()),
+            (0, 19),
+            "the statusline stays"
+        );
+        let rows: Vec<usize> = damage.runs().iter().map(DamageRun::row).collect();
+        assert_eq!(rows, vec![19], "only the uncovered row is written");
+        assert_repaints(&front, &back, ColorDepth::TrueColor);
+    }
+
+    #[test]
+    fn scrolling_up_three_lines_is_a_shift_the_other_way() {
+        let front = document_screen(40, 20);
+        let back = document_screen(37, 20);
+        let damage = Damage::compute(&front, &back, ColorDepth::TrueColor);
+        let shift = damage.shift().expect("a scrolled screen is a shift");
+        assert_eq!(shift.direction(), ShiftDirection::Down);
+        assert_eq!(shift.distance(), 3);
+        let rows: Vec<usize> = damage.runs().iter().map(DamageRun::row).collect();
+        assert_eq!(rows, vec![0, 1, 2]);
+        assert_repaints(&front, &back, ColorDepth::TrueColor);
+    }
+
+    #[test]
+    fn a_shift_with_changes_inside_it_still_lands_on_the_frame() {
+        // The caret's line highlight moves with a scroll that kept the caret
+        // on its row: two rows inside the block differ from a pure shift.
+        let front = document_screen(10, 20);
+        let mut back = document_screen(12, 20);
+        back.set_str(0, 8, "   20 line 20", styled(5));
+        back.set_str(0, 3, "edited", Style::DEFAULT);
+        let damage = Damage::compute(&front, &back, ColorDepth::TrueColor);
+        assert!(damage.shift().is_some());
+        assert_repaints(&front, &back, ColorDepth::TrueColor);
+    }
+
+    #[test]
+    fn a_keystroke_is_not_a_shift() {
+        let front = document_screen(10, 20);
+        let mut back = front.clone();
+        back.set_str(9, 4, "X", styled(3));
+        let damage = Damage::compute(&front, &back, ColorDepth::TrueColor);
+        assert!(damage.shift().is_none());
+        assert_eq!(damage.runs().len(), 1);
+    }
+
+    #[test]
+    fn a_jump_with_nothing_in_common_is_not_a_shift() {
+        let front = document_screen(10, 20);
+        let back = document_screen(500, 20);
+        let damage = Damage::compute(&front, &back, ColorDepth::TrueColor);
+        assert!(damage.shift().is_none());
+        assert_repaints(&front, &back, ColorDepth::TrueColor);
+    }
+
+    #[test]
+    fn a_shift_alone_is_not_nothing_to_do() {
+        // Scrolling into blank rows: what the shift uncovers is already blank,
+        // so there may be no run at all — and the shift must still be written.
+        let mut front = CellBuffer::new(10, 6);
+        for row in 0..3 {
+            front.set_str(0, row, &format!("row {row}"), Style::DEFAULT);
+        }
+        let mut back = CellBuffer::new(10, 6);
+        for row in 0..2 {
+            back.set_str(0, row, &format!("row {}", row + 1), Style::DEFAULT);
+        }
+        let damage = Damage::compute(&front, &back, ColorDepth::TrueColor);
+        assert!(damage.shift().is_some());
+        assert!(!damage.is_empty());
+        assert_repaints(&front, &back, ColorDepth::TrueColor);
+    }
+
+    #[test]
+    fn a_full_repaint_never_shifts() {
+        let damage = Damage::full(&document_screen(0, 5), ColorDepth::TrueColor);
+        assert!(damage.shift().is_none());
     }
 }

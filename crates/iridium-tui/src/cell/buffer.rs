@@ -198,6 +198,21 @@ impl CellBuffer {
         self.cells.get(start..start + self.width)
     }
 
+    /// A copy whose row `r` is this buffer's row `source(r)`, or blank where
+    /// that is `None`: what a terminal shows after it moves rows itself.
+    #[cfg(test)]
+    pub(crate) fn remapped(&self, source: impl Fn(usize) -> Option<usize>) -> Self {
+        let mut copy = Self::new(self.width, self.height);
+        for row in 0..self.height {
+            let start = row * self.width;
+            match source(row).and_then(|from| self.row(from)) {
+                Some(cells) => copy.cells[start..start + self.width].clone_from_slice(cells),
+                None => copy.cells[start..start + self.width].fill(Cell::BLANK),
+            }
+        }
+        copy
+    }
+
     /// Replaces every cell with a blank in the given style.
     pub fn fill(&mut self, style: Style) {
         let blank = Cell::blank(style);

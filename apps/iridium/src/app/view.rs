@@ -127,7 +127,7 @@ impl App {
     /// nor a panel that already took its rows from the same place. A second
     /// copy of that arithmetic in this file would be a second thing to keep
     /// true, and it would be wrong the first time the panel's height changed.
-    const fn band_rows(&self) -> usize {
+    pub(super) const fn band_rows(&self) -> usize {
         iridium_tui::frame::document_rows(self.rows, self.search_open)
     }
 
@@ -147,7 +147,8 @@ impl App {
         }
         self.reveal(target);
         self.editor.set_cursor(Position::new(target, 0));
-        self.ensure_caret_visible();
+        // Asked for by line, so shown even when the caret was already there.
+        self.reveal_caret();
     }
 
     /// Folds or unfolds the innermost region around the caret.
@@ -169,7 +170,7 @@ impl App {
             return Flow::Running;
         };
         self.editor.toggle_fold_at(start);
-        self.ensure_caret_visible();
+        self.reveal_caret();
         Flow::Running
     }
 
@@ -193,8 +194,8 @@ impl App {
     ///
     /// Needed whenever the screen changes size and whenever the search panel
     /// opens or closes, because the panel takes its rows from the document's.
-    /// Where the document is scrolled to is left alone: that is kernel state,
-    /// and a resize does not move it.
+    /// Where the document is scrolled to is left alone, unless the caret was on
+    /// screen and the new size would hide it: that is the kernel's rule.
     pub(super) fn sync_viewport(&mut self) {
         let name = self.file.as_ref().map(TextFile::display_name);
         let dirty = self.is_dirty();
@@ -209,32 +210,21 @@ impl App {
         Frame::sync_viewport(&mut self.editor, self.columns, self.rows, chrome);
     }
 
-    /// Scrolls so the caret is on screen, as cheaply as the kernel allows.
+    /// Brings the view to the caret if the caret or the text moved since the
+    /// view last followed it. What every input ends with.
     ///
-    /// See the `app` module documentation for what the mutation at the end of
-    /// this costs, and why the two guards in front of it are there: a pending
-    /// key sequence means the caret has not moved and that aborting the chord
-    /// would eat the next keystroke, and a caret already on screen needs
-    /// nothing at all.
+    /// A wheel scroll that left the caret off screen is therefore kept until
+    /// the next motion or edit; see the `app` module documentation.
     pub(super) fn ensure_caret_visible(&mut self) {
-        if !self.editor.pending_key_sequence().is_empty() {
-            return;
-        }
         self.lift_caret_out_of_a_fold();
+        self.editor.follow_caret();
+    }
 
-        let head = self.editor.cursor();
-        let state = self.editor.state();
-        if state
-            .viewport
-            .is_line_visible_with_folds(head.line, &state.fold_state)
-        {
-            return;
-        }
-
-        let state = self.editor.state_mut();
-        state
-            .viewport
-            .scroll_to_position_with_folds(head, &state.fold_state);
+    /// Brings the view to the caret whatever happened before: for verbs that
+    /// are about the caret's line, such as go-to-line and the folds.
+    pub(super) fn reveal_caret(&mut self) {
+        self.lift_caret_out_of_a_fold();
+        self.editor.reveal_caret();
     }
 
     /// Moves a caret that a fold has hidden onto that fold's header line.
@@ -245,6 +235,11 @@ impl App {
     /// is what the fold put on screen in its place, and moving to it is a
     /// kernel `set_cursor` like any other.
     fn lift_caret_out_of_a_fold(&mut self) {
+        // `set_cursor` abandons a half-typed chord; a pending chord has not
+        // moved the caret, so there is nothing to lift yet.
+        if !self.editor.pending_key_sequence().is_empty() {
+            return;
+        }
         let head = self.editor.cursor();
         let state = self.editor.state();
         if !state.fold_state.is_line_hidden(head.line) {

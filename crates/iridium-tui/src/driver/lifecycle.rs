@@ -3,7 +3,8 @@
 //! `termina` restores the platform's termios state for us, from a panic hook
 //! and from a `Drop` impl. Everything *above* termios is ours: the alternate
 //! screen, auto-wrap, bracketed paste, focus reporting, the
-//! keyboard-enhancement stack and the cursor. None of it is restored by
+//! keyboard-enhancement stack, mouse reporting and the cursor. None of it is
+//! restored by
 //! anyone else, and leaving any of it on hands the user a shell that echoes
 //! nothing, pastes as keystrokes, or has no cursor.
 //!
@@ -56,6 +57,8 @@ pub struct TerminalState {
     keyboard_flags_pushed: AtomicBool,
     /// The cursor (DEC mode 25) is hidden.
     cursor_hidden: AtomicBool,
+    /// Mouse reporting (DEC modes 1000 and 1006) is on.
+    mouse_capture: AtomicBool,
 }
 
 impl TerminalState {
@@ -69,7 +72,14 @@ impl TerminalState {
             focus_tracking: AtomicBool::new(false),
             keyboard_flags_pushed: AtomicBool::new(false),
             cursor_hidden: AtomicBool::new(false),
+            mouse_capture: AtomicBool::new(false),
         }
+    }
+
+    /// Whether the terminal is reporting the mouse to this process.
+    #[must_use]
+    pub fn is_mouse_captured(&self) -> bool {
+        self.mouse_capture.load(Ordering::SeqCst)
     }
 
     /// Whether the terminal's cursor is currently hidden.
@@ -102,7 +112,60 @@ impl TerminalState {
             && !self.focus_tracking.load(Ordering::SeqCst)
             && !self.keyboard_flags_pushed.load(Ordering::SeqCst)
             && !self.cursor_hidden.load(Ordering::SeqCst)
+            && !self.mouse_capture.load(Ordering::SeqCst)
     }
+}
+
+/// Turns mouse reporting on or off, recording it in `state`.
+///
+/// Mode 1000 reports presses, releases and the wheel; mode 1006 makes the
+/// report SGR-encoded, which has no column limit. With capture on, the
+/// terminal's own click-to-select needs a modifier (usually `Shift`), which is
+/// why it is a toggle and not a fixture. Writing the mode it is already in
+/// writes nothing.
+///
+/// Off is recorded *after* its bytes and on *before*, for the reason the module
+/// documentation gives: a mode that might be on has to be turned off by
+/// teardown.
+///
+/// # Errors
+///
+/// Returns the first error from the sink.
+pub fn write_mouse_capture<W: io::Write>(
+    out: &mut W,
+    state: &TerminalState,
+    capture: bool,
+) -> io::Result<()> {
+    if state.is_mouse_captured() == capture {
+        return Ok(());
+    }
+    if capture {
+        state.mouse_capture.store(true, Ordering::SeqCst);
+        write!(
+            out,
+            "{}{}",
+            Csi::Mode(Mode::SetDecPrivateMode(dec(
+                DecPrivateModeCode::MouseTracking
+            ))),
+            Csi::Mode(Mode::SetDecPrivateMode(dec(DecPrivateModeCode::SGRMouse)))
+        )
+    } else {
+        write_mouse_off(out)?;
+        state.mouse_capture.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// The bytes that end mouse reporting, in the reverse order of turning it on.
+fn write_mouse_off<W: io::Write>(out: &mut W) -> io::Result<()> {
+    write!(
+        out,
+        "{}{}",
+        Csi::Mode(Mode::ResetDecPrivateMode(dec(DecPrivateModeCode::SGRMouse))),
+        Csi::Mode(Mode::ResetDecPrivateMode(dec(
+            DecPrivateModeCode::MouseTracking
+        )))
+    )
 }
 
 /// A DEC private mode as a value, ready to be set or reset.
@@ -209,6 +272,12 @@ pub fn write_teardown<W: io::Write>(out: &mut W, state: &TerminalState) -> io::R
         return Ok(());
     }
     let mut failure: Option<io::Error> = None;
+
+    // First, because it was turned on last: a shell left with mouse reporting
+    // on prints escape sequences on every click.
+    if state.mouse_capture.swap(false, Ordering::SeqCst) {
+        record(&mut failure, write_mouse_off(out));
+    }
 
     if state.cursor_hidden.swap(false, Ordering::SeqCst) {
         record(

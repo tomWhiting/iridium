@@ -7,11 +7,14 @@ use serde::{Deserialize, Serialize};
 use super::ast::SyntaxState;
 use super::config::EditorConfig;
 use super::fold_state::{FoldInfo, FoldState};
+use super::scroll::{AlignCycle, CaretMark};
 use crate::commands::{
     CommandArgs, CommandId, CommandMeta, CommandRegistry, KeyHintIndex, KeyPress, Keymap,
     KeymapError, KeymapStack, ModeName, RegistryError, builtin,
 };
-use crate::document::{CursorState, Document, Position, Selection, compute_edit_span};
+use crate::document::{
+    CursorState, Document, Position, Selection, TextSnapshot, compute_edit_span,
+};
 use crate::history::{Command, UndoTree};
 use crate::input::keyboard::editing;
 use crate::input::{
@@ -34,8 +37,10 @@ use iridium_syntax::FoldKind;
 pub enum EditorEvent {
     /// Document content changed.
     ContentChanged {
-        /// New full content
-        content: String,
+        /// The new content, shared with the document rather than copied: O(1)
+        /// to build, and only a listener that calls
+        /// [`TextSnapshot::text`] pays for a `String`. Serializes as the text.
+        content: TextSnapshot,
     },
 
     /// Cursor or selection changed.
@@ -399,6 +404,12 @@ pub struct Editor {
 
     /// IME composition handler
     ime_handler: ImeHandler,
+
+    /// Where the caret was when the view last followed it; see `scroll`.
+    pub(super) followed: Option<CaretMark>,
+
+    /// What the next recentre press does; see `scroll`.
+    pub(super) align_cycle: Option<AlignCycle>,
 }
 
 impl Editor {
@@ -424,6 +435,8 @@ impl Editor {
             commands: Self::seeded_command_registry(),
             mouse_handler: MouseHandler::new(),
             ime_handler: ImeHandler::new(),
+            followed: None,
+            align_cycle: None,
         }
     }
 
@@ -556,6 +569,8 @@ impl Editor {
         // fields, so the mutable borrow of the handler coexists with the
         // immutable borrow the resolver holds.
         let scopes = self.state.syntax.caret_scopes(&self.state.document);
+        // Taken before the motion: a page keeps the caret on the row it was on.
+        let row = self.caret_row();
         let result = self.keyboard_handler.handle_key(
             event,
             &self.state.document,
@@ -564,7 +579,17 @@ impl Editor {
             &self.state.config,
             &scopes,
         );
-        self.consume_key_result(result)
+        self.consume_and_follow(result, row)
+    }
+
+    /// Applies a dispatch's result, then moves the view with a page motion.
+    fn consume_and_follow(&mut self, result: KeyResult, row: Option<usize>) -> EditorKeyResult {
+        let follows = self.keyboard_handler.take_view_follow();
+        let outcome = self.consume_key_result(result);
+        if follows {
+            self.keep_caret_row(row);
+        }
+        outcome
     }
 
     // ========== Commands, keymaps and modes ==========
@@ -629,6 +654,7 @@ impl Editor {
         // to take a character from, so it inserts nothing, but the two paths
         // must not be able to diverge later.
         let scopes = self.state.syntax.caret_scopes(&self.state.document);
+        let row = self.caret_row();
         let result = self.keyboard_handler.run_command(
             id,
             args,
@@ -638,7 +664,7 @@ impl Editor {
             &self.state.config,
             &scopes,
         )?;
-        Ok(self.consume_key_result(result))
+        Ok(self.consume_and_follow(result, row))
     }
 
     /// Returns `true` when the kernel itself implements `id`.
@@ -802,6 +828,10 @@ impl Editor {
                 self.perform_ast_request(request);
                 EditorKeyResult::None
             },
+            KeyResult::View(request) => {
+                self.perform_view_request(request);
+                EditorKeyResult::None
+            },
             KeyResult::HostCommand { command, args } => {
                 EditorKeyResult::HostCommand { command, args }
             },
@@ -863,6 +893,7 @@ impl Editor {
             | KeyResult::Ignored
             | KeyResult::History(_)
             | KeyResult::Ast(_)
+            | KeyResult::View(_)
             | KeyResult::HostCommand { .. }
             | KeyResult::Clipboard(_)
             | KeyResult::Search(_) => false,
@@ -1221,15 +1252,29 @@ impl Editor {
         }
     }
 
+    /// Whether anyone is listening, so an event nobody receives is never built.
+    pub(super) fn has_listeners(&self) -> bool {
+        !self.listeners.is_empty()
+    }
+
     /// Emits a content changed event (T060).
+    ///
+    /// Runs on every edit, undo and redo, so it must not cost the document's
+    /// size: the snapshot shares the rope, and nothing is built with no listener.
     fn emit_content_changed(&self) {
+        if !self.has_listeners() {
+            return;
+        }
         self.emit(&EditorEvent::ContentChanged {
-            content: self.state.content(),
+            content: TextSnapshot::of(&self.state.document),
         });
     }
 
     /// Emits a selection changed event (T061).
     fn emit_selection_changed(&self) {
+        if !self.has_listeners() {
+            return;
+        }
         let selections: Vec<Selection> = self.state.cursor.all_selections().copied().collect();
         self.emit(&EditorEvent::SelectionChanged { selections });
     }

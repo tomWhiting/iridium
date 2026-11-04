@@ -4,11 +4,14 @@
 use iridium_editor::{KeyCode, KeyEvent, KeyPress, Modifiers};
 use terminput::{
     Encoding, Event, KeyCode as Tc, KeyEvent as TerminalKey, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    MouseButton, MouseEvent, MouseEventKind, ScrollDirection,
 };
 
 use super::{BOTH, KITTY, from_bytes, pressed, round_trip, sorted};
-use crate::input::{CapabilityReply, TerminalEvent, TerminalInput, from_termina, translate};
+use crate::input::{
+    CapabilityReply, TerminalEvent, TerminalInput, WheelDirection, WheelScroll, from_termina,
+    translate,
+};
 
 // ===== event kinds =====
 
@@ -89,6 +92,64 @@ fn a_mouse_event_is_carried_rather_than_dropped() {
     assert_eq!(
         round_trip(&Event::Mouse(mouse), Encoding::Xterm),
         TerminalInput::Mouse(mouse)
+    );
+}
+
+#[test]
+fn every_wheel_direction_becomes_a_scroll_in_the_kernel_s_vocabulary() {
+    for (direction, expected) in [
+        (ScrollDirection::Up, WheelDirection::Up),
+        (ScrollDirection::Down, WheelDirection::Down),
+        (ScrollDirection::Left, WheelDirection::Left),
+        (ScrollDirection::Right, WheelDirection::Right),
+    ] {
+        let wheel = MouseEvent {
+            kind: MouseEventKind::Scroll(direction),
+            column: 12,
+            row: 4,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            round_trip(&Event::Mouse(wheel), Encoding::Xterm),
+            TerminalInput::Scroll(WheelScroll {
+                direction: expected,
+                column: 12,
+                row: 4,
+                modifiers: Modifiers::none(),
+            }),
+            "{direction:?}"
+        );
+    }
+}
+
+#[test]
+fn a_wheel_carries_the_modifiers_held() {
+    // SGR mouse reports fold modifiers into the button code; the adapter must
+    // not lose them on the way to the kernel's type.
+    let wheel = MouseEvent {
+        kind: MouseEventKind::Scroll(ScrollDirection::Down),
+        column: 0,
+        row: 0,
+        modifiers: KeyModifiers::CTRL,
+    };
+    let TerminalInput::Scroll(scroll) = round_trip(&Event::Mouse(wheel), Encoding::Xterm) else {
+        panic!("a wheel notch must arrive as a scroll");
+    };
+    assert_eq!(scroll.modifiers, Modifiers::ctrl());
+}
+
+#[test]
+fn the_raw_sgr_bytes_of_a_wheel_notch_are_a_scroll() {
+    // What a real terminal sends for one notch down at column 10, row 5 (both
+    // one-based on the wire), written out rather than encoded.
+    assert_eq!(
+        from_bytes(b"\x1b[<65;10;5M"),
+        TerminalInput::Scroll(WheelScroll {
+            direction: WheelDirection::Down,
+            column: 9,
+            row: 4,
+            modifiers: Modifiers::none(),
+        })
     );
 }
 

@@ -64,7 +64,7 @@ mod surface;
 
 pub use buffer::{Cell, CellBuffer, CellContent, MAX_DIMENSION, WriteOutcome};
 pub use color::{Color, ColorDepth};
-pub use damage::{Damage, DamageRun, MAX_COALESCE_GAP, StyledSegment};
+pub use damage::{Damage, DamageRun, MAX_COALESCE_GAP, RowShift, ShiftDirection, StyledSegment};
 pub use grapheme::Grapheme;
 pub use style::{Attributes, Style};
 pub use surface::Surface;

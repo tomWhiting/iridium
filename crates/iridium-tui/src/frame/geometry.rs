@@ -219,15 +219,12 @@ pub fn layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'_>) 
 /// closes: the panel changes how many rows the document has.
 ///
 /// Scroll position is left alone: where the document is scrolled to is kernel
-/// state, and a resize does not move it.
+/// state, and a resize does not move it — except that a caret on screen is
+/// kept on screen. The keyboard handler is left alone too, so a resize mid-chord
+/// or between two vertical moves loses nothing.
 pub fn sync_viewport(editor: &mut Editor, columns: usize, rows: usize, chrome: Chrome<'_>) {
     let geometry = layout(editor, columns, rows, chrome);
-    let state = editor.state_mut();
-    state.viewport.width = geometry.viewport.width;
-    state.viewport.height = geometry.viewport.height;
-    state.viewport.line_height = 1.0;
-    state.viewport.visible_lines = geometry.viewport.visible_lines;
-    state.viewport.scroll_offset_y = 0.0;
+    editor.set_viewport_geometry(geometry.viewport.width, geometry.viewport.height, 1.0);
 }
 
 /// Where a document position lands on screen, if it is visible at all.

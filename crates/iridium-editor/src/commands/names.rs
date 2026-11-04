@@ -48,6 +48,8 @@ impl CommandCategory {
     pub const SYNTAX: Self = Self::from_static("Syntax");
     /// Search and find-match navigation.
     pub const SEARCH: Self = Self::from_static("Search");
+    /// Moving the viewport: scrolling and placing the caret's line on screen.
+    pub const VIEW: Self = Self::from_static("View");
     /// Commands with no home of their own, such as the explicit no-op.
     pub const GENERAL: Self = Self::from_static("General");
 

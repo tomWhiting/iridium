@@ -77,5 +77,5 @@ pub use capabilities::{
     Capabilities, KEYBOARD_ENHANCEMENT_FLAGS, Negotiation, PROBE_COLOR, color_depth_from_env,
 };
 pub use frame::{CursorState, Frame, write_frame};
-pub use lifecycle::{TerminalState, write_setup, write_teardown};
+pub use lifecycle::{TerminalState, write_mouse_capture, write_setup, write_teardown};
 pub use terminal::{Driver, DriverEvent, NEGOTIATION_TIMEOUT};

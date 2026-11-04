@@ -341,4 +341,22 @@ pub(super) enum KeyboardAction {
     SearchNextMatch,
     /// Go to the previous search match.
     SearchPreviousMatch,
+
+    // ----- View -----
+    /// Scroll the view one line up, carets untouched.
+    ScrollLineUp,
+    /// Scroll the view one line down, carets untouched.
+    ScrollLineDown,
+    /// Move every caret half a viewport up; the view follows.
+    HalfPageUp,
+    /// Move every caret half a viewport down; the view follows.
+    HalfPageDown,
+    /// Put the caret's line in the middle of the view.
+    CenterCaret,
+    /// Put the caret's line at the top of the view.
+    CaretToTop,
+    /// Put the caret's line at the bottom of the view.
+    CaretToBottom,
+    /// Centre, top, bottom on repeated presses.
+    Recenter,
 }

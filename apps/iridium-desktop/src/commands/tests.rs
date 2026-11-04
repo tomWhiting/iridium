@@ -327,7 +327,20 @@ fn the_syntax_verbs_keep_a_home_of_their_own() {
 ///
 /// A list with a reason against each, so "Ctrl only" is a decision written
 /// down rather than a row nobody got to. Empty is the goal.
-const CTRL_ONLY: &[(&str, &str)] = &[];
+const CTRL_ONLY: &[(&str, &str)] = &[
+    (
+        "view.recenter",
+        "`⌃L` is the Cocoa text system's own centre-selection key, so Ctrl is the mac spelling",
+    ),
+    (
+        "view.scrollLineUp",
+        "a window scrolls by trackpad; `⌘↑` and `⌥↑` are taken, and it stays in the palette",
+    ),
+    (
+        "view.scrollLineDown",
+        "a window scrolls by trackpad; `⌘↓` and `⌥↓` are taken, and it stays in the palette",
+    ),
+];
 
 /// Whether any key that reaches `id` needs no `Ctrl` held.
 ///

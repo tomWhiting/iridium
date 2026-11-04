@@ -39,6 +39,7 @@
 //! | `Alt+F` | [`FOLD_TOGGLE`] | the innermost fold around the caret |
 //! | `Ctrl+Alt+F` | [`FOLD_ALL`] | |
 //! | `Alt+U` | [`FOLD_NONE`] | |
+//! | `Alt+M` | [`VIEW_TOGGLE_MOUSE`] | mouse reporting on or off |
 //! | `Ctrl+Alt+D` | [`MULTI_CURSOR_SKIP_LAST_OCCURRENCE`] | a **kernel** verb the default keymap leaves unbound |
 //!
 //! `Ctrl+S` is the one chord a terminal can steal: it is XOFF under software
@@ -78,6 +79,12 @@ pub const FOLD_TOGGLE: CommandId = CommandId::from_static("fold.toggle");
 pub const FOLD_ALL: CommandId = CommandId::from_static("fold.all");
 /// Unfold every folded region.
 pub const FOLD_NONE: CommandId = CommandId::from_static("fold.none");
+/// Turn the terminal's mouse reporting on or off.
+///
+/// A terminal concern with no kernel counterpart: with reporting on the wheel
+/// scrolls the document, and with it off the terminal's own click-and-drag
+/// selection works without a modifier.
+pub const VIEW_TOGGLE_MOUSE: CommandId = CommandId::from_static("view.toggleMouse");
 
 /// Every command this face contributes, in the order the palette would list.
 pub static COMMANDS: &[CommandMeta] = &[
@@ -137,6 +144,13 @@ pub static COMMANDS: &[CommandMeta] = &[
         CommandCategory::from_static("Folding"),
     )
     .with_aliases(&["expand all", "unfold"]),
+    CommandMeta::described(
+        VIEW_TOGGLE_MOUSE,
+        "Toggle Mouse",
+        "Turns mouse reporting on, so the wheel scrolls, or off, so the terminal selects text.",
+        CommandCategory::VIEW,
+    )
+    .with_aliases(&["mouse", "wheel", "select text"]),
 ];
 
 /// The number of commands this face contributes.
@@ -188,6 +202,10 @@ const BINDINGS: &[(StrokePattern, CommandId)] = &[
     (StrokePattern::new(KeyCode::Char('f'), ALT), FOLD_TOGGLE),
     (StrokePattern::new(KeyCode::Char('f'), CTRL_ALT), FOLD_ALL),
     (StrokePattern::new(KeyCode::Char('u'), ALT), FOLD_NONE),
+    (
+        StrokePattern::new(KeyCode::Char('m'), ALT),
+        VIEW_TOGGLE_MOUSE,
+    ),
     (
         StrokePattern::new(KeyCode::Char('d'), CTRL_ALT),
         MULTI_CURSOR_SKIP_LAST_OCCURRENCE,

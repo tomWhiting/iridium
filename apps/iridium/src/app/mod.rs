@@ -28,23 +28,17 @@
 //! dispatched, and it is reached only because the kernel reported
 //! [`EditorKeyResult::HostCommand`](iridium_editor::EditorKeyResult::HostCommand).
 //!
-//! # Scrolling costs more than it should
+//! # Scrolling is the kernel's
 //!
 //! The kernel's viewport is fold-aware and the terminal drives it in cell units,
 //! which is decision 1 of `docs/TERMINAL-FACE-PLAN.md` and why there is no
-//! second layout model here. But the only way to *write* to that viewport is
-//! [`Editor::state_mut`](iridium_editor::Editor::state_mut), which eagerly
-//! discards the keyboard handler's transient state: the sticky vertical column,
-//! the multi-cursor addition order, and any half-typed key sequence. Calling it
-//! once per keystroke would break chords outright.
-//!
-//! So `App::ensure_caret_visible` pays it as rarely as it can — nothing at all
-//! while a key sequence is pending, and nothing while the caret's line is
-//! already on screen. What remains is that scrolling past the edge of the
-//! screen loses the sticky vertical column. That is a gap in the kernel's
-//! surface — there is no `Editor::scroll_to` that leaves the keyboard handler
-//! alone — and the alternative was a face-local scroll model, which is the
-//! mistake this whole crate is written to avoid.
+//! second layout model here. Every scroll goes through the kernel's own
+//! surface — [`Editor::follow_caret`](iridium_editor::Editor::follow_caret)
+//! after each input, [`Editor::scroll_wheel`](iridium_editor::Editor::scroll_wheel)
+//! for the mouse, and the `view.*` commands for keys — none of which touches
+//! the sticky column, the multi-cursor order or a half-typed chord. Following
+//! only when the caret or the text moved is what lets a wheel scroll stay put
+//! until the next edit or motion.
 //!
 //! # The clipboard is this process's
 //!
@@ -65,6 +59,10 @@ mod document;
 mod view;
 
 #[cfg(test)]
+mod scroll_bench;
+#[cfg(test)]
+mod scroll_tests;
+#[cfg(test)]
 mod tests;
 
 use iridium_editor::commands::builtin::{
@@ -79,7 +77,7 @@ use iridium_tui::frame::{
     CommandPalette, ExplorerAction, FileExplorerPanel, Frame, HistoryOutcome, HistoryPanel,
     PaletteOutcome, SearchOutcome, SearchOverlay,
 };
-use iridium_tui::input::TerminalInput;
+use iridium_tui::input::{TerminalInput, WheelDirection, WheelScroll};
 
 pub use self::document::StartupError;
 use self::prompt::{Answer, Deed, Message, Prompt};
@@ -144,6 +142,18 @@ pub struct App {
     /// The file explorer is constructed on demand rather than at startup, so
     /// there has to be somewhere for its bindings to wait.
     user_keys: iridium_editor::Keymap,
+    /// Whether this session wants the terminal to report the mouse. The run
+    /// loop makes the terminal agree.
+    mouse: Mouse,
+}
+
+/// Who the pointer belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mouse {
+    /// The terminal reports it, so the wheel scrolls the document.
+    Captured,
+    /// The terminal keeps it, so its own text selection works unmodified.
+    Released,
 }
 
 impl App {
@@ -183,7 +193,15 @@ impl App {
         user: iridium_config::UserConfig,
         path: Option<&std::path::Path>,
     ) -> Result<Self, StartupError> {
-        let mut editor = Editor::with_defaults();
+        // The `[editor]` settings — the scroll margin among them — apply here
+        // as they do in the desktop face; a bad one was already set back to
+        // its default and is counted in the message below.
+        let iridium_config::UserConfig {
+            editor: settings,
+            bindings,
+            problems: setting_problems,
+        } = user;
+        let mut editor = Editor::new(settings);
 
         for meta in commands::command_metas() {
             editor
@@ -203,8 +221,9 @@ impl App {
         // every panel this face owns is modal and resolves against its own
         // stack, so each needs the user's layer handed to it. The editor's copy
         // is not reachable from a panel.
-        let user_keys = iridium_config::keys::keymap(user.bindings.iter().cloned());
-        let problems = config::install_user_bindings(&mut editor, user.bindings);
+        let user_keys = iridium_config::keys::keymap(bindings.iter().cloned());
+        let mut problems = setting_problems;
+        problems.extend(config::install_user_bindings(&mut editor, bindings));
         let config_message = config::summary(&problems, path).map(Message::error);
 
         if let Some(choice) = options.theme {
@@ -274,6 +293,7 @@ impl App {
             columns: 0,
             rows: 0,
             user_keys,
+            mouse: Mouse::Captured,
         };
 
         if let Some(line) = options.line {
@@ -351,12 +371,22 @@ impl App {
         self.history_open
     }
 
+    /// Whether this session wants the terminal to report the mouse.
+    #[must_use]
+    pub const fn wants_mouse_capture(&self) -> bool {
+        matches!(self.mouse, Mouse::Captured)
+    }
+
     /// Handles one thing the user did.
     pub fn handle_input(&mut self, input: &TerminalInput) -> Flow {
         match input {
             TerminalInput::Key(event) => self.handle_key(event),
             TerminalInput::Paste(text) => {
                 self.paste(text);
+                Flow::Running
+            },
+            TerminalInput::Scroll(wheel) => {
+                self.wheel(wheel);
                 Flow::Running
             },
             TerminalInput::FocusLost => {
@@ -375,8 +405,8 @@ impl App {
                 Flow::Running
             },
             // A release is not a press, and the kernel binds presses; feeding
-            // one to the keymap would run every binding twice. A mouse event
-            // is dropped because hit testing a cell grid is a kernel change the
+            // one to the keymap would run every binding twice. A click is
+            // dropped because hit testing a cell grid is a kernel change the
             // plan names (decision 2) and not this face's to make: the kernel's
             // mouse handler resolves a click in pixels against a fixed
             // character width, which a terminal cannot supply, and a caret in
@@ -388,6 +418,32 @@ impl App {
             | TerminalInput::Mouse(_)
             | TerminalInput::Unmapped(_) => Flow::Running,
         }
+    }
+
+    /// Scrolls the document by one wheel notch, when the pointer is over it.
+    ///
+    /// A modal panel owns the screen, so a wheel there must not move the text
+    /// underneath; over the explorer band, the statusline or the search panel
+    /// it is not over the text at all. Sideways swipes do nothing: nothing in
+    /// this face scrolls horizontally yet. The caret stays where it is.
+    fn wheel(&mut self, wheel: &WheelScroll) {
+        if self.prompt.is_some() || self.palette_open || self.history_open {
+            return;
+        }
+        let band = self.sidebar_columns();
+        if self.explorer.is_some() && band == 0 {
+            // The explorer is a popover over the document.
+            return;
+        }
+        if usize::from(wheel.column) < band || usize::from(wheel.row) >= self.band_rows() {
+            return;
+        }
+        let notches = match wheel.direction {
+            WheelDirection::Up => -1,
+            WheelDirection::Down => 1,
+            WheelDirection::Left | WheelDirection::Right => return,
+        };
+        self.editor.scroll_wheel(notches);
     }
 
     /// Handles one key press.
@@ -494,11 +550,22 @@ impl App {
             self.toggle_fold()
         } else if command == &commands::FOLD_ALL {
             self.editor.fold_all();
-            self.ensure_caret_visible();
+            self.reveal_caret();
             Flow::Running
         } else if command == &commands::FOLD_NONE {
             self.editor.unfold_all();
-            self.ensure_caret_visible();
+            self.reveal_caret();
+            Flow::Running
+        } else if command == &commands::VIEW_TOGGLE_MOUSE {
+            let (mouse, notice) = match self.mouse {
+                Mouse::Captured => (Mouse::Released, "mouse off: the terminal selects text"),
+                Mouse::Released => (
+                    Mouse::Captured,
+                    "mouse on: the wheel scrolls; hold shift to select text",
+                ),
+            };
+            self.mouse = mouse;
+            self.message = Some(Message::notice(notice));
             Flow::Running
         } else if command == &PALETTE_OPEN {
             self.palette_open = true;
@@ -607,10 +674,8 @@ impl App {
     /// this and the document draws in the columns it has while the kernel keeps
     /// scrolling against the columns it used to have.
     ///
-    /// Guarded on an actual change rather than called after every explorer key,
-    /// because `sync_viewport` reaches `Editor::state_mut`, which discards the
-    /// keyboard handler's transient state — see this module's own note on what
-    /// that costs.
+    /// Guarded on an actual change rather than called after every explorer key:
+    /// laying out the frame to measure it is not free.
     fn resync_after_band_change(&mut self, before: usize) {
         if self.sidebar_columns() != before {
             self.sync_viewport();

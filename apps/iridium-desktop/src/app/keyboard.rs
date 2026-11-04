@@ -77,12 +77,13 @@ impl DesktopApp {
                 },
             }
         }
+        let before = self.lend_scroll_to_kernel();
         let Some(editor) = self.workspace.active_editor_mut() else {
             return Flow::Running;
         };
         let result = editor.handle_key(event);
         let flow = self.consume(result);
-        self.ensure_caret_visible();
+        self.follow_kernel_view(before);
         flow
     }
 
@@ -253,6 +254,7 @@ impl DesktopApp {
     /// entry nothing runs cannot become a ranked favourite — and a verb run
     /// from the menu trains the same ranking a palette run does.
     pub(super) fn run_chosen_command(&mut self, command: &CommandId) -> Flow {
+        let before = self.lend_scroll_to_kernel();
         let Some(editor) = self.workspace.active_editor_mut() else {
             return Flow::Running;
         };
@@ -260,7 +262,7 @@ impl DesktopApp {
             Ok(result) => {
                 self.mru.record(command);
                 let flow = self.consume(result);
-                self.ensure_caret_visible();
+                self.follow_kernel_view(before);
                 flow
             },
             Err(CommandRunError::Unimplemented { .. }) => {

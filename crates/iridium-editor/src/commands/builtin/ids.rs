@@ -286,6 +286,26 @@ pub const SEARCH_NEXT_MATCH: CommandId = CommandId::from_static("search.nextMatc
 /// Go to the previous search match.
 pub const SEARCH_PREVIOUS_MATCH: CommandId = CommandId::from_static("search.previousMatch");
 
+// ===== View: the viewport moves; only the half-page verbs move the caret =====
+
+/// Scroll the view one line up, leaving every caret where it is.
+pub const VIEW_SCROLL_LINE_UP: CommandId = CommandId::from_static("view.scrollLineUp");
+/// Scroll the view one line down, leaving every caret where it is.
+pub const VIEW_SCROLL_LINE_DOWN: CommandId = CommandId::from_static("view.scrollLineDown");
+/// Move the view and every caret half a viewport up, the caret keeping its row.
+pub const VIEW_SCROLL_HALF_PAGE_UP: CommandId = CommandId::from_static("view.scrollHalfPageUp");
+/// Move the view and every caret half a viewport down, the caret keeping its row.
+pub const VIEW_SCROLL_HALF_PAGE_DOWN: CommandId = CommandId::from_static("view.scrollHalfPageDown");
+/// Scroll so the caret's line is in the middle of the view.
+pub const VIEW_CENTER_CARET: CommandId = CommandId::from_static("view.centerCaret");
+/// Scroll so the caret's line is at the top of the view, less the margin.
+pub const VIEW_CARET_TO_TOP: CommandId = CommandId::from_static("view.caretToTop");
+/// Scroll so the caret's line is at the bottom of the view, less the margin.
+pub const VIEW_CARET_TO_BOTTOM: CommandId = CommandId::from_static("view.caretToBottom");
+/// Centre the caret's line, then put it at the top, then the bottom, on
+/// repeated presses.
+pub const VIEW_RECENTER: CommandId = CommandId::from_static("view.recenter");
+
 // ===== General =====
 
 /// Consume the keypress and do nothing.

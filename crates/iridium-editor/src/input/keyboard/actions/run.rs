@@ -15,7 +15,9 @@ use crate::text::case::CaseStyle;
 use super::super::motions;
 use super::super::motions::VerticalDirection::{Down, Up};
 use super::super::transform::{CaseVerb, LineVerb};
-use super::super::types::{AstRequest, ClipboardOperation, KeyCode, KeyResult, SearchAction};
+use super::super::types::{
+    AstRequest, CaretAlignment, ClipboardOperation, KeyCode, KeyResult, SearchAction, ViewRequest,
+};
 use super::super::{KeyboardHandler, line_ops};
 use super::{CommandContext, KeyboardAction};
 
@@ -257,6 +259,20 @@ impl KeyboardHandler {
             Action::SearchOpen => KeyResult::Search(SearchAction::OpenSearch),
             Action::SearchNextMatch => KeyResult::Search(SearchAction::NextMatch),
             Action::SearchPreviousMatch => KeyResult::Search(SearchAction::PreviousMatch),
+
+            // ----- View -----
+            //
+            // The viewport is the editor's, so these are named and the editor
+            // performs them. The half-page verbs are caret motions with sticky
+            // columns, which are this handler's; the editor moves the view after.
+            Action::ScrollLineUp => KeyResult::View(ViewRequest::ScrollLines(-signed(hops))),
+            Action::ScrollLineDown => KeyResult::View(ViewRequest::ScrollLines(signed(hops))),
+            Action::HalfPageUp => self.half_page_motion(document, cursor, Up, hops),
+            Action::HalfPageDown => self.half_page_motion(document, cursor, Down, hops),
+            Action::CenterCaret => KeyResult::View(ViewRequest::Align(CaretAlignment::Center)),
+            Action::CaretToTop => KeyResult::View(ViewRequest::Align(CaretAlignment::Top)),
+            Action::CaretToBottom => KeyResult::View(ViewRequest::Align(CaretAlignment::Bottom)),
+            Action::Recenter => KeyResult::View(ViewRequest::AlignCycle),
         }
     }
 
@@ -268,4 +284,9 @@ impl KeyboardHandler {
     fn line_command(command: Option<Command>) -> KeyResult {
         command.map_or(KeyResult::Handled, KeyResult::Command)
     }
+}
+
+/// A hop count as a signed line delta, saturating: no viewport is that tall.
+fn signed(hops: usize) -> isize {
+    isize::try_from(hops).unwrap_or(isize::MAX)
 }

@@ -92,8 +92,8 @@ mod tests;
 mod transform_tests;
 
 pub use types::{
-    AstRequest, ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
-    Modifiers, SearchAction,
+    AstRequest, CaretAlignment, ClipboardOperation, CommandRunError, HistoryRequest, KeyCode,
+    KeyEvent, KeyResult, Modifiers, SearchAction, ViewRequest,
 };
 
 use auto_pair_record::AutoPairInsertion;
@@ -269,6 +269,10 @@ pub struct KeyboardHandler {
     /// Zero — the initial value, and legitimate whenever chrome consumes every
     /// row — pages one line (see [`Self::page_motion`]).
     page_rows: usize,
+
+    /// Whether the last dispatch moved the caret by pages, so the view should
+    /// move with it. Set by `note_operation`, read by [`Self::take_view_follow`].
+    view_follows_caret: bool,
 }
 
 impl Default for KeyboardHandler {
@@ -308,7 +312,19 @@ impl KeyboardHandler {
             add_order_revision: None,
             auto_pair: None,
             page_rows: 0,
+            view_follows_caret: false,
         }
+    }
+
+    /// Whether the last key or command moved the caret by a page or half page,
+    /// clearing the answer.
+    ///
+    /// A host that owns a viewport moves it by the same amount, so the caret
+    /// stays on its screen row. [`crate::Editor`] does this itself.
+    pub const fn take_view_follow(&mut self) -> bool {
+        let follows = self.view_follows_caret;
+        self.view_follows_caret = false;
+        follows
     }
 
     /// Syncs the viewport height, in text rows, that a page motion hops.

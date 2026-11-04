@@ -294,13 +294,7 @@ impl<T> Workspace<T> {
 }
 
 /// Writes the window's geometry into one editor's viewport, leaving that
-/// editor's own scroll position alone.
-///
-/// `line_height` is set before `resize` because `resize` derives
-/// `visible_lines` from it; the other order would compute the row count
-/// against the previous row height and be wrong for exactly one resize.
+/// editor's own scroll position and keyboard state alone.
 fn apply_viewport(editor: &mut Editor, geometry: ViewportGeometry) {
-    let state = editor.state_mut();
-    state.viewport.line_height = geometry.line_height;
-    state.viewport.resize(geometry.width, geometry.height);
+    editor.set_viewport_geometry(geometry.width, geometry.height, geometry.line_height);
 }

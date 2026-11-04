@@ -95,8 +95,19 @@ pub struct EditorConfig {
 
     /// Scroll past end (default: false)
     ///
-    /// When true, allows scrolling past the last line.
+    /// When true, the view may scroll until the last line is at the top; when
+    /// false it stops with the last line at the bottom.
     pub scroll_past_end: bool,
+
+    /// Lines kept between the caret and the top or bottom edge (default: 5)
+    ///
+    /// Scrolling to follow the caret starts this many lines before it would
+    /// reach an edge, so there is always context around the line being edited.
+    /// Capped at just under half the viewport, so a small window still scrolls.
+    pub scroll_margin: usize,
+
+    /// Lines one notch of a mouse wheel scrolls (default: 3)
+    pub scroll_wheel_lines: usize,
 
     /// Word wrap (default: false)
     pub word_wrap: bool,
@@ -136,6 +147,8 @@ impl Default for EditorConfig {
             cursor_blink_ms: 500,
             undo_group_timeout_ms: 500,
             scroll_past_end: false,
+            scroll_margin: 5,
+            scroll_wheel_lines: 3,
             word_wrap: false,
             highlight_current_line: true,
             show_whitespace: false,
@@ -269,6 +282,22 @@ mod tests {
     fn an_empty_configuration_is_the_default_configuration() {
         let parsed: EditorConfig = serde_json::from_str("{}").expect("an empty config must parse");
         assert_eq!(parsed, EditorConfig::default());
+    }
+
+    /// A configuration written before the scroll settings existed keeps
+    /// parsing, and gets the default margin and wheel step.
+    #[test]
+    fn a_configuration_without_the_scroll_settings_gets_their_defaults() {
+        let parsed: EditorConfig = serde_json::from_str(r#"{"scroll_past_end": true}"#)
+            .expect("a config without the scroll settings must parse");
+        assert!(parsed.scroll_past_end);
+        assert_eq!(parsed.scroll_margin, 5);
+        assert_eq!(parsed.scroll_wheel_lines, 3);
+        let set: EditorConfig =
+            serde_json::from_str(r#"{"scroll_margin": 0, "scroll_wheel_lines": 1}"#)
+                .expect("the scroll settings parse");
+        assert_eq!(set.scroll_margin, 0);
+        assert_eq!(set.scroll_wheel_lines, 1);
     }
 
     #[test]

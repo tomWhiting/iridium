@@ -98,7 +98,8 @@
 //! chord". Word motion is `⌥←` on macOS and that is right; `⌃⌥E` holds `Alt`
 //! and is still wrong. What a mac hand objects to is `Ctrl`, so `Ctrl` is what
 //! is asked about. A verb that genuinely should stay `Ctrl`-only goes on
-//! `CTRL_ONLY` with its reason, and that list is empty.
+//! `CTRL_ONLY` with its reason: today the three view verbs, which a window
+//! reaches by trackpad or, for recentring, by the Cocoa `⌃L` itself.
 //!
 //! # The ⌥ and ⌘ chords on the arrows and the delete keys
 //!

@@ -407,6 +407,11 @@ fn bad_name(name: &str) -> Option<String> {
     if name.contains('\0') {
         return Some("a name containing a null byte".to_owned());
     }
+    // Typed text can carry a tab or a pasted control character that no
+    // listing would show the same way again.
+    if name.chars().any(char::is_control) {
+        return Some("a name containing a control character".to_owned());
+    }
     // `Path::components` normalises away exactly the things that make a name
     // dangerous, so the check is that the name survives being one component.
     let mut components = Path::new(name).components();

@@ -165,6 +165,7 @@ const DRAIN_BUDGET: Duration = Duration::from_millis(8);
 /// The loop itself.
 fn drive(app: &mut App, driver: &mut Driver) -> io::Result<()> {
     app.resize(driver.surface().width(), driver.surface().height());
+    app.set_waker(driver.waker());
     loop {
         let cursor = app.render(driver.surface_mut());
         driver.set_cursor(cursor);
@@ -206,7 +207,7 @@ fn apply(app: &mut App, driver: &mut Driver, event: DriverEvent) -> io::Result<F
         },
         // A key the VT parser could not name. There is nothing to act on and
         // nothing changed, so the next frame writes no bytes at all.
-        DriverEvent::Unrecognised => Ok(Flow::Running),
+        DriverEvent::Unrecognised | DriverEvent::Wake => Ok(Flow::Running),
     }
 }
 

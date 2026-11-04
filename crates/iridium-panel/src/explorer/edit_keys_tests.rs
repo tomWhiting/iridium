@@ -15,7 +15,9 @@ use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use iridium_file::test_support::TempDir;
 
 use super::mode::Mode;
-use super::tests::support::{FIT, all_lines, lines, meta, opened, press, select_row, settle};
+use super::tests::support::{
+    FIT, all_lines, chord, lines, meta, opened, press, select_row, settle,
+};
 use crate::explorer::{ExplorerOutcome, FileExplorer};
 
 /// A key press under `Ctrl` alone.
@@ -90,7 +92,7 @@ fn failure(outcome: &ExplorerOutcome) -> String {
 // ------------------------------------------------------------ entering
 
 #[test]
-fn tab_replaces_the_query_field_with_a_label_and_draws_the_buffer() {
+fn tab_replaces_the_query_field_with_a_label_and_draws_the_text() {
     let directory = fixture("edit-enter");
     let mut explorer = opened(&directory);
 
@@ -108,12 +110,13 @@ fn tab_replaces_the_query_field_with_a_label_and_draws_the_buffer() {
          meaning: {rows:?}"
     );
     assert!(
-        rows[0].contains("Ctrl+S"),
-        "and must say how to apply: {rows:?}"
+        rows[0].contains("Ctrl+S review"),
+        "and must say how to apply, with a chord every terminal can send: {rows:?}"
     );
-    assert!(
-        rows.iter().any(|row| row.contains("README.md")),
-        "the rows themselves are still on screen: {rows:?}"
+    assert_eq!(
+        rows[1..],
+        ["  engine/", "  README.md"],
+        "the rows are lines of text, folders marked, the root not among them"
     );
 }
 
@@ -192,105 +195,130 @@ fn a_second_tab_does_not_reload_over_the_work() {
 // ------------------------------------------------------------ Ctrl+D
 
 #[test]
-fn ctrl_d_strikes_a_row_through_and_pressing_it_again_takes_it_back() {
-    let directory = fixture("edit-strike");
+fn emptying_a_line_marks_its_file_for_deletion_and_says_so() {
+    let directory = fixture("edit-delete-line");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "README.md");
 
-    assert_eq!(
-        explorer.handle_key(&ctrl(KeyCode::Char('d'))),
-        ExplorerOutcome::Handled
-    );
+    repeat(&mut explorer, KeyCode::Backspace, "README.md".len());
+    let rows = all_lines(&mut explorer);
     assert!(
-        row_with(&mut explorer, "README.md").contains('✗'),
-        "a struck row must be marked, not only recoloured — colour alone is not \
-         a distinction everyone can see, and this one destroys a file"
+        rows[0].contains("1 to delete"),
+        "a file with no line left is counted on the label, in words: {rows:?}"
     );
     assert!(explorer.has_unapplied_edits());
 
-    assert_eq!(
-        explorer.handle_key(&ctrl(KeyCode::Char('D'))),
-        ExplorerOutcome::Handled,
-        "the shifted spelling is the same binding"
-    );
-    assert!(!row_with(&mut explorer, "README.md").contains('✗'));
+    // Undo is the kernel's, so the line comes back as the file it was.
+    explorer.handle_key(&ctrl(KeyCode::Char('z')));
     assert!(
         !explorer.has_unapplied_edits(),
-        "a strike undone by hand leaves the buffer as it loaded"
+        "undoing the deletion leaves the text as it loaded"
     );
 }
 
-/// The plan refuses this too, but only at `⌘S`. Refusing at the key is what
-/// stops the panel drawing the folder somebody is standing in as doomed for
-/// however long they keep editing.
+/// The folder the panel shows is the parent of every line, not a line, so no
+/// edit to the text can rename or delete it.
 #[test]
-fn ctrl_d_refuses_the_folder_the_panel_is_showing() {
-    let directory = fixture("edit-strike-root");
+fn the_folder_the_panel_is_showing_is_not_a_line_of_the_text() {
+    let directory = fixture("edit-root");
     let mut explorer = opened(&directory);
-    // The panel opens with the root selected, so the cursor starts on row 0.
+    // The panel opens with the root selected; editing starts on the first line.
     assert_eq!(
         explorer.handle_key(&press(KeyCode::Tab)),
         ExplorerOutcome::Handled
     );
-
-    let outcome = explorer.handle_key(&ctrl(KeyCode::Char('d')));
-    assert!(
-        failure(&outcome).contains("cannot be deleted from inside it"),
-        "{outcome:?}"
-    );
-    assert!(
-        !explorer.has_unapplied_edits(),
-        "a refused strike must change nothing"
-    );
+    let root = directory
+        .path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("the fixture has a name")
+        .to_owned();
+    let text = explorer
+        .buffer_editor()
+        .map(iridium_editor::Editor::content)
+        .expect("editing");
+    assert!(!text.contains(&root), "the root is a line: {text:?}");
+    assert_eq!(text, "engine/\nREADME.md");
 }
 
+/// The kernel's multi-cursor keys work on the text as they do in a document:
+/// `Ctrl+D` adds the next match, and typing goes to every caret.
 #[test]
-fn a_held_ctrl_d_does_not_toggle_at_the_keyboards_repeat_rate() {
-    let directory = fixture("edit-strike-held");
+fn ctrl_d_adds_a_caret_at_the_next_match_and_typing_reaches_both() {
+    let directory = fixture("edit-multi");
+    std::fs::write(directory.path().join("engine.md"), "e").expect("the fixture was written");
     let mut explorer = opened(&directory);
-    editing(&mut explorer, "README.md");
+    editing(&mut explorer, "engine/");
 
-    let key = ctrl(KeyCode::Char('d'));
-    explorer.handle_key(&key);
-    for _ in 0..5 {
-        explorer.handle_key(&held(&key));
-    }
+    // Select the word `engine` on the first line, then add its next match.
+    explorer.handle_key(&press(KeyCode::Home));
+    explorer.handle_key(&chord(
+        KeyCode::End,
+        Modifiers {
+            shift: true,
+            ..Modifiers::none()
+        },
+    ));
+    explorer.handle_key(&chord(
+        KeyCode::Left,
+        Modifiers {
+            shift: true,
+            ..Modifiers::none()
+        },
+    ));
+    explorer.handle_key(&ctrl(KeyCode::Char('d')));
+    type_text(&mut explorer, "motor");
 
+    let text = explorer
+        .buffer_editor()
+        .map(iridium_editor::Editor::content)
+        .expect("editing");
+    assert_eq!(text, "motor/\nmotor.md\nREADME.md", "both carets typed");
+
+    // Escape drops the extra caret first and stays in the text.
+    assert_eq!(
+        explorer.handle_key(&press(KeyCode::Escape)),
+        ExplorerOutcome::Handled
+    );
     assert!(
-        row_with(&mut explorer, "README.md").contains('✗'),
-        "held down, a toggle settles on the parity of however many repeats the \
-         keyboard sent, which is not a state anybody chose"
+        explorer.mode.is_editing(),
+        "one escape only collapsed the carets"
     );
 }
 
 // ------------------------------------------------------------ Ctrl+Enter
 
-/// ⭐ Where a typed row lands is the one mistake [`super::plan`] cannot catch:
-/// a typed row has no origin, so there is no real nesting to check the drawn
-/// nesting against. A closed folder's contents are not on screen, so a row
-/// typed under it is drawn beside it and must be created beside it.
+/// A new line keeps the indentation of the line it was opened from, so a line
+/// opened after a top-level folder is beside it.
 #[test]
-fn ctrl_enter_types_a_row_beside_a_closed_folder() {
+fn enter_opens_a_line_beside_a_folder_at_its_indentation() {
     let directory = fixture("edit-new-beside");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "engine");
 
     assert_eq!(
-        explorer.handle_key(&ctrl(KeyCode::Enter)),
+        explorer.handle_key(&press(KeyCode::Enter)),
         ExplorerOutcome::Handled
     );
     type_text(&mut explorer, "new.rs");
 
+    assert_eq!(row_with(&mut explorer, "new.rs"), "+ new.rs");
+    let plan = explorer
+        .mode
+        .listing()
+        .expect("editing")
+        .plan()
+        .expect("a typed file plans");
+    assert_eq!(plan.operations.len(), 1);
     assert_eq!(
-        row_with(&mut explorer, "new.rs"),
-        "  + new.rs",
-        "a row typed under a folder that is not showing its contents belongs \
-         beside it, at the same indent"
+        plan.operations[0].describe(),
+        format!("create {}", directory.path().join("new.rs").display())
     );
 }
 
+/// Tab nests the new line one level under the folder above it.
 #[test]
-fn ctrl_enter_types_a_row_inside_an_open_folder() {
+fn tab_on_a_new_line_puts_it_inside_the_folder_above() {
     let directory = fixture("edit-new-inside");
     let mut explorer = opened(&directory);
     select_row(&mut explorer, "engine");
@@ -298,53 +326,73 @@ fn ctrl_enter_types_a_row_inside_an_open_folder() {
     settle(&mut explorer);
     editing(&mut explorer, "engine");
 
-    explorer.handle_key(&ctrl(KeyCode::Enter));
+    explorer.handle_key(&press(KeyCode::Enter));
+    explorer.handle_key(&press(KeyCode::Tab));
     type_text(&mut explorer, "new.rs");
 
+    assert_eq!(row_with(&mut explorer, "new.rs"), "+   new.rs");
+    let plan = explorer
+        .mode
+        .listing()
+        .expect("editing")
+        .plan()
+        .expect("a typed file plans");
     assert_eq!(
-        row_with(&mut explorer, "new.rs"),
-        "    + new.rs",
-        "an open folder is showing what is in it, so a row typed under it is \
-         drawn — and created — inside"
+        plan.operations[0].describe(),
+        format!(
+            "create {}",
+            directory.path().join("engine").join("new.rs").display()
+        )
     );
 }
 
 #[test]
-fn emptying_a_typed_row_and_pressing_backspace_again_takes_it_back() {
+fn a_typed_line_deleted_again_leaves_the_text_as_it_loaded() {
     let directory = fixture("edit-new-undo");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "README.md");
     let before = lines(&mut explorer).len();
 
-    explorer.handle_key(&ctrl(KeyCode::Enter));
+    explorer.handle_key(&press(KeyCode::Enter));
     type_text(&mut explorer, "ab");
     assert_eq!(lines(&mut explorer).len(), before + 1);
 
     repeat(&mut explorer, KeyCode::Backspace, 3);
 
-    assert_eq!(
-        lines(&mut explorer).len(),
-        before,
-        "a row the user typed and then emptied is a row they are taking back"
-    );
+    assert_eq!(lines(&mut explorer).len(), before);
     assert!(
         !explorer.has_unapplied_edits(),
-        "and taking it back leaves the buffer indistinguishable from the load"
+        "taking a typed line back leaves the text indistinguishable from the load"
     );
 }
 
-/// An existing row leaves the buffer by being struck through, never by being
-/// backspaced away — the rows have to keep saying what is on the disk.
+/// Joining a line onto a folder's makes one name with a separator in it,
+/// which is refused: a move between folders is not something typing does.
 #[test]
-fn emptying_an_existing_rows_name_does_not_remove_the_row() {
-    let directory = fixture("edit-empty-name");
+fn joining_a_line_onto_a_folders_is_refused_as_a_path() {
+    let directory = fixture("edit-join");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "README.md");
-    let before = lines(&mut explorer).len();
+    explorer.handle_key(&press(KeyCode::Home));
+    explorer.handle_key(&press(KeyCode::Backspace));
 
-    repeat(&mut explorer, KeyCode::Backspace, 20);
-
-    assert_eq!(lines(&mut explorer).len(), before);
+    let text = explorer
+        .buffer_editor()
+        .map(iridium_editor::Editor::content)
+        .expect("editing");
+    assert_eq!(text, "engine/README.md");
+    let refusals = explorer
+        .mode
+        .listing()
+        .expect("editing")
+        .plan()
+        .expect_err("a name with a separator in it is refused");
+    assert!(
+        refusals
+            .iter()
+            .any(|refusal| refusal.reason.contains("path rather than a name")),
+        "{refusals:?}"
+    );
 }
 
 // ------------------------------------------------------------ ⌘S and apply
@@ -427,7 +475,10 @@ fn y_on_the_confirmation_carries_the_plan_out_and_returns_to_browsing() {
 
     assert!(directory.path().join("NOTES.md").exists(), "the rename ran");
     assert!(!directory.path().join("README.md").exists());
-    assert_eq!(explorer.mode, Mode::Browse, "and the session is over");
+    assert!(
+        matches!(explorer.mode, Mode::Browse),
+        "and the session is over"
+    );
     assert!(!explorer.has_unapplied_edits());
 
     // ⚠️ The rows must be re-read, or a second session would carry origins
@@ -519,11 +570,11 @@ fn cmd_s_on_an_untouched_buffer_says_there_is_nothing_to_apply() {
 }
 
 #[test]
-fn a_refused_buffer_shows_its_reasons_and_esc_returns_to_the_rows() {
+fn a_refused_plan_shows_its_reasons_and_esc_returns_to_the_text() {
     let directory = fixture("edit-refused");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "README.md");
-    repeat(&mut explorer, KeyCode::Backspace, "README.md".len());
+    type_text(&mut explorer, "/x");
 
     assert_eq!(
         explorer.handle_key(&meta(KeyCode::Char('s'))),
@@ -532,14 +583,14 @@ fn a_refused_buffer_shows_its_reasons_and_esc_returns_to_the_rows() {
     let rows = all_lines(&mut explorer);
     assert!(
         rows.iter().any(|row| row.contains("cannot be applied")),
-        "the refusals replace the rows: {rows:?}"
+        "the refusals replace the text: {rows:?}"
     );
     assert!(
-        rows.iter().any(|row| row.contains("no name")),
+        rows.iter().any(|row| row.contains("is a path")),
         "and name what is wrong: {rows:?}"
     );
 
-    // Everything but escape is swallowed while they are showing: the rows are
+    // Everything but escape is swallowed while they are showing: the text is
     // not on screen, so there is nothing for a character to land in.
     assert_eq!(
         explorer.handle_key(&press(KeyCode::Char('q'))),
@@ -557,9 +608,14 @@ fn a_refused_buffer_shows_its_reasons_and_esc_returns_to_the_rows() {
     );
     assert!(
         all_lines(&mut explorer)[0].starts_with("edit"),
-        "esc goes back to the rows that need fixing, not out of the session"
+        "esc goes back to the text that needs fixing, not out of the session"
     );
     assert!(explorer.has_unapplied_edits(), "and keeps the work");
+    let caret = explorer
+        .buffer_editor()
+        .map(iridium_editor::Editor::cursor)
+        .expect("editing");
+    assert_eq!(caret.line, 1, "the caret is on the refused line");
 }
 
 // ------------------------------------------------------------ leaving
@@ -585,7 +641,7 @@ fn escape_asks_before_it_throws_unapplied_edits_away() {
         explorer.handle_key(&press(KeyCode::Escape)),
         ExplorerOutcome::Handled
     );
-    assert_eq!(explorer.mode, Mode::Browse);
+    assert!(matches!(explorer.mode, Mode::Browse));
     assert!(!explorer.has_unapplied_edits());
 }
 
@@ -618,7 +674,7 @@ fn escape_on_a_clean_buffer_goes_back_to_browsing_without_asking() {
         explorer.handle_key(&press(KeyCode::Escape)),
         ExplorerOutcome::Handled
     );
-    assert_eq!(explorer.mode, Mode::Browse);
+    assert!(matches!(explorer.mode, Mode::Browse));
     assert!(
         all_lines(&mut explorer)[0].starts_with("> "),
         "and the query field is back"
@@ -716,35 +772,30 @@ fn pasting_reaches_the_row_and_leaves_the_query_alone() {
 }
 
 #[test]
-fn the_arrows_move_the_cursor_over_the_rows_and_the_caret_within_a_name() {
+fn the_arrows_move_the_caret_as_they_do_in_a_document() {
     let directory = fixture("edit-motion");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "engine");
 
-    // Down moves the cursor to the next buffer row, and typing proves which
-    // row it landed on.
+    // Down keeps the column, as it does in a document; End then reaches the
+    // end of the name.
     explorer.handle_key(&press(KeyCode::Down));
+    explorer.handle_key(&press(KeyCode::End));
     type_text(&mut explorer, "!");
     assert!(row_with(&mut explorer, "README.md!").contains("README.md!"));
 
-    // Left is caret motion, not a fold: the character lands two places in
-    // rather than at the end.
     explorer.handle_key(&press(KeyCode::Left));
     explorer.handle_key(&press(KeyCode::Left));
     type_text(&mut explorer, "-");
     assert!(row_with(&mut explorer, "README.m-d!").contains("README.m-d!"));
 
-    // Home and End go with them, for the same reason.
     explorer.handle_key(&press(KeyCode::Home));
     type_text(&mut explorer, "z");
     assert!(row_with(&mut explorer, "zREADME").contains("zREADME.m-d!"));
-    explorer.handle_key(&press(KeyCode::End));
-    type_text(&mut explorer, "z");
-    assert!(row_with(&mut explorer, "d!z").contains("zREADME.m-d!z"));
 }
 
 #[test]
-fn the_caret_sits_in_the_row_being_edited_rather_than_on_the_label() {
+fn the_caret_sits_at_the_end_of_the_line_editing_started_on() {
     let directory = fixture("edit-caret");
     let mut explorer = opened(&directory);
     editing(&mut explorer, "engine");
@@ -753,11 +804,11 @@ fn the_caret_sits_in_the_row_being_edited_rather_than_on_the_label() {
         .body(&Theme::dark(), FIT)
         .caret
         .expect("an editing session draws a caret");
-    assert_eq!(caret.row, 2, "the label, then the root, then `engine`");
+    assert_eq!(caret.row, 1, "the label, then `engine/`");
     assert_eq!(
         caret.column,
-        "  ▸ engine".chars().count(),
-        "past the indent, the marker column and the name"
+        "  engine/".chars().count(),
+        "past the marker column and the whole line"
     );
 }
 
@@ -786,39 +837,67 @@ fn the_panel_reports_unapplied_edits_so_the_host_can_refuse_to_drop_it() {
     );
 }
 
-/// ⛔ **A suppressed key must not reach the row being renamed either.**
-///
-/// The browse-mode half of this is in [`super::keymap_tests`]; this is the
-/// mode where getting it wrong is worse, because the character lands in a
-/// *filename* rather than in a filter that can be cleared.
-///
-/// ⚠️ Guards a **wildcard arm**. Edit-mode dispatch swallows `Suppressed`
-/// because it falls to `_`, not because anything names it — so a later hand
-/// reordering those arms would reopen the defect with nothing else complaining.
+/// ⭐ **The user's `[keys]` reach the text.** A binding to a kernel command
+/// runs in the listing exactly as it does in a document.
 #[test]
-fn a_suppressed_printable_key_does_not_reach_the_row_being_edited() {
-    let directory = fixture("edit-suppressed");
-
-    let mut typing = opened(&directory);
-    editing(&mut typing, "README.md");
-    type_text(&mut typing, "z");
-    assert!(
-        typing.has_unapplied_edits(),
-        "an unclaimed printable key must edit the row, or the assertion below \
-         proves nothing"
-    );
-
-    let (first, rest) =
-        iridium_editor::KeyBinding::parse_sequence("z").expect("the fixture is a key sequence");
+fn a_user_binding_to_a_kernel_command_runs_in_the_text() {
+    let directory = fixture("edit-user-binding");
+    let (first, rest) = iridium_editor::KeyBinding::parse_sequence("ctrl+j")
+        .expect("the fixture is a key sequence");
     let mut layer = iridium_editor::Keymap::new("user");
-    layer.push(iridium_editor::KeyBinding::unbound(first, &rest));
+    layer.push(iridium_editor::KeyBinding::new(
+        first,
+        &rest,
+        iridium_editor::commands::builtin::EDIT_INSERT_NEWLINE,
+    ));
 
     let mut explorer = opened(&directory);
     explorer.set_user_keymap(&layer);
     editing(&mut explorer, "README.md");
-    type_text(&mut explorer, "z");
+    explorer.handle_key(&ctrl(KeyCode::Char('j')));
+
+    let text = explorer
+        .buffer_editor()
+        .map(iridium_editor::Editor::content)
+        .expect("editing");
+    assert_eq!(
+        text, "engine/\nREADME.md\n",
+        "the user's chord opened a line"
+    );
+}
+
+/// A face's own command — saving a file — means nothing in a listing, so the
+/// face's layer reaches the text without it rather than being refused whole.
+#[test]
+fn a_faces_layer_reaches_the_text_without_its_own_commands() {
+    let directory = fixture("edit-face-binding");
+    let (first, rest) =
+        iridium_editor::KeyBinding::parse_sequence("ctrl+j").expect("a key sequence");
+    let (save, save_rest) =
+        iridium_editor::KeyBinding::parse_sequence("ctrl+s").expect("a key sequence");
+    let mut layer = iridium_editor::Keymap::new("face");
+    layer.push(iridium_editor::KeyBinding::new(
+        first,
+        &rest,
+        iridium_editor::commands::builtin::EDIT_INSERT_NEWLINE,
+    ));
+    layer.push(iridium_editor::KeyBinding::new(
+        save,
+        &save_rest,
+        iridium_editor::CommandId::from_static("face.file.save"),
+    ));
+
+    let mut explorer = opened(&directory);
+    explorer.set_face_keymap(&layer);
+    editing(&mut explorer, "README.md");
+    explorer.handle_key(&ctrl(KeyCode::Char('j')));
+    type_text(&mut explorer, "x");
+    assert_eq!(
+        explorer.handle_key(&ctrl(KeyCode::Char('s'))),
+        ExplorerOutcome::Handled
+    );
     assert!(
-        !explorer.has_unapplied_edits(),
-        "a suppressed key typed itself into the row being renamed"
+        matches!(explorer.mode, Mode::Confirm(_)),
+        "ctrl+s still asks to apply rather than naming the face's save"
     );
 }

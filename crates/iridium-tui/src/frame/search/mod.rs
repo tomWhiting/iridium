@@ -487,7 +487,11 @@ impl SearchOverlay {
     }
 
     /// Paints the panel into the rows it owns, returning where the caret goes.
-    pub(super) fn paint(
+    ///
+    /// Public for a host whose search is aimed at an editor other than the
+    /// document — the file explorer's text — and which repaints these rows
+    /// with that editor's matches after the frame drew them.
+    pub fn paint(
         &self,
         buffer: &mut CellBuffer,
         first_row: usize,

@@ -57,3 +57,7 @@ tracing.workspace = true
 # The same crate again with its test fixtures on: `test_support::TempDir` is
 # the self-removing directory this crate's own tests were already built around.
 iridium-file = { workspace = true, features = ["test-support"] }
+
+# Raw terminal bytes for the tests that drive keys through the same parse the
+# driver uses, rather than constructing key events by hand.
+terminput.workspace = true

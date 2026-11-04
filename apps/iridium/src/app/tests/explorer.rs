@@ -111,9 +111,21 @@ fn oil_paste_is_guarded_and_discard_returns_to_the_retained_query() {
     let (mut app, _) = open(&dir, "note.txt", "original");
     app.handle_input(&ctrl_alt('e'));
     settle(&mut app);
+    // A filtered view is not the folder's tree, so it cannot be edited as one.
     app.handle_input(&TerminalInput::Paste("note.txt".into()));
     settle(&mut app);
     app.handle_input(&press(KeyCode::Tab));
+    assert!(!app.explorer.as_ref().expect("panel").has_unapplied_edits());
+    assert!(
+        app.message()
+            .is_some_and(|message| message.text().contains("clear the filter")),
+        "the refusal must say what to do"
+    );
+    // Cleared, the tree is editable; a paste lands at the caret.
+    app.handle_input(&press(KeyCode::Escape));
+    settle(&mut app);
+    app.handle_input(&press(KeyCode::Tab));
+    app.handle_input(&press(KeyCode::End));
     app.handle_input(&TerminalInput::Paste("_renamed".into()));
     assert!(app.explorer.as_ref().expect("panel").has_unapplied_edits());
     app.handle_input(&ctrl_alt('e'));
@@ -126,8 +138,6 @@ fn oil_paste_is_guarded_and_discard_returns_to_the_retained_query() {
     app.handle_input(&ctrl_alt('e'));
     app.handle_input(&ctrl_alt('e'));
     assert!(settle(&mut app).contains("note.txt"));
-    app.handle_input(&press(KeyCode::Enter));
-    assert!(!app.is_explorer_open(), "reopened in browse mode");
     assert_eq!(app.editor().expect("editor").content(), "original");
     assert_eq!(
         fs::read_to_string(dir.path().join("note.txt")).expect("file"),

@@ -39,7 +39,16 @@ pub(super) fn assemble(rows: &[EditedRow], targets: &[Option<PathBuf>]) -> Plan 
 
         if row.deleted {
             // Only something that exists can be deleted. A typed row that was
-            // then struck through never existed, and is simply dropped.
+            // then struck through never existed, and is simply dropped. One
+            // inside a folder that is itself deleted goes with the folder; a
+            // second delete would fail on a path already gone.
+            let inside_deleted = row
+                .parent
+                .and_then(|parent| rows.get(parent))
+                .is_some_and(|parent| parent.deleted);
+            if inside_deleted {
+                continue;
+            }
             if let Some(origin) = row.origin.as_ref() {
                 deletes.push(Operation::Delete {
                     path: deleted_path(rows, targets, index, origin),

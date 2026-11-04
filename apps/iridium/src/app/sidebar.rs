@@ -55,6 +55,20 @@ impl App {
                 self.message = Some(Message::error(message));
                 Flow::Running
             },
+            ExplorerAction::Copy(text) => {
+                self.store_clipboard(text, None);
+                Flow::Running
+            },
+            ExplorerAction::Paste => {
+                self.paste_into_explorer();
+                Flow::Running
+            },
+            ExplorerAction::OpenSearch | ExplorerAction::CloseSearch => {
+                self.message = Some(Message::error(
+                    "searching inside the file list is not in the terminal yet",
+                ));
+                Flow::Running
+            },
         }
     }
 

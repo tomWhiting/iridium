@@ -10,7 +10,7 @@
 //! | mode | what is on screen |
 //! | --- | --- |
 //! | [`EXPLORER_MODE`] | the query field and the rows |
-//! | [`EXPLORER_EDIT_MODE`] | the rows, as editable text |
+//! | [`EXPLORER_EDIT_MODE`] | the rows as text, in a kernel editor; see [`edit_layer`] |
 //! | [`EXPLORER_CONFIRM_MODE`] | the operations a plan will perform |
 //! | [`EXPLORER_REFUSED_MODE`] | why a buffer cannot be applied |
 //!
@@ -47,24 +47,24 @@
 //!
 //! The printable-character fall-through. `(Plain, Char(_))` was the last arm of
 //! both old tables and it is not a binding — it is "every character nothing
-//! claimed goes into the field on this screen", the query while browsing and
-//! the filename while editing. Turning it into twenty-six bindings would make a
-//! keymap that could not express a *field*. It stays below resolution, in
-//! [`super::keys`], and a user who binds a bare letter to a command takes that
-//! letter out of the field, which is the honest consequence of what they asked
-//! for.
+//! claimed goes into the field on this screen". Turning it into twenty-six
+//! bindings would make a keymap that could not express a *field*. It stays
+//! below resolution, in [`super::keys`], and a user who binds a bare letter to
+//! a command takes that letter out of the field, which is the honest
+//! consequence of what they asked for.
+//!
+//! Nor the editing screen's keys. While the rows are edited every key goes to
+//! a kernel [`Editor`](iridium_editor::Editor), which resolves it against the
+//! kernel's keymap with [`edit_layer`] on top; this table is never consulted.
 //!
 //! [`Any`]: ModifierState::Any
 
 use iridium_editor::commands::builtin::{
     EXPLORER_ACTIVATE, EXPLORER_BEGIN_EDIT, EXPLORER_COLLAPSE, EXPLORER_CONFIRM_APPLY,
     EXPLORER_CONFIRM_CANCEL, EXPLORER_CONFIRM_MODE, EXPLORER_DISMISS, EXPLORER_EDIT_ASK_APPLY,
-    EXPLORER_EDIT_BACKSPACE, EXPLORER_EDIT_CARET_END, EXPLORER_EDIT_CARET_HOME,
-    EXPLORER_EDIT_CARET_LEFT, EXPLORER_EDIT_CARET_RIGHT, EXPLORER_EDIT_CURSOR_DOWN,
-    EXPLORER_EDIT_CURSOR_UP, EXPLORER_EDIT_DELETE, EXPLORER_EDIT_LEAVE, EXPLORER_EDIT_MODE,
-    EXPLORER_EDIT_NEW_ROW, EXPLORER_EDIT_STRIKE_ROW, EXPLORER_EXPAND, EXPLORER_MODE,
-    EXPLORER_MOVE_DOWN, EXPLORER_MOVE_TO_FIRST, EXPLORER_MOVE_TO_LAST, EXPLORER_MOVE_UP,
-    EXPLORER_QUERY_BACKSPACE, EXPLORER_REFUSED_DISMISS, EXPLORER_REFUSED_MODE, EXPLORER_ROOT_ABOVE,
+    EXPLORER_EDIT_LEAVE, EXPLORER_EDIT_MODE, EXPLORER_EXPAND, EXPLORER_MODE, EXPLORER_MOVE_DOWN,
+    EXPLORER_MOVE_TO_FIRST, EXPLORER_MOVE_TO_LAST, EXPLORER_MOVE_UP, EXPLORER_QUERY_BACKSPACE,
+    EXPLORER_REFUSED_DISMISS, EXPLORER_REFUSED_MODE, EXPLORER_ROOT_ABOVE,
     EXPLORER_ROOT_AT_SELECTION, EXPLORER_TOGGLE_HIDDEN, EXPLORER_TOGGLE_PANEL,
     EXPLORER_TOGGLE_SIDEBAR,
 };
@@ -80,7 +80,10 @@ pub const KEYMAP_NAME: &str = "explorer";
 /// The number of bindings in the explorer's default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_BINDING_COUNT: usize = 43;
+pub const DEFAULT_BINDING_COUNT: usize = 26;
+
+/// The number of bindings in [`edit_layer`].
+pub const EDIT_BINDING_COUNT: usize = 7;
 
 /// Shorthand for a modifier pattern, in the field order of [`ModifierPattern`].
 const fn pattern(
@@ -130,7 +133,6 @@ fn bind(
 pub fn default_keymap() -> Keymap {
     let mut keymap = Keymap::new(KEYMAP_NAME);
     keymap.extend(browsing());
-    keymap.extend(editing());
     keymap.extend(confirming());
     keymap.extend(refused());
     keymap
@@ -185,40 +187,42 @@ fn browsing() -> Vec<KeyBinding> {
     ]
 }
 
-/// The bindings that answer keys while the rows are being edited.
-fn editing() -> Vec<KeyBinding> {
+/// The name the editing layer is pushed under in the session's editor.
+pub const EDIT_KEYMAP_NAME: &str = "explorer.edit";
+
+/// The panel's keys while the rows are edited, as a layer over the kernel's.
+///
+/// Only what a document does not already mean: leaving, asking to apply, and
+/// the two placement chords. Everything else — typing, Enter, carets, undo —
+/// is the kernel's own binding. Apply has a `Ctrl` spelling because a terminal
+/// without the kitty protocol cannot send `⌘`.
+#[must_use]
+pub fn edit_layer() -> Keymap {
     let mode = || EXPLORER_EDIT_MODE;
-    vec![
+    let mut keymap = Keymap::new(EDIT_KEYMAP_NAME);
+    keymap.extend([
+        bind(PLAIN, KeyCode::Escape, EXPLORER_EDIT_LEAVE, mode()),
+        bind(CTRL, KeyCode::Char('s'), EXPLORER_EDIT_ASK_APPLY, mode()),
+        bind(META, KeyCode::Char('s'), EXPLORER_EDIT_ASK_APPLY, mode()),
         bind(CTRL_ALT, KeyCode::Char('e'), EXPLORER_TOGGLE_PANEL, mode()),
         bind(META_ALT, KeyCode::Char('e'), EXPLORER_TOGGLE_PANEL, mode()),
-        bind(PLAIN, KeyCode::Escape, EXPLORER_EDIT_LEAVE, mode()),
-        bind(CTRL, KeyCode::Char('d'), EXPLORER_EDIT_STRIKE_ROW, mode()),
-        // `Ctrl+Enter` rather than `Ctrl+N`, because `Ctrl+N` was the movement
-        // pair long before the oil buffer existed.
-        bind(CTRL, KeyCode::Enter, EXPLORER_EDIT_NEW_ROW, mode()),
-        bind(META, KeyCode::Char('s'), EXPLORER_EDIT_ASK_APPLY, mode()),
-        bind(CTRL, KeyCode::Char('s'), EXPLORER_EDIT_ASK_APPLY, mode()),
-        bind(PLAIN, KeyCode::Up, EXPLORER_EDIT_CURSOR_UP, mode()),
-        bind(CTRL, KeyCode::Char('p'), EXPLORER_EDIT_CURSOR_UP, mode()),
-        bind(PLAIN, KeyCode::Down, EXPLORER_EDIT_CURSOR_DOWN, mode()),
-        bind(CTRL, KeyCode::Char('n'), EXPLORER_EDIT_CURSOR_DOWN, mode()),
-        // The four motions go to the *name*, not the list. A field that took
-        // two of them and gave the others to the tree would be a field with no
-        // rule.
-        bind(PLAIN, KeyCode::Left, EXPLORER_EDIT_CARET_LEFT, mode()),
-        bind(PLAIN, KeyCode::Right, EXPLORER_EDIT_CARET_RIGHT, mode()),
-        bind(PLAIN, KeyCode::Home, EXPLORER_EDIT_CARET_HOME, mode()),
-        bind(PLAIN, KeyCode::End, EXPLORER_EDIT_CARET_END, mode()),
-        bind(PLAIN, KeyCode::Backspace, EXPLORER_EDIT_BACKSPACE, mode()),
-        bind(PLAIN, KeyCode::Delete, EXPLORER_EDIT_DELETE, mode()),
-    ]
+        bind(
+            CTRL_ALT,
+            KeyCode::Char('b'),
+            EXPLORER_TOGGLE_SIDEBAR,
+            mode(),
+        ),
+        bind(META, KeyCode::Char('b'), EXPLORER_TOGGLE_SIDEBAR, mode()),
+    ]);
+    keymap
 }
 
 /// The three keys the confirmation screen prints at the bottom of itself.
 ///
-/// ⛔ `⌘S` is deliberately absent: it is what got the user *to* this screen, and
-/// a held key repeating into an apply is the one way a confirmation can be
-/// answered by an accident of timing rather than by a decision.
+/// ⛔ `⌘S` and `Ctrl+S` are deliberately absent: they are what got the user
+/// *to* this screen, and a held key repeating into an apply is the one way a
+/// confirmation can be answered by an accident of timing rather than by a
+/// decision.
 fn confirming() -> Vec<KeyBinding> {
     let mode = || EXPLORER_CONFIRM_MODE;
     vec![

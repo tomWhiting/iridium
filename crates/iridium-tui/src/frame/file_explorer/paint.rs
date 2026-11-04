@@ -1,61 +1,46 @@
 //! Drawing the file explorer, in either of its two placements.
 //!
 //! ```text
-//!     ╭──────────────────────────────────────────╮   > src         │ fn main() {
-//!     │ > src              tab to edit these rows │   ▾ crates      │     …
-//!     │ ▾ crates                                 │   ▾ iridium-p…  │ }
-//!     │   ▾ iridium-panel                        │     src         │
-//!     ╰──────────────────────────────────────────╯                 │
-//!            a popover, floating over the text          a sidebar, taking columns
+//!   ╭──────────────────────────────────────────────╮     > src         │ fn main() {
+//!   │ > src                  tab to edit these rows │     ▾ crates      │     …
+//!   │ ▾ crates                                     │     ▾ iridium-p…  │ }
+//!   │   ▾ iridium-panel                            │       src         │
+//!   │                                              │                   │
+//!   ╰──────────────────────────────────────────────╯                   │
+//!        floating: large, centred, a fixed size        a sidebar, taking columns
 //! ```
 //!
-//! The box is [`FloatingBox`], shared with the palette and the undo tree; see
-//! [`panel`](crate::frame::panel) for why its corners are round, and for why
-//! the band has none to round. Which one is drawn is [`Placement`], and it is
-//! the *only* thing that differs between them: the rows themselves come from
-//! the same shared builder either way.
+//! Which one is drawn is [`Placement`], and it is the *only* thing that
+//! differs between them: the rows come from the same shared builder either way.
 //!
 //! # ⭐ Nothing here decides what a row says
 //!
-//! Every row, its indent, its disclosure marker, its truncation, the query
-//! field and where the caret sits inside it — all of that is
+//! Every row, its indent, its marker, its truncation, the query field, the text
+//! being edited and where the caret sits inside it — all of that is
 //! [`iridium_panel::explorer`], the same code the GPU face draws. What is here
-//! is the conversion from a [`PanelBody`] to cells, and it is the whole of this
-//! face's contribution to the panel.
-//!
-//! That is the payoff of the hoist rather than an accident of it: a rename
-//! refused here is refused there, for the same reason and with the same
-//! sentence, because it is one implementation and not two that agree today.
+//! is the conversion from a [`PanelBody`] to cells.
 //!
 //! # ⚠️ The units seam: the builder budgets in characters, this spends in cells
 //!
 //! [`PanelFit::content_columns`] counts `char`s, because the GPU face draws on
-//! a grid where every character occupies one character-width and a shared crate
-//! has no business knowing what a terminal thinks a column is. A terminal's
+//! a grid where every character occupies one character-width. A terminal's
 //! columns are *display cells*, and a CJK name occupies two of them per
-//! character.
+//! character. **They are the same number for every ASCII path, and this face
+//! clips when they are not**: [`text::paint_text`] advances by display width
+//! and refuses to write past the area, so a row too wide in cells is cut at the
+//! border rather than overrunning the box. Marks are mapped from characters to
+//! cells the same way, so a selection covers the glyphs it names.
 //!
-//! **They are the same number for every ASCII path, and this face clips when
-//! they are not.** [`text::paint_text`] advances by display width and refuses
-//! to write past the area, so a row composed to fit in characters but too wide
-//! in cells is cut at the border — visibly, on its right edge — rather than
-//! overrunning the box. That is the contract [`PanelRow`] already states, and
-//! it is the honest answer available: teaching the shared crate about display
-//! width would apply a *terminal's* width model to the GPU face, where it is
-//! simply false.
-//!
-//! What it costs, stated plainly so nobody has to rediscover it: a directory of
-//! wide-character names loses a character or two of its longest rows at the
-//! panel edge, and the right-aligned hint on the query row is the first thing
-//! to go. Nothing is corrupted and nothing panics.
+//! [`PanelFit::content_columns`]: iridium_panel::PanelFit::content_columns
 
-use iridium_panel::{PanelBody, PanelCaret};
+use iridium_panel::{MarkKind, PanelBody, PanelCaret, PanelMark};
+use unicode_width::UnicodeWidthChar as _;
 
 use crate::cell::{CellBuffer, Style};
 use crate::frame::CellPosition;
 use crate::frame::line::LineLayout;
 use crate::frame::palette::Palette;
-use crate::frame::panel::{FloatingBox, SidebarBox, TOP};
+use crate::frame::panel::{CentredBox, SidebarBox};
 use crate::frame::text::{self, TextArea};
 
 /// The furniture a body is painted into: a box that floats, or a band that
@@ -68,8 +53,8 @@ use crate::frame::text::{self, TextArea};
 /// for a row-painting rule to be fixed in.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Placement {
-    /// A floating box, centred, one row down from the top.
-    Popover(FloatingBox),
+    /// A large floating box, centred both ways.
+    Centred(CentredBox),
     /// A full-height band down the left edge.
     Sidebar(SidebarBox),
 }
@@ -78,7 +63,10 @@ impl Placement {
     /// The area a row's runs are painted into.
     const fn content(self) -> TextArea {
         let (origin, width) = match self {
-            Self::Popover(panel_box) => (panel_box.content_origin(), panel_box.content_width()),
+            Self::Centred(centred) => (
+                centred.frame.content_origin(),
+                centred.frame.content_width(),
+            ),
             Self::Sidebar(band) => (SidebarBox::CONTENT_ORIGIN, band.content_width()),
         };
         TextArea {
@@ -94,7 +82,7 @@ impl Placement {
     /// it; a box starts below the one it drew.
     const fn first_row(self) -> usize {
         match self {
-            Self::Popover(_) => TOP + 1,
+            Self::Centred(centred) => centred.top + 1,
             Self::Sidebar(_) => 0,
         }
     }
@@ -102,23 +90,22 @@ impl Placement {
     /// How many rows the furniture can hold body rows in.
     const fn capacity(self) -> usize {
         match self {
-            // A box grows to its content, so the only bound is the body.
-            Self::Popover(_) => usize::MAX,
+            Self::Centred(centred) => centred.interior_rows,
             Self::Sidebar(band) => band.rows,
         }
     }
 
     /// Draws whatever sits above the first body row.
     fn open(self, buffer: &mut CellBuffer, style: Style) {
-        if let Self::Popover(panel_box) = self {
-            panel_box.top_border(buffer, TOP, style);
+        if let Self::Centred(centred) = self {
+            centred.frame.top_border(buffer, centred.top, style);
         }
     }
 
     /// Blanks one row of furniture, edges included.
     fn blank_row(self, buffer: &mut CellBuffer, row: usize, style: Style) {
         match self {
-            Self::Popover(panel_box) => panel_box.blank_row(buffer, row, style),
+            Self::Centred(centred) => centred.frame.blank_row(buffer, row, style),
             Self::Sidebar(band) => band.blank_row(buffer, row, style),
         }
     }
@@ -126,7 +113,7 @@ impl Placement {
     /// Draws a separator across one already-blanked row.
     fn rule_row(self, buffer: &mut CellBuffer, row: usize, style: Style) {
         match self {
-            Self::Popover(panel_box) => panel_box.rule_row(buffer, row, style),
+            Self::Centred(centred) => centred.frame.rule_row(buffer, row, style),
             Self::Sidebar(band) => band.rule_row(buffer, row, style),
         }
     }
@@ -141,7 +128,13 @@ impl Placement {
     /// background below it. The columns were taken either way.
     fn close(self, buffer: &mut CellBuffer, after: usize, style: Style) {
         match self {
-            Self::Popover(panel_box) => panel_box.bottom_border(buffer, after, style),
+            Self::Centred(centred) => {
+                let bottom = centred.top + 1 + centred.interior_rows;
+                for row in after..bottom {
+                    centred.frame.blank_row(buffer, row, style);
+                }
+                centred.frame.bottom_border(buffer, bottom, style);
+            },
             Self::Sidebar(band) => {
                 for row in after..band.rows {
                     band.blank_row(buffer, row, style);
@@ -229,6 +222,54 @@ fn paint_row(
         if column >= content.width {
             break;
         }
+    }
+
+    paint_marks(buffer, row, content, panel_row, styles);
+}
+
+/// Paints each mark's background over the cells its characters landed in.
+///
+/// A mark past the end of the text — a selected line break, a caret at the
+/// end of a line — covers one blank cell per character, which is what the
+/// row was padded with.
+fn paint_marks(
+    buffer: &mut CellBuffer,
+    row: usize,
+    content: TextArea,
+    panel_row: &iridium_panel::PanelRow,
+    styles: &Palette,
+) {
+    if panel_row.marks.is_empty() {
+        return;
+    }
+    let text = panel_row.text();
+    let widths: Vec<usize> = text
+        .chars()
+        .map(|character| character.width().unwrap_or(0))
+        .collect();
+    let cell_of = |column: usize| -> usize {
+        let within: usize = widths.iter().take(column).sum();
+        within + column.saturating_sub(widths.len())
+    };
+    for mark in &panel_row.marks {
+        let (first, last) = (cell_of(mark.start), cell_of(mark.end));
+        for cell in first..last.min(content.width) {
+            let column = content.origin + cell;
+            let Some(current) = buffer.get(column, row).map(crate::cell::Cell::style) else {
+                continue;
+            };
+            buffer.set_style(column, row, marked(*mark, current, styles));
+        }
+    }
+}
+
+/// `style` with the background a mark of this kind paints.
+const fn marked(mark: PanelMark, style: Style, styles: &Palette) -> Style {
+    match mark.kind {
+        MarkKind::Selection => styles.selected(style),
+        MarkKind::Match => styles.search_match(style, false),
+        MarkKind::CurrentMatch => styles.search_match(style, true),
+        MarkKind::Caret => styles.caret(style),
     }
 }
 

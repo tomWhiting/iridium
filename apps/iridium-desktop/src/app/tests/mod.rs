@@ -4,6 +4,7 @@
 //! a failure names the surface it belongs to before you open the file.
 
 mod config;
+mod explorer_text;
 mod menubar;
 mod native_events;
 mod panel_mouse;

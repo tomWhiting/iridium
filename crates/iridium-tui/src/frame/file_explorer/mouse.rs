@@ -1,8 +1,5 @@
 //! Pointer coordinates use the same placement and body as the painter.
-use super::{
-    Anchor, ExplorerAction, FileExplorerPanel, FloatingBox, PanelFit, SidebarBox, TOP,
-    interior_rows,
-};
+use super::{Anchor, CentredBox, ExplorerAction, FileExplorerPanel, PanelFit, SidebarBox};
 use crate::input::{MouseButton, MouseEvent, MouseEventKind, ScrollDirection};
 use iridium_editor::{KeyCode, KeyEvent, Theme};
 
@@ -13,7 +10,7 @@ impl FileExplorerPanel {
         &mut self,
         event: MouseEvent,
         columns: usize,
-        rows: usize,
+        _rows: usize,
         band_rows: usize,
         theme: &Theme,
     ) -> Option<ExplorerAction> {
@@ -28,12 +25,13 @@ impl FileExplorerPanel {
                 PanelFit::sidebar(band.content_width(), band.rows),
             )
         } else {
-            let panel = FloatingBox::fitted(columns, rows)?;
+            // The same box the painter draws: see `floating` in the parent.
+            let centred = CentredBox::fitted(columns, band_rows)?;
             (
-                panel.left,
-                panel.width,
-                TOP + 1,
-                PanelFit::popover(panel.content_width(), interior_rows(rows)?),
+                centred.frame.left,
+                centred.frame.width,
+                centred.top + 1,
+                PanelFit::sidebar(centred.frame.content_width(), centred.interior_rows),
             )
         };
         let row = usize::from(event.row);

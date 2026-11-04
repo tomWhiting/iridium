@@ -484,3 +484,48 @@ fn setting_the_flag_to_what_it_already_says_is_not_a_change() {
     assert!(tree.set_show_hidden(true), "off to on is a change");
     assert!(!tree.set_show_hidden(true), "on was already on");
 }
+
+/// A wake that reports on a channel, so a test can block on it the way a host
+/// blocks on its input.
+fn waking() -> (crate::Wake, std::sync::mpsc::Receiver<()>) {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let sender = std::sync::Mutex::new(sender);
+    let wake: crate::Wake = std::sync::Arc::new(move || {
+        if let Ok(sender) = sender.lock() {
+            let _ = sender.send(());
+        }
+    });
+    (wake, receiver)
+}
+
+#[test]
+fn a_finished_listing_wakes_whoever_is_waiting_and_is_there_to_drain() {
+    let directory = TempDir::new("explorer-wake");
+    std::fs::write(directory.path().join("a.txt"), "a").expect("the fixture was written");
+    let mut tree = opened(&directory);
+    let (wake, woken) = waking();
+    tree.set_wake(Some(wake));
+
+    tree.reload(tree.root());
+    woken
+        .recv_timeout(PATIENCE)
+        .expect("the re-read never woke anybody");
+    // Sent after the listing, so the drain that follows a wake always has it.
+    assert!(tree.drain(), "woken before the listing could be collected");
+}
+
+#[test]
+fn a_wake_that_was_taken_away_is_not_called() {
+    let directory = TempDir::new("explorer-wake-off");
+    let mut tree = opened(&directory);
+    let (wake, woken) = waking();
+    tree.set_wake(Some(wake));
+    tree.set_wake(None);
+
+    tree.reload(tree.root());
+    assert!(settle(&mut tree), "the re-read never landed");
+    assert!(
+        woken.try_recv().is_err(),
+        "a wake that was removed was still called"
+    );
+}

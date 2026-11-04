@@ -54,6 +54,7 @@ use iridium_explorer::NodeId;
 use super::filter::{FilterRow, FilterView};
 use super::panel::{ExplorerOutcome, FileExplorer};
 use super::resolve::{Resolved, types_text};
+use super::session::Editing;
 use super::verb::Verb;
 use crate::Entry;
 
@@ -69,6 +70,11 @@ impl FileExplorer {
     /// screen decides where an unclaimed key goes.
     pub fn handle_key(&mut self, event: &KeyEvent) -> ExplorerOutcome {
         self.restoring = None;
+        // The rows being edited are a kernel editor's text, and every key is
+        // that editor's to resolve.
+        if self.mode.editing().is_some() && self.mode.refusals().is_empty() {
+            return self.edit_key(event);
+        }
         let editing = self.mode.is_editing();
         let resolved = self.resolve_key(event);
         if editing {
@@ -222,11 +228,10 @@ impl FileExplorer {
         if index >= self.row_count() {
             return ExplorerOutcome::Handled;
         }
-        if self.mode.is_editing() {
-            // The row being pointed at is the row being typed into. Nothing is
-            // activated: these rows are text, and a click in a text field puts
-            // the cursor there rather than running something.
-            self.mode.seat(index);
+        if let Some(editing) = self.mode.editing_mut() {
+            // These rows are text, and a click in text puts the caret there
+            // rather than running something.
+            editing.place_caret(index);
             return ExplorerOutcome::Handled;
         }
         if !self.select_row(index) {
@@ -304,23 +309,12 @@ impl FileExplorer {
         self.reroot(&parent)
     }
 
-    /// Starts editing the rows the panel is drawing.
+    /// Starts editing the rows the panel is drawing, as text in a kernel
+    /// editor, with the caret on the row that was selected.
     ///
-    /// Refused in two states, and both refusals are about the same thing —
-    /// what the buffer would be a snapshot *of*.
-    ///
-    /// A listing the panel has already asked for and not yet received
-    /// ([`wanted`](FileExplorer::wanted)) means rows are on their way. Opening
-    /// an editable session over a list that is still arriving would freeze
-    /// half a directory into a buffer and leave the rest out of the diff, and
-    /// the user has no way to tell which half they got.
-    ///
-    /// No rows at all is the other: [`super::plan`] requires the first row to
-    /// be the folder the panel is showing, so a buffer built from nothing
-    /// refuses everything typed into it. That happens for real — a query
-    /// matching nothing produces an empty filtered view — and the honest
-    /// answer is to say so rather than to open a session that cannot be
-    /// applied.
+    /// Refused while a listing is still on its way — a session over half a
+    /// directory would leave the rest out of the plan — and when there are no
+    /// rows, or a name no line of text can hold.
     fn begin_editing(&mut self) -> ExplorerOutcome {
         if let Some(error) = self
             .files
@@ -338,42 +332,34 @@ impl FileExplorer {
         if source.is_empty() {
             return ExplorerOutcome::Failed("there are no rows to edit".to_owned());
         }
-        // ⚠️ Read *before* the mode changes. `selected_row` answers for the
-        // cursor as soon as there is one, so asking after `begin_edit` would
-        // ask the fresh session where it is and be told row zero — putting
-        // every session on the root no matter what was selected.
-        let start = self.selected_row().unwrap_or(0);
-        if self.mode.begin_edit(&source) {
-            // The row the user was looking at is the row they meant to edit.
-            // `seat` clamps, so a filtered selection that outruns the buffer
-            // lands on the last row rather than anywhere surprising.
-            self.mode.seat(start);
+        // Row zero is the folder itself, which is not a line of the text.
+        let start = self.selected_row().unwrap_or(0).saturating_sub(1);
+        let (editing, problems) = match Editing::new(&source, start, &self.edit_layers) {
+            Ok(opened) => opened,
+            Err(error) => return ExplorerOutcome::Failed(error.to_string()),
+        };
+        if !self.mode.begin_edit(editing) {
+            return ExplorerOutcome::Handled;
         }
-        ExplorerOutcome::Handled
+        self.column_scroll = 0;
+        // The session is open either way; a layer that would not install is
+        // said once rather than leaving its keys mysteriously dead.
+        problems
+            .into_iter()
+            .next()
+            .map_or(ExplorerOutcome::Handled, ExplorerOutcome::Failed)
     }
 
     /// Inserts pasted text into whichever field is taking characters.
     ///
-    /// ⚠️ **Mode-aware, and it has to be.** The host intercepts the paste
-    /// chord before [`Self::handle_key`] ever sees it — the panel is modal and
-    /// has a text field, so a paste belongs to that field — which means the
-    /// pre-match branch in `handle_key` cannot cover this path. Pasting into
-    /// the query while a buffer is open would rebuild the filtered view, and
-    /// that view is the row source the buffer was snapshotted from.
-    ///
-    /// The field refuses control characters, so a multi-line paste
-    /// contributes its printable characters only.
+    /// ⚠️ **Mode-aware.** While the rows are edited a paste goes to the
+    /// editor at every caret, newlines and all; behind a refusal or a
+    /// confirmation it goes nowhere, because neither shows the text.
     pub fn paste(&mut self, text: &str) {
         self.restoring = None;
         if self.mode.is_editing() {
-            // Nothing to paste into while a refusal or a confirmation is on
-            // screen: neither is showing the rows, so the characters would
-            // land somewhere the user cannot see.
-            if !self.mode.refusals().is_empty() {
-                return;
-            }
-            for character in text.chars() {
-                self.mode.edit_name(|entry| entry.insert(character));
+            if self.mode.refusals().is_empty() {
+                self.paste_into_buffer(text);
             }
             return;
         }

@@ -54,7 +54,14 @@ pub enum DriverEvent {
     /// something this stack does not understand, and silence would make that
     /// look like a dead keyboard.
     Unrecognised,
+
+    /// Another thread called a [`Driver::waker`]: something the next frame
+    /// draws has changed, though nobody touched the terminal.
+    Wake,
 }
+
+/// What another thread calls to end a [`Driver::next_event`] wait early.
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
 /// The terminal, the surface, and the loop that connects them.
 ///
@@ -187,6 +194,20 @@ impl Driver {
         self.terminal.flush()?;
         self.surface.commit();
         Ok(())
+    }
+
+    /// Something any thread can call to make [`Self::next_event`] return
+    /// [`DriverEvent::Wake`], so work finished elsewhere — a directory read —
+    /// is drawn at once rather than on the next keypress. No polling and no
+    /// timer: the wait stays a blocking `poll` until this is called.
+    #[must_use]
+    pub fn waker(&self) -> Waker {
+        let waker = self.terminal.event_reader().waker();
+        Arc::new(move || {
+            // A full pipe already holds a wake, and a closed one has nobody
+            // left to wake; neither is worth reporting from a reader thread.
+            let _ = waker.wake();
+        })
     }
 
     /// Blocks until something happens, and returns it.

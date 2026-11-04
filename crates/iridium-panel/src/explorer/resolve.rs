@@ -162,6 +162,9 @@ impl FileExplorer {
             stack.push(layer);
         }
         self.keys = stack;
+        // The editing screen's keys are the kernel editor's, so the user's
+        // editor bindings reach it whole; it opens with them next session.
+        self.edit_layers.set_user(user);
         self.rebuild_hints();
         // A sequence half-typed against the old bindings means nothing against
         // the new ones.

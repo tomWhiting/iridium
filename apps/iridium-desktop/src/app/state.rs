@@ -70,6 +70,16 @@ pub(super) enum ExplorerPlacement {
     Sidebar,
 }
 
+/// Which editor the search panel drives.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum SearchTarget {
+    /// The active document.
+    #[default]
+    Document,
+    /// The file explorer's listing, while it is being edited as text.
+    Explorer,
+}
+
 /// Which of the two surfaces a **sidebar** explorer leaves the keys with.
 ///
 /// Meaningless for a popover, which is focused by definition; see
@@ -173,6 +183,8 @@ pub struct DesktopApp {
     /// Whether the search panel is on screen. It is not modal: keys it does
     /// not bind stay the host's, so a save chord works mid-search.
     pub(super) search_open: bool,
+    /// Which editor the open search panel drives.
+    pub(super) search_target: SearchTarget,
     /// The command palette panel.
     pub(super) palette: CommandPalette,
     /// Whether the palette is on screen. While it is, it is modal: every key

@@ -69,6 +69,25 @@ impl App {
         }
     }
 
+    /// Pastes the clipboard into the file explorer's rows, every caret at once.
+    pub(super) fn paste_into_explorer(&mut self) {
+        let result = match &mut self.clipboard_backend {
+            Backend::Internal => Ok(self.clipboard.clone()),
+            Backend::System(provider) => provider.read(),
+            Backend::Terminal => Err(
+                "Use your terminal's paste shortcut; terminal clipboard reads are disabled".into(),
+            ),
+        };
+        match result {
+            Ok(text) => {
+                if let Some(explorer) = self.explorer.as_mut() {
+                    explorer.paste(&text);
+                }
+            },
+            Err(error) => self.message = Some(Message::error(error)),
+        }
+    }
+
     pub(super) fn cut_search(&mut self, cut: SearchCut) {
         self.store_clipboard(
             cut.text().to_owned(),

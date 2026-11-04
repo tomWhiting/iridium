@@ -24,8 +24,16 @@ impl FileExplorer {
         self.key_label_style = style;
     }
 
+    /// Indexes the keys the panel can advertise: its own stack, then the
+    /// editing screen's layer and the user's keys above it, so a hint for an
+    /// editing command (leave, apply) names the chord that actually runs it.
     pub(super) fn rebuild_hints(&mut self) {
-        self.hints = KeyHintIndex::build(&self.keys);
+        let mut keys = self.keys.clone();
+        keys.push(super::keymap::edit_layer());
+        if let Some(user) = self.edit_layers.user() {
+            keys.push(user.clone());
+        }
+        self.hints = KeyHintIndex::build(&keys);
     }
 
     /// Prefer the user's layer, then the host's native modifier spelling.

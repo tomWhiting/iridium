@@ -71,7 +71,7 @@ impl DesktopApp {
     }
 
     /// Puts text on the system pasteboard.
-    fn clipboard_store(&mut self, text: String) -> Result<(), String> {
+    pub(super) fn clipboard_store(&mut self, text: String) -> Result<(), String> {
         let clipboard = self.clipboard_handle()?;
         clipboard
             .set_text(text)

@@ -160,6 +160,20 @@ impl PanelGeometry {
         (row < rows).then_some(row)
     }
 
+    /// The background behind columns `start..end` of interior `row`, at
+    /// least one column wide so a selected line break still shows.
+    #[must_use]
+    pub fn mark_rect(&self, row: usize, start: usize, end: usize) -> PanelRect {
+        let columns = end.saturating_sub(start).max(1);
+        PanelRect {
+            x: index_to_f32(start).mul_add(self.char_width, self.content_x),
+            y: index_to_f32(row).mul_add(self.line_height, self.content_y),
+            width: index_to_f32(columns) * self.char_width,
+            height: self.line_height,
+            radius: 0.0,
+        }
+    }
+
     /// The caret bar for a field caret at interior `(row, column)`.
     #[must_use]
     pub fn caret_rect(&self, caret: PanelCaret) -> PanelRect {

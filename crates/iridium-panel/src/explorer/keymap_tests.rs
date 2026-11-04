@@ -20,7 +20,9 @@ use iridium_editor::commands::builtin::{
 };
 use iridium_editor::{CommandId, KeyBinding, KeyCode, Keymap, Modifiers};
 
-use super::keymap::{DEFAULT_BINDING_COUNT, EVERY_PATTERN, default_keymap};
+use super::keymap::{
+    DEFAULT_BINDING_COUNT, EDIT_BINDING_COUNT, EVERY_PATTERN, default_keymap, edit_layer,
+};
 use super::panel::ExplorerOutcome;
 use super::tests::support::{chord, opened, press, project};
 use super::verb::Verb;
@@ -37,6 +39,37 @@ fn user_layer(sequence: &str, command: CommandId) -> Keymap {
 #[test]
 fn the_binding_count_is_what_the_module_documents() {
     assert_eq!(default_keymap().len(), DEFAULT_BINDING_COUNT);
+    assert_eq!(edit_layer().len(), EDIT_BINDING_COUNT);
+}
+
+/// Every command the panel ever binds, from either table.
+fn every_binding() -> Vec<KeyBinding> {
+    let mut bindings = default_keymap().bindings().to_vec();
+    bindings.extend(edit_layer().bindings().iter().cloned());
+    bindings
+}
+
+/// The text's own layer runs on the kernel editor, which refuses a layer
+/// naming a command it does not know — so the layer has to validate.
+#[test]
+fn the_edit_layer_validates_against_the_editors_registry() {
+    let registry = default_registry().expect("the kernel tables are consistent");
+    edit_layer()
+        .validate(&registry)
+        .expect("every command the edit layer binds must be a registered command");
+}
+
+/// ⭐ Asking to apply is bound to a chord every terminal can send, not only
+/// to `⌘S`, which no terminal delivers.
+#[test]
+fn asking_to_apply_has_a_chord_a_terminal_can_send() {
+    let ctrl_s =
+        iridium_editor::KeyPress::from_event(&chord(KeyCode::Char('s'), Modifiers::ctrl()));
+    let bound = edit_layer().bindings().iter().any(|binding| {
+        binding.command() == Some(&iridium_editor::commands::builtin::EXPLORER_EDIT_ASK_APPLY)
+            && binding.matches_exactly(&[ctrl_s])
+    });
+    assert!(bound, "Ctrl+S does not ask to apply");
 }
 
 /// ⭐ Every verb the panel can perform has a default key. The kernel's
@@ -45,9 +78,7 @@ fn the_binding_count_is_what_the_module_documents() {
 /// a verb that lost its binding would otherwise be caught by nothing at all.
 #[test]
 fn every_verb_is_bound_by_the_default_keymap() {
-    let keymap = default_keymap();
-    let bound: BTreeSet<String> = keymap
-        .bindings()
+    let bound: BTreeSet<String> = every_binding()
         .iter()
         .filter_map(|binding| binding.command())
         .map(|id| id.as_str().to_owned())
@@ -157,7 +188,7 @@ fn every_registered_explorer_command_is_a_verb_the_panel_answers() {
 /// The four modes are the four screens, and each is used.
 #[test]
 fn every_mode_has_at_least_one_binding() {
-    let keymap = default_keymap();
+    let bindings = every_binding();
     for mode in [
         EXPLORER_MODE,
         EXPLORER_EDIT_MODE,
@@ -165,10 +196,7 @@ fn every_mode_has_at_least_one_binding() {
         EXPLORER_REFUSED_MODE,
     ] {
         assert!(
-            keymap
-                .bindings()
-                .iter()
-                .any(|binding| binding.mode() == Some(&mode)),
+            bindings.iter().any(|binding| binding.mode() == Some(&mode)),
             "no binding is scoped to `{mode}`"
         );
     }

@@ -9,7 +9,7 @@
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::{CommandArgs, CommandId, EditorKeyResult, KeyCode, KeyEvent};
 
-use super::state::{DesktopApp, Flow};
+use super::state::{DesktopApp, Flow, SearchTarget};
 use crate::command_palette::PaletteOutcome;
 use crate::file_tree::ExplorerOutcome;
 use crate::history_overlay::HistoryOutcome;
@@ -38,6 +38,7 @@ impl DesktopApp {
         } else {
             self.search_or_document_key(event)
         };
+        self.drop_orphaned_search();
 
         self.refresh_title();
         if let Some(shell) = &mut self.shell {
@@ -63,7 +64,8 @@ impl DesktopApp {
         let Some(editor) = self.workspace.active_editor_mut() else {
             return Flow::Running;
         };
-        if self.search_open {
+        // A search aimed at the explorer's listing is not this editor's.
+        if self.search_open && self.search_target != SearchTarget::Explorer {
             match self.search.handle_key(event, editor) {
                 SearchOutcome::Ignored => {},
                 SearchOutcome::Handled | SearchOutcome::Replaced(_) => {
@@ -143,6 +145,9 @@ impl DesktopApp {
     /// for the palette: the panel is modal and has a text field, so a paste
     /// belongs to that field rather than to the document underneath it.
     fn drive_explorer(&mut self, event: &KeyEvent) -> Flow {
+        if let Some(flow) = self.explorer_search_key(event) {
+            return flow;
+        }
         if is_paste_chord(event) {
             match self.clipboard_text() {
                 Ok(text) => {
@@ -203,6 +208,106 @@ impl DesktopApp {
                 self.message = Some(Message::error(message));
                 Flow::Running
             },
+            ExplorerOutcome::Copy(text) => {
+                if let Err(error) = self.clipboard_store(text) {
+                    self.message = Some(Message::error(error));
+                }
+                Flow::Running
+            },
+            ExplorerOutcome::Paste => {
+                match self.clipboard_text() {
+                    Ok(text) => {
+                        if let Some(explorer) = self.explorer.as_mut() {
+                            explorer.paste(&text);
+                        }
+                    },
+                    Err(message) => self.message = Some(message),
+                }
+                Flow::Running
+            },
+            ExplorerOutcome::Search(action) => {
+                self.explorer_search_action(&action);
+                Flow::Running
+            },
+        }
+    }
+
+    /// Hands a key to a search panel aimed at the explorer's listing, or
+    /// `None` when there is none or it leaves the key to the explorer.
+    fn explorer_search_key(&mut self, event: &KeyEvent) -> Option<Flow> {
+        if !(self.search_open && self.search_target == SearchTarget::Explorer) {
+            return None;
+        }
+        let search = &mut self.search;
+        let outcome = self.explorer.as_mut().and_then(|explorer| {
+            explorer.with_buffer_editor(|editor| search.handle_key(event, editor))
+        });
+        match outcome {
+            Some(SearchOutcome::Ignored) => None,
+            Some(SearchOutcome::Handled | SearchOutcome::Replaced(_)) => Some(Flow::Running),
+            Some(SearchOutcome::Closed) | None => {
+                self.search_open = false;
+                self.search_target = SearchTarget::Document;
+                outcome.map(|_| Flow::Running)
+            },
+        }
+    }
+
+    /// Opens or closes the search panel on the explorer's listing.
+    ///
+    /// Opening takes the panel from the document if it was searching there.
+    fn explorer_search_action(&mut self, action: &SearchAction) {
+        match *action {
+            SearchAction::OpenSearch => {
+                if self.search_open && self.search_target != SearchTarget::Explorer {
+                    if let Some(editor) = self.workspace.active_editor_mut() {
+                        self.search.close(editor);
+                    }
+                }
+                let search = &mut self.search;
+                let opened = self
+                    .explorer
+                    .as_mut()
+                    .and_then(|explorer| explorer.with_buffer_editor(|editor| search.open(editor)))
+                    .is_some();
+                self.search_open = opened;
+                self.search_target = if opened {
+                    SearchTarget::Explorer
+                } else {
+                    SearchTarget::Document
+                };
+            },
+            SearchAction::CloseSearch => {
+                if self.search_open && self.search_target == SearchTarget::Explorer {
+                    let search = &mut self.search;
+                    if let Some(explorer) = self.explorer.as_mut() {
+                        explorer.with_buffer_editor(|editor| search.close(editor));
+                    }
+                    self.search_open = false;
+                    self.search_target = SearchTarget::Document;
+                }
+            },
+            // The editor has already moved to the match by the time it says so;
+            // the scoped and select-all variants have no listing panel to open.
+            SearchAction::NextMatch
+            | SearchAction::PreviousMatch
+            | SearchAction::SelectAllMatches
+            | SearchAction::OpenInSelection
+            | SearchAction::ClearScope => {},
+        }
+    }
+
+    /// Closes a search panel aimed at a listing that is no longer being
+    /// edited — the explorer left its text, or closed.
+    pub(super) fn drop_orphaned_search(&mut self) {
+        let orphaned = self.search_target == SearchTarget::Explorer
+            && self
+                .explorer
+                .as_ref()
+                .is_none_or(|explorer| explorer.buffer_editor().is_none());
+        if orphaned {
+            self.search_open = false;
+            self.search_target = SearchTarget::Document;
         }
     }
 

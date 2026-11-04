@@ -150,10 +150,10 @@ fn custom_refusal_dismissal_key_is_shown_and_reaches_editing_again() {
     configured(&mut explorer, &[("f8", EXPLORER_REFUSED_DISMISS)]);
     select_row(&mut explorer, "README.md");
     explorer.handle_key(&press(KeyCode::Tab));
-    // Removing the entire filename is invalid and must yield a refusal.
-    for _ in 0..9 {
-        explorer.handle_key(&press(KeyCode::Backspace));
-    }
+    // A name holding a control character is invalid and must yield a
+    // refusal. (An emptied line is a deletion now, not a refusal.)
+    explorer.handle_key(&press(KeyCode::End));
+    explorer.paste("\u{1}");
     explorer.handle_key(&chord(KeyCode::Char('s'), Modifiers::ctrl()));
     assert!(!explorer.mode.refusals().is_empty());
     assert!(screen(&mut explorer).contains("F8 to go back"));

@@ -249,9 +249,9 @@ fn sidebar_focus_changes_keep_unapplied_oil_edits_and_hide_refuses_them() {
     let mut app = app(&dir);
     app.run_host_command(&workbench::SIDEBAR);
     settle(&mut app);
-    app.handle_input(&TerminalInput::Paste("hello.rs".into()));
-    settle(&mut app);
+    // The tree, not a filtered view: only the folder's own tree is edited.
     key(&mut app, KeyCode::Tab, Modifiers::none());
+    key(&mut app, KeyCode::End, Modifiers::none());
     app.handle_input(&TerminalInput::Paste("_rename".into()));
     assert!(
         app.explorer

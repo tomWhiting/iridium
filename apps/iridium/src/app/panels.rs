@@ -94,8 +94,19 @@ impl App {
 
     /// Opens the shared browser; the caller chooses picker or persistent sidebar.
     pub(super) fn open_explorer(&mut self, root: iridium_panel::explorer::ExplorerRoot) {
-        match FileExplorerPanel::open(root.path, root.crawl, &self.user_keys) {
-            Ok(explorer) => {
+        match FileExplorerPanel::open(
+            root.path,
+            root.crawl,
+            &self.user_keys,
+            &super::commands::keymap(),
+        ) {
+            Ok(mut explorer) => {
+                explorer.set_wake(self.waker.clone());
+                // Once now: a listing that landed before the wake was set
+                // posted with nothing to call.
+                if let Some(wake) = self.waker.as_ref() {
+                    wake();
+                }
                 self.explorer = Some(explorer);
                 self.focus = crate::app::sidebar::Focus::Explorer;
             },

@@ -85,6 +85,8 @@ mod wrapping;
 mod wrapping_tests;
 
 #[cfg(test)]
+mod explorer_tests;
+#[cfg(test)]
 mod scroll_bench;
 #[cfg(test)]
 mod selection_tests;
@@ -173,6 +175,10 @@ pub struct App {
     /// The file explorer is constructed on demand rather than at startup, so
     /// there has to be somewhere for its bindings to wait.
     user_keys: iridium_editor::Keymap,
+    /// What wakes the event loop, handed to every explorer this session opens
+    /// so a directory listing that lands is drawn without waiting for the
+    /// next timed poll.
+    waker: Option<iridium_tui::driver::Waker>,
 }
 
 impl App {
@@ -293,6 +299,7 @@ impl App {
             columns: 0,
             rows: 0,
             user_keys,
+            waker: None,
         };
 
         match options.path.filter(|_| project.is_none()) {
@@ -318,6 +325,15 @@ impl App {
             }
         }
         Ok(app)
+    }
+
+    /// Sets what wakes the event loop when something changes without a key:
+    /// a directory listing the file explorer was waiting for.
+    pub fn set_waker(&mut self, waker: iridium_tui::driver::Waker) {
+        if let Some(explorer) = self.explorer.as_mut() {
+            explorer.set_wake(Some(waker.clone()));
+        }
+        self.waker = Some(waker);
     }
 
     /// Tells the editor how big the terminal is, in cells.

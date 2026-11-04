@@ -4,11 +4,12 @@
 //! whole job is showing what is on a disk.
 //!
 //! ⚠️ **What is deliberately *not* tested here.** Every key's meaning, the
-//! filter, the crawl, the oil buffer, the rename planning and the refusals are
-//! [`iridium_panel::explorer`]'s, and are tested there — 215 of them. Repeating
-//! any of it in this file would be testing a re-export. What is this face's,
-//! and so what is tested here, is: the conversion from rows to cells, the box
-//! it lands in, the caret, and which of its two placements it takes.
+//! filter, the crawl, the text editing, the rename planning and the refusals
+//! are [`iridium_panel::explorer`]'s, and are tested there. Repeating any of it
+//! in this file would be testing a re-export. What is this face's, and so what
+//! is tested here, is: the conversion from rows to cells, the marks painted
+//! over them, the box it lands in, the caret, and which of its two placements
+//! it takes.
 
 use std::time::{Duration, Instant};
 
@@ -17,13 +18,13 @@ use iridium_editor::{KeyCode, KeyEvent, Modifiers};
 use iridium_file::test_support::TempDir;
 
 use iridium_editor::theme::Color;
-use iridium_panel::{PanelBody, PanelRow, Span};
+use iridium_panel::{MarkKind, PanelBody, PanelMark, PanelRow, Span};
 
 use super::paint::Placement;
 use super::{ExplorerAction, FileExplorerPanel};
-use crate::cell::{CellBuffer, CellContent};
+use crate::cell::{CellBuffer, CellContent, Style};
 use crate::frame::palette::Palette;
-use crate::frame::panel::{FloatingBox, TOP};
+use crate::frame::panel::CentredBox;
 
 /// How long a listing is waited for before the test gives up.
 ///
@@ -55,6 +56,7 @@ fn opened(directory: &TempDir) -> FileExplorerPanel {
         false,
         // Nothing configured: these tests are about the panel's own keys.
         &iridium_editor::Keymap::new("user"),
+        &iridium_editor::Keymap::new("face"),
     )
     .expect("the fixture directory opened");
     let deadline = Instant::now() + PATIENCE;
@@ -143,10 +145,10 @@ fn a_run_after_a_wide_one_starts_where_that_run_actually_ended() {
     };
     let mut buffer = CellBuffer::new(40, 10);
     let styles = Palette::from_theme(&Theme::dark());
-    let panel_box = FloatingBox::fitted(40, 10).expect("a 40x10 screen fits a panel");
-    super::paint::paint(&body, Placement::Popover(panel_box), &mut buffer, &styles);
+    let centred = CentredBox::fitted(40, 10).expect("a 40x10 screen fits a panel");
+    super::paint::paint(&body, Placement::Centred(centred), &mut buffer, &styles);
 
-    let row = row_text(&buffer, TOP + 1);
+    let row = row_text(&buffer, centred.top + 1);
     assert!(
         row.contains("日本END"),
         "the run after the wide one did not start where that run ended: {row:?}"
@@ -181,7 +183,10 @@ fn no_row_overruns_the_box_on_a_directory_of_wide_names() {
         );
     }
 
-    let top = &screen[TOP];
+    let top = screen
+        .iter()
+        .find(|row| row.contains('╭'))
+        .expect("a top border was drawn");
     assert!(
         top.contains('╭') && top.contains('╮'),
         "the top border did not survive the wide names: {top:?}"
@@ -207,9 +212,9 @@ fn the_caret_lands_on_the_query_row_inside_the_box() {
         .paint(&mut buffer, band_rows(24), &Theme::dark(), &styles)
         .expect("an 80x24 screen fits the panel and its query field");
 
-    // The query row is the first interior row: one below the box's top border,
-    // which is itself one below the screen's top edge.
-    assert_eq!(caret.row, TOP + 1, "the caret left the query row");
+    // The query row is the first interior row: one below the box's top border.
+    let centred = CentredBox::fitted(80, band_rows(24)).expect("an 80x24 screen fits the box");
+    assert_eq!(caret.row, centred.top + 1, "the caret left the query row");
     assert!(
         caret.column > 0 && caret.column < 80,
         "the caret landed outside the screen: {caret:?}"
@@ -270,7 +275,7 @@ fn the_sidebar_chord_takes_columns_from_the_document_and_gives_them_back() {
     assert_eq!(
         panel.sidebar_columns(80, band_rows(24)),
         0,
-        "a panel opens as a popover and costs the document nothing"
+        "a panel opens floating and costs the document nothing"
     );
 
     assert_eq!(panel.handle_key(&sidebar_chord()), ExplorerAction::Handled);
@@ -290,7 +295,7 @@ fn the_sidebar_chord_takes_columns_from_the_document_and_gives_them_back() {
 }
 
 #[test]
-fn a_screen_too_narrow_for_an_honest_band_keeps_the_popover() {
+fn a_screen_too_narrow_for_an_honest_band_keeps_floating() {
     // ⭐ The refusal has to be visible in BOTH answers or they disagree: a
     // panel that reported columns it then declined to draw in would leave the
     // document short of a band that is not there.
@@ -399,5 +404,186 @@ fn a_band_stops_at_the_rows_it_was_given_and_not_at_the_screens_edge() {
         past.chars().nth(band - 1),
         Some('│'),
         "the band ran past the rows it was given: {past:?}"
+    );
+}
+
+#[test]
+fn the_floating_box_is_large_and_centred_on_the_rows_it_was_given() {
+    // The floating placement is the front-and-centre browser: most of the
+    // screen, the same margin either side, and nothing below the document's
+    // rows, so the statusline stays readable under it.
+    let directory = project("tui-explorer-centred");
+    let mut panel = opened(&directory);
+    let (columns, rows) = (120, 40);
+    let screen = painted(&mut panel, columns, rows);
+
+    let top = screen
+        .iter()
+        .position(|row| row.contains('╭'))
+        .expect("a top border was drawn");
+    let bottom = screen
+        .iter()
+        .position(|row| row.contains('╰'))
+        .expect("a bottom border was drawn");
+    let border: Vec<char> = screen[top].chars().collect();
+    let left = border
+        .iter()
+        .position(|cell| *cell == '╭')
+        .expect("a left corner");
+    let right = border
+        .iter()
+        .position(|cell| *cell == '╮')
+        .expect("a right corner");
+
+    assert!(
+        right - left + 1 >= columns * 8 / 10,
+        "the box is not large: {}",
+        right - left + 1
+    );
+    assert!(
+        left.abs_diff(columns - 1 - right) <= 1,
+        "the box is not centred across: {left} cells left, {} right",
+        columns - 1 - right
+    );
+    assert!(
+        bottom - top + 1 >= band_rows(rows) * 8 / 10,
+        "the box is not tall"
+    );
+    assert!(
+        top.abs_diff(band_rows(rows) - 1 - bottom) <= 1,
+        "the box is not centred down the document's rows: top {top}, bottom {bottom}"
+    );
+    assert!(bottom < band_rows(rows), "the box ran over the statusline");
+}
+
+#[test]
+fn the_floating_box_keeps_its_size_however_few_rows_it_lists() {
+    // A box that grew with its content would jump as lines are typed and
+    // deleted in the text being edited.
+    let directory = project("tui-explorer-fixed");
+    let mut panel = opened(&directory);
+    let screen = painted(&mut panel, 100, 30);
+    let top = screen
+        .iter()
+        .position(|row| row.contains('╭'))
+        .expect("a top border");
+    let bottom = screen
+        .iter()
+        .position(|row| row.contains('╰'))
+        .expect("a bottom border");
+    let centred = CentredBox::fitted(100, band_rows(30)).expect("the screen fits the box");
+    assert_eq!(
+        (top, bottom),
+        (centred.top, centred.top + centred.interior_rows + 1)
+    );
+    for (row, text) in screen.iter().enumerate().take(bottom).skip(top + 1) {
+        assert!(
+            text.contains('│'),
+            "interior row {row} lost its sides: {text:?}"
+        );
+    }
+}
+
+#[test]
+fn a_mark_paints_its_background_over_the_cells_its_characters_landed_in() {
+    // Marks count characters; cells are display width. `日` is one character
+    // and two cells, so a selection of the character after it starts at the
+    // third cell of the row, not the second.
+    let white = Color::new(1.0, 1.0, 1.0, 1.0);
+    let body = PanelBody {
+        content_columns: 20,
+        rows: vec![
+            PanelRow::new(vec![Span::new("日ab", white)]).with_marks(vec![
+                PanelMark {
+                    start: 1,
+                    end: 2,
+                    kind: MarkKind::Selection,
+                },
+                PanelMark {
+                    start: 3,
+                    end: 4,
+                    kind: MarkKind::Caret,
+                },
+            ]),
+        ],
+        caret: None,
+    };
+    let mut buffer = CellBuffer::new(40, 10);
+    let styles = Palette::from_theme(&Theme::dark());
+    let centred = CentredBox::fitted(40, 10).expect("a 40x10 screen fits a panel");
+    super::paint::paint(&body, Placement::Centred(centred), &mut buffer, &styles);
+
+    let row = centred.top + 1;
+    let origin = centred.frame.content_origin();
+    let background = |cell: usize| {
+        buffer
+            .get(origin + cell, row)
+            .map(|cell| cell.style().background)
+            .expect("the cell exists")
+    };
+    let selection = styles.selected(Style::DEFAULT).background;
+    let caret = styles.caret(Style::DEFAULT).background;
+    assert_ne!(background(0), selection, "the wide character was marked");
+    assert_eq!(background(2), selection, "`a` lost its selection");
+    assert_ne!(background(3), selection, "the selection ran past `a`");
+    // Past the end of the text: the caret sits on the blank after `b`.
+    assert_eq!(
+        background(4),
+        caret,
+        "the caret after the text was not drawn"
+    );
+}
+
+#[test]
+fn tab_shows_the_listing_as_text_and_enter_makes_a_new_line() {
+    // The face's half of edit mode: the panel's text reaches the cells, and a
+    // key that only the kernel editor understands lands in it.
+    let directory = project("tui-explorer-edit");
+    let mut panel = opened(&directory);
+    assert_eq!(
+        panel.handle_key(&press(KeyCode::Tab)),
+        ExplorerAction::Handled
+    );
+    assert!(panel.buffer_editor().is_some(), "Tab did not start editing");
+
+    let screen = painted(&mut panel, 80, 24).join("\n");
+    assert!(
+        screen.contains("alpha.txt"),
+        "the text was not drawn:\n{screen}"
+    );
+
+    let before = panel
+        .buffer_editor()
+        .map(|editor| editor.state().document.line_count())
+        .expect("editing");
+    assert_eq!(
+        panel.handle_key(&press(KeyCode::Enter)),
+        ExplorerAction::Handled
+    );
+    let after = panel
+        .buffer_editor()
+        .map(|editor| editor.state().document.line_count())
+        .expect("still editing");
+    assert_eq!(after, before + 1, "Enter did not make a new line");
+}
+
+#[test]
+fn the_editors_clipboard_and_search_requests_reach_the_host() {
+    let directory = project("tui-explorer-requests");
+    let mut panel = opened(&directory);
+    panel.handle_key(&press(KeyCode::Tab));
+    let ctrl = |character| KeyEvent {
+        key: KeyCode::Char(character),
+        modifiers: Modifiers {
+            ctrl: true,
+            ..Modifiers::none()
+        },
+        is_repeat: false,
+    };
+    assert_eq!(panel.handle_key(&ctrl('v')), ExplorerAction::Paste);
+    assert_eq!(panel.handle_key(&ctrl('f')), ExplorerAction::OpenSearch);
+    assert!(
+        matches!(panel.handle_key(&ctrl('c')), ExplorerAction::Copy(_)),
+        "a copy from the text did not reach the host"
     );
 }

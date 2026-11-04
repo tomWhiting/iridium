@@ -7,15 +7,17 @@
 
 use std::path::{Path, PathBuf};
 
+use iridium_editor::input::SearchAction;
 use iridium_editor::pattern::Pattern;
-use iridium_editor::{KeyPress, KeymapStack};
-use iridium_explorer::{FileTree, NodeId};
+use iridium_editor::{Editor, KeyPress, Keymap, KeymapStack};
+use iridium_explorer::{FileTree, NodeId, Wake};
 use iridium_tree::{Tree, TreeSource as _};
 
-use super::buffer::Buffer;
+use super::buffer::Listing;
 use super::chosen_root;
 use super::filter::{FilterOrder, FilterView, filter, ranked};
 use super::mode::Mode;
+use super::session::EditLayers;
 use crate::Entry;
 
 /// The query prompt, drawn before the field. The palette's, so the two panels
@@ -82,6 +84,14 @@ pub enum ExplorerOutcome {
     /// re-rooting is the first thing here that can fail for a reason worth
     /// hearing.
     Failed(String),
+    /// The text being edited copied or cut this, for the face's clipboard.
+    Copy(String),
+    /// The text being edited asked to paste: the face answers with
+    /// [`FileExplorer::paste`] and whatever its clipboard holds.
+    Paste,
+    /// The text being edited asked for the face's search panel to open or
+    /// close, aimed at [`FileExplorer::with_buffer_editor`].
+    Search(SearchAction),
 }
 
 /// The file explorer.
@@ -194,6 +204,27 @@ pub struct FileExplorer {
     pub(super) pending: Vec<KeyPress>,
     /// Navigation awaiting fresh directory reads after reopening.
     pub(super) restoring: Option<super::bookmark::Navigation>,
+    /// The layers an editing session's editor gets above the kernel's keymap.
+    pub(super) edit_layers: EditLayers,
+    /// The first column of text the editing screen shows, so the primary
+    /// caret stays in view on a line wider than the panel.
+    pub(super) column_scroll: usize,
+    /// What the reader thread calls after every listing it posts.
+    pub(super) wake: WakeHook,
+}
+
+/// The face's wake, kept so a re-root can hand it to the new reader.
+#[derive(Clone, Default)]
+pub(super) struct WakeHook(Option<Wake>);
+
+impl std::fmt::Debug for WakeHook {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(if self.0.is_some() {
+            "WakeHook(set)"
+        } else {
+            "WakeHook(unset)"
+        })
+    }
 }
 
 impl FileExplorer {
@@ -218,7 +249,11 @@ impl FileExplorer {
         let mut tree = Tree::new(&mut files);
         tree.select(0);
         let keys = KeymapStack::with_base(super::keymap::default_keymap());
-        let hints = iridium_editor::KeyHintIndex::build(&keys);
+        // The editing screen's keys live in its editor's layer; the index
+        // holds them too so a hint for leave or apply names a real chord.
+        let mut hint_keys = keys.clone();
+        hint_keys.push(super::keymap::edit_layer());
+        let hints = iridium_editor::KeyHintIndex::build(&hint_keys);
         Ok(Self {
             files,
             tree,
@@ -237,7 +272,49 @@ impl FileExplorer {
             key_label_style: iridium_editor::KeyLabelStyle::Portable,
             pending: Vec::new(),
             restoring: None,
+            edit_layers: EditLayers::default(),
+            column_scroll: 0,
+            wake: WakeHook::default(),
         })
+    }
+
+    /// Sets what the reader thread calls after each listing it posts.
+    ///
+    /// ⭐ **A face that blocks on input must pass one that wakes it**, or a
+    /// listing that lands — the re-read after an apply included — stays off
+    /// screen until the next keypress. Kept across a re-root.
+    pub fn set_wake(&mut self, wake: Option<Wake>) {
+        self.files.set_wake(wake.clone());
+        self.wake = WakeHook(wake);
+    }
+
+    /// Gives the editing screen's editor the face's own keymap layer, so a
+    /// chord means in the listing what it means in a document.
+    ///
+    /// Bindings naming the face's own commands are dropped: nothing in a
+    /// listing can save a file. A session already open keeps the layers it
+    /// opened with.
+    pub fn set_face_keymap(&mut self, face: &Keymap) {
+        self.edit_layers.set_face(face);
+    }
+
+    /// The editor the rows are being edited in, when they are.
+    #[must_use]
+    pub fn buffer_editor(&self) -> Option<&Editor> {
+        self.mode.editing().map(|editing| editing.editor.as_ref())
+    }
+
+    /// Runs `change` against the editor the rows are being edited in, and
+    /// follows whatever it did into the listing. `None` when nothing is being
+    /// edited.
+    ///
+    /// The one way a face reaches that editor mutably — for its search panel —
+    /// so no edit can slip past the listing.
+    pub fn with_buffer_editor<R>(&mut self, change: impl FnOnce(&mut Editor) -> R) -> Option<R> {
+        let editing = self.mode.editing_mut()?;
+        let result = change(&mut editing.editor);
+        editing.sync();
+        Some(result)
     }
 
     /// The folder the panel is showing, which paths are read against.
@@ -267,7 +344,7 @@ impl FileExplorer {
     /// meant it, which is the one loss `mode` exists to prevent.
     #[must_use]
     pub fn has_unapplied_edits(&self) -> bool {
-        self.mode.buffer().is_some_and(Buffer::is_dirty)
+        self.mode.listing().is_some_and(Listing::is_dirty)
     }
 
     /// Points the panel at `root`, throwing away everything that was about
@@ -306,9 +383,11 @@ impl FileExplorer {
             // — which is the right thing to leave behind.
             Err(error) => return ExplorerOutcome::Failed(format!("the file explorer: {error}")),
         };
-        opened.keys = self.keys.clone();
+        opened.keys = std::mem::replace(&mut self.keys, KeymapStack::new());
         opened.hints = self.hints.clone();
         opened.key_label_style = self.key_label_style;
+        opened.edit_layers = std::mem::take(&mut self.edit_layers);
+        opened.set_wake(self.wake.0.take());
         *self = opened;
         ExplorerOutcome::Handled
     }

@@ -95,7 +95,7 @@ fn append_at(
                 window.start.saturating_sub(range.start)..window.end.min(range.end) - range.start;
             let mut query_cursor = QueryCursor::new();
             query_cursor.set_byte_range(local.clone());
-            let mut injected = highlighter.spans_with(query_cursor, &parsed, text);
+            let mut injected = highlighter.spans_with(query_cursor, &parsed, text.as_bytes());
             append_at(embedded, &parsed, text, local, &mut injected, depth + 1)?;
             // The outer raw-code capture must not hide the embedded tokens.
             spans.retain(|span| !(span.start <= range.start && span.end >= range.end));

@@ -89,6 +89,15 @@ pub struct TextFile {
     /// The bytes on disk as of the last load or save, or `None` for a file that
     /// has never existed on disk.
     baseline: Option<Vec<u8>>,
+    /// Which baseline this is. See [`TextFile::baseline_stamp`].
+    stamp: u64,
+}
+
+/// A stamp no baseline in this process has had before.
+fn next_stamp() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// What the disk says about a file, relative to what we last saw.
@@ -248,6 +257,7 @@ impl TextFile {
                 path: path.to_path_buf(),
                 bom,
                 baseline: Some(bytes),
+                stamp: next_stamp(),
             },
             text,
         ))
@@ -260,6 +270,7 @@ impl TextFile {
             path: path.to_path_buf(),
             bom: false,
             baseline: None,
+            stamp: next_stamp(),
         }
     }
 
@@ -293,6 +304,14 @@ impl TextFile {
         let baseline = self.baseline.as_deref()?;
         let body = baseline.strip_prefix(&BOM).unwrap_or(baseline);
         std::str::from_utf8(body).ok()
+    }
+
+    /// Identifies the current baseline: it changes on every load, save, reload
+    /// and rename, and no two baselines in a process share one, so a
+    /// comparison cached against a stamp is valid while the stamp is unchanged.
+    #[must_use]
+    pub const fn baseline_stamp(&self) -> u64 {
+        self.stamp
     }
 
     /// Compares the disk against what we last agreed on.
@@ -389,6 +408,7 @@ impl TextFile {
             source,
         })?;
         self.baseline = Some(bytes);
+        self.stamp = next_stamp();
         publication
             .into_result()
             .map_err(|source| FileError::Published {
@@ -425,6 +445,7 @@ impl TextFile {
         })?;
         self.bom = bom;
         self.baseline = Some(bytes);
+        self.stamp = next_stamp();
         Ok(text)
     }
 
@@ -437,6 +458,7 @@ impl TextFile {
     pub fn rename(&mut self, path: &Path) {
         self.path = path.to_path_buf();
         self.baseline = None;
+        self.stamp = next_stamp();
     }
 }
 

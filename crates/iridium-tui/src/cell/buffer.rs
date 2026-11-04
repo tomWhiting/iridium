@@ -259,6 +259,22 @@ impl CellBuffer {
         WriteOutcome::Written(1)
     }
 
+    /// Blanks `count` cells from a position rightwards, in `style`.
+    ///
+    /// Exactly what writing that many spaces with [`CellBuffer::set_str`]
+    /// does, cells past the edge included, without segmenting and measuring
+    /// a space for every cell: every painted row is blanked this way first.
+    pub fn blank_span(&mut self, column: usize, row: usize, count: usize, style: Style) {
+        let end = column.saturating_add(count).min(self.width);
+        for column in column..end {
+            let Some(index) = self.index(column, row) else {
+                return;
+            };
+            self.detach(column, row);
+            self.write(index, Cell::blank(style));
+        }
+    }
+
     /// Writes text from a position rightwards, one grapheme cluster per cell.
     ///
     /// Returns the column immediately after the last one written, which is
@@ -494,6 +510,30 @@ mod tests {
                         "double-width glyph at {column},{row} has no continuation"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn a_blank_span_is_exactly_that_many_spaces() {
+        // Every start and length over a row holding two wide glyphs, so spans
+        // that begin or end on either half of one, or run off the edge, are
+        // all compared against writing the spaces one at a time.
+        let red = styled(Color::Rgb(255, 0, 0));
+        let blue = styled(Color::Rgb(0, 0, 255));
+        for start in 0..9 {
+            for count in 0..10 {
+                let mut spans = CellBuffer::new(8, 2);
+                spans.set_str(0, 0, "a漢b界c", red);
+                let mut spaces = spans.clone();
+                spans.blank_span(start, 0, count, blue);
+                spans.blank_span(start, 5, count, blue);
+                for offset in 0..count {
+                    spaces.set_str(start + offset, 0, " ", blue);
+                    spaces.set_str(start + offset, 5, " ", blue);
+                }
+                assert_eq!(spans, spaces, "{count} from {start}");
+                assert_invariants(&spans);
             }
         }
     }

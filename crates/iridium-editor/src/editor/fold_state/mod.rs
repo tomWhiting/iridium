@@ -249,10 +249,18 @@ impl FoldState {
         self.folds.as_ref().map_or(0, Folds::lines_scanned)
     }
 
-    /// Returns the fold region at the given line, if any.
+    /// Returns the fold region at the given line, if any: the first one
+    /// starting there, in the regions' sorted order.
+    ///
+    /// A binary search, because both region producers publish their list
+    /// sorted by start line and every painted gutter row asks this.
     #[must_use]
     pub fn region_at(&self, line: usize) -> Option<&FoldRegion> {
-        self.regions().iter().find(|r| r.start_line == line)
+        let regions = self.regions();
+        let first = regions.partition_point(|region| region.start_line < line);
+        regions
+            .get(first)
+            .filter(|region| region.start_line == line)
     }
 
     /// Returns the innermost fold region containing the given line.
@@ -270,7 +278,7 @@ impl FoldState {
     /// Returns true if the given line is the start of a foldable region.
     #[must_use]
     pub fn is_foldable(&self, line: usize) -> bool {
-        self.regions().iter().any(|r| r.start_line == line)
+        self.region_at(line).is_some()
     }
 
     /// Returns true if the given line is inside any foldable region.

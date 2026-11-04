@@ -161,9 +161,7 @@ fn display_width(text: &str) -> usize {
 
 /// Fills a row with blanks in `style`.
 fn blank(buffer: &mut CellBuffer, row: usize, width: usize, style: Style) {
-    for column in 0..width {
-        buffer.set_str(column, row, " ", style);
-    }
+    buffer.blank_span(0, row, width, style);
 }
 
 #[cfg(test)]

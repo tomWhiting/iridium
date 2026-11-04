@@ -167,9 +167,7 @@ pub fn restyle_columns(
 
 /// Fills `count` cells with blanks in `style`.
 fn fill(buffer: &mut CellBuffer, column: usize, row: usize, count: usize, style: Style) {
-    for offset in 0..count {
-        buffer.set_str(column + offset, row, " ", style);
-    }
+    buffer.blank_span(column, row, count, style);
 }
 
 #[cfg(test)]

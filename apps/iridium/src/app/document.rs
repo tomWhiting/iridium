@@ -78,10 +78,9 @@ impl App {
     /// saved state is clean, and a counter would call it modified for the rest
     /// of the session.
     ///
-    /// The comparison is a rope against a `&str`, which returns on a length
-    /// mismatch without reading a byte and otherwise walks the rope's chunks.
-    /// It allocates nothing, and the common case — an edit that changed the
-    /// document's length — costs a comparison of two integers.
+    /// The comparison walks the document, so its answer is kept until the text
+    /// or the saved baseline changes: every frame asks, and a frame that only
+    /// scrolled must not pay for the whole file.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
         self.workspace

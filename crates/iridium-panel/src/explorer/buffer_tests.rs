@@ -390,3 +390,79 @@ fn a_line_cut_and_pasted_elsewhere_in_its_folder_is_the_same_file() {
         "a moved line was read as a delete and a create"
     );
 }
+
+// ---------------------------------------------------------------- moving
+
+#[test]
+fn a_line_cut_from_one_folder_and_pasted_under_another_moves_the_file() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\nbeta/\n  three.rs\n  one.rs\nloose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["move /project/alpha/one.rs → /project/beta/one.rs"],
+        "the paste is the same file, moved, not a delete and a create"
+    );
+}
+
+#[test]
+fn a_line_indented_under_the_folder_above_it_moves_into_that_folder() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\n  loose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["move /project/loose.rs → /project/beta/loose.rs"]
+    );
+}
+
+#[test]
+fn a_line_moved_and_renamed_is_one_move() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\n  renamed.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["move /project/loose.rs → /project/beta/renamed.rs"]
+    );
+}
+
+#[test]
+fn a_line_moved_into_a_typed_folder_moves_after_the_folder_is_made() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\nnew/\n  loose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec![
+            "create /project/new/",
+            "move /project/loose.rs → /project/new/loose.rs",
+        ]
+    );
+}
+
+#[test]
+fn a_moved_line_undone_by_hand_plans_nothing_again() {
+    let mut listing = loaded();
+    let original = listing.text();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\n  loose.rs",
+    );
+    assert!(listing.is_dirty());
+    edit(&mut listing, &original);
+    assert!(!listing.is_dirty());
+    assert!(operations(&listing).is_empty());
+}

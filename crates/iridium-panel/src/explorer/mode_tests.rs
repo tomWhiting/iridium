@@ -5,8 +5,11 @@
 
 use std::path::PathBuf;
 
-use iridium_editor::CommandArgs;
-use iridium_editor::commands::builtin::{MULTI_CURSOR_ADD_CURSOR_BELOW, SELECTION_SELECT_ALL};
+use iridium_editor::commands::builtin::{
+    LINES_DELETE, LINES_DUPLICATE_DOWN, LINES_JOIN, LINES_MOVE_DOWN, LINES_MOVE_UP,
+    MULTI_CURSOR_ADD_CURSOR_BELOW, SELECTION_SELECT_ALL,
+};
+use iridium_editor::{CommandArgs, KeyCode, KeyEvent, Modifiers};
 
 use super::buffer::SourceRow;
 use super::mode::{Confirmation, Leaving, Mode};
@@ -347,4 +350,159 @@ fn escape_drops_extra_carets_before_anything_else() {
     );
     assert!(editing.collapse_carets());
     assert_eq!(editing.editor.state().cursor.cursor_count(), 1);
+}
+
+/// Eight folders of five files under the root, every name unique.
+fn eight_folders() -> Vec<SourceRow> {
+    let mut rows = vec![SourceRow {
+        depth: 0,
+        name: "p".to_owned(),
+        path: PathBuf::from("/p"),
+        directory: true,
+    }];
+    for folder in 0..8 {
+        let folder_path = format!("/p/dir{folder}");
+        rows.push(SourceRow {
+            depth: 1,
+            name: format!("dir{folder}"),
+            path: PathBuf::from(&folder_path),
+            directory: true,
+        });
+        for file in 0..5 {
+            rows.push(SourceRow {
+                depth: 2,
+                name: format!("f{folder}_{file}.rs"),
+                path: PathBuf::from(format!("{folder_path}/f{folder}_{file}.rs")),
+                directory: false,
+            });
+        }
+    }
+    rows
+}
+
+/// The keys the comparison below presses at random.
+fn random_keys() -> [KeyEvent; 11] {
+    let press = |key, modifiers| KeyEvent {
+        key,
+        modifiers,
+        is_repeat: false,
+    };
+    [
+        press(KeyCode::Char('x'), Modifiers::none()),
+        press(KeyCode::Char('/'), Modifiers::none()),
+        press(KeyCode::Enter, Modifiers::none()),
+        press(KeyCode::Backspace, Modifiers::none()),
+        press(KeyCode::Tab, Modifiers::none()),
+        press(KeyCode::Up, Modifiers::none()),
+        press(KeyCode::Down, Modifiers::none()),
+        press(KeyCode::Down, Modifiers::shift()),
+        press(KeyCode::Home, Modifiers::none()),
+        press(KeyCode::End, Modifiers::none()),
+        press(KeyCode::Char('z'), Modifiers::ctrl()),
+    ]
+}
+
+/// Whether two non-blank lines are the same, or two are blank: then which
+/// of the two an edit kept depends on where the comparison started, and a
+/// span and the whole text can both be right and disagree.
+fn has_twins(lines: &[String]) -> bool {
+    let mut distinct = std::collections::HashSet::new();
+    lines.iter().any(|line| {
+        !distinct.insert(if line.trim().is_empty() {
+            ""
+        } else {
+            line.as_str()
+        })
+    })
+}
+
+/// Many keystrokes, line commands, pastes and undos, each followed through
+/// the span the document reports, read exactly as the same text reread whole
+/// after each one.
+#[test]
+fn following_the_editor_by_span_matches_rereading_it_whole() {
+    let (mut editing, _) = Editing::new(&eight_folders(), 20, &EditLayers::default())
+        .expect("the rows start at their root");
+    let mut whole = editing.listing.clone();
+    let keys = random_keys();
+    let commands = [
+        LINES_DELETE,
+        LINES_MOVE_UP,
+        LINES_MOVE_DOWN,
+        LINES_DUPLICATE_DOWN,
+        LINES_JOIN,
+    ];
+    let mut seed: u64 = 0x0dd_ba11_cafe_f00d;
+    let mut next = |bound: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        usize::try_from(seed % u64::try_from(bound.max(1)).unwrap_or(1)).unwrap_or(0)
+    };
+    let mut clipboard = String::new();
+    let mut compared = 0;
+    for step in 0..3_000 {
+        let before = editing.editor.state().document.revision();
+        match next(20) {
+            // A line taken out, to be pasted somewhere else later.
+            0 => {
+                let line = next(editing.editor.state().document.line_count());
+                clipboard = editing
+                    .editor
+                    .state()
+                    .document
+                    .line(line)
+                    .unwrap_or_default();
+                editing.place_caret(line);
+                let _ = editing
+                    .editor
+                    .run_command(LINES_DELETE.as_str(), CommandArgs::NONE);
+            },
+            1 => {
+                let line = next(editing.editor.state().document.line_count());
+                editing.place_caret(line);
+                editing.editor.paste(&format!("\n{clipboard}"));
+            },
+            2 => {
+                editing.editor.redo();
+            },
+            3 => {
+                let command = &commands[next(commands.len())];
+                let _ = editing
+                    .editor
+                    .run_command(command.as_str(), CommandArgs::NONE);
+            },
+            _ => {
+                editing.editor.handle_key(&keys[next(keys.len())]);
+            },
+        }
+        let document = &editing.editor.state().document;
+        assert!(
+            document.lines_changed_since(before).is_some(),
+            "step {step}: the document must say which lines changed"
+        );
+        editing.sync();
+        let document = &editing.editor.state().document;
+        let all: Vec<String> = (0..document.line_count())
+            .map(|line| document.line(line).unwrap_or_default())
+            .collect();
+        assert_eq!(editing.listing.line_count(), all.len(), "step {step}");
+        whole.track(all.clone());
+        if has_twins(&all) {
+            whole = editing.listing.clone();
+        } else {
+            assert_eq!(editing.listing.rows(), whole.rows(), "step {step}");
+            assert_eq!(
+                editing.listing.line_states(),
+                whole.line_states(),
+                "step {step}"
+            );
+            assert_eq!(editing.listing.is_dirty(), whole.is_dirty(), "step {step}");
+            compared += 1;
+        }
+    }
+    assert!(
+        compared > 300,
+        "only {compared} steps compared with a whole reading"
+    );
 }

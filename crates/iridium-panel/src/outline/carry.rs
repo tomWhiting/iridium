@@ -15,9 +15,9 @@ const ALIGN_LIMIT: usize = 250_000;
 
 /// The entry each line of `new` still is, given what each line of `old` was.
 pub(super) fn carry(
-    old: &[String],
+    old: &[&str],
     old_origins: &[Option<usize>],
-    new: &[String],
+    new: &[&str],
 ) -> Vec<Option<usize>> {
     let origin = |index: usize| old_origins.get(index).copied().flatten();
     let mut origins = vec![None; new.len()];
@@ -51,11 +51,11 @@ pub(super) fn carry(
     // Text seen exactly once on each side is the same line, wherever it went.
     let mut seen: HashMap<&str, [(usize, usize); 2]> = HashMap::new();
     for index in old_middle.clone() {
-        let slot = &mut seen.entry(old[index].as_str()).or_default()[0];
+        let slot = &mut seen.entry(old[index]).or_default()[0];
         *slot = (slot.0 + 1, index);
     }
     for index in new_middle.clone() {
-        let slot = &mut seen.entry(new[index].as_str()).or_default()[1];
+        let slot = &mut seen.entry(new[index]).or_default()[1];
         *slot = (slot.0 + 1, index);
     }
     let mut old_taken = vec![false; old.len()];
@@ -120,9 +120,9 @@ fn in_order(anchors: &[(usize, usize)]) -> Vec<(usize, usize)> {
 
 /// Pairs positions of `old_left` with positions of `new_left`, keeping order.
 fn pairs(
-    old: &[String],
+    old: &[&str],
     old_left: &[usize],
-    new: &[String],
+    new: &[&str],
     new_left: &[usize],
 ) -> Vec<(usize, usize)> {
     let (rows, columns) = (old_left.len(), new_left.len());

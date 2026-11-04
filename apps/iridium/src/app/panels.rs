@@ -68,11 +68,12 @@ impl App {
             return Flow::Running;
         }
         if let Some(bookmark) = self.explorer_bookmark.as_ref() {
-            match FileExplorerPanel::open_bookmark(bookmark, &self.user_keys) {
-                Ok(explorer) => {
-                    self.explorer = Some(explorer);
-                    self.focus = crate::app::sidebar::Focus::Explorer;
-                },
+            match FileExplorerPanel::open_bookmark(
+                bookmark,
+                &self.user_keys,
+                &super::commands::keymap(),
+            ) {
+                Ok(explorer) => self.adopt_explorer(explorer),
                 Err(error) => {
                     self.message = Some(Message::error(format!("the file explorer: {error}")));
                 },
@@ -100,20 +101,26 @@ impl App {
             &self.user_keys,
             &super::commands::keymap(),
         ) {
-            Ok(mut explorer) => {
-                explorer.set_wake(self.waker.clone());
-                // Once now: a listing that landed before the wake was set
-                // posted with nothing to call.
-                if let Some(wake) = self.waker.as_ref() {
-                    wake();
-                }
-                self.explorer = Some(explorer);
-                self.focus = crate::app::sidebar::Focus::Explorer;
-            },
+            Ok(explorer) => self.adopt_explorer(explorer),
             Err(error) => {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));
             },
         }
+    }
+
+    /// Puts a freshly opened explorer on screen with the loop's wake in it.
+    ///
+    /// Every way of opening goes through here, so none can forget the wake:
+    /// a reopen that did left its listing waiting for the next key.
+    fn adopt_explorer(&mut self, mut explorer: FileExplorerPanel) {
+        explorer.set_wake(self.waker.clone());
+        // Once now: a listing that landed before the wake was set posted
+        // with nothing to call.
+        if let Some(wake) = self.waker.as_ref() {
+            wake();
+        }
+        self.explorer = Some(explorer);
+        self.focus = crate::app::sidebar::Focus::Explorer;
     }
 
     /// Called only after the panel or host has resolved unapplied edits.

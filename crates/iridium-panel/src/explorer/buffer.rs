@@ -127,6 +127,7 @@ impl Listing {
                 key: RowOrigin {
                     name: row.name.clone(),
                     path: row.path.clone(),
+                    directory: row.directory,
                 },
             })
             .collect();
@@ -134,6 +135,7 @@ impl Listing {
             root: RowOrigin {
                 name: root.name.clone(),
                 path: root.path.clone(),
+                directory: true,
             },
             outline: Outline::project(entries).map_err(LoadError::Projection)?,
         })
@@ -145,12 +147,33 @@ impl Listing {
         self.outline.text()
     }
 
-    /// Follows the text to `lines`, reporting whether it changed.
+    /// Follows the text to `lines`, every line of it, reporting whether it
+    /// changed.
+    #[cfg(test)]
     pub fn track(&mut self, lines: Vec<String>) -> bool {
         self.outline.track(lines)
     }
 
-    /// How each line of the text compares with what was loaded.
+    /// Follows an edit that replaced lines `start..old_end` with `lines`,
+    /// reporting whether it changed anything.
+    pub fn edit(&mut self, start: usize, old_end: usize, lines: Vec<String>) -> bool {
+        self.outline.edit(start, old_end, lines)
+    }
+
+    /// How many lines the text has, as last followed.
+    #[must_use]
+    pub const fn line_count(&self) -> usize {
+        self.outline.line_count()
+    }
+
+    /// How line `line` of the text compares with what was loaded.
+    #[must_use]
+    pub fn line_state(&self, line: usize) -> LineState {
+        self.outline.line_state(line)
+    }
+
+    /// How every line of the text compares with what was loaded.
+    #[cfg(test)]
     #[must_use]
     pub fn line_states(&self) -> Vec<LineState> {
         self.outline.line_states()
@@ -158,13 +181,13 @@ impl Listing {
 
     /// How many loaded entries no line holds any more.
     #[must_use]
-    pub fn removed_count(&self) -> usize {
-        self.outline.read().removed.len()
+    pub const fn removed_count(&self) -> usize {
+        self.outline.removed_count()
     }
 
     /// Whether the text says anything that would be applied.
     #[must_use]
-    pub fn is_dirty(&self) -> bool {
+    pub const fn is_dirty(&self) -> bool {
         self.outline.is_edited()
     }
 
@@ -173,8 +196,14 @@ impl Listing {
     /// # Errors
     ///
     /// One [`Refusal`] per row that cannot be acted on; see [`super::plan`].
+    ///
+    /// Reads the disk, without writing it, to refuse a name that is taken by
+    /// an entry the rows do not show: inside a collapsed folder, or filtered
+    /// out.
     pub fn plan(&self) -> Result<Plan, Vec<Refusal>> {
-        super::plan::plan(&self.rows().rows)
+        super::plan::plan_against(&self.rows().rows, &|path| {
+            std::fs::symlink_metadata(path).is_ok()
+        })
     }
 
     /// The text as the rows the planner reads.

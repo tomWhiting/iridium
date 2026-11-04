@@ -16,6 +16,7 @@ mod divergence;
 mod edit_span;
 mod embedded;
 mod line_access;
+mod line_edits;
 mod position;
 mod snapshot;
 
@@ -24,5 +25,6 @@ pub use changes::Unchanged;
 pub use cursor::{CursorState, Selection};
 pub use divergence::Divergence;
 pub use edit_span::{EditSpan, EditSpanError, byte_point, compute_edit_span};
+pub use line_edits::LineChange;
 pub use position::{Position, Range};
 pub use snapshot::TextSnapshot;

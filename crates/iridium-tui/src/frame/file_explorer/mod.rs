@@ -198,15 +198,19 @@ impl FileExplorerPanel {
         }
     }
 
-    /// Reopens with fresh directory contents and the current user bindings.
+    /// Reopens with fresh directory contents, `user_keys` as the user's
+    /// `[keys]` layer and `face_keys` as this face's own, asked for here for
+    /// the reason [`Self::open`] asks for them.
     ///
     /// # Errors
     /// Returns the shared directory reader's startup error.
     pub fn open_bookmark(
         bookmark: &FileExplorerBookmark,
-        user_keys: &iridium_editor::Keymap,
+        user_keys: &Keymap,
+        face_keys: &Keymap,
     ) -> Result<Self, String> {
         let mut explorer = FileExplorer::open_bookmark(&bookmark.location)?;
+        explorer.set_face_keymap(face_keys);
         explorer.set_user_keymap(user_keys);
         explorer.set_filter_order(iridium_panel::explorer::filter::FilterOrder::Relevance);
         Ok(Self {

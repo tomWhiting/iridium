@@ -256,7 +256,7 @@ impl FileExplorer {
         for operation in &plan.operations {
             match operation {
                 Operation::Create { path, .. } | Operation::Delete { path } => note(path),
-                Operation::Rename { from, to } => {
+                Operation::Rename { from, to } | Operation::Move { from, to } => {
                     note(from);
                     note(to);
                 },

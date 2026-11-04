@@ -118,6 +118,9 @@ mod buffer_tests;
 mod confirm_tests;
 
 #[cfg(test)]
+mod edit_bench;
+
+#[cfg(test)]
 mod edit_keys_tests;
 
 #[cfg(test)]

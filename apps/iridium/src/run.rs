@@ -13,7 +13,8 @@
 //! feel immediate: the frame that answers a keystroke is on screen before this
 //! process goes to sleep on the next one, rather than one event behind. An idle
 //! editor costs nothing at all, because `termina`'s poll with no timeout blocks
-//! — there is no interval to tune and no sleep to get wrong.
+//! — there is no interval to tune and no sleep to get wrong. Work finished off
+//! the input thread wakes that poll through [`App::set_waker`].
 //!
 //! After the event that woke it, the loop takes whatever else is already
 //! waiting, for at most `DRAIN_BUDGET`, before drawing again: a burst of
@@ -150,6 +151,7 @@ const DRAIN_BUDGET: Duration = Duration::from_millis(8);
 /// The loop itself.
 fn drive(app: &mut App, driver: &mut Driver) -> io::Result<()> {
     app.resize(driver.surface().width(), driver.surface().height());
+    app.set_waker(driver.waker());
     loop {
         if driver.is_mouse_captured() != app.wants_mouse_capture() {
             driver.set_mouse_capture(app.wants_mouse_capture())?;
@@ -184,9 +186,10 @@ fn apply(app: &mut App, event: DriverEvent) -> Flow {
             app.resize(columns, rows);
             Flow::Running
         },
-        // A key the VT parser could not name. There is nothing to act on and
-        // nothing changed, so the next frame writes no bytes at all.
-        DriverEvent::Unrecognised => Flow::Running,
+        // A key the VT parser could not name: nothing changed, so the next
+        // frame writes no bytes. A wake: something off the input thread
+        // changed (a directory listing landed), and the next frame collects it.
+        DriverEvent::Unrecognised | DriverEvent::Wake => Flow::Running,
     }
 }
 

@@ -1,37 +1,27 @@
-//! Tests for the editable buffer.
+//! Tests for the listing: the rows on screen written as text, and the text
+//! read back as the rows the planner takes.
 //!
-//! Two things here can put a file somewhere nobody asked for, and both are
-//! arithmetic rather than filesystem work, so both are tested without a disk:
-//!
-//! - **the parent derivation**, which decides what folder a row is in from
-//!   nothing but the indentation it was drawn at, and
-//! - **the index shifting** in [`Buffer::insert_below`] and
-//!   [`Buffer::remove_typed`], where every parent index below the edit moves.
-//!
-//! The oracle for both is the same and is deliberately not an index: a row's
+//! What can put a file somewhere nobody asked for here is the folder a line
+//! is read as being in, so the oracle is deliberately not an index: a row's
 //! parent is checked *by name*, and an edit is required to leave every other
-//! row's parent name exactly as it was. An off-by-one in the shifting reads as
-//! a row that has silently changed folders, which is what it would be.
+//! row's parent name exactly as it was.
 
 use std::path::PathBuf;
 
-use super::buffer::{Buffer, SourceRow};
+use super::buffer::{Listing, LoadError, SourceRow};
 use super::plan::Operation;
+use crate::outline::LineState;
 
 /// The root every fixture hangs off.
 const ROOT: &str = "/project";
 
-/// One drawn row. The name is the path's last component, so a fixture reads
-/// as a directory listing rather than as a pair that has to be kept in step.
+/// One drawn row, named by its path's last component.
 fn node(depth: usize, path: &str, directory: bool) -> SourceRow {
     SourceRow {
         depth,
         name: path.rsplit('/').next().unwrap_or(path).to_owned(),
         path: PathBuf::from(path),
         directory,
-        // The fixture below is drawn fully expanded, which is what makes a row
-        // typed under a folder land inside it.
-        open: directory,
     }
 }
 
@@ -46,13 +36,12 @@ fn folder(depth: usize, path: &str) -> SourceRow {
 /// A small project, drawn as the panel would draw it fully expanded.
 ///
 /// ```text
-/// project
-///   alpha
-///     one.rs
-///     two.rs
-///   beta
-///     three.rs
-///   loose.rs
+/// alpha/
+///   one.rs
+///   two.rs
+/// beta/
+///   three.rs
+/// loose.rs
 /// ```
 fn fixture() -> Vec<SourceRow> {
     vec![
@@ -66,10 +55,19 @@ fn fixture() -> Vec<SourceRow> {
     ]
 }
 
-/// Each row's parent, **named**. The oracle for every shifting test: an index
-/// that moved by one is unreadable, a row that changed folders is not.
-fn parents(buffer: &Buffer) -> Vec<Option<String>> {
-    let rows = buffer.rows();
+/// The fixture, loaded.
+fn loaded() -> Listing {
+    Listing::load(&fixture()).expect("the fixture starts at its root")
+}
+
+/// Follows the listing to `text`, as one edit.
+fn edit(listing: &mut Listing, text: &str) {
+    listing.track(text.split('\n').map(str::to_owned).collect());
+}
+
+/// Each row's parent, **named**.
+fn parents(listing: &Listing) -> Vec<Option<String>> {
+    let rows = listing.rows().rows;
     rows.iter()
         .map(|row| {
             row.parent
@@ -79,14 +77,9 @@ fn parents(buffer: &Buffer) -> Vec<Option<String>> {
         .collect()
 }
 
-/// Every row's name, so a fixture's shape is legible in a failure.
-fn names(buffer: &Buffer) -> Vec<String> {
-    buffer.rows().iter().map(|row| row.name.clone()).collect()
-}
-
-/// The operations the buffer now plans, described.
-fn operations(buffer: &Buffer) -> Vec<String> {
-    buffer
+/// The operations the listing now plans, described.
+fn operations(listing: &Listing) -> Vec<String> {
+    listing
         .plan()
         .unwrap_or_else(|refusals| {
             panic!(
@@ -107,26 +100,65 @@ fn operations(buffer: &Buffer) -> Vec<String> {
 // ---------------------------------------------------------------- loading
 
 #[test]
-fn a_freshly_loaded_buffer_is_clean_and_plans_nothing() {
-    let buffer = Buffer::load(&fixture());
-    assert!(!buffer.is_dirty());
-    assert!(operations(&buffer).is_empty());
+fn the_listing_is_written_as_indented_lines_with_folders_marked() {
+    assert_eq!(
+        loaded().text(),
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\nloose.rs"
+    );
 }
 
 #[test]
-fn an_empty_listing_makes_an_empty_buffer() {
-    let buffer = Buffer::load(&[]);
-    assert!(buffer.rows().is_empty());
-    assert!(!buffer.is_dirty());
+fn a_freshly_loaded_listing_is_clean_and_plans_nothing() {
+    let listing = loaded();
+    assert!(!listing.is_dirty());
+    assert!(operations(&listing).is_empty());
+    assert_eq!(listing.removed_count(), 0);
+}
+
+#[test]
+fn a_folder_with_nothing_drawn_in_it_is_one_empty_line() {
+    let listing = Listing::load(&[folder(0, ROOT)]).expect("a root alone loads");
+    assert_eq!(listing.text(), "");
+    assert_eq!(listing.rows().rows.len(), 1, "only the root");
+    assert!(!listing.is_dirty());
+}
+
+#[test]
+fn rows_that_do_not_start_at_a_folder_cannot_be_edited() {
+    assert_eq!(Listing::load(&[]).err(), Some(LoadError::NoRoot));
+    assert_eq!(
+        Listing::load(&[file(0, "/project/loose.rs")]).err(),
+        Some(LoadError::NoRoot)
+    );
+    assert_eq!(
+        Listing::load(&[folder(0, ROOT), file(0, "/elsewhere.rs")]).err(),
+        Some(LoadError::NoRoot),
+        "a second row at the root's depth is not inside it"
+    );
+}
+
+#[test]
+fn a_name_no_line_can_hold_is_refused_before_editing_starts() {
+    let source = vec![folder(0, ROOT), file(1, "/project/two\nlines")];
+    assert!(matches!(
+        Listing::load(&source),
+        Err(LoadError::Projection(_))
+    ));
+}
+
+#[test]
+fn the_folder_being_shown_is_the_first_row_and_not_a_line() {
+    let rows = loaded().rows();
+    assert_eq!(rows.rows[0].name, "project");
+    assert_eq!(rows.rows[0].parent, None);
+    assert_eq!(rows.lines[0], None, "the root has no line to edit");
+    assert_eq!(rows.lines[1], Some(0));
 }
 
 #[test]
 fn each_row_remembers_the_name_and_path_it_loaded_with() {
-    // The by-id rule, kept as data: the pairing between a row and what it was
-    // is captured here and never re-derived by comparing names later.
-    let buffer = Buffer::load(&fixture());
-    let row = &buffer.rows()[2];
-    let origin = row
+    let rows = loaded().rows().rows;
+    let origin = rows[2]
         .origin
         .as_ref()
         .expect("a loaded row carries its origin");
@@ -136,9 +168,8 @@ fn each_row_remembers_the_name_and_path_it_loaded_with() {
 
 #[test]
 fn nesting_follows_the_indentation() {
-    let buffer = Buffer::load(&fixture());
     assert_eq!(
-        parents(&buffer),
+        parents(&loaded()),
         vec![
             None,
             Some("project".to_owned()),
@@ -152,14 +183,6 @@ fn nesting_follows_the_indentation() {
 }
 
 #[test]
-fn a_row_that_dedents_all_the_way_attaches_to_the_root() {
-    // `loose.rs` is drawn after a two-level subtree and belongs beside the
-    // folders, not inside the last one the walk happened to be in.
-    let buffer = Buffer::load(&fixture());
-    assert_eq!(parents(&buffer)[6], Some("project".to_owned()));
-}
-
-#[test]
 fn a_row_that_dedents_partway_attaches_to_the_level_above_it() {
     let source = vec![
         folder(0, ROOT),
@@ -168,307 +191,278 @@ fn a_row_that_dedents_partway_attaches_to_the_level_above_it() {
         file(3, "/project/a/b/deep.rs"),
         file(2, "/project/a/beside.rs"),
     ];
-    let buffer = Buffer::load(&source);
-    assert_eq!(
-        parents(&buffer)[4],
-        Some("a".to_owned()),
-        "a row dedenting to depth two must land in the depth-one folder"
-    );
-}
-
-#[test]
-fn a_rename_after_a_dedent_is_planned_against_the_folder_the_row_is_in() {
-    // The parent derivation, end to end. A wrong answer above shows up here
-    // as a rename into a directory the file was never in.
-    let mut buffer = Buffer::load(&fixture());
-    buffer.rename(6, "renamed.rs");
-
-    assert_eq!(
-        operations(&buffer),
-        vec!["rename /project/loose.rs → /project/renamed.rs"]
-    );
-}
-
-#[test]
-fn a_rename_deep_in_the_tree_is_planned_against_its_own_folder() {
-    let mut buffer = Buffer::load(&fixture());
-    buffer.rename(5, "renamed.rs");
-
-    assert_eq!(
-        operations(&buffer),
-        vec!["rename /project/beta/three.rs → /project/beta/renamed.rs"]
-    );
+    let listing = Listing::load(&source).expect("the fixture starts at its root");
+    assert_eq!(parents(&listing)[4], Some("a".to_owned()));
 }
 
 #[test]
 fn a_depth_that_jumps_is_refused_rather_than_planned_into_the_wrong_folder() {
-    // Neither row source produces a gap — the tree draws an expansion and the
-    // filter keeps every ancestor of a hit — so this is what happens if one
-    // ever did. The row is drawn as a child of the root while living a level
-    // below it, so every path computed for it comes out of the wrong folder:
-    // without the refusal these rows plan
-    // `rename /project/deep.rs → /project/renamed.rs`, naming a source the
-    // row has nothing to do with. It refuses.
+    // Neither row source produces a gap, so this is what happens if one ever
+    // did: the row reads as a child of the root while living a level below
+    // it, and the planner refuses rather than computing paths from there.
     let source = vec![folder(0, ROOT), file(2, "/project/mid/deep.rs")];
-    let mut buffer = Buffer::load(&source);
-    buffer.rename(1, "renamed.rs");
-
-    let refusals = buffer.plan().expect_err("a row drawn in the wrong folder");
+    let mut listing = Listing::load(&source).expect("the fixture starts at its root");
+    edit(&mut listing, "  renamed.rs");
+    let refusals = listing.plan().expect_err("a row drawn in the wrong folder");
     assert_eq!(refusals.len(), 1);
     assert_eq!(refusals[0].row, 1);
 }
 
 // ---------------------------------------------------------------- editing
 
-/// "Dirty" is a comparison against what loaded, not a flag somebody sets — so
-/// a rename typed back by hand is genuinely undone, and nothing is planned.
 #[test]
-fn renaming_a_row_makes_the_buffer_dirty_and_renaming_it_back_cleans_it() {
-    let mut buffer = Buffer::load(&fixture());
-    buffer.rename(2, "renamed.rs");
-    assert!(buffer.is_dirty());
-
-    buffer.rename(2, "one.rs");
-    assert!(!buffer.is_dirty());
-    assert!(operations(&buffer).is_empty());
-}
-
-#[test]
-fn striking_a_row_and_striking_it_again_leaves_the_buffer_clean() {
-    // "Dirty" is a comparison against what loaded, not a flag somebody sets —
-    // so an edit that was undone by hand is genuinely undone.
-    let mut buffer = Buffer::load(&fixture());
-    buffer.toggle_deleted(3);
-    assert!(buffer.is_dirty());
-
-    buffer.toggle_deleted(3);
-    assert!(!buffer.is_dirty());
-}
-
-#[test]
-fn a_struck_row_plans_a_delete_of_where_it_actually_is() {
-    let mut buffer = Buffer::load(&fixture());
-    buffer.toggle_deleted(2);
-
-    assert_eq!(operations(&buffer), vec!["delete /project/alpha/one.rs"]);
-}
-
-#[test]
-fn renaming_a_row_that_is_not_there_does_nothing() {
-    let mut buffer = Buffer::load(&fixture());
-    buffer.rename(99, "nowhere.rs");
-    assert!(!buffer.is_dirty());
-}
-
-#[test]
-fn striking_a_row_that_is_not_there_does_nothing() {
-    let mut buffer = Buffer::load(&fixture());
-    buffer.toggle_deleted(99);
-    assert!(!buffer.is_dirty());
-}
-
-// ------------------------------------------------------- the folder sigil
-
-#[test]
-fn a_trailing_slash_makes_a_typed_row_a_folder() {
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(6, false);
-    buffer.rename(at, "docs/");
-
-    assert_eq!(buffer.rows()[at].name, "docs", "the slash reached the plan");
-    assert_eq!(operations(&buffer), vec!["create /project/docs/"]);
-}
-
-#[test]
-fn taking_the_slash_off_again_makes_it_a_file() {
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(6, false);
-    buffer.rename(at, "docs/");
-    buffer.rename(at, "docs");
-
-    assert_eq!(operations(&buffer), vec!["create /project/docs"]);
-}
-
-#[test]
-fn a_trailing_slash_on_an_existing_row_is_not_a_request_to_change_what_it_is() {
-    // What a path is on disk is not the buffer's to decide, so the slash is
-    // read off and the rename is just a rename.
-    let mut buffer = Buffer::load(&fixture());
-    buffer.rename(1, "renamed/");
-
+fn a_renamed_line_is_planned_against_the_folder_it_is_in() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  renamed.rs\nloose.rs",
+    );
     assert_eq!(
-        operations(&buffer),
+        operations(&listing),
+        vec!["rename /project/beta/three.rs → /project/beta/renamed.rs"]
+    );
+}
+
+#[test]
+fn a_rename_after_a_dedent_is_planned_against_the_root() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\nrenamed.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["rename /project/loose.rs → /project/renamed.rs"]
+    );
+}
+
+#[test]
+fn renaming_a_line_back_by_hand_leaves_the_listing_clean() {
+    let mut listing = loaded();
+    let original = listing.text();
+    edit(&mut listing, &original.replace("one.rs", "uno.rs"));
+    assert!(listing.is_dirty());
+    edit(&mut listing, &original);
+    assert!(!listing.is_dirty());
+    assert!(operations(&listing).is_empty());
+}
+
+#[test]
+fn a_deleted_line_plans_a_delete_of_where_the_file_actually_is() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    assert_eq!(listing.removed_count(), 1);
+    assert_eq!(operations(&listing), vec!["delete /project/alpha/one.rs"]);
+}
+
+#[test]
+fn deleting_a_folder_and_its_lines_deletes_the_folder_once() {
+    let mut listing = loaded();
+    edit(&mut listing, "beta/\n  three.rs\nloose.rs");
+    assert_eq!(listing.removed_count(), 3);
+    assert_eq!(operations(&listing), vec!["delete /project/alpha"]);
+}
+
+#[test]
+fn a_trailing_slash_makes_a_typed_line_a_folder() {
+    let mut listing = loaded();
+    let text = format!("{}\ndocs/", listing.text());
+    edit(&mut listing, &text);
+    assert_eq!(operations(&listing), vec!["create /project/docs/"]);
+    let rows = listing.rows().rows;
+    assert_eq!(rows.last().map(|row| row.name.as_str()), Some("docs"));
+}
+
+#[test]
+fn a_typed_line_without_a_slash_is_a_file() {
+    let mut listing = loaded();
+    let text = format!("{}\ndocs", listing.text());
+    edit(&mut listing, &text);
+    assert_eq!(operations(&listing), vec!["create /project/docs"]);
+}
+
+#[test]
+fn taking_the_slash_off_a_loaded_folder_is_not_a_request_to_change_what_it_is() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha\n  one.rs\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    assert!(operations(&listing).is_empty());
+
+    edit(
+        &mut listing,
+        "renamed/\n  one.rs\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
         vec!["rename /project/alpha → /project/renamed"]
     );
 }
 
-// -------------------------------------------------------------- inserting
-
 #[test]
-fn a_new_row_under_a_folder_belongs_to_that_folder() {
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(1, true);
-    buffer.rename(at, "new.rs");
-
-    assert_eq!(at, 2, "the new row is drawn immediately below the folder");
-    assert_eq!(operations(&buffer), vec!["create /project/alpha/new.rs"]);
+fn a_line_typed_indented_under_a_folder_belongs_to_that_folder() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  new.rs\n  one.rs\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    assert_eq!(operations(&listing), vec!["create /project/alpha/new.rs"]);
 }
 
 #[test]
-fn a_new_row_under_a_file_belongs_beside_it() {
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(2, false);
-    buffer.rename(at, "new.rs");
-
-    assert_eq!(operations(&buffer), vec!["create /project/alpha/new.rs"]);
-}
-
-#[test]
-fn inserting_a_row_does_not_reparent_the_rows_below_it() {
-    // The shifting arithmetic. Every parent index at or after the insertion
-    // point names a row that has moved down one, and getting that wrong puts
-    // a file in a folder it was never drawn in.
-    let mut buffer = Buffer::load(&fixture());
-    let before = parents(&buffer);
-
-    let at = buffer.insert_below(1, true);
-
-    let mut after = parents(&buffer);
-    assert_eq!(after[at], Some("alpha".to_owned()));
-    after.remove(at);
+fn typing_a_line_does_not_move_any_other_line_into_another_folder() {
+    let mut listing = loaded();
+    let before = parents(&listing);
+    edit(
+        &mut listing,
+        "alpha/\n  new.rs\n  one.rs\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    let mut after = parents(&listing);
+    assert_eq!(after[2], Some("alpha".to_owned()));
+    after.remove(2);
     assert_eq!(
         after, before,
-        "an insertion moved a row into another folder"
+        "a typed line moved a row into another folder"
     );
 }
 
 #[test]
-fn inserting_deep_in_the_tree_leaves_every_other_rows_plan_alone() {
-    // The same claim through the planner rather than through the parent
-    // names: with the new row named, every other row still plans nothing.
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(5, false);
-    buffer.rename(at, "four.rs");
-
-    assert_eq!(operations(&buffer), vec!["create /project/beta/four.rs"]);
-}
-
-#[test]
-fn inserting_into_an_empty_buffer_appends_a_row_with_no_parent() {
-    let mut buffer = Buffer::default();
-    let at = buffer.insert_below(0, true);
-
-    assert_eq!(at, 0);
-    assert_eq!(buffer.rows().len(), 1);
-    assert_eq!(buffer.rows()[0].parent, None);
-}
-
-#[test]
-fn inserting_below_the_last_row_lands_at_the_end() {
-    let mut buffer = Buffer::load(&fixture());
-    let last = buffer.rows().len() - 1;
-    let at = buffer.insert_below(last, false);
-
-    assert_eq!(at, last + 1);
-    assert_eq!(parents(&buffer)[at], Some("project".to_owned()));
-}
-
-// --------------------------------------------------------------- removing
-
-#[test]
-fn a_row_that_came_from_the_tree_is_not_removable() {
-    // An existing file is struck through, never removed: the buffer has to
-    // keep saying what is on disk.
-    let mut buffer = Buffer::load(&fixture());
-    let before = names(&buffer);
-
-    assert!(!buffer.remove_typed(2));
-    assert_eq!(names(&buffer), before);
-    assert!(!buffer.is_dirty());
-}
-
-#[test]
-fn removing_a_row_that_is_not_there_does_nothing() {
-    let mut buffer = Buffer::load(&fixture());
-    assert!(!buffer.remove_typed(99));
-    assert!(!buffer.is_dirty());
-}
-
-#[test]
-fn typing_a_row_and_removing_it_again_leaves_the_buffer_exactly_as_it_loaded() {
-    // The shifting arithmetic in the other direction, with the strongest
-    // oracle available: not "the indices look right" but "the buffer is
-    // indistinguishable from the one that loaded".
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(1, true);
-    buffer.rename(at, "new.rs");
-
-    assert!(buffer.remove_typed(at));
-    assert!(
-        !buffer.is_dirty(),
-        "removing a typed row left the buffer changed: {:?}",
-        parents(&buffer)
+fn line_states_say_what_each_line_is_against_what_loaded() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  uno.rs\n  two.rs\n\nbeta/\n  three.rs\nloose.rs\nnew.rs",
     );
-}
-
-#[test]
-fn removing_a_typed_folder_takes_the_rows_typed_inside_it() {
-    // Removing the row alone would leave its children behind with a parent
-    // index naming whichever row landed in that slot — a folder they were
-    // never drawn in.
-    let mut buffer = Buffer::load(&fixture());
-    let outer = buffer.insert_below(1, true);
-    buffer.rename(outer, "docs/");
-    let inner = buffer.insert_below(outer, true);
-    buffer.rename(inner, "inside.md");
-
     assert_eq!(
-        operations(&buffer),
+        listing.line_states(),
         vec![
-            "create /project/alpha/docs/",
-            "create /project/alpha/docs/inside.md"
+            LineState::Loaded,
+            LineState::Changed,
+            LineState::Loaded,
+            LineState::Blank,
+            LineState::Loaded,
+            LineState::Loaded,
+            LineState::Loaded,
+            LineState::Typed,
         ]
     );
+}
 
-    assert!(buffer.remove_typed(outer));
+#[test]
+fn blank_lines_are_not_rows() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n\n  two.rs\nbeta/\n  three.rs\nloose.rs\n",
+    );
+    assert!(!listing.is_dirty(), "a blank line was read as a change");
+    assert!(operations(&listing).is_empty());
+}
+
+#[test]
+fn a_typed_line_and_its_removal_leave_the_listing_as_it_loaded() {
+    let mut listing = loaded();
+    let original = listing.text();
+    edit(&mut listing, &format!("{original}\nscratch.rs"));
+    assert!(listing.is_dirty());
+    edit(&mut listing, &original);
+    assert!(!listing.is_dirty());
+    assert!(operations(&listing).is_empty());
+}
+
+#[test]
+fn a_line_cut_and_pasted_elsewhere_in_its_folder_is_the_same_file() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\n  one.rs\nbeta/\n  three.rs\nloose.rs",
+    );
     assert!(
-        !buffer.is_dirty(),
-        "the row typed inside survived its folder: {:?}",
-        names(&buffer)
+        !listing.is_dirty(),
+        "a moved line was read as a delete and a create"
+    );
+}
+
+// ---------------------------------------------------------------- moving
+
+#[test]
+fn a_line_cut_from_one_folder_and_pasted_under_another_moves_the_file() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\nbeta/\n  three.rs\nloose.rs",
+    );
+    edit(
+        &mut listing,
+        "alpha/\n  two.rs\nbeta/\n  three.rs\n  one.rs\nloose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["move /project/alpha/one.rs → /project/beta/one.rs"],
+        "the paste is the same file, moved, not a delete and a create"
     );
 }
 
 #[test]
-fn removing_a_typed_row_leaves_the_rows_below_it_in_their_own_folders() {
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(1, true);
-    let expected = {
-        let mut without = parents(&buffer);
-        without.remove(at);
-        without
-    };
-
-    assert!(buffer.remove_typed(at));
-    assert_eq!(parents(&buffer), expected);
+fn a_line_indented_under_the_folder_above_it_moves_into_that_folder() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\n  loose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["move /project/loose.rs → /project/beta/loose.rs"]
+    );
 }
 
-/// ⭐ Undoing three different kinds of edit by hand and getting back exactly
-/// what loaded — no oracle needed, because "indistinguishable from the buffer
-/// that loaded" is the strongest statement there is about an undo.
 #[test]
-fn taking_back_an_insertion_and_an_edit_and_a_strike_leaves_what_loaded() {
-    let mut buffer = Buffer::load(&fixture());
-    let at = buffer.insert_below(4, true);
-    buffer.rename(at, "new.rs");
-    buffer.rename(2, "renamed.rs");
-    buffer.toggle_deleted(3);
-    assert!(buffer.is_dirty());
+fn a_line_moved_and_renamed_is_one_move() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\n  renamed.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec!["move /project/loose.rs → /project/beta/renamed.rs"]
+    );
+}
 
-    assert!(buffer.remove_typed(at));
-    buffer.rename(2, "one.rs");
-    buffer.toggle_deleted(3);
+#[test]
+fn a_line_moved_into_a_typed_folder_moves_after_the_folder_is_made() {
+    let mut listing = loaded();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\nnew/\n  loose.rs",
+    );
+    assert_eq!(
+        operations(&listing),
+        vec![
+            "create /project/new/",
+            "move /project/loose.rs → /project/new/loose.rs",
+        ]
+    );
+}
 
-    assert!(!buffer.is_dirty());
-    assert_eq!(buffer.rows().len(), fixture().len());
-    assert!(operations(&buffer).is_empty());
+#[test]
+fn a_moved_line_undone_by_hand_plans_nothing_again() {
+    let mut listing = loaded();
+    let original = listing.text();
+    edit(
+        &mut listing,
+        "alpha/\n  one.rs\n  two.rs\nbeta/\n  three.rs\n  loose.rs",
+    );
+    assert!(listing.is_dirty());
+    edit(&mut listing, &original);
+    assert!(!listing.is_dirty());
+    assert!(operations(&listing).is_empty());
 }

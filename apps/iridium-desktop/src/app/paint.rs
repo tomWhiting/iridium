@@ -12,8 +12,8 @@ use iridium_editor::Editor;
 use iridium_editor::render::FrameTarget;
 
 use super::startup::Shell;
-use super::state::DesktopApp;
-use crate::file_tree;
+use super::state::{DesktopApp, SearchTarget};
+use crate::file_tree::{self, FileExplorer};
 use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelFit, PanelKind, StripContent};
 use crate::units::u32_to_f32;
 
@@ -185,6 +185,7 @@ impl DesktopApp {
     /// A window too small for an honest panel composes none; the panels' keys
     /// keep working regardless, so `Escape` is never trapped behind a resize.
     fn panel_contents(&mut self) -> Vec<(PanelKind, PanelContent)> {
+        self.drop_orphaned_search();
         // Taken before the shell is borrowed below, and `None` unless the
         // explorer is placed as a sidebar *and* this window can hold one —
         // the same one answer the left reserve is computed from, so the band
@@ -210,7 +211,16 @@ impl DesktopApp {
         let theme = &editor.state().theme;
         let mut panels = Vec::new();
         if self.search_open {
-            panels.push((PanelKind::Search, self.search.content(editor, theme, fit)));
+            // Aimed at the explorer's listing, the panel counts its matches.
+            let searched = if self.search_target == SearchTarget::Explorer {
+                self.explorer
+                    .as_ref()
+                    .and_then(FileExplorer::buffer_editor)
+                    .unwrap_or(editor)
+            } else {
+                editor
+            };
+            panels.push((PanelKind::Search, self.search.content(searched, theme, fit)));
         }
         if self.history_open {
             panels.push((PanelKind::History, self.history.content(editor, theme, fit)));

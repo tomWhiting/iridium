@@ -102,7 +102,11 @@ fn run(operation: &Operation) -> io::Result<()> {
                     .map(drop)
             }
         },
-        Operation::Rename { from, to } => rename_no_replace(from, to),
+        // A move is a rename into another directory: the same call, which
+        // refuses a destination that exists in both cases.
+        Operation::Rename { from, to } | Operation::Move { from, to } => {
+            rename_no_replace(from, to)
+        },
         Operation::Delete { path } => delete(path),
     }
 }

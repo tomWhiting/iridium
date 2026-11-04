@@ -50,16 +50,17 @@
 //! - [`keys`] — what a key press does while browsing, and the one key that
 //!   starts editing.
 //! - [`edit_keys`] — what a key press does once the rows are being edited, a
-//!   refusal is showing, or a confirmation is. Reached *before* [`keys`]'
-//!   table, because that table gives every printable character to the filter.
-//! - [`buffer`] — the rows as loaded and as they now read, and the one place a
-//!   row's origin is captured from the node it was drawn from.
+//!   refusal is showing, or a confirmation is. While the rows are on screen
+//!   every key goes to a kernel [`Editor`](iridium_editor::Editor).
+//! - [`buffer`] — the rows written as text through [`crate::outline`], and read
+//!   back as the rows [`plan()`] takes; the one place a row's origin is captured
+//!   from the node it was drawn from.
 //! - [`mode`] — whether the panel is browsing, editing or confirming, and the
 //!   rule that unapplied edits are never dropped without being asked about.
 //! - [`session`] — everything true *while* the rows are being edited: the
-//!   cursor, the name field it carries, and the verbs that change either.
-//! - [`compose`] — what reaches the screen, as far as this side of the line
-//!   can say it.
+//!   editor holding the text and the listing following it.
+//! - [`compose`] and [`edit_view`] — what reaches the screen, as far as this
+//!   side of the line can say it.
 //!
 //! # ⭐ What is deliberately still in a face, and it is one word: *where*
 //!
@@ -81,7 +82,9 @@
 //! wanted, and [`FileExplorer::poll`] is where that arrival is collected. A
 //! face calls it once per frame while the panel is open; `true` means rows
 //! changed and a repaint is owed. Skipping it corrupts nothing, it just leaves
-//! the panel showing a directory that is permanently loading.
+//! the panel showing a directory that is permanently loading. A face that
+//! blocks on input rather than drawing frames hands [`FileExplorer::set_wake`]
+//! something that wakes it, so a listing that lands is drawn at once.
 
 pub mod apply;
 pub mod confirm;
@@ -94,6 +97,7 @@ pub mod rows;
 mod buffer;
 mod compose;
 mod edit_keys;
+mod edit_view;
 mod keymap;
 mod keys;
 mod mode;
@@ -112,6 +116,9 @@ mod buffer_tests;
 mod confirm_tests;
 
 #[cfg(test)]
+mod edit_bench;
+
+#[cfg(test)]
 mod edit_keys_tests;
 
 #[cfg(test)]
@@ -128,7 +135,11 @@ mod tests;
 
 pub use apply::{Failure, apply};
 pub use filter::{FilterRow, FilterView, filter};
-pub use keymap::{DEFAULT_BINDING_COUNT, KEYMAP_NAME, default_keymap};
+pub use iridium_explorer::Wake;
+pub use keymap::{
+    DEFAULT_BINDING_COUNT, EDIT_BINDING_COUNT, EDIT_KEYMAP_NAME, KEYMAP_NAME, default_keymap,
+    edit_layer,
+};
 pub use panel::{ExplorerOutcome, FileExplorer};
 pub use plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan};
 pub use resolve::USER_LAYER_NAME;

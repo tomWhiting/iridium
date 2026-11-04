@@ -166,6 +166,11 @@ fn operation_row(operation: &Operation, root: &Path, theme: &Theme, width: usize
             theme.editor.change_modified,
             format!("{} → {}", within(from, root), within(to, root)),
         ),
+        Operation::Move { from, to } => (
+            "move",
+            theme.editor.change_modified,
+            format!("{} → {}", within(from, root), within(to, root)),
+        ),
         Operation::Delete { path } => ("delete", theme.editor.change_deleted, within(path, root)),
     };
 

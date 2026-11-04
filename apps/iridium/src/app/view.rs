@@ -76,15 +76,33 @@ impl App {
         }
 
         if let Some(explorer) = self.explorer.as_mut() {
-            // ⚠️ Polled here, on the frame, because the filesystem source
-            // reads on a worker thread and nothing wakes this loop when a
-            // listing lands. Skipping it leaves a panel permanently saying
-            // "Reading…".
+            // ⚠️ Polled here, on the frame: the reader thread wakes the loop
+            // when a listing lands, and this is where it is collected.
             explorer.poll();
             let styles = Palette::from_theme(self.editor.get_theme());
             let theme = self.editor.get_theme().clone();
             cursor = explorer
                 .paint(surface.back_mut(), band_rows, &theme, &styles)
+                .map_or(CursorState::Hidden, |cell| CursorState::At {
+                    row: cell.row,
+                    column: cell.column,
+                });
+        }
+
+        if self.search_target == super::SearchTarget::Explorer
+            && let (Some((first, count)), Some(editor)) = (
+                layout.search_rows,
+                self.explorer
+                    .as_ref()
+                    .and_then(iridium_tui::frame::FileExplorerPanel::buffer_editor),
+            )
+        {
+            // The frame drew the panel against the document; the matches and
+            // the caret belong to the explorer's text it is aimed at.
+            let styles = Palette::from_theme(self.editor.get_theme());
+            cursor = self
+                .search
+                .paint(surface.back_mut(), first, count, editor, &styles)
                 .map_or(CursorState::Hidden, |cell| CursorState::At {
                     row: cell.row,
                     column: cell.column,

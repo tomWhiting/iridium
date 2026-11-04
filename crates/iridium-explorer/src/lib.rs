@@ -114,3 +114,4 @@ mod tests;
 
 pub use node::{EntryKind, ListingError, NodeId, NodeInfo};
 pub use tree::{CRAWL_LIMIT, FileTree};
+pub use worker::Wake;

@@ -20,11 +20,11 @@
 //!
 //! # Four screens, and only one of them has the query field on it
 //!
-//! Browsing draws the field and the rows under it. Editing draws the buffer
-//! instead, with a caret in the row being typed into, and a label where the
-//! field was — the field is gone because the query is the *source* of those
-//! rows, and typing into it while they are being edited would rebuild the list
-//! the buffer is a snapshot of.
+//! Browsing draws the field and the rows under it. Editing draws the text
+//! instead ([`super::edit_view`]), with a label where the field was — the field
+//! is gone because the query is the *source* of those rows, and typing into it
+//! while they are being edited would rebuild the list the text was loaded
+//! from.
 //!
 //! **That one row therefore carries both halves of the panel**, and it is why
 //! [`BROWSE_HINT`] is drawn where it is: the line that says what the keys mean
@@ -39,15 +39,11 @@
 
 use iridium_editor::theme::Theme;
 
-use super::buffer::Buffer;
 use super::confirm::{plan_rows, refusal_rows};
 use super::panel::{FileExplorer, PROMPT};
-use super::rows::{RowShape, depths, edited_name_column, edited_row, entry_row};
+use super::rows::{RowShape, entry_row};
 use crate::line::{LineBuilder, scroll_for, skip_chars};
 use crate::row::{PanelBody, PanelCaret, PanelFit, PanelRow, Span};
-
-/// What the label at the top of an editing session says after its verb.
-const EDIT_HINT: &str = "⌘S to apply    esc to stop";
 
 /// What the query row says, on its right edge, about the screen next door.
 ///
@@ -62,9 +58,9 @@ pub(super) const BROWSE_HINT: &str = "tab to edit these rows";
 
 /// How the query row spells the key that reveals dot-prefixed entries.
 ///
-/// The `⌘` glyph unconditionally, as [`EDIT_HINT`] already does: this face is
-/// built and shipped for macOS, and `Ctrl+.` is bound beside it for a keyboard
-/// without a command key rather than as a second platform to write hints for.
+/// The `⌘` glyph, because this face is built and shipped for macOS, and
+/// `Ctrl+.` is bound beside it for a keyboard without a command key rather
+/// than as a second platform to write hints for.
 ///
 /// `pub(super)` for the same reason as [`BROWSE_HINT`] — a test that spells
 /// the string out itself proves only that two copies were typed the same way.
@@ -93,7 +89,7 @@ impl FileExplorer {
         if !self.mode.refusals().is_empty() {
             return self.refusal_body(theme, fit);
         }
-        if self.mode.cursor().is_some() {
+        if self.mode.editing().is_some() {
             return self.edit_body(theme, fit);
         }
         self.browse_body(theme, fit)
@@ -121,9 +117,9 @@ impl FileExplorer {
 
     /// Every reason the buffer cannot be applied, and nothing else on screen.
     fn refusal_body(&self, theme: &Theme, fit: PanelFit) -> PanelBody {
-        let rows = self.mode.buffer().map_or_else(Vec::new, |buffer| {
+        let rows = self.mode.listing().map_or_else(Vec::new, |listing| {
             refusal_rows(
-                buffer.rows(),
+                &listing.rows().rows,
                 self.mode.refusals(),
                 theme,
                 fit.content_columns,
@@ -135,101 +131,6 @@ impl FileExplorer {
             rows,
             caret: None,
         }
-    }
-
-    /// The editable rows, with the caret in the one being typed into.
-    ///
-    /// The window arithmetic is the browse screen's, unchanged: [`row_count`]
-    /// and [`selected_row`] answer for the buffer while a session is open, so
-    /// [`follow_selection`] follows the cursor through it without knowing
-    /// there are two lists.
-    ///
-    /// [`row_count`]: Self::row_count
-    /// [`selected_row`]: Self::selected_row
-    /// [`follow_selection`]: Self::follow_selection
-    fn edit_body(&mut self, theme: &Theme, fit: PanelFit) -> PanelBody {
-        let total = self.row_count();
-        let visible = total.clamp(1, fit.max_browse_rows);
-        self.follow_selection(total, visible);
-
-        let cursor = self.mode.cursor();
-        let buffer = self.mode.buffer().map_or(&[] as &[_], Buffer::rows);
-        let depths = depths(buffer);
-
-        let mut rows = Vec::with_capacity(visible + 1);
-        rows.push(Self::editing_label(theme, fit.content_columns));
-        for offset in 0..visible {
-            let index = self.scroll + offset;
-            match (buffer.get(index), depths.get(index)) {
-                (Some(row), Some(&depth)) => rows.push(edited_row(
-                    row,
-                    depth,
-                    cursor == Some(index),
-                    theme,
-                    fit.content_columns,
-                )),
-                // A buffer with nothing in it cannot be reached — a session
-                // refuses to start without rows — but a window one row taller
-                // than the list is exactly what `visible.clamp(1, …)` produces
-                // for it, and a panel that panicked here would take the window
-                // with it.
-                _ => rows.push(PanelRow::new(vec![Span::new(
-                    "No rows",
-                    theme.editor.line_number,
-                )])),
-            }
-        }
-
-        PanelBody {
-            content_columns: fit.content_columns,
-            rows,
-            caret: self.edit_caret(cursor, &depths, visible, fit.content_columns),
-        }
-    }
-
-    /// Where the caret sits in the editable rows.
-    ///
-    /// `row` is offset by one for the label, which is the same offset the
-    /// query row imposes when browsing — the caret is placed against the
-    /// composed rows, not against the list.
-    ///
-    /// A name wider than the panel is truncated with an ellipsis by
-    /// [`edited_row`], and a caret past the right edge is parked on the last
-    /// column rather than drawn outside the panel. The row is visibly cut, so
-    /// the caret is not the only thing saying there is more.
-    fn edit_caret(
-        &self,
-        cursor: Option<usize>,
-        depths: &[usize],
-        visible: usize,
-        width: usize,
-    ) -> Option<PanelCaret> {
-        let index = cursor?;
-        let name = self.mode.name()?;
-        let &depth = depths.get(index)?;
-        let row = index.checked_sub(self.scroll)?;
-        if row >= visible {
-            return None;
-        }
-        let column = edited_name_column(depth).saturating_add(name.caret_column());
-        Some(PanelCaret {
-            row: row + 1,
-            column: column.min(width.saturating_sub(1)),
-        })
-    }
-
-    /// The label that stands where the query field does while browsing.
-    ///
-    /// Unmistakable on purpose: the same physical keys now mean different
-    /// things, and a screen that looked like the browse screen would be a
-    /// screen where `d` filters and `Ctrl+D` marks a directory for removal
-    /// with nothing to tell the two apart.
-    fn editing_label(theme: &Theme, width: usize) -> PanelRow {
-        let mut line = LineBuilder::new(width);
-        line.push("edit", theme.editor.change_modified);
-        line.push("  ", theme.editor.line_number);
-        line.push(EDIT_HINT, theme.editor.line_number);
-        PanelRow::new(line.finish())
     }
 
     /// The query row, then the visible slice of whichever list is showing.
@@ -258,15 +159,11 @@ impl FileExplorer {
         }
     }
 
-    /// How many rows the list under the label has.
-    ///
-    /// The buffer answers first while a session is open, and it has to: a
-    /// typed row makes the buffer longer than either source list immediately,
-    /// and a window sized from the source would stop drawing at the row before
-    /// the one just created.
+    /// How many rows the list under the label has: the lines of the text
+    /// while it is edited, else whichever list is showing.
     pub(super) fn row_count(&self) -> usize {
-        if let Some(buffer) = self.mode.buffer() {
-            return buffer.rows().len();
+        if let Some(editing) = self.mode.editing() {
+            return editing.editor.state().document.line_count();
         }
         if self.is_filtering() {
             self.view.rows.len()
@@ -278,13 +175,12 @@ impl FileExplorer {
     /// The selected row's index within the list under the label.
     ///
     /// ⚠️ **Three sources, and they are not interchangeable.** The tree's
-    /// selection and the filtered view's index the *source* lists; the cursor
-    /// indexes the buffer, which diverges from both the moment a row is typed.
-    /// Also read by [`super::keys`] to decide which row an edit session opens
-    /// on.
-    pub(super) const fn selected_row(&self) -> Option<usize> {
-        if let Some(cursor) = self.mode.cursor() {
-            return Some(cursor);
+    /// selection and the filtered view's index the *source* lists; while the
+    /// text is edited it is the primary caret's line. Also read by
+    /// [`super::keys`] to decide which line an edit session opens on.
+    pub(super) fn selected_row(&self) -> Option<usize> {
+        if let Some(editing) = self.mode.editing() {
+            return Some(editing.caret_line());
         }
         if self.is_filtering() {
             Some(self.filtered)
@@ -487,7 +383,7 @@ impl FileExplorer {
     /// have to know how tall the window is.
     ///
     /// [`scroll_rows`]: Self::scroll_rows
-    fn follow_selection(&mut self, total: usize, visible: usize) {
+    pub(super) fn follow_selection(&mut self, total: usize, visible: usize) {
         let last_start = total.saturating_sub(visible);
         let selected = self.selected_row();
         if selected != self.followed {

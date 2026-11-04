@@ -15,13 +15,18 @@
 //! A row that came from the tree carries its id; a row the user typed carries
 //! `None`, and that is the only thing that makes it a creation.
 //!
-//! # The drawn nesting is checked against the real one
+//! # A row drawn under another folder moves there
 //!
-//! Every path here is computed from the parent chain the panel drew. A row
-//! that came from the tree also carries where it really is, and the two must
-//! agree: a row drawn inside a folder it does not live in would produce
-//! operations naming paths that belong to other files. Such a row is refused
-//! rather than trusted, so nothing downstream has to be careful about it.
+//! Every target here is computed from the parent chain the panel drew, and a
+//! row that came from the tree also carries where it really is. When the two
+//! differ — its line was cut and pasted under another folder, or re-indented
+//! — the row **moves**: one [`Operation::Move`] from where it is to where it
+//! is drawn, a new name included, because a rename across folders is the same
+//! operation. It is never a delete and a create.
+//!
+//! The destination must be a folder, must not be struck through, and must not
+//! be the row's own inside; a name already taken there, on screen or hidden on
+//! disk, is refused rather than overwritten.
 //!
 //! # Why a rename is decided by the NAME and not by the PATH
 //!
@@ -44,7 +49,7 @@
 //! it is that every row has been resolved to a target, so nothing over there
 //! has to refuse anything.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 /// What a row was when the buffer loaded.
@@ -64,6 +69,9 @@ pub struct RowOrigin {
     pub name: String,
     /// Where the node was when the buffer loaded.
     pub path: PathBuf,
+    /// Whether the node is a directory, which is what decides whether a row
+    /// may be drawn inside it.
+    pub directory: bool,
 }
 
 /// One row of the edited buffer, as the panel holds it.
@@ -103,6 +111,17 @@ pub enum Operation {
         /// Where it goes.
         to: PathBuf,
     },
+    /// Move a path into another directory, under its old name or a new one.
+    ///
+    /// Carried out exactly as a rename is — one call that refuses to replace
+    /// what is there — so it is undone the same way: by editing the rows to
+    /// put it back. The verb differs only so the confirmation says which.
+    Move {
+        /// Where it is now.
+        from: PathBuf,
+        /// Where it goes.
+        to: PathBuf,
+    },
     /// Remove a path, and everything under it if it is a directory.
     Delete {
         /// What goes.
@@ -124,6 +143,7 @@ impl Operation {
             Self::Rename { from, to } => {
                 format!("rename {} → {}", display(from), display(to))
             },
+            Self::Move { from, to } => format!("move {} → {}", display(from), display(to)),
             Self::Delete { path } => format!("delete {}", display(path)),
         }
     }
@@ -159,11 +179,12 @@ impl Plan {
     /// The counts, for the confirmation's first line.
     #[must_use]
     pub fn summary(&self) -> String {
-        let (mut creates, mut renames, mut deletes) = (0_usize, 0_usize, 0_usize);
+        let (mut creates, mut renames, mut moves, mut deletes) = (0_usize, 0, 0, 0);
         for operation in &self.operations {
             match operation {
                 Operation::Create { .. } => creates += 1,
                 Operation::Rename { .. } => renames += 1,
+                Operation::Move { .. } => moves += 1,
                 Operation::Delete { .. } => deletes += 1,
             }
         }
@@ -171,6 +192,7 @@ impl Plan {
         let mut parts = Vec::new();
         for (count, singular) in [
             (renames, "rename"),
+            (moves, "move"),
             (deletes, "delete"),
             (creates, "create"),
         ] {
@@ -188,14 +210,31 @@ impl Plan {
     }
 }
 
+/// Builds a plan from the edited rows, or every reason it will not, knowing
+/// nothing of the disk beyond the rows.
+///
+/// # Errors
+///
+/// As [`plan_against`].
+pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
+    plan_against(rows, &|_| false)
+}
+
 /// Builds a plan from the edited rows, or every reason it will not.
+///
+/// `exists` says whether a path is on disk now, so that a name hidden by a
+/// collapsed folder or a filter is not planned over. It is asked, never
+/// written through.
 ///
 /// # Errors
 ///
 /// Returns one [`Refusal`] per row that cannot be acted on. Nothing is
 /// planned when any row is refused — a half-applied rename of a directory
 /// tree is worse than none of it, and the user can see every problem at once.
-pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
+pub fn plan_against(
+    rows: &[EditedRow],
+    exists: &dyn Fn(&Path) -> bool,
+) -> Result<Plan, Vec<Refusal>> {
     let mut refusals = Vec::new();
 
     // Where each row will live once everything above it has moved. Computed
@@ -203,6 +242,11 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
     // check below turns that requirement into a refusal rather than a panic
     // or a silently wrong path.
     let mut targets: Vec<Option<PathBuf>> = vec![None; rows.len()];
+    // Every path a row was loaded from.
+    let loaded: HashSet<&Path> = rows
+        .iter()
+        .filter_map(|row| row.origin.as_ref().map(|origin| origin.path.as_path()))
+        .collect();
 
     for (index, row) in rows.iter().enumerate() {
         let Some(parent_index) = row.parent else {
@@ -273,40 +317,47 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
             continue;
         };
 
-        // A target is built by joining the *drawn* parent chain, and a row
-        // that came from the tree separately knows where it *really* is.
-        // Nothing so far has checked those agree, and every operation for this
-        // row is computed from the drawn chain alone — so if they disagreed,
-        // a rename would name a path this row has nothing to do with, and
-        // would rename whatever happened to be sitting there while leaving the
-        // row's own file untouched.
-        //
-        // They do agree for both row sources: the tree draws an expansion and
-        // the filter keeps every ancestor of a hit, so a row's drawn parent is
-        // its real one. This is what turns that from an assumption held
-        // somewhere else into something checked here, where the damage would
-        // be done.
-        if let Some(origin) = row.origin.as_ref() {
-            let drawn_in = rows[parent_index]
-                .origin
-                .as_ref()
-                .map(|holder| holder.path.as_path());
-            if drawn_in != origin.path.parent() {
-                refusals.push(Refusal {
-                    row: index,
-                    reason: format!(
-                        "{} is drawn inside a folder it does not live in",
-                        display(&origin.path)
-                    ),
-                });
-                continue;
-            }
+        // Only a folder can hold a row. A row drawn where it already lives is
+        // in a folder by definition; a typed or moved one is checked, because
+        // its operation would otherwise fail half-way through the run.
+        let parent = &rows[parent_index];
+        let parent_is_folder = parent
+            .origin
+            .as_ref()
+            .map_or(parent.directory, |holder| holder.directory);
+        if !row.deleted && arrives(rows, row) && !parent_is_folder {
+            refusals.push(Refusal {
+                row: index,
+                reason: format!("{} is a file, so nothing can go inside it", parent.name),
+            });
+            continue;
+        }
+
+        // A move is only read from rows that show where the row came from:
+        // its own folder is among them. Neither row source draws a row
+        // without its folder, so one that does was drawn wrongly rather than
+        // moved, and planning a move from it would move a file nobody touched.
+        if let Some(origin) = row.origin.as_ref()
+            && arrives(rows, row)
+            && origin
+                .path
+                .parent()
+                .is_none_or(|folder| !loaded.contains(folder))
+        {
+            refusals.push(Refusal {
+                row: index,
+                reason: format!(
+                    "{} is drawn without the folder it lives in",
+                    display(&origin.path)
+                ),
+            });
+            continue;
         }
 
         targets[index] = Some(parent_target.join(&row.name));
     }
 
-    collect_creates_under_deleted(rows, &mut refusals);
+    collect_arrivals_under_deleted(rows, &mut refusals);
     collect_collisions(rows, &targets, &mut refusals);
 
     if !refusals.is_empty() {
@@ -314,28 +365,44 @@ pub fn plan(rows: &[EditedRow]) -> Result<Plan, Vec<Refusal>> {
         return Err(refusals);
     }
 
-    Ok(super::order::assemble(rows, &targets))
+    super::order::assemble(rows, exists).map_err(|mut refusals| {
+        refusals.sort_by_key(|refusal| refusal.row);
+        refusals
+    })
 }
 
-/// A row typed inside one that is struck through.
+/// Whether `row` is drawn somewhere it does not already live: typed, or
+/// moved under another folder.
+fn arrives(rows: &[EditedRow], row: &EditedRow) -> bool {
+    row.origin.as_ref().is_none_or(|origin| {
+        let drawn_in = row
+            .parent
+            .and_then(|parent| rows.get(parent))
+            .and_then(|holder| holder.origin.as_ref())
+            .map(|holder| holder.path.as_path());
+        drawn_in != origin.path.parent()
+    })
+}
+
+/// A row typed, or moved, inside one that is struck through.
 ///
-/// Creates run *before* deletes, so the file would be made and then removed
-/// again with the folder around it — work done for nothing, and a
-/// confirmation whose `create` line describes something that will not survive
-/// the run. Worse when the folder above is itself typed and struck: it is
-/// never created at all, so the create underneath it fails on a path with no
-/// parent and stops the run half-applied.
+/// The struck folder is deleted after everything that goes into it, so the
+/// row would be made or moved there and then removed again with the folder
+/// around it — work done for nothing, and a confirmation whose line describes
+/// something that will not survive the run. Worse when the folder above is
+/// itself typed and struck: it is never created at all, so the operation
+/// underneath it fails on a path with no parent and stops the run
+/// half-applied.
 ///
 /// Refused rather than quietly dropped along with the folder. The rows say to
-/// make something, and a plan that silently declined would be a plan that did
-/// not match what was on the screen.
+/// make or move something, and a plan that silently declined would be a plan
+/// that did not match what was on the screen.
 ///
-/// Only creates. A *rename* out of a struck folder is legitimate and is
-/// exactly what "deletes run last" exists to allow — the file is moved
-/// somewhere else before its old folder goes.
-fn collect_creates_under_deleted(rows: &[EditedRow], refusals: &mut Vec<Refusal>) {
+/// Only arrivals. A rename *inside*, or a move *out of*, a struck folder is
+/// legitimate and is exactly what "deletes run last" exists to allow.
+fn collect_arrivals_under_deleted(rows: &[EditedRow], refusals: &mut Vec<Refusal>) {
     for (index, row) in rows.iter().enumerate() {
-        if row.origin.is_some() || row.deleted {
+        if row.deleted || !arrives(rows, row) {
             continue;
         }
         // Upwards only: each step must name a row before the one it was
@@ -351,7 +418,7 @@ fn collect_creates_under_deleted(rows: &[EditedRow], refusals: &mut Vec<Refusal>
                 refusals.push(Refusal {
                     row: index,
                     reason: "this row is inside one that is struck through, so there would be \
-                             nowhere to create it"
+                             nowhere to put it"
                         .to_owned(),
                 });
                 break;
@@ -407,14 +474,19 @@ fn bad_name(name: &str) -> Option<String> {
     if name.contains('\0') {
         return Some("a name containing a null byte".to_owned());
     }
+    // Typed text can carry a tab or a pasted control character that no
+    // listing would show the same way again.
+    if name.chars().any(char::is_control) {
+        return Some("a name containing a control character".to_owned());
+    }
     // `Path::components` normalises away exactly the things that make a name
     // dangerous, so the check is that the name survives being one component.
     let mut components = Path::new(name).components();
     match (components.next(), components.next()) {
         (Some(Component::Normal(single)), None) if single == name => None,
         _ => Some(format!(
-            "{name:?} is a path rather than a name; a row cannot move between \
-             folders by typing a separator"
+            "{name:?} is a path rather than a name; to move a row, put its line \
+             under the folder instead"
         )),
     }
 }

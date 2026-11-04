@@ -348,6 +348,7 @@ impl DesktopApp {
         }
         match FileExplorer::open(root.path, root.crawl) {
             Ok(mut explorer) => {
+                explorer.set_face_keymap(&crate::commands::keymap());
                 explorer.set_user_keymap(&self.user_keys);
                 self.explorer = Some(explorer);
             },
@@ -436,6 +437,7 @@ impl DesktopApp {
         let root = self.explorer_root();
         match FileExplorer::open(root.path, root.crawl) {
             Ok(mut explorer) => {
+                explorer.set_face_keymap(&crate::commands::keymap());
                 explorer.set_user_keymap(&self.user_keys);
                 self.explorer = Some(explorer);
                 // A panel the user just asked for takes the keys, whichever

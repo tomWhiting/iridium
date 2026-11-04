@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use iridium_tree::TreeSource;
 
 use crate::node::{EntryKind, Listing, ListingError, Node, NodeId, NodeInfo};
-use crate::worker::Worker;
+use crate::worker::{Wake, Worker};
 
 /// A filesystem hierarchy, read off the frame thread.
 ///
@@ -292,6 +292,15 @@ impl FileTree {
             Some(Listing::Present(children)) => children,
             _ => &[],
         }
+    }
+
+    /// Sets what the reader thread calls after each listing it posts.
+    ///
+    /// A host that blocks on input passes something that wakes it, so a
+    /// listing landing — a re-read after an edit included — is drawn at once
+    /// rather than on the next keypress. `None` stops the calls.
+    pub fn set_wake(&mut self, wake: Option<Wake>) {
+        self.worker.set_wake(wake);
     }
 
     /// Collects every directory read that has finished, and reports whether

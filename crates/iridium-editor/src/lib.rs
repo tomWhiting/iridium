@@ -76,7 +76,8 @@ pub use commands::{
     Resolution, StrokeCapture, StrokePattern,
 };
 pub use document::{
-    CursorState, Divergence, Document, Position, Range, Selection, TextSnapshot, Unchanged,
+    CursorState, Divergence, Document, LineChange, Position, Range, Selection, TextSnapshot,
+    Unchanged,
 };
 pub use editor::{Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError};
 pub use history::{Command, UndoTree};

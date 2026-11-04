@@ -2,14 +2,18 @@ use iridium_config::test_support::classic_light_faces;
 use iridium_editor::theme::Theme;
 
 use iridium_panel::{
-    EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelRow, Span,
+    EXPLORER_MAX_VISIBLE_ROWS, MarkKind, PANEL_MAX_VISIBLE_ROWS, PanelCaret, PanelFit, PanelMark,
+    PanelRow, Span,
 };
 
 use super::content::{PanelAnchor, PanelContent, PanelKind};
 use super::frame::{PaintedFrame, PaintedPanel};
 use super::geometry::{GridMetrics, fit_for, panel_geometry, sidebar_fit_for};
 use super::metrics::{PAD_X, PAD_Y, SIDEBAR_MAX_FRACTION, TOP_ANCHOR_FRACTION};
-use super::paint::{hairline_color, hover_color, panel_background, panel_spans, strip_background};
+use super::paint::{
+    hairline_color, hover_color, mark_color, mark_quad, panel_background, panel_spans,
+    strip_background,
+};
 use crate::tab_strip::tab_strip_height;
 use crate::units::index_to_f32;
 use iridium_editor::theme::Color;
@@ -769,4 +773,40 @@ fn the_hover_band_is_visible_and_is_not_the_selection() {
             "the row the mouse is over must not read as the row Enter would act on"
         );
     }
+}
+
+#[test]
+fn a_mark_is_drawn_over_its_columns_and_a_caret_mark_as_a_bar() {
+    let geometry = placed(PanelAnchor::Top, 4, 40, 0.0);
+    let mark = |start, end, kind| PanelMark { start, end, kind };
+
+    let selection = mark_quad(&geometry, 1, mark(2, 5, MarkKind::Selection));
+    assert!((selection.x - 2.0_f32.mul_add(geometry.char_width, geometry.content_x)).abs() < 1e-3);
+    assert!(3.0_f32.mul_add(-geometry.char_width, selection.width).abs() < 1e-3);
+    assert!((selection.y - geometry.line_height - geometry.content_y).abs() < 1e-3);
+
+    // An empty run is a selected line break, and still covers one column.
+    let line_break = mark_quad(&geometry, 0, mark(7, 7, MarkKind::Selection));
+    assert!((line_break.width - geometry.char_width).abs() < 1e-3);
+
+    let caret = mark_quad(&geometry, 2, mark(4, 5, MarkKind::Caret));
+    assert_eq!(caret, geometry.caret_rect(PanelCaret { row: 2, column: 4 }));
+}
+
+#[test]
+fn each_mark_takes_the_documents_own_colour_for_what_it_is() {
+    let theme = Theme::dark();
+    assert_eq!(
+        mark_color(&theme, MarkKind::Selection),
+        theme.editor.selection
+    );
+    assert_eq!(
+        mark_color(&theme, MarkKind::Match),
+        theme.editor.search_match
+    );
+    assert_eq!(
+        mark_color(&theme, MarkKind::CurrentMatch),
+        theme.editor.search_match_current
+    );
+    assert_eq!(mark_color(&theme, MarkKind::Caret), theme.editor.cursor);
 }

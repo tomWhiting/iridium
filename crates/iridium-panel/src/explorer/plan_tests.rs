@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use super::plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan};
+use super::plan::{EditedRow, Operation, Plan, Refusal, RowOrigin, plan, plan_against};
 
 /// The root every fixture hangs off.
 const ROOT: &str = "/project";
@@ -20,6 +20,7 @@ fn root() -> EditedRow {
         origin: Some(RowOrigin {
             name: "project".to_owned(),
             path: PathBuf::from(ROOT),
+            directory: true,
         }),
         name: "project".to_owned(),
         parent: None,
@@ -29,11 +30,14 @@ fn root() -> EditedRow {
 }
 
 /// A row that came from the tree, under `parent`, still named what it was.
+///
+/// A name with no dot in it is a folder, as in every fixture here.
 fn existing(name: &str, parent: usize, path: &str) -> EditedRow {
     EditedRow {
         origin: Some(RowOrigin {
             name: name.to_owned(),
             path: PathBuf::from(path),
+            directory: !name.contains('.'),
         }),
         name: name.to_owned(),
         parent: Some(parent),
@@ -278,8 +282,8 @@ fn a_three_way_rotation_also_resolves() {
     );
 }
 
-/// Walks the renames the way the filesystem would and reports where each
-/// starting path ended up.
+/// Walks the renames and moves the way the filesystem would and reports where
+/// each starting path ended up. What is inside a folder goes with it.
 ///
 /// This is the oracle that matters: asserting an exact operation list would
 /// pin one particular way of breaking a cycle, and any correct ordering should
@@ -287,12 +291,12 @@ fn a_three_way_rotation_also_resolves() {
 fn final_locations(operations: &[Operation], starts: &[&str]) -> Vec<PathBuf> {
     let mut where_now: Vec<PathBuf> = starts.iter().map(PathBuf::from).collect();
     for operation in operations {
-        let Operation::Rename { from, to } = operation else {
+        let (Operation::Rename { from, to } | Operation::Move { from, to }) = operation else {
             continue;
         };
         for location in &mut where_now {
-            if location == from {
-                location.clone_from(to);
+            if let Ok(rest) = location.strip_prefix(from) {
+                *location = to.join(rest);
             }
         }
     }
@@ -300,7 +304,8 @@ fn final_locations(operations: &[Operation], starts: &[&str]) -> Vec<PathBuf> {
 }
 
 /// Replays the plan against a set of live paths and asserts it never
-/// overwrites anything, and never reads from nothing.
+/// overwrites anything, never reads from nothing, and never puts anything in
+/// a folder that is not there; returns what is live at the end.
 ///
 /// An earlier version of this asserted that no rename targets a path a later
 /// rename reads from. That was wrong, and wrong in a way worth recording: a
@@ -308,23 +313,45 @@ fn final_locations(operations: &[Operation], starts: &[&str]) -> Vec<PathBuf> {
 /// forbade the very mechanism it was meant to verify. Simulating occupancy
 /// asks the real question — at the moment each operation runs, is its source
 /// there, and is its destination free?
-fn assert_nothing_is_overwritten(operations: &[Operation], initial: &[&str]) {
+fn assert_nothing_is_overwritten(operations: &[Operation], initial: &[&str]) -> BTreeSet<PathBuf> {
     let mut live: BTreeSet<PathBuf> = initial.iter().map(PathBuf::from).collect();
+    let folder_exists = |live: &BTreeSet<PathBuf>, path: &Path| {
+        path.parent()
+            .is_some_and(|folder| folder == Path::new(ROOT) || live.contains(folder))
+    };
     for operation in operations {
         match operation {
-            Operation::Rename { from, to } => {
+            Operation::Rename { from, to } | Operation::Move { from, to } => {
                 assert!(
                     live.contains(from),
-                    "renames from {} which nothing occupies: {operations:?}",
+                    "moves {} which nothing occupies: {operations:?}",
                     from.display()
                 );
                 assert!(
                     !live.contains(to),
-                    "renames onto {}, destroying what is there: {operations:?}",
+                    "moves onto {}, destroying what is there: {operations:?}",
                     to.display()
                 );
-                live.remove(from);
-                live.insert(to.clone());
+                assert!(
+                    folder_exists(&live, to),
+                    "moves into {}, which is not there: {operations:?}",
+                    to.display()
+                );
+                assert!(
+                    !to.starts_with(from),
+                    "moves {} inside itself: {operations:?}",
+                    from.display()
+                );
+                let moving: Vec<PathBuf> = live
+                    .iter()
+                    .filter(|path| path.starts_with(from))
+                    .cloned()
+                    .collect();
+                for path in moving {
+                    live.remove(&path);
+                    let rest = path.strip_prefix(from).unwrap_or(&path);
+                    live.insert(to.join(rest));
+                }
             },
             Operation::Create { path, .. } => {
                 assert!(
@@ -332,13 +359,24 @@ fn assert_nothing_is_overwritten(operations: &[Operation], initial: &[&str]) {
                     "creates {}, which already exists: {operations:?}",
                     path.display()
                 );
+                assert!(
+                    folder_exists(&live, path),
+                    "creates inside {}, which is not there: {operations:?}",
+                    path.display()
+                );
                 live.insert(path.clone());
             },
             Operation::Delete { path } => {
-                live.remove(path);
+                assert!(
+                    live.contains(path),
+                    "deletes {}, which is not there: {operations:?}",
+                    path.display()
+                );
+                live.retain(|live_path| !live_path.starts_with(path));
             },
         }
     }
+    live
 }
 
 #[test]
@@ -500,19 +538,11 @@ fn a_rename_out_of_a_struck_folder_is_still_planned() {
 }
 
 #[test]
-fn a_row_drawn_inside_a_folder_it_does_not_live_in_is_refused() {
-    // The check that makes the whole target computation safe. A target is
-    // built by joining the *drawn* parent chain, while an existing row also
-    // knows where it *really* is. Those two agree for every row either row
-    // source produces — and if they ever stopped agreeing, the rename would
-    // be computed entirely from the drawn chain and would name a path the row
-    // has nothing to do with.
-    //
-    // Without this refusal the rows below plan
-    // `rename /project/src/main.rs → /project/src/renamed.rs`, while the row
-    // is really `/project/src/deep/main.rs`. That is not a move: it is an
-    // operation against **a different file**, which renames whatever happens
-    // to be sitting at that path and leaves the row's own file untouched.
+fn a_row_drawn_without_the_folder_it_lives_in_is_refused() {
+    // A move is read from rows that show where the row came from. Neither row
+    // source draws a row without its own folder, and if one ever did the row
+    // below would read as moved from `/project/src/deep` into `/project/src`
+    // although nobody touched it — a file moved because of how it was drawn.
     let mut rows = [
         root(),
         existing("src", 0, "/project/src"),
@@ -523,22 +553,278 @@ fn a_row_drawn_inside_a_folder_it_does_not_live_in_is_refused() {
     let refusals = refused(&rows);
     assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
     assert_eq!(refusals[0].row, 2);
+    assert!(
+        refusals[0].reason.contains("without the folder"),
+        "{refusals:?}"
+    );
+}
+
+/// A move between folders, in the order the rows would be after cutting a
+/// line from `src` and pasting it under `lib`.
+fn moved_between_folders() -> [EditedRow; 4] {
+    [
+        root(),
+        existing("src", 0, "/project/src"),
+        existing("lib", 0, "/project/lib"),
+        existing("main.rs", 2, "/project/src/main.rs"),
+    ]
 }
 
 #[test]
-fn an_existing_row_cannot_be_nested_under_one_the_user_typed() {
-    // The same check from the other side: a file that is already on disk
-    // cannot live inside a folder that does not exist yet, so a buffer saying
-    // it does is describing something impossible rather than something to do.
+fn a_row_drawn_under_another_folder_moves_there() {
+    assert_eq!(
+        planned(&moved_between_folders()).operations,
+        vec![Operation::Move {
+            from: PathBuf::from("/project/src/main.rs"),
+            to: PathBuf::from("/project/lib/main.rs"),
+        }],
+        "a move, never a delete and a create"
+    );
+}
+
+#[test]
+fn a_rename_across_folders_is_one_move() {
+    let mut rows = moved_between_folders();
+    rows[3].name = "entry.rs".to_owned();
+    assert_eq!(
+        planned(&rows).operations,
+        vec![Operation::Move {
+            from: PathBuf::from("/project/src/main.rs"),
+            to: PathBuf::from("/project/lib/entry.rs"),
+        }]
+    );
+}
+
+#[test]
+fn a_move_previews_where_from_and_where_to() {
+    let operations = planned(&moved_between_folders()).operations;
+    assert_eq!(
+        operations[0].describe(),
+        "move /project/src/main.rs → /project/lib/main.rs"
+    );
+    assert_eq!(planned(&moved_between_folders()).summary(), "1 move");
+}
+
+#[test]
+fn a_row_moved_into_a_folder_the_plan_creates_moves_after_the_create() {
     let rows = [
         root(),
         typed("new-folder", 0, true),
         existing("main.rs", 1, "/project/main.rs"),
     ];
 
+    let operations = planned(&rows).operations;
+    assert_eq!(
+        operations,
+        vec![
+            Operation::Create {
+                path: PathBuf::from("/project/new-folder"),
+                directory: true,
+            },
+            Operation::Move {
+                from: PathBuf::from("/project/main.rs"),
+                to: PathBuf::from("/project/new-folder/main.rs"),
+            },
+        ]
+    );
+    assert_nothing_is_overwritten(&operations, &["/project/main.rs"]);
+}
+
+#[test]
+fn a_move_into_a_folder_that_also_moves_lands_inside_it_wherever_it_went() {
+    // `widgets` moves into `ui`, and `button.rs` from `src` into `widgets`.
+    let rows = [
+        root(),
+        existing("ui", 0, "/project/ui"),
+        existing("widgets", 1, "/project/widgets"),
+        existing("button.rs", 2, "/project/src/button.rs"),
+        existing("src", 0, "/project/src"),
+    ];
+    let initial = [
+        "/project/ui",
+        "/project/widgets",
+        "/project/src",
+        "/project/src/button.rs",
+    ];
+    let operations = planned(&rows).operations;
+    let live = assert_nothing_is_overwritten(&operations, &initial);
+    assert!(
+        live.contains(Path::new("/project/ui/widgets/button.rs")),
+        "{operations:?} left {live:?}"
+    );
+}
+
+#[test]
+fn a_move_onto_a_name_another_row_has_there_is_refused() {
+    let rows = [
+        root(),
+        existing("src", 0, "/project/src"),
+        existing("lib", 0, "/project/lib"),
+        existing("main.rs", 2, "/project/src/main.rs"),
+        existing("main.rs", 2, "/project/lib/main.rs"),
+    ];
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 4);
+}
+
+#[test]
+fn a_move_onto_a_name_hidden_on_disk_is_refused_rather_than_planned() {
+    // `lib` is collapsed, so its own `main.rs` is not among the rows. The
+    // disk says it is there, and a move onto it would stop the run half-way.
+    let rows = moved_between_folders();
+    let hidden = |path: &Path| path == Path::new("/project/lib/main.rs");
+    let refusals = plan_against(&rows, &hidden).expect_err("the name is taken on disk");
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 3);
+    assert!(
+        refusals[0].reason.contains("already exists"),
+        "{refusals:?}"
+    );
+}
+
+#[test]
+fn a_name_hidden_inside_a_folder_that_moves_is_still_seen() {
+    // `lib` moves into `pkg` and takes its hidden `main.rs` along, so moving
+    // another `main.rs` into it collides wherever `lib` is by then.
+    let rows = [
+        root(),
+        existing("pkg", 0, "/project/pkg"),
+        existing("lib", 1, "/project/lib"),
+        existing("main.rs", 2, "/project/src/main.rs"),
+        existing("src", 0, "/project/src"),
+    ];
+    let hidden = |path: &Path| path == Path::new("/project/lib/main.rs");
+    let refusals = plan_against(&rows, &hidden).expect_err("the name is taken on disk");
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 3);
+}
+
+#[test]
+fn a_folder_put_inside_its_own_child_waits_for_the_child_to_move_out() {
+    // The text can only say this after the child's line has left the folder:
+    // `c` comes out to the top, then `f` goes into it, then what was beside
+    // `c` leaves the folder it was carried into.
+    let rows = [
+        root(),
+        existing("c", 0, "/project/f/c"),
+        existing("f", 1, "/project/f"),
+        existing("d.rs", 0, "/project/f/d.rs"),
+    ];
+    let initial = ["/project/f", "/project/f/c", "/project/f/d.rs"];
+    let operations = planned(&rows).operations;
+    let live = assert_nothing_is_overwritten(&operations, &initial);
+    let expected: BTreeSet<PathBuf> = ["/project/c", "/project/c/f", "/project/d.rs"]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+    assert_eq!(live, expected, "{operations:?}");
+}
+
+#[test]
+fn two_files_trading_folders_go_through_a_temporary() {
+    // `a/x` goes to `b` and `b/x` to `a`: neither can go first.
+    let rows = [
+        root(),
+        existing("a", 0, "/project/a"),
+        existing("x", 3, "/project/a/x"),
+        existing("b", 0, "/project/b"),
+        existing("x", 1, "/project/b/x"),
+    ];
+    let mut rows = rows;
+    // `x` from `a` is drawn under `b` (row 3) and `x` from `b` under `a`
+    // (row 1); a parent must come first, so the first `x` moves below `b`.
+    rows.swap(2, 3);
+    rows[1].parent = Some(0);
+    rows[2].parent = Some(0);
+    rows[3].parent = Some(2);
+    rows[4].parent = Some(1);
+    let initial = ["/project/a", "/project/a/x", "/project/b", "/project/b/x"];
+    let operations = planned(&rows).operations;
+    assert_nothing_is_overwritten(&operations, &initial);
+    assert_eq!(
+        final_locations(&operations, &["/project/a/x", "/project/b/x"]),
+        [PathBuf::from("/project/b/x"), PathBuf::from("/project/a/x")],
+        "{operations:?}"
+    );
+}
+
+#[test]
+fn a_move_out_of_a_struck_folder_runs_before_the_folder_goes() {
+    let mut rows = [
+        root(),
+        existing("old", 0, "/project/old"),
+        existing("keep.rs", 0, "/project/old/keep.rs"),
+    ];
+    rows[1].deleted = true;
+    let operations = planned(&rows).operations;
+    assert_eq!(
+        operations,
+        vec![
+            Operation::Move {
+                from: PathBuf::from("/project/old/keep.rs"),
+                to: PathBuf::from("/project/keep.rs"),
+            },
+            Operation::Delete {
+                path: PathBuf::from("/project/old"),
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_move_into_a_struck_folder_is_refused() {
+    let mut rows = [
+        root(),
+        existing("old", 0, "/project/old"),
+        existing("main.rs", 1, "/project/main.rs"),
+    ];
+    rows[1].deleted = true;
     let refusals = refused(&rows);
     assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
     assert_eq!(refusals[0].row, 2);
+}
+
+#[test]
+fn a_move_under_a_file_is_refused() {
+    let rows = [
+        root(),
+        existing("notes.md", 0, "/project/notes.md"),
+        existing("main.rs", 1, "/project/main.rs"),
+    ];
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1, "{}", describe_refusals(&refusals));
+    assert_eq!(refusals[0].row, 2);
+    assert!(refusals[0].reason.contains("is a file"), "{refusals:?}");
+}
+
+#[test]
+fn a_move_onto_a_struck_rows_name_waits_for_the_delete() {
+    // Replacing a file by striking it and moving another in under its name.
+    let mut rows = [
+        root(),
+        existing("lib", 0, "/project/lib"),
+        existing("main.rs", 1, "/project/lib/main.rs"),
+        existing("main.rs", 1, "/project/main.rs"),
+    ];
+    rows[2].deleted = true;
+    let operations = planned(&rows).operations;
+    let initial = ["/project/lib", "/project/lib/main.rs", "/project/main.rs"];
+    let live = assert_nothing_is_overwritten(&operations, &initial);
+    assert!(live.contains(Path::new("/project/lib/main.rs")));
+    assert!(!live.contains(Path::new("/project/main.rs")));
+}
+
+#[test]
+fn a_struck_file_and_a_typed_one_of_the_same_name_delete_before_creating() {
+    let mut rows = [
+        root(),
+        existing("data.json", 0, "/project/data.json"),
+        typed("data.json", 0, false),
+    ];
+    rows[1].deleted = true;
+    let operations = planned(&rows).operations;
+    assert_nothing_is_overwritten(&operations, &["/project/data.json"]);
 }
 
 #[test]
@@ -764,5 +1050,37 @@ fn the_temporary_a_cycle_uses_is_not_a_name_any_row_claims() {
         temporaries.len(),
         1,
         "expected exactly one temporary: {temporaries:?}"
+    );
+}
+
+#[test]
+fn a_name_with_a_control_character_in_it_is_refused() {
+    // A tab typed into the text, or a pasted escape, is not something any
+    // listing would show the same way again.
+    let mut rows = [root(), existing("main.rs", 0, "/project/main.rs")];
+    rows[1].name = "ma\tin.rs".to_owned();
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1);
+    assert!(
+        refusals[0].reason.contains("control character"),
+        "{refusals:?}"
+    );
+}
+
+#[test]
+fn a_deleted_folder_takes_its_deleted_contents_with_it_in_one_delete() {
+    // Deleting the lines of a folder and everything in it is one delete: a
+    // second, for a file inside, would fail on a path the first removed.
+    let mut folder = existing("docs", 0, "/project/docs");
+    folder.directory = true;
+    folder.deleted = true;
+    let mut inside = existing("guide.md", 1, "/project/docs/guide.md");
+    inside.deleted = true;
+    let rows = [root(), folder, inside];
+    assert_eq!(
+        planned(&rows).operations,
+        vec![Operation::Delete {
+            path: PathBuf::from("/project/docs")
+        }]
     );
 }

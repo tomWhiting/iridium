@@ -75,7 +75,7 @@ pub use commands::{
     KeymapResolver, KeymapStack, ModeName, ModifierPattern, ModifierState, RegistryError,
     Resolution, StrokeCapture, StrokePattern,
 };
-pub use document::{CursorState, Document, Position, Range, Selection};
+pub use document::{CursorState, Document, LineChange, Position, Range, Selection};
 pub use editor::{Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError};
 pub use history::{Command, UndoTree};
 pub use input::ImeHandler;

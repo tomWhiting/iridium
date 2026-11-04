@@ -163,17 +163,33 @@ impl Editing {
     }
 
     /// Follows the editor's text into the listing, reporting whether it
-    /// changed. Cheap when nothing did: one revision comparison.
+    /// changed.
+    ///
+    /// Reads only the lines the document says changed since the revision
+    /// last followed, so a keystroke costs what it touched. When the
+    /// document cannot say, or its span does not fit the listing's lines,
+    /// every line is read instead: slower, never wrong.
     pub fn sync(&mut self) -> bool {
         let document = &self.editor.state().document;
         if document.revision() == self.revision {
             return false;
         }
+        let change = document
+            .lines_changed_since(self.revision)
+            .filter(|change| {
+                change.old_end <= self.listing.line_count()
+                    && self.listing.line_count() - change.old_end + change.new_end
+                        == document.line_count()
+            });
         self.revision = document.revision();
-        let lines = (0..document.line_count())
+        let (start, old_end, new_end) = change.map_or_else(
+            || (0, self.listing.line_count(), document.line_count()),
+            |change| (change.start, change.old_end, change.new_end),
+        );
+        let lines = (start..new_end)
             .map(|line| document.line(line).unwrap_or_default())
             .collect();
-        let changed = self.listing.track(lines);
+        let changed = self.listing.edit(start, old_end, lines);
         if changed {
             self.refusals.clear();
             self.discard_armed = false;

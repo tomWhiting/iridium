@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ropey::{LineType, Rope};
 use serde::{Deserialize, Serialize};
 
+use super::line_edits::{LineChange, LineEdits};
 use super::position::{Position, Range};
 use crate::editor::IridiumError;
 
@@ -106,6 +107,8 @@ pub struct Document {
     /// counter at zero, so a revision tells two *observations of one document*
     /// apart and says nothing at all about two documents.
     id: u64,
+    /// Which lines the recent edits replaced; see [`Document::lines_changed_since`].
+    line_edits: LineEdits,
 }
 
 /// Hands out document identities.
@@ -138,6 +141,7 @@ impl Document {
             language: None,
             revision: 0,
             id: next_document_id(),
+            line_edits: LineEdits::starting_at(0),
         }
     }
 
@@ -166,6 +170,7 @@ impl Document {
     pub fn continuing_from(content: &str, previous: &Self) -> Self {
         let mut document = Self::new(content);
         document.revision = previous.revision.wrapping_add(1);
+        document.line_edits = LineEdits::starting_at(document.revision);
         document
     }
 
@@ -179,6 +184,50 @@ impl Document {
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// The lines that changed between `revision` and now, as one span.
+    ///
+    /// For a reader that follows the document line by line — every edit,
+    /// undo and redo included — so that it rereads only what moved. An empty
+    /// change when `revision` is the current one.
+    ///
+    /// `None` when the document cannot say: `revision` is from before a
+    /// whole-content replacement, further back than the recent edits kept,
+    /// or not reached yet. The reader must then reread every line.
+    #[must_use]
+    pub fn lines_changed_since(&self, revision: u64) -> Option<LineChange> {
+        self.line_edits.since(revision, self.revision)
+    }
+
+    /// Notes which lines an edit replaced, once the revision has moved.
+    ///
+    /// `start` and `old_end` were measured before the edit, `new_end_byte`
+    /// is where the new text ends now, and `old_lines` is the line count
+    /// before. A carriage return near the edit can join or split line breaks
+    /// beyond it, so such an edit is not described; the record is cut instead
+    /// and readers reread.
+    fn note_lines(&mut self, start: usize, old_end: usize, new_end_byte: usize, old_lines: usize) {
+        let new_end = self.content.byte_to_line_idx(new_end_byte, LINE_TYPE) + 1;
+        // The span must account for the whole change in line count.
+        if new_end + old_lines == old_end + self.line_count() {
+            self.line_edits.record(
+                self.revision,
+                LineChange {
+                    start,
+                    old_end,
+                    new_end,
+                },
+            );
+        } else {
+            self.line_edits.forget(self.revision);
+        }
+    }
+
+    /// Whether a carriage return sits at or next to an edit at `offset`, so
+    /// that line breaks may pair differently around it afterwards.
+    fn near_carriage_return(&self, offset: usize, text: &str) -> bool {
+        text.contains('\r') || (offset > 0 && self.content.byte(offset - 1) == b'\r')
     }
 
     /// Which document this is — an identity, not a change counter.
@@ -360,9 +409,18 @@ impl Document {
                 column: position.column,
             })?;
 
+        if text.is_empty() {
+            return Ok(());
+        }
+        let carriage_return = self.near_carriage_return(offset, text);
+        let start = self.content.byte_to_line_idx(offset, LINE_TYPE);
+        let old_lines = self.line_count();
         self.content.insert(offset, text);
-        if !text.is_empty() {
-            self.revision = self.revision.wrapping_add(1);
+        self.revision = self.revision.wrapping_add(1);
+        if carriage_return {
+            self.line_edits.forget(self.revision);
+        } else {
+            self.note_lines(start, start + 1, offset + text.len(), old_lines);
         }
         Ok(())
     }
@@ -390,9 +448,19 @@ impl Document {
                 })?;
 
         let deleted = self.content.slice(start_offset..end_offset).to_string();
+        if start_offset >= end_offset {
+            return Ok(deleted);
+        }
+        let carriage_return = self.near_carriage_return(start_offset, &deleted);
+        let start = self.content.byte_to_line_idx(start_offset, LINE_TYPE);
+        let old_end = self.content.byte_to_line_idx(end_offset, LINE_TYPE) + 1;
+        let old_lines = self.line_count();
         self.content.remove(start_offset..end_offset);
-        if start_offset != end_offset {
-            self.revision = self.revision.wrapping_add(1);
+        self.revision = self.revision.wrapping_add(1);
+        if carriage_return {
+            self.line_edits.forget(self.revision);
+        } else {
+            self.note_lines(start, old_end, start_offset, old_lines);
         }
         Ok(deleted)
     }

@@ -251,6 +251,7 @@ fn existing(name: &str) -> EditedRow {
         origin: Some(RowOrigin {
             name: name.to_owned(),
             path: PathBuf::from(format!("{ROOT}/{name}")),
+            directory: false,
         }),
         name: name.to_owned(),
         parent: Some(0),

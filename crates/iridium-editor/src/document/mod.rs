@@ -10,9 +10,11 @@
 mod buffer;
 mod cursor;
 mod edit_span;
+mod line_edits;
 mod position;
 
 pub use buffer::Document;
 pub use cursor::{CursorState, Selection};
 pub use edit_span::{EditSpan, EditSpanError, byte_point, compute_edit_span};
+pub use line_edits::LineChange;
 pub use position::{Position, Range};

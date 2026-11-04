@@ -49,20 +49,21 @@ impl FileExplorer {
             width,
         };
 
-        let states = editing.listing.line_states();
-        let removed = editing.listing.removed_count();
+        // Only the rows on screen are asked about; the listing keeps its
+        // counts as it follows the text.
+        let listing = &editing.listing;
         let editor = &editing.editor;
         let document = &editor.state().document;
 
         let mut rows = Vec::with_capacity(visible + 1);
-        rows.push(editing_label(theme, width, removed));
+        rows.push(editing_label(theme, width, listing.removed_count()));
         for offset in 0..visible {
             let line = view.first_line + offset;
             let Some(text) = document.line(line) else {
                 rows.push(PanelRow::new(Vec::new()));
                 continue;
             };
-            let state = states.get(line).copied().unwrap_or(LineState::Blank);
+            let state = listing.line_state(line);
             let marks = marks_on(editor, line, text.chars().count(), view);
             rows.push(line_row(&text, state, view, theme).with_marks(marks));
         }
@@ -179,7 +180,11 @@ fn marks_on(editor: &Editor, line: usize, length: usize, view: View) -> Vec<Pane
 
     if editor.is_searching() {
         let current = editor.current_match_index();
-        for (index, range) in editor.search_state().all_matches().iter().enumerate() {
+        // Matches are in document order and do not overlap, so the first one
+        // reaching this line is found by halving rather than by walking.
+        let matches = editor.search_state().all_matches();
+        let first = matches.partition_point(|range| range.end.line < line);
+        for (index, range) in matches.iter().enumerate().skip(first) {
             if range.start.line > line {
                 break;
             }

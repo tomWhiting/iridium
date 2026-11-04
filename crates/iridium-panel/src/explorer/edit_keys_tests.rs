@@ -495,6 +495,62 @@ fn y_on_the_confirmation_carries_the_plan_out_and_returns_to_browsing() {
     );
 }
 
+/// Indents the `README.md` line under `engine/`, which is collapsed above it.
+fn indent_readme_under_engine(explorer: &mut FileExplorer) {
+    editing(explorer, "README.md");
+    explorer.handle_key(&press(KeyCode::Home));
+    type_text(explorer, "  ");
+}
+
+#[test]
+fn a_line_indented_under_a_folder_moves_the_file_into_it_on_disk() {
+    let directory = fixture("edit-move");
+    let mut explorer = opened(&directory);
+    indent_readme_under_engine(&mut explorer);
+    explorer.handle_key(&ctrl(KeyCode::Char('s')));
+
+    let rows = all_lines(&mut explorer);
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("move") && row.contains("README.md → engine/README.md")),
+        "the confirmation says where from and where to: {rows:?}"
+    );
+    explorer.handle_key(&press(KeyCode::Char('y')));
+
+    assert!(
+        directory.path().join("engine/README.md").exists(),
+        "the move ran"
+    );
+    assert!(!directory.path().join("README.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("engine/mod.rs")).ok(),
+        Some("m".to_owned()),
+        "what was already in the folder is untouched"
+    );
+}
+
+#[test]
+fn a_move_onto_a_name_hidden_in_a_collapsed_folder_is_refused_before_anything_runs() {
+    let directory = fixture("edit-move-taken");
+    std::fs::write(directory.path().join("engine/README.md"), "theirs")
+        .expect("the fixture was written");
+    let mut explorer = opened(&directory);
+    indent_readme_under_engine(&mut explorer);
+    explorer.handle_key(&ctrl(KeyCode::Char('s')));
+
+    let refusals = explorer.mode.refusals();
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    assert!(
+        refusals[0].reason.contains("already exists"),
+        "{refusals:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("engine/README.md")).ok(),
+        Some("theirs".to_owned())
+    );
+    assert!(directory.path().join("README.md").exists());
+}
+
 /// A held `y` must not apply twice, and `⌘S` on the confirmation must be
 /// inert — a held apply key that confirmed and then applied would answer a
 /// confirmation by an accident of timing.

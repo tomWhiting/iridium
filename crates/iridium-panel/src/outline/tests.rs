@@ -322,3 +322,247 @@ fn a_rewrite_of_thousands_of_lines_still_pairs_each_with_its_own() {
         "a rename of every line keeps every line its own entry"
     );
 }
+
+/// How each line compares with what was loaded, worked out from a whole
+/// reading rather than kept up to date: the definition the kept states must
+/// agree with.
+fn states_from_reading(outline: &Outline<String>) -> Vec<LineState> {
+    let reading = outline.read();
+    let mut states = vec![LineState::Blank; outline.line_count()];
+    for line in &reading.lines {
+        states[line.line] = line.origin.map_or(LineState::Typed, |entry| {
+            let parent = line.parent.map(|parent| reading.lines[parent].origin);
+            let same_parent = match (parent, outline.loaded_parent(entry)) {
+                (None, None) => true,
+                (Some(above), Some(loaded)) => above == Some(loaded),
+                _ => false,
+            };
+            if same_parent && outline.entries()[entry].label == line.label {
+                LineState::Loaded
+            } else {
+                LineState::Changed
+            }
+        });
+    }
+    states
+}
+
+/// A tree deep enough that a re-indent can put a line under another folder,
+/// with names repeated across folders when `repeated`.
+fn wide_fixture(repeated: bool) -> Outline<String> {
+    let name = |stem: &str, folder: usize| {
+        if repeated {
+            stem.to_owned()
+        } else {
+            format!("{stem}{folder}")
+        }
+    };
+    let mut entries = Vec::new();
+    for folder in 0..6 {
+        entries.push(entry(0, &format!("dir{folder}"), true));
+        entries.push(entry(1, &name("inner", folder), true));
+        for file in 0..4 {
+            entries.push(entry(2, &name(&format!("f{file}.rs"), folder), false));
+        }
+        for file in 0..3 {
+            entries.push(entry(1, &name(&format!("g{file}.rs"), folder), false));
+        }
+    }
+    entries.push(entry(0, "top.md", false));
+    Outline::project(entries).expect("plain labels")
+}
+
+/// One random edit to `text`: the lines it replaced and what replaced them.
+fn random_edit(
+    text: &[String],
+    clipboard: &mut Vec<String>,
+    next: &mut impl FnMut(usize) -> usize,
+) -> (usize, usize, Vec<String>) {
+    let at = next(text.len());
+    match next(9) {
+        // Type a character at the end of a line.
+        0 => (at, at + 1, vec![format!("{}x", text[at])]),
+        // Take a character off the end of a line.
+        1 => {
+            let mut line = text[at].clone();
+            line.pop();
+            (at, at + 1, vec![line])
+        },
+        // Cut a run of lines; the text always keeps one line.
+        2 => {
+            let end = (at + 1 + next(3)).min(text.len());
+            *clipboard = text[at..end].to_vec();
+            let left = if end - at == text.len() {
+                vec![String::new()]
+            } else {
+                Vec::new()
+            };
+            (at, end, left)
+        },
+        // Paste the cut lines above a line.
+        3 => {
+            let mut pasted = clipboard.clone();
+            pasted.push(text[at].clone());
+            (at, at + 1, pasted)
+        },
+        // Indent or dedent a line.
+        4 => {
+            let line = &text[at];
+            let changed = if next(2) == 0 {
+                format!("  {line}")
+            } else {
+                line.strip_prefix("  ").unwrap_or(line).to_owned()
+            };
+            (at, at + 1, vec![changed])
+        },
+        // Empty a line.
+        5 => (at, at + 1, vec![String::new()]),
+        // Split a line in two.
+        6 => {
+            let line = &text[at];
+            let half = line.char_indices().nth(line.chars().count() / 2);
+            let cut = half.map_or(line.len(), |(offset, _)| offset);
+            let parts = vec![line[..cut].to_owned(), format!("  {}", &line[cut..])];
+            (at, at + 1, parts)
+        },
+        // Join a line with the next.
+        7 if at + 1 < text.len() => {
+            let joined = format!("{}{}", text[at], text[at + 1].trim_start());
+            (at, at + 2, vec![joined])
+        },
+        // Type an existing name again somewhere else, maybe deeper.
+        _ => {
+            let indent = if next(2) == 0 { "  " } else { "" };
+            (at, at, vec![format!("{indent}{}", text[next(text.len())])])
+        },
+    }
+}
+
+/// Whether two non-blank lines of `text` are the same, or two are blank.
+///
+/// Then which of the two an edit kept is a matter of where the comparison
+/// started: a span and the whole text can both be right and disagree.
+fn has_twins(text: &[String]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    text.iter().any(|line| {
+        !seen.insert(if line.trim().is_empty() {
+            ""
+        } else {
+            line.as_str()
+        })
+    })
+}
+
+/// Edits followed one span at a time read exactly as the same edits followed
+/// by rereading the whole text each time, and the states and counts kept
+/// along the way are always the ones a whole reading gives.
+#[test]
+fn following_spans_reads_the_same_as_rereading_everything() {
+    let mut seed: u64 = 0x1234_5678_9abc_def1;
+    let mut next = |bound: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        usize::try_from(seed % u64::try_from(bound.max(1)).unwrap_or(1)).unwrap_or(0)
+    };
+    let mut compared = 0;
+    for round in 0..80 {
+        let repeated = round % 2 == 0;
+        let mut spans = wide_fixture(repeated);
+        let mut whole = wide_fixture(repeated);
+        let mut text = lines(&spans.text());
+        let mut clipboard = Vec::new();
+        for step in 0..60 {
+            // Without twins every step can be compared with a whole reading.
+            let (start, old_end, new) = loop {
+                let (start, mut old_end, mut new) = random_edit(&text, &mut clipboard, &mut next);
+                // The editor's spans are often wider than the change: one
+                // more untouched line, carried through.
+                if next(2) == 0 && old_end < text.len() {
+                    new.push(text[old_end].clone());
+                    old_end += 1;
+                }
+                let mut after = text.clone();
+                after.splice(start..old_end, new.iter().cloned());
+                if repeated || !has_twins(&after) {
+                    break (start, old_end, new);
+                }
+            };
+            text.splice(start..old_end, new.iter().cloned());
+            spans.edit(start, old_end, new);
+            whole.track(text.clone());
+
+            let context = format!("round {round}, step {step}");
+            let reading = spans.read();
+            assert_eq!(
+                spans.line_states(),
+                states_from_reading(&spans),
+                "{context}"
+            );
+            if has_twins(&text) {
+                whole = spans.clone();
+            } else {
+                assert_eq!(reading, whole.read(), "{context}");
+                assert_eq!(spans.line_states(), whole.line_states(), "{context}");
+                compared += 1;
+            }
+            assert_eq!(spans.removed_count(), reading.removed.len(), "{context}");
+            let edited = !reading.removed.is_empty()
+                || spans
+                    .line_states()
+                    .iter()
+                    .any(|state| matches!(state, LineState::Changed | LineState::Typed));
+            assert_eq!(spans.is_edited(), edited, "{context}");
+        }
+    }
+    assert!(
+        compared > 2000,
+        "only {compared} steps compared with a whole reading"
+    );
+}
+
+/// Two thousand top-level files, for edits far apart.
+fn long_fixture() -> Outline<String> {
+    let entries: Vec<OutlineEntry<String>> = (0..2000)
+        .map(|index| entry(0, &format!("file{index}.txt"), false))
+        .collect();
+    Outline::project(entries).expect("plain labels")
+}
+
+#[test]
+fn a_line_cut_and_pasted_far_away_is_still_its_entry() {
+    let mut outline = long_fixture();
+    outline.edit(3, 4, Vec::new());
+    assert_eq!(outline.removed_count(), 1);
+    outline.edit(1998, 1998, vec!["file3.txt".to_owned()]);
+    assert_eq!(outline.removed_count(), 0, "the paste is the entry again");
+    assert!(!outline.is_edited(), "the same entry under the same parent");
+}
+
+#[test]
+fn a_copy_pasted_far_away_becomes_the_entry_when_the_original_goes() {
+    let mut outline = long_fixture();
+    outline.edit(1990, 1990, vec!["file3.txt".to_owned()]);
+    assert_eq!(
+        outline.line_state(1990),
+        LineState::Typed,
+        "a copy, for now"
+    );
+    outline.edit(3, 4, Vec::new());
+    assert_eq!(outline.line_state(1989), LineState::Loaded);
+    assert_eq!(outline.removed_count(), 0);
+    assert!(!outline.is_edited());
+}
+
+#[test]
+fn a_line_emptied_then_claimed_elsewhere_types_as_new_when_refilled() {
+    let mut outline = fixture();
+    // Empty lib.rs's line, then type lib.rs elsewhere: that line takes the
+    // entry, so text typed into the emptied line later is a new file.
+    outline.edit(2, 3, vec!["  ".to_owned()]);
+    outline.edit(4, 4, vec!["  lib.rs".to_owned()]);
+    assert_eq!(outline.removed_count(), 0);
+    outline.edit(2, 3, vec!["  other.rs".to_owned()]);
+    assert_eq!(outline.line_state(2), LineState::Typed);
+    assert_eq!(outline.removed_count(), 0);
+}

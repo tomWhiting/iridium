@@ -13,7 +13,8 @@
 //! feel immediate: the frame that answers a keystroke is on screen before this
 //! process goes to sleep on the next one, rather than one event behind. An idle
 //! editor costs nothing at all, because `termina`'s poll with no timeout blocks
-//! — there is no interval to tune and no sleep to get wrong.
+//! — there is no interval to tune and no sleep to get wrong. Work finished off
+//! the input thread wakes that poll through [`App::set_waker`].
 //!
 //! # Leaving the terminal
 //!
@@ -138,6 +139,7 @@ fn describe_missing_terminal(
 /// The loop itself.
 fn drive(app: &mut App, driver: &mut Driver) -> io::Result<()> {
     app.resize(driver.surface().width(), driver.surface().height());
+    app.set_waker(driver.waker());
     loop {
         let cursor = app.render(driver.surface_mut());
         driver.set_cursor(cursor);
@@ -152,9 +154,11 @@ fn drive(app: &mut App, driver: &mut Driver) -> io::Result<()> {
             // The surface has already been resized, which invalidates it, so
             // the next frame is a full repaint whatever the editor does.
             DriverEvent::Resize { columns, rows } => app.resize(columns, rows),
-            // A key the VT parser could not name. There is nothing to act on
-            // and nothing changed, so the next frame writes no bytes at all.
-            DriverEvent::Unrecognised => {},
+            // A key the VT parser could not name: nothing changed, so the next
+            // frame writes no bytes. A wake: something off the input thread
+            // changed — a directory listing landed — and the frame at the top
+            // of the loop collects it.
+            DriverEvent::Unrecognised | DriverEvent::Wake => {},
         }
     }
 }

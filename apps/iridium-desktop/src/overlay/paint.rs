@@ -18,11 +18,13 @@ use wgpu::{
 };
 
 use iridium_panel::line::scroll_for;
-use iridium_panel::{PanelFit, Span};
+use iridium_panel::{MarkKind, PanelFit, PanelMark, Span};
 
 use super::content::{PanelAnchor, PanelContent, PanelKind, StripContent};
 use super::frame::{PaintedFrame, PaintedPanel};
-use super::geometry::{GridMetrics, PanelGeometry, fit_for, panel_geometry, sidebar_fit_for};
+use super::geometry::{
+    GridMetrics, PanelGeometry, PanelRect, fit_for, panel_geometry, sidebar_fit_for,
+};
 use super::metrics::{
     CARET_WIDTH, HOVER_STRENGTH, PAD_X, PAD_Y, STRIP_PAD_X, STRIP_PAD_Y, TAB_CLOSE_ALPHA,
     TAB_INACTIVE_ALPHA, backdrop_alpha, frame_width, shadow_for,
@@ -626,6 +628,17 @@ impl OverlayPainter {
                     rule.radius,
                 ));
             }
+            for mark in &row.marks {
+                let rect = mark_quad(&geometry, index, *mark);
+                chrome.push(RoundedQuad::new(
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    mark_color(theme, mark.kind),
+                    rect.radius,
+                ));
+            }
         }
         if let Some(caret) = panel.caret {
             if caret.row < panel.rows.len() && caret.column <= panel.content_columns {
@@ -690,6 +703,31 @@ pub(super) fn panel_spans(panel: &PanelContent, base: Color) -> Vec<Span> {
         }
     }
     spans
+}
+
+/// Where one mark on interior `row` is drawn: a background over its columns,
+/// or a caret bar at its first column.
+pub(super) fn mark_quad(geometry: &PanelGeometry, row: usize, mark: PanelMark) -> PanelRect {
+    match mark.kind {
+        MarkKind::Caret => geometry.caret_rect(iridium_panel::PanelCaret {
+            row,
+            column: mark.start,
+        }),
+        MarkKind::Selection | MarkKind::Match | MarkKind::CurrentMatch => {
+            geometry.mark_rect(row, mark.start, mark.end)
+        },
+    }
+}
+
+/// The theme colour a mark of `kind` is drawn in: the document's own
+/// selection, search and caret colours.
+pub(super) const fn mark_color(theme: &Theme, kind: MarkKind) -> Color {
+    match kind {
+        MarkKind::Selection => theme.editor.selection,
+        MarkKind::Match => theme.editor.search_match,
+        MarkKind::CurrentMatch => theme.editor.search_match_current,
+        MarkKind::Caret => theme.editor.cursor,
+    }
 }
 
 /// The colour behind a panel: the theme's current-line band composited over

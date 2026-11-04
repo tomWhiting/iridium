@@ -61,6 +61,7 @@
 //!         DriverEvent::Input(_input) => { /* draw into `driver.surface_mut()` */ },
 //!         DriverEvent::Resize { .. } => { /* the surface is already resized */ },
 //!         DriverEvent::Unrecognised => {},
+//!         DriverEvent::Wake => { /* another thread's work is ready to draw */ },
 //!     }
 //! #   break;
 //! }
@@ -78,4 +79,4 @@ pub use capabilities::{
 };
 pub use frame::{CursorState, Frame, write_frame};
 pub use lifecycle::{TerminalState, write_setup, write_teardown};
-pub use terminal::{Driver, DriverEvent, NEGOTIATION_TIMEOUT};
+pub use terminal::{Driver, DriverEvent, NEGOTIATION_TIMEOUT, Waker};

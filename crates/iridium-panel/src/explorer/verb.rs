@@ -21,10 +21,7 @@
 use iridium_editor::CommandId;
 use iridium_editor::commands::builtin::{
     EXPLORER_ACTIVATE, EXPLORER_BEGIN_EDIT, EXPLORER_COLLAPSE, EXPLORER_CONFIRM_APPLY,
-    EXPLORER_CONFIRM_CANCEL, EXPLORER_DISMISS, EXPLORER_EDIT_ASK_APPLY, EXPLORER_EDIT_BACKSPACE,
-    EXPLORER_EDIT_CARET_END, EXPLORER_EDIT_CARET_HOME, EXPLORER_EDIT_CARET_LEFT,
-    EXPLORER_EDIT_CARET_RIGHT, EXPLORER_EDIT_CURSOR_DOWN, EXPLORER_EDIT_CURSOR_UP,
-    EXPLORER_EDIT_DELETE, EXPLORER_EDIT_LEAVE, EXPLORER_EDIT_NEW_ROW, EXPLORER_EDIT_STRIKE_ROW,
+    EXPLORER_CONFIRM_CANCEL, EXPLORER_DISMISS, EXPLORER_EDIT_ASK_APPLY, EXPLORER_EDIT_LEAVE,
     EXPLORER_EXPAND, EXPLORER_MOVE_DOWN, EXPLORER_MOVE_TO_FIRST, EXPLORER_MOVE_TO_LAST,
     EXPLORER_MOVE_UP, EXPLORER_QUERY_BACKSPACE, EXPLORER_REFUSED_DISMISS, EXPLORER_ROOT_ABOVE,
     EXPLORER_ROOT_AT_SELECTION, EXPLORER_TOGGLE_HIDDEN,
@@ -61,28 +58,8 @@ pub(super) enum Verb {
     QueryBackspace,
     /// Stop editing, asking about unapplied work first.
     EditLeave,
-    /// Strike the row under the cursor through, or unstrike it.
-    EditStrikeRow,
-    /// Type a new, empty row below the cursor.
-    EditNewRow,
     /// Work out what the rows say, and show it for confirmation.
     EditAskApply,
-    /// Move the editing cursor one row up.
-    EditCursorUp,
-    /// Move the editing cursor one row down.
-    EditCursorDown,
-    /// Move the caret one character left within the row.
-    EditCaretLeft,
-    /// Move the caret one character right within the row.
-    EditCaretRight,
-    /// Move the caret to the start of the row.
-    EditCaretHome,
-    /// Move the caret to the end of the row.
-    EditCaretEnd,
-    /// Delete before the caret, or take back an emptied typed row.
-    EditBackspace,
-    /// Delete after the caret within the row.
-    EditDelete,
     /// Carry out the confirmed plan.
     ConfirmApply,
     /// Go back to the rows without applying.
@@ -113,17 +90,7 @@ impl Verb {
         Self::ToggleHidden,
         Self::QueryBackspace,
         Self::EditLeave,
-        Self::EditStrikeRow,
-        Self::EditNewRow,
         Self::EditAskApply,
-        Self::EditCursorUp,
-        Self::EditCursorDown,
-        Self::EditCaretLeft,
-        Self::EditCaretRight,
-        Self::EditCaretHome,
-        Self::EditCaretEnd,
-        Self::EditBackspace,
-        Self::EditDelete,
         Self::ConfirmApply,
         Self::ConfirmCancel,
         Self::RefusedDismiss,
@@ -149,17 +116,7 @@ impl Verb {
             Self::ToggleHidden => EXPLORER_TOGGLE_HIDDEN,
             Self::QueryBackspace => EXPLORER_QUERY_BACKSPACE,
             Self::EditLeave => EXPLORER_EDIT_LEAVE,
-            Self::EditStrikeRow => EXPLORER_EDIT_STRIKE_ROW,
-            Self::EditNewRow => EXPLORER_EDIT_NEW_ROW,
             Self::EditAskApply => EXPLORER_EDIT_ASK_APPLY,
-            Self::EditCursorUp => EXPLORER_EDIT_CURSOR_UP,
-            Self::EditCursorDown => EXPLORER_EDIT_CURSOR_DOWN,
-            Self::EditCaretLeft => EXPLORER_EDIT_CARET_LEFT,
-            Self::EditCaretRight => EXPLORER_EDIT_CARET_RIGHT,
-            Self::EditCaretHome => EXPLORER_EDIT_CARET_HOME,
-            Self::EditCaretEnd => EXPLORER_EDIT_CARET_END,
-            Self::EditBackspace => EXPLORER_EDIT_BACKSPACE,
-            Self::EditDelete => EXPLORER_EDIT_DELETE,
             Self::ConfirmApply => EXPLORER_CONFIRM_APPLY,
             Self::ConfirmCancel => EXPLORER_CONFIRM_CANCEL,
             Self::RefusedDismiss => EXPLORER_REFUSED_DISMISS,

@@ -89,41 +89,11 @@ pub const EXPLORER_QUERY_BACKSPACE: CommandId = CommandId::from_static("explorer
 /// Stop editing the explorer's rows, asking about unapplied work first.
 pub const EXPLORER_EDIT_LEAVE: CommandId = CommandId::from_static("explorer.edit.leave");
 
-/// Strike the row under the cursor through, or unstrike it.
-pub const EXPLORER_EDIT_STRIKE_ROW: CommandId = CommandId::from_static("explorer.edit.strikeRow");
-
-/// Type a new, empty row below the cursor.
-pub const EXPLORER_EDIT_NEW_ROW: CommandId = CommandId::from_static("explorer.edit.newRow");
-
 /// Work out what the edited rows say, and show it for confirmation.
 ///
 /// ⛔ **This does not touch the disk.** It reaches the confirmation and stops;
 /// [`EXPLORER_CONFIRM_APPLY`] is what applies.
 pub const EXPLORER_EDIT_ASK_APPLY: CommandId = CommandId::from_static("explorer.edit.askApply");
-
-/// Move the editing cursor one row up.
-pub const EXPLORER_EDIT_CURSOR_UP: CommandId = CommandId::from_static("explorer.edit.cursorUp");
-
-/// Move the editing cursor one row down.
-pub const EXPLORER_EDIT_CURSOR_DOWN: CommandId = CommandId::from_static("explorer.edit.cursorDown");
-
-/// Move the caret one character left within the row being edited.
-pub const EXPLORER_EDIT_CARET_LEFT: CommandId = CommandId::from_static("explorer.edit.caretLeft");
-
-/// Move the caret one character right within the row being edited.
-pub const EXPLORER_EDIT_CARET_RIGHT: CommandId = CommandId::from_static("explorer.edit.caretRight");
-
-/// Move the caret to the start of the row being edited.
-pub const EXPLORER_EDIT_CARET_HOME: CommandId = CommandId::from_static("explorer.edit.caretHome");
-
-/// Move the caret to the end of the row being edited.
-pub const EXPLORER_EDIT_CARET_END: CommandId = CommandId::from_static("explorer.edit.caretEnd");
-
-/// Delete the character before the caret, or take back an emptied typed row.
-pub const EXPLORER_EDIT_BACKSPACE: CommandId = CommandId::from_static("explorer.edit.backspace");
-
-/// Delete the character after the caret in the row being edited.
-pub const EXPLORER_EDIT_DELETE: CommandId = CommandId::from_static("explorer.edit.delete");
 
 /// Carry out the confirmed plan, touching the disk.
 pub const EXPLORER_CONFIRM_APPLY: CommandId = CommandId::from_static("explorer.confirm.apply");
@@ -241,79 +211,9 @@ pub(super) static EXPLORER: &[CommandMeta] = &[
         EXPLORER_EDIT_MODE,
     ),
     CommandMeta::scoped(
-        EXPLORER_EDIT_STRIKE_ROW,
-        "Mark Row Deleted",
-        "Strikes the row under the cursor through, or unstrikes it.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_NEW_ROW,
-        "New Row",
-        "Types a new, empty row below the cursor.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
         EXPLORER_EDIT_ASK_APPLY,
         "Apply Edited Rows",
         "Works out what the edited rows say, and shows it for confirmation.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_CURSOR_UP,
-        "Move Cursor To Row Above",
-        "Moves the editing cursor one row up.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_CURSOR_DOWN,
-        "Move Cursor To Row Below",
-        "Moves the editing cursor one row down.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_CARET_LEFT,
-        "Move Caret Left In Row",
-        "Moves the caret one character left within the row being edited.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_CARET_RIGHT,
-        "Move Caret Right In Row",
-        "Moves the caret one character right within the row being edited.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_CARET_HOME,
-        "Move Caret To Row Start",
-        "Moves the caret to the start of the row being edited.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_CARET_END,
-        "Move Caret To Row End",
-        "Moves the caret to the end of the row being edited.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_BACKSPACE,
-        "Delete In Row",
-        "Deletes the character before the caret, or takes back an emptied row.",
-        CommandCategory::GENERAL,
-        EXPLORER_EDIT_MODE,
-    ),
-    CommandMeta::scoped(
-        EXPLORER_EDIT_DELETE,
-        "Delete Forward In Row",
-        "Deletes the character after the caret in the row being edited.",
         CommandCategory::GENERAL,
         EXPLORER_EDIT_MODE,
     ),

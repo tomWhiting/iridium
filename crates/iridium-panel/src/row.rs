@@ -64,6 +64,31 @@ impl Span {
     }
 }
 
+/// What a [`PanelMark`] stands for, which decides the background it paints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkKind {
+    /// Selected text.
+    Selection,
+    /// A search match.
+    Match,
+    /// The search match the next step lands on.
+    CurrentMatch,
+    /// A caret other than the primary one, which the face's own cursor shows.
+    Caret,
+}
+
+/// A run of columns in a row painted with a background, counted in `char`s
+/// from the content area's left edge. `end` is exclusive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanelMark {
+    /// The first column covered.
+    pub start: usize,
+    /// One past the last column covered.
+    pub end: usize,
+    /// What the run stands for.
+    pub kind: MarkKind,
+}
+
 /// One interior row of a panel.
 ///
 /// The spans read left to right; the painter truncates anything past the
@@ -79,6 +104,9 @@ pub struct PanelRow {
     /// Whether the row is a group separator, drawn as a hairline rule across
     /// the panel instead of text.
     pub separator: bool,
+    /// Backgrounds painted over runs of columns: selections, search matches
+    /// and secondary carets, in the order given.
+    pub marks: Vec<PanelMark>,
 }
 
 impl PanelRow {
@@ -89,6 +117,7 @@ impl PanelRow {
             spans,
             selected: false,
             separator: false,
+            marks: Vec::new(),
         }
     }
 
@@ -99,6 +128,7 @@ impl PanelRow {
             spans,
             selected: true,
             separator: false,
+            marks: Vec::new(),
         }
     }
 
@@ -109,7 +139,15 @@ impl PanelRow {
             spans: Vec::new(),
             selected: false,
             separator: true,
+            marks: Vec::new(),
         }
+    }
+
+    /// The same row with `marks` painted over it.
+    #[must_use]
+    pub fn with_marks(mut self, marks: Vec<PanelMark>) -> Self {
+        self.marks = marks;
+        self
     }
 
     /// The row's text with the colours dropped, for tests and diagnostics.

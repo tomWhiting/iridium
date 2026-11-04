@@ -1,5 +1,5 @@
 //! The file explorer: a floating panel showing a directory tree, with the
-//! oil buffer behind `Tab`.
+//! listing editable as text behind `Tab`.
 //!
 //! This is the terminal face of the same panel the GPU face draws, reached by
 //! the same command id. Until this module existed the terminal had no file
@@ -24,13 +24,16 @@
 //!
 //! Every key is consumed while it is open. The explorer's own key tables
 //! decide what each one means — including the printable characters, which go
-//! to the filter — so there is nothing here to keep in step with the GPU face.
+//! to the filter or to the text being edited — so there is nothing here to
+//! keep in step with the GPU face. What the text being edited asks of a face —
+//! the clipboard, the search panel — comes back as an [`ExplorerAction`].
 //!
 //! # The two placements
 //!
-//! A **popover** floats over the document; a **sidebar** is a full-height band
-//! down the left edge that takes its columns *from* the document (R4, #112d
-//! step 5). [`ExplorerOutcome::ToggleSidebar`] switches between them.
+//! A **floating** box, large and centred, sits over the document; a
+//! **sidebar** is a full-height band down the left edge that takes its columns
+//! *from* the document (R4). [`ExplorerOutcome::ToggleSidebar`] switches
+//! between them.
 //!
 //! ⚠️ **The host must ask [`FileExplorerPanel::sidebar_columns`] every frame
 //! and put the answer in [`Chrome::sidebar_columns`](crate::frame::Chrome).**
@@ -45,15 +48,16 @@ mod paint;
 #[cfg(test)]
 mod tests;
 
-use iridium_editor::KeyEvent;
+use iridium_editor::input::SearchAction;
 use iridium_editor::theme::Theme;
+use iridium_editor::{Editor, KeyEvent, Keymap};
 use iridium_panel::PanelFit;
-use iridium_panel::explorer::{ExplorerOutcome, FileExplorer};
+use iridium_panel::explorer::{ExplorerOutcome, FileExplorer, Wake};
 
 use self::paint::Placement;
 use super::CellPosition;
 use super::palette::Palette;
-use super::panel::{FloatingBox, SidebarBox, TOP};
+use super::panel::{CentredBox, SidebarBox};
 use crate::cell::CellBuffer;
 
 /// What the host should do after handing the explorer a key.
@@ -74,6 +78,16 @@ pub enum ExplorerAction {
     /// Something failed, or was asked for that this face cannot do. The string
     /// is for the statusline, already a whole sentence.
     Report(String),
+    /// The text being edited copied or cut this: put it on the clipboard.
+    Copy(String),
+    /// The text being edited asked to paste: answer with
+    /// [`FileExplorerPanel::paste`] and the clipboard's text.
+    Paste,
+    /// Open the search panel, aimed at
+    /// [`FileExplorerPanel::with_buffer_editor`].
+    OpenSearch,
+    /// Close the search panel if it is aimed at the explorer.
+    CloseSearch,
 }
 
 impl ExplorerAction {
@@ -92,6 +106,14 @@ impl ExplorerAction {
             ExplorerOutcome::Dismissed | ExplorerOutcome::Closed => Self::Close,
             ExplorerOutcome::Open(path) => Self::Open(path),
             ExplorerOutcome::Failed(message) => Self::Report(message),
+            ExplorerOutcome::Copy(text) => Self::Copy(text),
+            ExplorerOutcome::Paste => Self::Paste,
+            ExplorerOutcome::Search(SearchAction::OpenSearch) => Self::OpenSearch,
+            ExplorerOutcome::Search(SearchAction::CloseSearch) => Self::CloseSearch,
+            // The editor has already moved to the match by the time it says so.
+            ExplorerOutcome::Search(SearchAction::NextMatch | SearchAction::PreviousMatch) => {
+                Self::Handled
+            },
         }
     }
 }
@@ -99,8 +121,8 @@ impl ExplorerAction {
 /// Where the panel sits on the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Anchor {
-    /// Floating over the document.
-    Popover,
+    /// Floating over the document, large and centred.
+    Float,
     /// A full-height band down the left edge, if one fits.
     Sidebar,
 }
@@ -113,7 +135,7 @@ pub struct FileExplorerPanel {
     /// Which placement the panel is asking for.
     ///
     /// ⚠️ *Asking for*, not occupying: a sidebar the screen cannot fit
-    /// honestly falls back to a popover for that frame without forgetting that
+    /// honestly falls back to floating for that frame without forgetting that
     /// a sidebar was chosen. Widening the terminal then restores it, which is
     /// what a person who dragged a window narrow and back expects.
     anchor: Anchor,
@@ -121,7 +143,8 @@ pub struct FileExplorerPanel {
 
 impl FileExplorerPanel {
     /// Opens the panel on `root`, crawling past it or not, with `user_keys`
-    /// as the user's `[keys]` layer.
+    /// as the user's `[keys]` layer and `face_keys` as this face's own, which
+    /// the text editor inside the panel resolves chords against.
     ///
     /// ⭐ **The layer is a parameter rather than a later `set_user_keymap`
     /// call, and that is deliberate.** #91 gave the shared explorer a
@@ -140,19 +163,48 @@ impl FileExplorerPanel {
     pub fn open(
         root: std::path::PathBuf,
         crawl: bool,
-        user_keys: &iridium_editor::Keymap,
+        user_keys: &Keymap,
+        face_keys: &Keymap,
     ) -> Result<Self, String> {
         FileExplorer::open(root, crawl).map(|mut explorer| {
+            explorer.set_face_keymap(face_keys);
             explorer.set_user_keymap(user_keys);
             Self {
                 explorer,
-                // A popover to begin with, in both faces. The panel is opened
+                // Floating to begin with, in both faces. The panel is opened
                 // by a chord far more often to find one file than to keep a
                 // tree up, and the placement that costs the document nothing
                 // is the one to default to.
-                anchor: Anchor::Popover,
+                anchor: Anchor::Float,
             }
         })
+    }
+
+    /// Sets what the directory reader calls after each listing it posts.
+    ///
+    /// ⭐ **A host that blocks on input must pass one that wakes it**, or a
+    /// listing that lands — the re-read after an apply included — waits for
+    /// the next keypress to be drawn.
+    pub fn set_wake(&mut self, wake: Option<Wake>) {
+        self.explorer.set_wake(wake);
+    }
+
+    /// Hands pasted text to the panel: the filter while browsing, every caret
+    /// while the rows are edited.
+    pub fn paste(&mut self, text: &str) {
+        self.explorer.paste(text);
+    }
+
+    /// The editor the rows are being edited in, when they are.
+    #[must_use]
+    pub fn buffer_editor(&self) -> Option<&Editor> {
+        self.explorer.buffer_editor()
+    }
+
+    /// Runs `change` against the editor the rows are being edited in, for a
+    /// search panel aimed at it. `None` when nothing is being edited.
+    pub fn with_buffer_editor<R>(&mut self, change: impl FnOnce(&mut Editor) -> R) -> Option<R> {
+        self.explorer.with_buffer_editor(change)
     }
 
     /// How many columns the document must give up to this panel.
@@ -169,7 +221,7 @@ impl FileExplorerPanel {
     /// draws in — which is the failure this sentence exists to make findable.
     pub fn sidebar_columns(&self, columns: usize, band_rows: usize) -> usize {
         match self.anchor {
-            Anchor::Popover => 0,
+            Anchor::Float => 0,
             Anchor::Sidebar => SidebarBox::fitted(columns, band_rows).map_or(0, |band| band.width),
         }
     }
@@ -178,10 +230,9 @@ impl FileExplorerPanel {
     ///
     /// ⚠️ **The host must call this once per frame while the panel is open.**
     /// The filesystem source reads on a worker thread, so a listing lands some
-    /// frames after it was wanted and nothing wakes the host when it does.
-    /// Skipping it corrupts nothing; it leaves the panel showing a directory
-    /// that is permanently loading, which is the failure this sentence exists
-    /// to make findable.
+    /// frames after it was wanted; [`Self::set_wake`] is how the host hears
+    /// that one has. Skipping it corrupts nothing; it leaves the panel showing
+    /// a directory that is permanently loading.
     ///
     /// `true` means rows changed and a repaint is owed.
     pub fn poll(&mut self) -> bool {
@@ -199,7 +250,7 @@ impl FileExplorerPanel {
     /// For a configuration *reload* — the panel is already open and the file
     /// has changed under it. First installation goes through [`Self::open`],
     /// which takes the layer so that it cannot be skipped.
-    pub fn set_user_keymap(&mut self, user: &iridium_editor::Keymap) {
+    pub fn set_user_keymap(&mut self, user: &Keymap) {
         self.explorer.set_user_keymap(user);
     }
 
@@ -219,8 +270,8 @@ impl FileExplorerPanel {
         let outcome = self.explorer.handle_key(event);
         if matches!(outcome, ExplorerOutcome::ToggleSidebar) {
             self.anchor = match self.anchor {
-                Anchor::Popover => Anchor::Sidebar,
-                Anchor::Sidebar => Anchor::Popover,
+                Anchor::Float => Anchor::Sidebar,
+                Anchor::Sidebar => Anchor::Float,
             };
         }
         ExplorerAction::from_outcome(outcome)
@@ -228,12 +279,10 @@ impl FileExplorerPanel {
 
     /// Composes and paints the panel, reporting where the caret landed.
     ///
-    /// ⭐ **The fit is [`PanelFit::popover`] rather than a ceiling written
-    /// here**, and that is deliberate: the browse ceiling is a property of the
-    /// panel — a list you read *down* wants more rows than a list you *query* —
-    /// and it was ruled once, in `iridium-panel`, for every face. A twelve
-    /// written into this file would have been this face quietly disagreeing
-    /// with the other one about how tall a file tree should be.
+    /// Both placements live within `band_rows` — the document's rows — so
+    /// neither covers the statusline or a search panel aimed at the text.
+    /// Both are fitted as a column rather than a popover: the floating box
+    /// keeps its size, so its rows are all the list's to use.
     pub fn paint(
         &mut self,
         buffer: &mut CellBuffer,
@@ -241,7 +290,8 @@ impl FileExplorerPanel {
         theme: &Theme,
         styles: &Palette,
     ) -> Option<CellPosition> {
-        let (columns, rows) = (buffer.width(), buffer.height());
+        let columns = buffer.width();
+        let band_rows = band_rows.min(buffer.height());
         let (placement, fit) = match self.anchor {
             Anchor::Sidebar => SidebarBox::fitted(columns, band_rows)
                 .map(|band| {
@@ -254,29 +304,19 @@ impl FileExplorerPanel {
                 // not fit is a placement the screen cannot afford, not a panel
                 // the person closed — and `sidebar_columns` refuses the same
                 // screen, so the document keeps the columns the band declined.
-                .or_else(|| popover(columns, rows))?,
-            Anchor::Popover => popover(columns, rows)?,
+                .or_else(|| floating(columns, band_rows))?,
+            Anchor::Float => floating(columns, band_rows)?,
         };
         let body = self.explorer.body(theme, fit);
         paint::paint(&body, placement, buffer, styles)
     }
 }
 
-/// The floating placement and its fit, on a screen that can hold one.
-fn popover(columns: usize, rows: usize) -> Option<(Placement, PanelFit)> {
-    let panel_box = FloatingBox::fitted(columns, rows)?;
-    let interior = interior_rows(rows)?;
+/// The floating placement and its fit, within `rows` rows of the screen.
+fn floating(columns: usize, rows: usize) -> Option<(Placement, PanelFit)> {
+    let centred = CentredBox::fitted(columns, rows)?;
     Some((
-        Placement::Popover(panel_box),
-        PanelFit::popover(panel_box.content_width(), interior),
+        Placement::Centred(centred),
+        PanelFit::sidebar(centred.frame.content_width(), centred.interior_rows),
     ))
-}
-
-/// How many interior rows a floating box has on a screen this tall.
-///
-/// The box costs the row above it ([`TOP`]) and its two borders. `None` when
-/// that leaves nothing — the same screen [`FloatingBox::fitted`] declines, so
-/// the two answers cannot disagree about whether a panel is drawable.
-fn interior_rows(screen_rows: usize) -> Option<usize> {
-    screen_rows.checked_sub(TOP + 2).filter(|rows| *rows > 0)
 }

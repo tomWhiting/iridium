@@ -65,6 +65,9 @@ mod document;
 mod view;
 
 #[cfg(test)]
+mod explorer_tests;
+
+#[cfg(test)]
 mod tests;
 
 use iridium_editor::commands::builtin::{
@@ -75,6 +78,7 @@ use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::{
     ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyEvent,
 };
+use iridium_tui::driver::Waker;
 use iridium_tui::frame::{
     CommandPalette, ExplorerAction, FileExplorerPanel, Frame, HistoryOutcome, HistoryPanel,
     PaletteOutcome, SearchOutcome, SearchOverlay,
@@ -96,6 +100,15 @@ pub enum Flow {
     Exit,
 }
 
+/// Which editor the search panel is aimed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchTarget {
+    /// The document.
+    Document,
+    /// The file explorer's listing, while it is being edited as text.
+    Explorer,
+}
+
 /// One editing session.
 pub struct App {
     /// The kernel.
@@ -109,6 +122,8 @@ pub struct App {
     search: SearchOverlay,
     /// Whether the search panel is on screen.
     search_open: bool,
+    /// Which editor the open search panel drives.
+    search_target: SearchTarget,
     /// The command palette panel.
     palette: CommandPalette,
     /// Whether the palette is on screen. While it is, it is modal: every key
@@ -144,6 +159,13 @@ pub struct App {
     /// The file explorer is constructed on demand rather than at startup, so
     /// there has to be somewhere for its bindings to wait.
     user_keys: iridium_editor::Keymap,
+    /// The directory the session was started on, if it was started on one.
+    /// The explorer reopens here rather than wherever the process happens to
+    /// be running.
+    project: Option<std::path::PathBuf>,
+    /// What wakes the event loop, handed to every explorer this session opens
+    /// so a directory listing that lands is drawn without waiting for a key.
+    waker: Option<Waker>,
 }
 
 impl App {
@@ -256,6 +278,7 @@ impl App {
             file,
             search: SearchOverlay::new(&user_keys),
             search_open: false,
+            search_target: SearchTarget::Document,
             palette: {
                 let mut palette = CommandPalette::new();
                 palette.set_user_keymap(&user_keys);
@@ -274,6 +297,8 @@ impl App {
             columns: 0,
             rows: 0,
             user_keys,
+            project: project.clone(),
+            waker: None,
         };
 
         if let Some(line) = options.line {
@@ -288,6 +313,15 @@ impl App {
             app.open_explorer(iridium_panel::explorer::chosen_root(directory));
         }
         Ok(app)
+    }
+
+    /// Sets what wakes the event loop when something changes without a key:
+    /// a directory listing the file explorer was waiting for.
+    pub fn set_waker(&mut self, waker: Waker) {
+        if let Some(explorer) = self.explorer.as_mut() {
+            explorer.set_wake(Some(waker.clone()));
+        }
+        self.waker = Some(waker);
     }
 
     /// Tells the editor how big the terminal is, in cells.
@@ -412,6 +446,11 @@ impl App {
         // that fell through here would be a key typed into the document while
         // the person was looking at a file list.
         if self.explorer.is_some() {
+            if self.search_target == SearchTarget::Explorer
+                && let Some(flow) = self.drive_explorer_search(event)
+            {
+                return flow;
+            }
             return self.drive_explorer(event);
         }
 
@@ -560,6 +599,7 @@ impl App {
                 return Flow::Running;
             }
             self.explorer = None;
+            self.close_explorer_search();
             self.resync_after_band_change(band);
             return Flow::Running;
         }
@@ -571,9 +611,9 @@ impl App {
 
     /// Puts the file explorer on screen, rooted here.
     ///
-    /// ⭐ **Opened as a popover, including at startup**, and that is a ruling
+    /// ⭐ **Opened floating, including at startup**, and that is a ruling
     /// rather than a default. The panel is modal in this face — every key goes
-    /// to it, printable characters included — and a popover is what a modal
+    /// to it, printable characters included — and a floating box is what a modal
     /// picker looks like: it appears, you choose, it closes. A band down the
     /// left edge looks *persistent*, and a persistent panel that nonetheless
     /// swallows every keystroke would be furniture making a promise the input
@@ -590,8 +630,11 @@ impl App {
     /// chord or from the command line, a panel that silently did not appear is
     /// indistinguishable from one that is broken.
     fn open_explorer(&mut self, root: iridium_panel::explorer::ExplorerRoot) {
-        match FileExplorerPanel::open(root.path, root.crawl, &self.user_keys) {
-            Ok(explorer) => self.explorer = Some(explorer),
+        match FileExplorerPanel::open(root.path, root.crawl, &self.user_keys, &commands::keymap()) {
+            Ok(mut explorer) => {
+                explorer.set_wake(self.waker.clone());
+                self.explorer = Some(explorer);
+            },
             Err(error) => {
                 self.message = Some(Message::error(format!("the file explorer: {error}")));
             },
@@ -627,10 +670,14 @@ impl App {
     /// directory is where a person `cd`-ed to, which is the most reliable
     /// statement of intent either face ever gets.
     ///
-    /// So: the open file's folder if there is one, and otherwise the working
-    /// directory, trusted. `chosen_root` then answers the only question that
-    /// means the same thing in both faces — whether a search may read past it.
+    /// So: the project the session was started on, then the open file's
+    /// folder, and otherwise the working directory, trusted. `chosen_root`
+    /// then answers the only question that means the same thing in both
+    /// faces — whether a search may read past it.
     fn explorer_root(&self) -> iridium_panel::explorer::ExplorerRoot {
+        if let Some(project) = self.project.as_ref() {
+            return iridium_panel::explorer::chosen_root(project.clone());
+        }
         let from_file = self
             .file
             .as_ref()
@@ -666,12 +713,99 @@ impl App {
                 self.message = Some(Message::error(message));
                 Flow::Running
             },
+            ExplorerAction::Copy(text) => {
+                self.clipboard = text;
+                Flow::Running
+            },
+            ExplorerAction::Paste => {
+                let text = std::mem::take(&mut self.clipboard);
+                if let Some(explorer) = self.explorer.as_mut() {
+                    explorer.paste(&text);
+                }
+                self.clipboard = text;
+                Flow::Running
+            },
+            ExplorerAction::OpenSearch => {
+                self.open_explorer_search();
+                Flow::Running
+            },
+            ExplorerAction::CloseSearch => {
+                self.close_explorer_search();
+                Flow::Running
+            },
         };
+        // A search aimed at text that is no longer being edited has nothing
+        // left to search.
+        if self.search_target == SearchTarget::Explorer
+            && self
+                .explorer
+                .as_ref()
+                .is_none_or(|explorer| explorer.buffer_editor().is_none())
+        {
+            self.close_explorer_search();
+        }
         // The sidebar chord reports `Handled` like any other key — the
         // placement is the panel's own state — so the band's width is what
         // says it moved.
         self.resync_after_band_change(band);
         flow
+    }
+
+    /// Hands a key to a search panel aimed at the explorer's text, or `None`
+    /// when the panel leaves the key to the explorer.
+    fn drive_explorer_search(&mut self, event: &KeyEvent) -> Option<Flow> {
+        let explorer = self.explorer.as_mut()?;
+        let search = &mut self.search;
+        match explorer.with_buffer_editor(|editor| search.handle_key(event, editor)) {
+            None => {
+                self.close_explorer_search();
+                None
+            },
+            Some(SearchOutcome::Ignored) => None,
+            Some(SearchOutcome::Handled | SearchOutcome::Replaced(_)) => Some(Flow::Running),
+            Some(SearchOutcome::Closed) => {
+                self.search_open = false;
+                self.search_target = SearchTarget::Document;
+                self.sync_viewport();
+                Some(Flow::Running)
+            },
+        }
+    }
+
+    /// Opens the search panel on the explorer's text, taking it from the
+    /// document if it was searching there.
+    fn open_explorer_search(&mut self) {
+        if self.search_open && self.search_target == SearchTarget::Document {
+            self.search.close(&mut self.editor);
+        }
+        let search = &mut self.search;
+        let opened = self
+            .explorer
+            .as_mut()
+            .and_then(|explorer| explorer.with_buffer_editor(|editor| search.open(editor)))
+            .is_some();
+        self.search_open = opened;
+        self.search_target = if opened {
+            SearchTarget::Explorer
+        } else {
+            SearchTarget::Document
+        };
+        self.sync_viewport();
+    }
+
+    /// Closes a search panel aimed at the explorer; one aimed at the document
+    /// is left alone.
+    fn close_explorer_search(&mut self) {
+        if self.search_target != SearchTarget::Explorer {
+            return;
+        }
+        let search = &mut self.search;
+        if let Some(explorer) = self.explorer.as_mut() {
+            explorer.with_buffer_editor(|editor| search.close(editor));
+        }
+        self.search_open = false;
+        self.search_target = SearchTarget::Document;
+        self.sync_viewport();
     }
 
     /// Hands a key to the open palette and acts on the outcome.
@@ -781,6 +915,11 @@ impl App {
             // The undo-tree panel has no field for pasted text to land in,
             // and a paste reaching the document under a modal panel would
             // grow the very tree being read.
+            return;
+        }
+        if let Some(explorer) = self.explorer.as_mut() {
+            // Modal: the filter while browsing, every caret while editing.
+            explorer.paste(text);
             return;
         }
         self.editor.paste(text);

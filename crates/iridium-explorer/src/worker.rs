@@ -13,6 +13,7 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvError, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{Builder, JoinHandle};
 
 use crate::ignores::Ignores;
@@ -46,11 +47,20 @@ pub struct Response {
     pub outcome: Result<Vec<Entry>, ListingError>,
 }
 
+/// What the reader calls after posting a finished listing, so a host blocked
+/// on input can wake and collect it.
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
+/// The slot the reader reads its wake from; set after the thread starts.
+type WakeSlot = Arc<Mutex<Option<Wake>>>;
+
 /// The reader thread and the two ends of the conversation with it.
 pub struct Worker {
     /// `None` only while dropping, which is what ends the reader's `recv`.
     requests: Option<Sender<Request>>,
     responses: Receiver<Response>,
+    /// Shared with the reader, which calls it after every response it posts.
+    wake: WakeSlot,
     /// Kept so the thread is joined when the tree is dropped rather than
     /// detached. A detached reader outlives the arena it was reading for,
     /// and on a directory big enough to matter it keeps a disk busy for a
@@ -73,15 +83,25 @@ impl Worker {
     pub fn start(root: PathBuf) -> Result<Self, String> {
         let (request_tx, request_rx) = channel::<Request>();
         let (response_tx, response_rx) = channel::<Response>();
+        let wake: WakeSlot = Arc::new(Mutex::new(None));
+        let reader_wake = Arc::clone(&wake);
 
         let handle = Builder::new()
             .name("iridium-explorer".to_owned())
-            .spawn(move || run(&request_rx, &response_tx, &mut Ignores::new(root)))
+            .spawn(move || {
+                run(
+                    &request_rx,
+                    &response_tx,
+                    &reader_wake,
+                    &mut Ignores::new(root),
+                );
+            })
             .map_err(|error| error.to_string())?;
 
         Ok(Self {
             requests: Some(request_tx),
             responses: response_rx,
+            wake,
             handle: Some(handle),
         })
     }
@@ -96,6 +116,12 @@ impl Worker {
         self.requests
             .as_ref()
             .is_some_and(|requests| requests.send(Request { node, path }).is_ok())
+    }
+
+    /// Sets what the reader calls after each listing it posts, replacing any
+    /// earlier one.
+    pub fn set_wake(&self, wake: Option<Wake>) {
+        *self.wake.lock().unwrap_or_else(PoisonError::into_inner) = wake;
     }
 
     /// Every finished read available right now, without waiting for any.
@@ -128,7 +154,15 @@ impl std::fmt::Debug for Worker {
 }
 
 /// The reader loop: one directory per request, until the sender is dropped.
-fn run(requests: &Receiver<Request>, responses: &Sender<Response>, ignores: &mut Ignores) {
+///
+/// The wake is called after each response is posted, so whoever it wakes
+/// finds the listing already there to collect.
+fn run(
+    requests: &Receiver<Request>,
+    responses: &Sender<Response>,
+    wake: &WakeSlot,
+    ignores: &mut Ignores,
+) {
     loop {
         match requests.recv() {
             Ok(request) => {
@@ -143,6 +177,11 @@ fn run(requests: &Receiver<Request>, responses: &Sender<Response>, ignores: &mut
                     .is_err()
                 {
                     return;
+                }
+                // Cloned out so the lock is not held while the wake runs.
+                let wake = wake.lock().unwrap_or_else(PoisonError::into_inner).clone();
+                if let Some(wake) = wake {
+                    wake();
                 }
             },
             Err(RecvError) => return,

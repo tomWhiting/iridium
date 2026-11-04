@@ -18,6 +18,12 @@
 //! does — and the disagreement would be found by the person using them, not by
 //! a test, because nothing compiles both faces' copies at once.
 //!
+//! # Editing a hierarchy as text
+//!
+//! [`outline`] writes any hierarchy as indented lines and reads edited lines
+//! back as entries that still know what they were. The explorer is its first
+//! user; it knows nothing about files.
+//!
 //! # What is deliberately **not** here
 //!
 //! - **Where a panel lands.** An anchor is a statement about a window, and a
@@ -33,11 +39,12 @@
 pub mod entry;
 pub mod explorer;
 pub mod line;
+pub mod outline;
 pub mod row;
 
 pub use entry::Entry;
 pub use line::{LineBuilder, highlighted_spans, match_color, skip_chars};
 pub use row::{
-    EXPLORER_MAX_VISIBLE_ROWS, PANEL_MAX_VISIBLE_ROWS, PanelBody, PanelCaret, PanelFit, PanelRow,
-    Span,
+    EXPLORER_MAX_VISIBLE_ROWS, MarkKind, PANEL_MAX_VISIBLE_ROWS, PanelBody, PanelCaret, PanelFit,
+    PanelMark, PanelRow, Span,
 };

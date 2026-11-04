@@ -1,9 +1,9 @@
-//! The editable buffer against a real project.
+//! The listing against a real project.
 //!
-//! [`super::super::buffer_tests`] proves the arithmetic without a disk. This
+//! [`super::super::buffer_tests`] proves the reading without a disk. This
 //! proves the join: that the rows the panel is actually drawing — from either
 //! source, over a real directory read on the real worker thread — produce a
-//! buffer whose nesting is the nesting on the filesystem.
+//! listing whose nesting is the nesting on the filesystem.
 //!
 //! # The oracle is the plan itself, and it has a hole worth naming
 //!
@@ -25,17 +25,37 @@ use iridium_editor::KeyCode;
 
 use super::support::{lines, open_directory, opened, press, project, settle, type_query};
 use crate::explorer::FileExplorer;
-use crate::explorer::buffer::Buffer;
-use crate::explorer::plan::Operation;
+use crate::explorer::buffer::Listing;
+use crate::explorer::plan::{EditedRow, Operation};
 
-/// The buffer for what the panel is drawing right now.
-///
-/// A helper rather than a method on the panel: the only caller that builds a
-/// buffer in a shipped build is [`crate::explorer::mode::Mode::begin_edit`],
-/// which takes the rows and loads them itself, so a `FileExplorer::buffer`
-/// would exist for these tests alone.
-fn buffer(explorer: &FileExplorer) -> Buffer {
-    Buffer::load(&explorer.source_rows())
+/// The listing for what the panel is drawing right now.
+fn buffer(explorer: &FileExplorer) -> Listing {
+    Listing::load(&explorer.source_rows()).expect("the rows start at the panel's folder")
+}
+
+/// The rows the planner would read from `listing`.
+fn rows(listing: &Listing) -> Vec<EditedRow> {
+    listing.rows().rows
+}
+
+/// Edits the line whose name is `name` to read `replacement` instead, or
+/// deletes it when `replacement` is `None`.
+fn edit_line(listing: &mut Listing, name: &str, replacement: Option<&str>) {
+    let text = listing.text();
+    let mut found = false;
+    let lines = text
+        .split('\n')
+        .filter_map(|line| {
+            if found || line.trim_start() != name {
+                return Some(line.to_owned());
+            }
+            found = true;
+            let indent = &line[..line.len() - line.trim_start().len()];
+            replacement.map(|replacement| format!("{indent}{replacement}"))
+        })
+        .collect();
+    assert!(found, "no line reads {name:?} in:\n{text}");
+    listing.track(lines);
 }
 
 #[test]
@@ -48,11 +68,11 @@ fn the_buffer_holds_every_row_the_panel_is_drawing() {
     let buffer = buffer(&explorer);
 
     assert_eq!(
-        buffer.rows().len(),
+        rows(&buffer).len(),
         drawn.len(),
         "the buffer and the screen disagree about how many rows there are:\n{drawn:?}"
     );
-    for (row, line) in buffer.rows().iter().zip(&drawn) {
+    for (row, line) in rows(&buffer).iter().zip(&drawn) {
         assert!(
             line.contains(&row.name),
             "the buffer has {:?} where the screen draws {line:?}",
@@ -94,12 +114,7 @@ fn renaming_a_row_plans_a_rename_of_the_file_that_row_draws() {
     open_directory(&mut explorer, "engine");
 
     let mut buffer = buffer(&explorer);
-    let index = buffer
-        .rows()
-        .iter()
-        .position(|row| row.name == "render.rs")
-        .expect("the fixture drew engine/render.rs");
-    buffer.rename(index, "renderer.rs");
+    edit_line(&mut buffer, "render.rs", Some("renderer.rs"));
 
     let plan = buffer
         .plan()
@@ -115,17 +130,12 @@ fn renaming_a_row_plans_a_rename_of_the_file_that_row_draws() {
 }
 
 #[test]
-fn striking_a_row_plans_a_delete_of_the_path_on_disk() {
+fn deleting_a_line_plans_a_delete_of_the_path_on_disk() {
     let directory = project();
     let explorer = opened(&directory);
 
     let mut buffer = buffer(&explorer);
-    let index = buffer
-        .rows()
-        .iter()
-        .position(|row| row.name == "README.md")
-        .expect("the fixture drew README.md");
-    buffer.toggle_deleted(index);
+    edit_line(&mut buffer, "README.md", None);
 
     let plan = buffer
         .plan()
@@ -151,7 +161,8 @@ fn a_filtered_buffer_holds_only_what_the_query_left_on_screen() {
     settle(&mut explorer);
 
     let buffer = buffer(&explorer);
-    let names: Vec<&str> = buffer.rows().iter().map(|row| row.name.as_str()).collect();
+    let rows = rows(&buffer);
+    let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
 
     assert!(
         names.contains(&"button.rs"),
@@ -174,12 +185,7 @@ fn a_filtered_buffer_keeps_the_folders_the_matches_live_in() {
     settle(&mut explorer);
 
     let mut buffer = buffer(&explorer);
-    let index = buffer
-        .rows()
-        .iter()
-        .position(|row| row.name == "button.rs")
-        .expect("the query matched widgets/button.rs");
-    buffer.rename(index, "pressable.rs");
+    edit_line(&mut buffer, "button.rs", Some("pressable.rs"));
 
     let plan = buffer
         .plan()
@@ -200,12 +206,12 @@ fn the_buffer_follows_the_panel_back_out_of_a_filter() {
     // rebuilt from whatever is showing rather than remembering a view.
     let directory = project();
     let mut explorer = opened(&directory);
-    let before = buffer(&explorer).rows().len();
+    let before = rows(&buffer(&explorer)).len();
 
     type_query(&mut explorer, "button");
     settle(&mut explorer);
     assert_ne!(
-        buffer(&explorer).rows().len(),
+        rows(&buffer(&explorer)).len(),
         before,
         "the filter did not change what is on screen, so this proves nothing"
     );
@@ -215,7 +221,7 @@ fn the_buffer_follows_the_panel_back_out_of_a_filter() {
     }
     settle(&mut explorer);
 
-    assert_eq!(buffer(&explorer).rows().len(), before);
+    assert_eq!(rows(&buffer(&explorer)).len(), before);
 }
 
 #[test]
@@ -228,8 +234,8 @@ fn the_root_is_the_only_row_with_no_folder_above_it() {
     open_directory(&mut explorer, "engine");
 
     let buffer = buffer(&explorer);
-    let rootless: Vec<&str> = buffer
-        .rows()
+    let rows = rows(&buffer);
+    let rootless: Vec<&str> = rows
         .iter()
         .filter(|row| row.parent.is_none())
         .map(|row| row.name.as_str())
@@ -241,7 +247,7 @@ fn the_root_is_the_only_row_with_no_folder_above_it() {
         "more than one row has no folder above it: {rootless:?}"
     );
     assert_eq!(
-        buffer.rows().first().map(|row| row.parent),
+        rows.first().map(|row| row.parent),
         Some(None),
         "the row with no folder above it is not the first one"
     );

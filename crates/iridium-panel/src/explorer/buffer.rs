@@ -1,102 +1,58 @@
-//! The editable buffer: the panel's rows, as loaded and as they now read.
+//! The listing being edited: the rows the panel drew, written as text through
+//! [`crate::outline`], and read back as the rows [`super::plan`] takes.
 //!
-//! This is the bridge between what the panel draws and what [`super::plan`]
-//! diffs, and it is **where the by-id rule is actually kept**. Each row's
-//! origin is captured here, once, from the node the row was drawn from — while
-//! the panel still holds its [`iridium_explorer::NodeId`]. Nothing downstream
-//! re-matches rows to nodes by name, because nothing downstream can: `plan`
-//! never sees a tree.
+//! Each row's origin is captured here, once, from the node it was drawn from,
+//! and travels with its line through every edit. Nothing downstream matches a
+//! row to a file by name.
 //!
-//! # Whatever is on screen is what is edited
-//!
-//! Both row sources — the opened tree and the filtered view — hand over the
-//! same thing, a node and a depth, so the buffer does not care which is
-//! showing. That is what makes the panel editable while filtered without a
-//! second code path: a filter narrows the rows, and the diff is therefore
-//! scoped to them. A file that is not on screen is not in the buffer and
-//! cannot be changed by editing it.
-//!
-//! # Nesting comes from indentation
-//!
-//! A row's parent is the nearest row above it at a shallower depth, which is
-//! exactly what the eye reads off the screen. Typing a row under a folder puts
-//! it in that folder because it is drawn there.
-//!
-//! # The rows are not public
-//!
-//! Editing goes through the methods below rather than through the vector,
-//! because every one of them maintains the same invariant — a row's parent
-//! index points at a row that comes before it — and an insertion or a removal
-//! that shifted indices without repairing parents would reparent rows into
-//! folders they were never drawn in. That failure is silent, and the operation
-//! it produces is a rename into the wrong directory.
+//! The folder the panel shows is not a line: it is the parent of every
+//! top-level line, so it cannot be renamed or deleted by editing the text.
 
+use std::fmt;
 use std::path::PathBuf;
 
 use iridium_explorer::NodeId;
 
 use super::panel::FileExplorer;
 use super::plan::{EditedRow, Plan, Refusal, RowOrigin};
+use crate::outline::{LineState, Outline, OutlineEntry, ProjectionError};
 
 impl FileExplorer {
-    /// The rows the panel is drawing, in the shape the buffer takes them.
+    /// The rows the panel is drawing, root first, from whichever list shows.
     ///
-    /// **The two row sources are read through the same two facts** — a node
-    /// and a depth — and that is the whole of why editing behaves identically
-    /// filtered and unfiltered without a second code path. It is also how the
-    /// filter comes to scope the diff: a row the query left off the screen is
-    /// not in the buffer, so nothing downstream has to be told to leave it
-    /// alone.
+    /// A filter narrows these, which is what scopes an edit to the rows on
+    /// screen: a file the query left off cannot be changed by editing.
     pub(super) fn source_rows(&self) -> Vec<SourceRow> {
         if self.is_filtering() {
-            // A filtered view draws every folder showing its contents —
-            // [`super::compose`] hard-codes the disclosure to point down,
-            // because a query has already decided what is inside each one. So
-            // a row typed under a folder here is drawn inside it.
             return self
                 .view
                 .rows
                 .iter()
-                .filter_map(|row| self.source_row(row.id, row.depth, true))
+                .filter_map(|row| self.source_row(row.id, row.depth))
                 .collect();
         }
         (0..self.tree.len())
             .filter_map(|index| self.tree.row(index))
-            .filter_map(|row| self.source_row(row.id, row.depth, row.expanded))
+            .filter_map(|row| self.source_row(row.id, row.depth))
             .collect()
     }
 
     /// One drawn row, or nothing when the arena has no record of the node.
     ///
-    /// Dropping the row is the safe failure rather than a lucky one. A row the
-    /// buffer never saw cannot be edited, and if dropping it left a gap in the
-    /// depths, [`super::plan`] refuses every row below it — because a row's
-    /// drawn folder would no longer be the folder it lives in — instead of
-    /// computing paths against the wrong parent. It should not happen: a node
-    /// is in the arena because it appeared in a listing. Nothing here depends
-    /// on that.
-    fn source_row(&self, id: NodeId, depth: usize, open: bool) -> Option<SourceRow> {
+    /// A dropped row leaves a gap the planner refuses rather than a path
+    /// computed against the wrong folder.
+    fn source_row(&self, id: NodeId, depth: usize) -> Option<SourceRow> {
         let info = self.files.info(id)?;
-        let directory = info.kind.is_expandable();
         Some(SourceRow {
             depth,
             name: info.name.to_owned(),
             path: info.path.to_path_buf(),
-            directory,
-            // Only a folder can be showing anything, and a caller that passed
-            // `true` for a file would otherwise make it look like one a row
-            // could be typed into.
-            open: open && directory,
+            directory: info.kind.is_expandable(),
         })
     }
 }
 
 /// One row as the panel currently draws it.
-///
-/// Deliberately not an [`iridium_explorer::NodeId`]: by the time a row reaches
-/// here its identity has already been resolved to the name and path it had,
-/// and keeping the id would invite something downstream to look it up again
-/// later, against a tree that has since moved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRow {
     /// How far the row is indented, the root at zero.
@@ -105,227 +61,171 @@ pub struct SourceRow {
     pub name: String,
     /// Where the node is right now.
     pub path: PathBuf,
-    /// Whether the node is a directory, so a row typed under it nests.
+    /// Whether the node is a directory.
     pub directory: bool,
-    /// Whether the row is drawn **showing its contents**.
-    ///
-    /// Separate from [`Self::directory`] because the two answer different
-    /// questions and only together decide where a typed row lands. A closed
-    /// folder's contents are not on screen, so a row typed under it is drawn
-    /// beside it and belongs beside it; an open one's are, so a row typed
-    /// under it is drawn inside it. Getting this wrong creates the file in the
-    /// wrong directory, and it is the one such mistake [`super::plan`] cannot
-    /// catch — a typed row has no origin, so there is no real nesting to check
-    /// the drawn nesting against.
-    pub open: bool,
 }
 
-/// The editable buffer.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Buffer {
-    /// The rows as they now read, which is what gets planned.
-    rows: Vec<EditedRow>,
-    /// The rows exactly as loaded.
-    ///
-    /// Kept so that "has this been edited" is a comparison rather than a flag
-    /// somebody has to remember to set. A flag drifts; a comparison cannot.
-    loaded: Vec<EditedRow>,
+/// Why the rows on screen cannot be edited as text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoadError {
+    /// The rows do not start with the folder the panel is showing.
+    NoRoot,
+    /// A name no line of text can hold.
+    Projection(ProjectionError),
 }
 
-impl Buffer {
-    /// Builds a buffer from the rows the panel is drawing.
-    #[must_use]
-    pub fn load(source: &[SourceRow]) -> Self {
-        let rows = rows_from(source);
-        Self {
-            loaded: rows.clone(),
-            rows,
+impl fmt::Display for LoadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoRoot => formatter.write_str("the rows on screen do not start at the folder"),
+            Self::Projection(error) => write!(formatter, "{error}, so these rows cannot be edited"),
         }
     }
+}
 
-    /// The rows as they now read.
-    #[must_use]
-    pub fn rows(&self) -> &[EditedRow] {
-        &self.rows
+/// The rows the planner reads, and the text line each one is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListingRows {
+    /// The root, then every non-blank line, then every entry no line holds,
+    /// struck through.
+    pub rows: Vec<EditedRow>,
+    /// For each row, the line of text it is; `None` for the root and for an
+    /// entry that has no line any more.
+    pub lines: Vec<Option<usize>>,
+}
+
+/// The listing being edited.
+#[derive(Debug, Clone)]
+pub struct Listing {
+    /// The folder the panel shows: every top-level line's parent.
+    root: RowOrigin,
+    /// The rows under it, as text.
+    outline: Outline<RowOrigin>,
+}
+
+impl Listing {
+    /// The listing for `source`, whose first row is the folder being shown.
+    ///
+    /// # Errors
+    ///
+    /// [`LoadError::NoRoot`] when the first row is not a depth-zero folder or
+    /// a later row claims depth zero, and [`LoadError::Projection`] for a name
+    /// that cannot be one line.
+    pub fn load(source: &[SourceRow]) -> Result<Self, LoadError> {
+        let Some((root, rows)) = source.split_first() else {
+            return Err(LoadError::NoRoot);
+        };
+        if root.depth != 0 || !root.directory || rows.iter().any(|row| row.depth == 0) {
+            return Err(LoadError::NoRoot);
+        }
+        let entries = rows
+            .iter()
+            .map(|row| OutlineEntry {
+                depth: row.depth - 1,
+                label: row.name.clone(),
+                branch: row.directory,
+                key: RowOrigin {
+                    name: row.name.clone(),
+                    path: row.path.clone(),
+                },
+            })
+            .collect();
+        Ok(Self {
+            root: RowOrigin {
+                name: root.name.clone(),
+                path: root.path.clone(),
+            },
+            outline: Outline::project(entries).map_err(LoadError::Projection)?,
+        })
     }
 
-    /// Whether anything has been changed since it loaded.
+    /// The text the listing is edited as.
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.outline.text()
+    }
+
+    /// Follows the text to `lines`, reporting whether it changed.
+    pub fn track(&mut self, lines: Vec<String>) -> bool {
+        self.outline.track(lines)
+    }
+
+    /// How each line of the text compares with what was loaded.
+    #[must_use]
+    pub fn line_states(&self) -> Vec<LineState> {
+        self.outline.line_states()
+    }
+
+    /// How many loaded entries no line holds any more.
+    #[must_use]
+    pub fn removed_count(&self) -> usize {
+        self.outline.read().removed.len()
+    }
+
+    /// Whether the text says anything that would be applied.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        self.rows != self.loaded
+        self.outline.is_edited()
     }
 
-    /// What the buffer now says, as operations, or every reason it says
-    /// nothing that can be carried out.
+    /// What the text says, as operations, or every reason it cannot be done.
     ///
     /// # Errors
     ///
     /// One [`Refusal`] per row that cannot be acted on; see [`super::plan`].
     pub fn plan(&self) -> Result<Plan, Vec<Refusal>> {
-        super::plan::plan(&self.rows)
+        super::plan::plan(&self.rows().rows)
     }
 
-    /// Renames the row at `index`, if there is one.
-    ///
-    /// A trailing `/` is oil's way of saying "a folder", and it is the only
-    /// way to say it — so it is read here and stripped, and the plan only ever
-    /// sees names. Stripping it for a row that already exists too, because the
-    /// kind of an existing path is whatever it is on disk and a slash typed
-    /// after its name is not a request to change that.
-    pub fn rename(&mut self, index: usize, name: &str) {
-        let Some(row) = self.rows.get_mut(index) else {
-            return;
-        };
-        let directory = name.ends_with('/');
-        name.strip_suffix('/')
-            .unwrap_or(name)
-            .clone_into(&mut row.name);
-        if row.origin.is_none() {
-            row.directory = directory;
-        }
-    }
-
-    /// Strikes the row at `index` through, or unstrikes it.
-    ///
-    /// A toggle rather than a removal, and that is the point: nothing is
-    /// destroyed until the whole buffer is applied, so a delete pressed by
-    /// mistake is undone by pressing it again rather than by reloading.
-    pub fn toggle_deleted(&mut self, index: usize) {
-        if let Some(row) = self.rows.get_mut(index) {
-            row.deleted = !row.deleted;
-        }
-    }
-
-    /// Inserts a new, empty row directly below `index`, nested to match.
-    ///
-    /// A row typed under an *open folder* belongs inside it; a row typed under
-    /// a file belongs beside that file. That is what the eye reads from the
-    /// indentation, and building the nesting any other way would put the new
-    /// file somewhere other than where it appears.
-    ///
-    /// Returns where the new row landed.
-    pub fn insert_below(&mut self, index: usize, into_folder: bool) -> usize {
-        let (parent, at) = match self.rows.get(index) {
-            Some(_) if into_folder => (Some(index), index + 1),
-            Some(row) => (row.parent, index + 1),
-            // An empty buffer: the row can only be a child of nothing, which
-            // the planner refuses. The panel always has a root row, so this is
-            // unreachable in practice and is not worth a panic.
-            None => (None, self.rows.len()),
-        };
-        self.rows.insert(
-            at,
-            EditedRow {
-                origin: None,
-                name: String::new(),
-                parent,
-                deleted: false,
-                directory: false,
-            },
-        );
-        // Everything after the insertion point moved down one, so every parent
-        // index naming a row at or after it names a row that has moved.
-        for row in &mut self.rows[at + 1..] {
-            if let Some(parent) = row.parent.as_mut()
-                && *parent >= at
-            {
-                *parent += 1;
-            }
-        }
-        at
-    }
-
-    /// Removes a typed row that was never on disk, and everything drawn inside
-    /// it.
-    ///
-    /// Only ever a row the user added: an existing file is struck through, not
-    /// removed, so that the buffer keeps saying what is there. **A typed row's
-    /// descendants are always typed** — rows loaded from the tree are parented
-    /// by the indentation they arrived with, and nothing reparents them under
-    /// something that was never on disk — so taking the subtree can never take
-    /// an existing file's row with it.
-    ///
-    /// Removing the row alone would be worse than wrong: its children's parent
-    /// indices would survive it and, after the shift, name whichever row landed
-    /// in that slot.
-    pub fn remove_typed(&mut self, index: usize) -> bool {
-        if self.rows.get(index).is_none_or(|row| row.origin.is_some()) {
-            return false;
-        }
-
-        // Parents always precede their children, so one forward pass marks the
-        // whole subtree.
-        let mut removed = vec![false; self.rows.len()];
-        removed[index] = true;
-        for position in index + 1..self.rows.len() {
-            if let Some(parent) = self.rows[position].parent
-                && removed.get(parent).copied().unwrap_or(false)
-            {
-                removed[position] = true;
-            }
-        }
-
-        // Where each surviving row lands once the removed ones are gone.
-        let mut moved_to: Vec<Option<usize>> = vec![None; self.rows.len()];
-        let mut next = 0;
-        for (position, gone) in removed.iter().enumerate() {
-            if !gone {
-                moved_to[position] = Some(next);
-                next += 1;
-            }
-        }
-
-        let mut kept = Vec::with_capacity(next);
-        for (position, row) in self.rows.drain(..).enumerate() {
-            if removed[position] {
-                continue;
-            }
-            // A survivor's parent survived too — a removed parent takes its
-            // children with it — so this only ever renumbers. `and_then`
-            // rather than an index because a wrong answer here must not be a
-            // panic in a file manager.
-            let parent = row.parent.and_then(|parent| moved_to[parent]);
-            kept.push(EditedRow { parent, ..row });
-        }
-        self.rows = kept;
-        true
-    }
-}
-
-/// Turns drawn rows into editable ones, deriving each row's parent from the
-/// indentation above it.
-fn rows_from(source: &[SourceRow]) -> Vec<EditedRow> {
-    // The rows still open above the one being read, shallowest first. A row's
-    // parent is the nearest row above it at a shallower depth, so the stack is
-    // unwound down to that row and its top is the answer.
-    //
-    // Holding depths rather than indexing a vector *by* depth is what makes
-    // this independent of the depths arriving contiguously. Both row sources
-    // do produce contiguous depths today — the tree draws an expansion, and
-    // the filter keeps every ancestor of a hit — but a lookup table indexed by
-    // depth answers a jump by silently attaching the row to the wrong parent,
-    // and a wrong parent here is a rename into the wrong directory.
-    let mut open: Vec<(usize, usize)> = Vec::new();
-    let mut rows = Vec::with_capacity(source.len());
-
-    for (index, row) in source.iter().enumerate() {
-        while open.last().is_some_and(|&(depth, _)| depth >= row.depth) {
-            open.pop();
-        }
-        let parent = open.last().map(|&(_, above)| above);
-        open.push((row.depth, index));
-
+    /// The text as the rows the planner reads.
+    #[must_use]
+    pub fn rows(&self) -> ListingRows {
+        let reading = self.outline.read();
+        let entries = self.outline.entries();
+        let capacity = 1 + reading.lines.len() + reading.removed.len();
+        let mut rows = Vec::with_capacity(capacity);
+        let mut lines = Vec::with_capacity(capacity);
         rows.push(EditedRow {
-            origin: Some(RowOrigin {
-                name: row.name.clone(),
-                path: row.path.clone(),
-            }),
-            name: row.name.clone(),
-            parent,
+            origin: Some(self.root.clone()),
+            name: self.root.name.clone(),
+            parent: None,
             deleted: false,
-            directory: row.directory,
+            directory: true,
         });
-    }
+        lines.push(None);
 
-    rows
+        let mut entry_row: Vec<Option<usize>> = vec![None; entries.len()];
+        for line in &reading.lines {
+            if let Some(entry) = line.origin {
+                entry_row[entry] = Some(rows.len());
+            }
+            rows.push(EditedRow {
+                origin: line.origin.map(|entry| entries[entry].key.clone()),
+                name: line.label.clone(),
+                parent: Some(line.parent.map_or(0, |parent| parent + 1)),
+                deleted: false,
+                directory: line.branch,
+            });
+            lines.push(Some(line.line));
+        }
+
+        // An entry with no line is struck through where it was loaded. Loaded
+        // order puts a folder before what it held, so its row already exists.
+        for &entry in &reading.removed {
+            let parent = self
+                .outline
+                .loaded_parent(entry)
+                .map_or(Some(0), |loaded| entry_row[loaded]);
+            entry_row[entry] = Some(rows.len());
+            rows.push(EditedRow {
+                origin: Some(entries[entry].key.clone()),
+                name: entries[entry].label.clone(),
+                parent,
+                deleted: true,
+                directory: entries[entry].branch,
+            });
+            lines.push(None);
+        }
+        ListingRows { rows, lines }
+    }
 }

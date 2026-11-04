@@ -121,6 +121,46 @@ impl FloatingBox {
     }
 }
 
+/// The widest the file explorer's floating box gets, borders included.
+const CENTRED_MAX_WIDTH: usize = 160;
+
+/// The file explorer's floating placement: most of the screen, centred both
+/// ways, so a tree is read and edited as text front and centre.
+///
+/// Unlike [`FloatingBox`] it does not grow to its content: it keeps its size
+/// whatever the listing holds, so the text being edited does not make the box
+/// jump as lines come and go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::frame) struct CentredBox {
+    /// Where the box's columns are: its left border and its width.
+    pub(in crate::frame) frame: FloatingBox,
+    /// The row of the top border.
+    pub(in crate::frame) top: usize,
+    /// The rows between the two borders.
+    pub(in crate::frame) interior_rows: usize,
+}
+
+impl CentredBox {
+    /// Nine tenths of a `columns` by `rows` area, or `None` when that area
+    /// cannot hold an honest panel: narrower than [`MIN_WIDTH`], or too short
+    /// for two borders and a row.
+    pub(in crate::frame) fn fitted(columns: usize, rows: usize) -> Option<Self> {
+        let width = (columns * 9 / 10).clamp(MIN_WIDTH, CENTRED_MAX_WIDTH);
+        if width > columns || rows < 3 {
+            return None;
+        }
+        let height = (rows * 9 / 10).max(3);
+        Some(Self {
+            frame: FloatingBox {
+                left: (columns - width) / 2,
+                width,
+            },
+            top: (rows - height) / 2,
+            interior_rows: height - 2,
+        })
+    }
+}
+
 /// The widest a sidebar gets. Wide enough for a nested path, narrow enough
 /// that the document keeps most of the screen.
 const SIDEBAR_WIDTH: usize = 32;

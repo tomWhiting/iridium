@@ -766,3 +766,35 @@ fn the_temporary_a_cycle_uses_is_not_a_name_any_row_claims() {
         "expected exactly one temporary: {temporaries:?}"
     );
 }
+
+#[test]
+fn a_name_with_a_control_character_in_it_is_refused() {
+    // A tab typed into the text, or a pasted escape, is not something any
+    // listing would show the same way again.
+    let mut rows = [root(), existing("main.rs", 0, "/project/main.rs")];
+    rows[1].name = "ma\tin.rs".to_owned();
+    let refusals = refused(&rows);
+    assert_eq!(refusals.len(), 1);
+    assert!(
+        refusals[0].reason.contains("control character"),
+        "{refusals:?}"
+    );
+}
+
+#[test]
+fn a_deleted_folder_takes_its_deleted_contents_with_it_in_one_delete() {
+    // Deleting the lines of a folder and everything in it is one delete: a
+    // second, for a file inside, would fail on a path the first removed.
+    let mut folder = existing("docs", 0, "/project/docs");
+    folder.directory = true;
+    folder.deleted = true;
+    let mut inside = existing("guide.md", 1, "/project/docs/guide.md");
+    inside.deleted = true;
+    let rows = [root(), folder, inside];
+    assert_eq!(
+        planned(&rows).operations,
+        vec![Operation::Delete {
+            path: PathBuf::from("/project/docs")
+        }]
+    );
+}

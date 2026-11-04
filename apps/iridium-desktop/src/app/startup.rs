@@ -22,7 +22,9 @@ use winit::window::Window;
 
 use super::config;
 use super::files::language_of;
-use super::state::{DesktopApp, DesktopDocument, ExplorerFocus, ExplorerPlacement, UNTITLED};
+use super::state::{
+    DesktopApp, DesktopDocument, ExplorerFocus, ExplorerPlacement, SearchTarget, UNTITLED,
+};
 use super::theme::ThemeSource;
 use super::title::TITLE;
 use crate::command_palette::CommandPalette;
@@ -344,6 +346,7 @@ impl DesktopApp {
                                 path: root.path,
                                 message,
                             })?;
+                        explorer.set_face_keymap(&crate::commands::keymap());
                         explorer.set_user_keymap(&user_keys);
                         explorer
                     })
@@ -369,6 +372,7 @@ impl DesktopApp {
             clipboard: None,
             search: SearchOverlay::new(),
             search_open: false,
+            search_target: SearchTarget::Document,
             palette: {
                 // The palette resolves its own keys (#117) and does its own
                 // filtering of this layer, exactly as the explorer does. Built

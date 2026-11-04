@@ -456,3 +456,38 @@ fn a_trailing_comma_costs_an_error_node_and_nothing_else() {
         "recovery must not produce a degenerate or out-of-bounds span"
     );
 }
+
+#[test]
+fn chunked_text_highlights_exactly_like_one_string() {
+    // Predicates (`#match?` on constants and macros) read the source, so the
+    // pieces must be stitched back correctly for the colours to agree.
+    let source = "const MAX_SIZE: usize = 1; // café\n\
+                  fn main() {\n    let name = \"naïve\";\n    println!(\"{}\", MAX_SIZE);\n    \
+                  let value = Some(name);\n}\n";
+    let (mut tree, highlighter) = ranged_setup();
+    let parsed = tree.parse(source).expect("the fixture parses");
+    // Pieces of at most three characters, so captures and predicates cross
+    // piece boundaries everywhere.
+    let pieces = |bytes: std::ops::Range<usize>| {
+        let text = &source[bytes];
+        let mut cuts: Vec<usize> = text.char_indices().map(|(at, _)| at).step_by(3).collect();
+        cuts.push(text.len());
+        cuts.windows(2)
+            .map(|pair| &text[pair[0]..pair[1]])
+            .collect::<Vec<_>>()
+            .into_iter()
+    };
+    for window in [0..source.len(), 20..70, 40..source.len()] {
+        assert_eq!(
+            highlighter.spans_in_range_chunked(parsed, pieces, window.clone()),
+            highlighter.spans_in_range(parsed, source, window.clone()),
+            "window {window:?}"
+        );
+    }
+    assert!(
+        highlighter
+            .spans_in_range_chunked(parsed, pieces, 5..5)
+            .is_empty(),
+        "an empty window is empty in pieces too"
+    );
+}

@@ -3,6 +3,13 @@
 //! Every test here is `#[ignore]`d: they print measurements rather than assert
 //! them, because a timing threshold in CI is a flake. Run them in release:
 //! `cargo nextest run -p iridium --release --run-ignored only --no-capture scroll_bench`.
+//!
+//! The scroll measurement runs once per document size, 5,000, 50,000 and
+//! 500,000 lines by default, so growth with the file shows in one run, and
+//! for two shapes of Rust: flat statements, and the same lines inside
+//! functions, which gives the file one fold region per twenty lines.
+//! `SCROLL_BENCH_LINES=100000,1000000` picks other sizes, and
+//! `SCROLL_BENCH_ROUNDS=50` repeats each scenario, to give a profiler time.
 
 #![allow(clippy::print_stdout)]
 
@@ -19,21 +26,36 @@ use super::App;
 use crate::cli::Options;
 use crate::file::test_support::TempDir;
 
-/// Lines in the measured document.
-const LINES: usize = 100_000;
+/// Document sizes the scroll measurement runs on unless told otherwise.
+const SIZES: [usize; 3] = [5_000, 50_000, 500_000];
+/// Lines in the document the keystroke measurement types into.
+const TYPING_LINES: usize = 100_000;
 /// The measured terminal.
 const COLUMNS: usize = 200;
 /// The measured terminal.
 const ROWS: usize = 50;
 
-/// A Rust-looking document of [`LINES`] lines, so highlighting is exercised.
-fn document() -> String {
-    let mut text = String::with_capacity(LINES * 48);
-    for index in 0..LINES {
-        let _ = writeln!(
-            text,
-            "    let value_{index} = compute({index}, \"text\"); // note"
-        );
+/// The two shapes of measured document.
+#[derive(Debug, Clone, Copy)]
+enum Shape {
+    /// Statements only: highlighted, and nothing to fold.
+    Flat,
+    /// The same statements in twenty-line functions, each one a fold region.
+    Nested,
+}
+
+/// A Rust-looking document of `lines` lines, so highlighting is exercised.
+fn document(lines: usize, shape: Shape) -> String {
+    let mut text = String::with_capacity(lines * 48);
+    for index in 0..lines {
+        let _ = match (shape, index % 20) {
+            (Shape::Nested, 0) => writeln!(text, "fn block_{index}() {{"),
+            (Shape::Nested, 19) => writeln!(text, "}}"),
+            _ => writeln!(
+                text,
+                "    let value_{index} = compute({index}, \"text\"); // note"
+            ),
+        };
     }
     text
 }
@@ -56,6 +78,12 @@ struct Totals {
 }
 
 impl Totals {
+    fn add(&mut self, other: &Self) {
+        self.frames += other.frames;
+        self.time += other.time;
+        self.bytes += other.bytes;
+    }
+
     fn report(&self, label: &str) {
         let frames = self.frames.max(1);
         println!(
@@ -97,10 +125,33 @@ fn drive(app: &mut App, surface: &mut Surface, inputs: &[TerminalInput]) -> Tota
     totals
 }
 
-/// A session on the measured document, already drawn once.
-fn session(directory: &TempDir) -> (App, Surface) {
+/// The sizes to measure: `SCROLL_BENCH_LINES` if set, else [`SIZES`].
+fn sizes() -> Vec<usize> {
+    std::env::var("SCROLL_BENCH_LINES").map_or_else(
+        |_| SIZES.to_vec(),
+        |list| {
+            list.split(',')
+                .map(|size| {
+                    size.trim()
+                        .parse()
+                        .expect("SCROLL_BENCH_LINES is a list of counts")
+                })
+                .collect()
+        },
+    )
+}
+
+/// How many times each scenario repeats: `SCROLL_BENCH_ROUNDS`, else once.
+fn rounds() -> usize {
+    std::env::var("SCROLL_BENCH_ROUNDS").map_or(1, |rounds| {
+        rounds.parse().expect("SCROLL_BENCH_ROUNDS is a count")
+    })
+}
+
+/// A session on a measured document, already drawn once.
+fn session(directory: &TempDir, lines: usize, shape: Shape) -> (App, Surface) {
     let path = directory.path().join("measured.rs");
-    fs::write(&path, document()).expect("the fixture could be written");
+    fs::write(&path, document(lines, shape)).expect("the fixture could be written");
     let mut app = App::with_config(
         Options {
             path: Some(path),
@@ -119,24 +170,44 @@ fn session(directory: &TempDir) -> (App, Surface) {
 #[test]
 #[ignore = "a measurement, run by hand in release"]
 fn scroll_bench_arrow_and_page() {
-    let directory = TempDir::new("scroll-bench");
-    let (mut app, mut surface) = session(&directory);
-
-    // Down from the top: past the first screen every press scrolls one line.
-    let downs = vec![press(KeyCode::Down); 2_000];
-    drive(&mut app, &mut surface, &downs).report("arrow down x2000");
-
-    let pages = vec![press(KeyCode::PageDown); 200];
-    drive(&mut app, &mut surface, &pages).report("page down x200");
-
     let notch = TerminalInput::Scroll(WheelScroll {
         direction: WheelDirection::Up,
         column: 40,
         row: 10,
         modifiers: Modifiers::none(),
     });
-    let notches = vec![notch; 2_000];
-    drive(&mut app, &mut surface, &notches).report("wheel up x2000");
+    for (shape, lines) in [Shape::Flat, Shape::Nested]
+        .into_iter()
+        .flat_map(|shape| sizes().into_iter().map(move |lines| (shape, lines)))
+    {
+        let directory = TempDir::new("scroll-bench");
+        let (mut app, mut surface) = session(&directory, lines, shape);
+        let mut downs = Totals::default();
+        let mut pages = Totals::default();
+        let mut wheel = Totals::default();
+        for _ in 0..rounds() {
+            // Down from the top: past the first screen every press scrolls
+            // one line. The pages and notches then bring the view back up
+            // near where it started, so every round measures the same walk.
+            app.editor.set_cursor(iridium_editor::Position::new(0, 0));
+            app.ensure_caret_visible();
+            downs.add(&drive(
+                &mut app,
+                &mut surface,
+                &vec![press(KeyCode::Down); 2_000],
+            ));
+            pages.add(&drive(
+                &mut app,
+                &mut surface,
+                &vec![press(KeyCode::PageDown); 200],
+            ));
+            wheel.add(&drive(&mut app, &mut surface, &vec![notch.clone(); 2_000]));
+        }
+        println!("{shape:?}, {lines} lines:");
+        downs.report("  arrow down");
+        pages.report("  page down");
+        wheel.report("  wheel up");
+    }
 }
 
 #[test]
@@ -144,7 +215,7 @@ fn scroll_bench_arrow_and_page() {
 fn scroll_bench_keystroke_cost() {
     for listening in [false, true] {
         let mut editor = Editor::with_defaults();
-        editor.set_content(&document());
+        editor.set_content(&document(TYPING_LINES, Shape::Flat));
         if listening {
             editor.add_listener(|_| {});
         }
@@ -160,7 +231,7 @@ fn scroll_bench_keystroke_cost() {
         }
         let elapsed = started.elapsed();
         println!(
-            "typing into {LINES} lines, listener {}: {:.1} us/keystroke",
+            "typing into {TYPING_LINES} lines, listener {}: {:.1} us/keystroke",
             if listening { "registered" } else { "absent" },
             elapsed.as_secs_f64() * 1e6 / f64::from(presses),
         );

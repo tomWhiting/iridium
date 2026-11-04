@@ -379,6 +379,9 @@ fn saving_writes_the_file_and_leaves_the_buffer_clean() {
     let directory = TempDir::new("app-save");
     let (mut app, path) = open(&directory, "a.txt", "hello");
     type_text(&mut app, "!");
+    // Asked before the save, so the remembered answer is "modified" for this
+    // exact text: the save must still be seen, though the text did not move.
+    assert!(app.is_dirty());
 
     assert_eq!(app.handle_input(&ctrl('s')), Flow::Running);
     assert_eq!(

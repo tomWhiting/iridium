@@ -371,4 +371,20 @@ impl Highlighter {
     ) -> Vec<HighlightSpan> {
         Vec::new()
     }
+
+    /// Produces highlight spans for a byte window of chunked text (always
+    /// empty without syntax).
+    #[must_use]
+    pub fn spans_in_range_chunked<'text, F, C>(
+        &self,
+        _tree: &Tree,
+        _text: F,
+        _range: std::ops::Range<usize>,
+    ) -> Vec<HighlightSpan>
+    where
+        F: FnMut(std::ops::Range<usize>) -> C,
+        C: Iterator<Item = &'text str>,
+    {
+        Vec::new()
+    }
 }

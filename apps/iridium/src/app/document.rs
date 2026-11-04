@@ -69,6 +69,15 @@ impl std::error::Error for StartupError {
     }
 }
 
+/// What a cached [`App::is_dirty`] answer was computed for: one text of one
+/// document against one saved baseline (stamp 0 when there is no file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DirtyKey {
+    document: u64,
+    revision: u64,
+    baseline: u64,
+}
+
 impl App {
     /// Whether the document differs from what is on disk.
     ///
@@ -77,18 +86,30 @@ impl App {
     /// saved state is clean, and a counter would call it modified for the rest
     /// of the session.
     ///
-    /// The comparison is a rope against a `&str`, which returns on a length
-    /// mismatch without reading a byte and otherwise walks the rope's chunks.
-    /// It allocates nothing, and the common case — an edit that changed the
-    /// document's length — costs a comparison of two integers.
+    /// The comparison walks the document, so its answer is kept until the text
+    /// or the saved baseline changes: every frame asks, and a frame that only
+    /// scrolled must not pay for the whole file.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
+        let document = &self.editor.state().document;
+        let key = DirtyKey {
+            document: document.id(),
+            revision: document.revision(),
+            baseline: self.file.as_ref().map_or(0, TextFile::baseline_stamp),
+        };
+        if let Some((known, dirty)) = self.dirty.get()
+            && known == key
+        {
+            return dirty;
+        }
         let saved = self
             .file
             .as_ref()
             .and_then(TextFile::saved_text)
             .unwrap_or("");
-        *self.editor.state().document.rope() != saved
+        let dirty = *document.rope() != saved;
+        self.dirty.set(Some((key, dirty)));
+        dirty
     }
 
     /// Writes the document to its file.

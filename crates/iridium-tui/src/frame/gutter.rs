@@ -103,10 +103,7 @@ pub fn paint(
 /// The background matters even where there is no glyph: it is what makes the
 /// gutter a margin rather than a run of stale cells from the previous frame.
 pub fn blank_row(buffer: &mut CellBuffer, row: usize, area: GutterArea, style: Style) {
-    let end = area.origin.saturating_add(area.width).min(buffer.width());
-    for column in area.origin..end {
-        buffer.set_str(column, row, " ", style);
-    }
+    buffer.blank_span(area.origin, row, area.width, style);
 }
 
 /// The indicator a line should show, if any.

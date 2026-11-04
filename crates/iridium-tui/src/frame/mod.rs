@@ -351,9 +351,7 @@ impl Frame {
 
 /// Fills one row's text area with blanks in `style`.
 fn fill_text_area(buffer: &mut CellBuffer, row: usize, area: TextArea, style: Style) {
-    for offset in 0..area.width {
-        buffer.set_str(area.origin + offset, row, " ", style);
-    }
+    buffer.blank_span(area.origin, row, area.width, style);
 }
 
 /// Paints one selection's contribution to one line.

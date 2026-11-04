@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Node, Query, QueryCursor, StreamingIterator, TextProvider, Tree};
 
 use super::capture::HighlightType;
 use super::span::HighlightSpan;
@@ -99,7 +99,7 @@ impl Highlighter {
     /// genuinely need every span at once.
     #[must_use]
     pub fn spans_in(&self, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
-        self.spans_with(QueryCursor::new(), tree, source)
+        self.spans_with(QueryCursor::new(), tree, source.as_bytes())
     }
 
     /// Returns the highlight spans for the part of `tree` overlapping
@@ -146,7 +146,35 @@ impl Highlighter {
         }
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(range);
-        self.spans_with(cursor, tree, source)
+        self.spans_with(cursor, tree, source.as_bytes())
+    }
+
+    /// [`Self::spans_in_range`] over text held in pieces, such as a rope's
+    /// chunks, so a caller need not build the whole document as one string to
+    /// highlight a window of it.
+    ///
+    /// `text(bytes)` must yield, in order, the pieces of that byte range of
+    /// the exact text `tree` was parsed from. It is asked only for the nodes a
+    /// query predicate reads.
+    #[must_use]
+    pub fn spans_in_range_chunked<'text, F, C>(
+        &self,
+        tree: &Tree,
+        mut text: F,
+        range: Range<usize>,
+    ) -> Vec<HighlightSpan>
+    where
+        F: FnMut(Range<usize>) -> C,
+        C: Iterator<Item = &'text str>,
+    {
+        if range.start >= range.end {
+            return Vec::new();
+        }
+        let mut cursor = QueryCursor::new();
+        cursor.set_byte_range(range);
+        self.spans_with(cursor, tree, |node: Node<'_>| {
+            text(node.byte_range()).map(str::as_bytes)
+        })
     }
 
     /// The walk shared by [`Self::spans_in`] and [`Self::spans_in_range`]:
@@ -178,11 +206,15 @@ impl Highlighter {
     /// fallback — which is why the right colour is on screen today. This
     /// change makes that a guarantee rather than a coincidence, and by
     /// construction it alters no colour that is currently stable.
-    fn spans_with(&self, mut cursor: QueryCursor, tree: &Tree, source: &str) -> Vec<HighlightSpan> {
+    fn spans_with<T, I>(&self, mut cursor: QueryCursor, tree: &Tree, text: T) -> Vec<HighlightSpan>
+    where
+        T: TextProvider<I>,
+        I: AsRef<[u8]>,
+    {
         let mut spans = Vec::new();
 
         // Note: tree-sitter 0.26 uses StreamingIterator instead of Iterator
-        let mut matches = cursor.matches(self.query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(self.query, tree.root_node(), text);
 
         while let Some(match_) = matches.next() {
             for capture in match_.captures {

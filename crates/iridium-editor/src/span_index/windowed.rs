@@ -25,6 +25,8 @@
 
 use std::ops::Range;
 
+use ropey::Rope;
+
 use crate::document::Document;
 use crate::editor::Editor;
 use crate::span_index::SpanIndex;
@@ -235,10 +237,16 @@ impl WindowedSpanCache {
         };
 
         let covered_lines = widen(&requested, line_count);
+        // Read through the rope's chunks: building the text as one string
+        // would make every window escape cost the whole document.
         let index = state.syntax.tree().map_or_else(SpanIndex::empty, |tree| {
-            let text = state.document.text();
-            let window = byte_window(&state.document, &covered_lines, text.len());
-            SpanIndex::new(highlighter.spans_in_range(tree, &text, window))
+            let rope = state.document.rope();
+            let window = byte_window(&state.document, &covered_lines, rope.len());
+            SpanIndex::new(highlighter.spans_in_range_chunked(
+                tree,
+                |bytes| chunks_of(rope, bytes),
+                window,
+            ))
         });
         self.rebuilds = self.rebuilds.saturating_add(1);
         self.generation = self.generation.wrapping_add(1);
@@ -318,10 +326,20 @@ fn widen(requested: &Range<usize>, line_count: usize) -> Range<usize> {
     start..end
 }
 
+/// The pieces of `bytes` of `rope`, in order. A range the rope cannot slice —
+/// past its end or inside a character, which a tree parsed from this text
+/// never names — reads as empty rather than panicking mid-frame.
+fn chunks_of(rope: &Rope, bytes: Range<usize>) -> impl Iterator<Item = &str> {
+    rope.try_slice(bytes)
+        .ok()
+        .into_iter()
+        .flat_map(|slice| slice.chunks())
+}
+
 /// The byte range of a covered line window, for the kernel's range derive.
 ///
-/// `text_len` is the length of the document's materialised text, so the end
-/// of the last line needs no extra rope lookup. Line indices at or past the
+/// `text_len` is the document's length in bytes, so the end of the last line
+/// needs no extra rope lookup. Line indices at or past the
 /// line count land on the document's end.
 fn byte_window(document: &Document, lines: &Range<usize>, text_len: usize) -> Range<usize> {
     let start = document

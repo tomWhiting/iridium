@@ -10,7 +10,9 @@
 //! # What is compared, and what that costs
 //!
 //! A [`TextFile`] remembers the **exact bytes** that were on disk the last time
-//! it and the disk agreed — at load, and after each successful save. Before a
+//! it and the disk agreed — at load, and after each successful save — held as
+//! the text and whether a byte-order mark preceded it, so that the text is
+//! there to compare a document against without decoding it again. Before a
 //! save it reads the file again and compares those bytes. Nothing else is
 //! consulted for the decision.
 //!
@@ -66,6 +68,7 @@ mod tests;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use atomic::write_atomically;
 
@@ -80,9 +83,18 @@ pub struct TextFile {
     path: PathBuf,
     /// Whether the file began with a byte-order mark.
     bom: bool,
-    /// The bytes on disk as of the last load or save, or `None` for a file that
-    /// has never existed on disk.
-    baseline: Option<Vec<u8>>,
+    /// The text on disk as of the last load or save, without its byte-order
+    /// mark, or `None` for a file that has never existed on disk. With `bom`
+    /// it is exactly the bytes that were there.
+    baseline: Option<String>,
+    /// Which baseline this is. See [`TextFile::baseline_stamp`].
+    stamp: u64,
+}
+
+/// A stamp no baseline in this process has had before.
+fn next_stamp() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// What the disk says about a file, relative to what we last saw.
@@ -212,11 +224,13 @@ impl TextFile {
             path: path.to_path_buf(),
             offset,
         })?;
+        drop(bytes);
         Ok((
             Self {
                 path: path.to_path_buf(),
                 bom,
-                baseline: Some(bytes),
+                baseline: Some(text.clone()),
+                stamp: next_stamp(),
             },
             text,
         ))
@@ -229,6 +243,7 @@ impl TextFile {
             path: path.to_path_buf(),
             bom: false,
             baseline: None,
+            stamp: next_stamp(),
         }
     }
 
@@ -259,9 +274,16 @@ impl TextFile {
     /// has never been on disk, whose empty buffer is nonetheless clean.
     #[must_use]
     pub fn saved_text(&self) -> Option<&str> {
-        let baseline = self.baseline.as_deref()?;
-        let body = baseline.strip_prefix(&BOM).unwrap_or(baseline);
-        std::str::from_utf8(body).ok()
+        self.baseline.as_deref()
+    }
+
+    /// Identifies the current [`saved_text`](Self::saved_text): it changes on
+    /// every load, save, reload and rename, and no two baselines in a process
+    /// share one, so a comparison cached against a stamp is valid while the
+    /// stamp is unchanged.
+    #[must_use]
+    pub const fn baseline_stamp(&self) -> u64 {
+        self.stamp
     }
 
     /// Compares the disk against what we last agreed on.
@@ -289,7 +311,12 @@ impl TextFile {
             // case without a byte-for-byte pass; equal lengths prove nothing
             // and are never taken as agreement.
             (Some(baseline), Some(current)) => {
-                if baseline.len() == current.len() && baseline == current {
+                let mark: &[u8] = if self.bom { &BOM } else { &[] };
+                let agrees = current.len() == mark.len() + baseline.len()
+                    && current
+                        .strip_prefix(mark)
+                        .is_some_and(|body| body == baseline.as_bytes());
+                if agrees {
                     DiskState::Agrees
                 } else {
                     DiskState::Differs
@@ -326,7 +353,8 @@ impl TextFile {
             path: self.path.clone(),
             source,
         })?;
-        self.baseline = Some(bytes);
+        self.baseline = Some(text.to_owned());
+        self.stamp = next_stamp();
         Ok(())
     }
 
@@ -356,8 +384,10 @@ impl TextFile {
             path: self.path.clone(),
             offset,
         })?;
+        drop(bytes);
         self.bom = bom;
-        self.baseline = Some(bytes);
+        self.baseline = Some(text.clone());
+        self.stamp = next_stamp();
         Ok(text)
     }
 
@@ -370,6 +400,7 @@ impl TextFile {
     pub fn rename(&mut self, path: &Path) {
         self.path = path.to_path_buf();
         self.baseline = None;
+        self.stamp = next_stamp();
     }
 }
 

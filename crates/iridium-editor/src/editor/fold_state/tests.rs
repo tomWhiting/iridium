@@ -147,6 +147,23 @@ fn non_foldable_line() {
     assert!(!state.toggle_fold_at(0));
 }
 
+#[test]
+fn the_searched_lookups_agree_with_a_scan_on_every_line() {
+    // Nested regions, two of them opening on one line, and lines with none.
+    let source = "mod outer {\n    fn a() {\n        if x { if y {\n            z();\n        } }\n    }\n\n    \
+                  fn b() {\n        let v = [\n            1,\n        ];\n    }\n}\n// tail\n";
+    let state = setup_rust_fold_state(source);
+    assert!(!state.regions().is_empty(), "the fixture must fold");
+    for line in 0..=source.lines().count() + 1 {
+        let scanned = state
+            .regions()
+            .iter()
+            .find(|region| region.start_line == line);
+        assert_eq!(state.region_at(line), scanned, "line {line}");
+        assert_eq!(state.is_foldable(line), scanned.is_some(), "line {line}");
+    }
+}
+
 /// The generation counter is what lets a retained frame notice a fold:
 /// folding never touches the document revision, so every mutation that can
 /// change what folding makes visible must move this counter — and the

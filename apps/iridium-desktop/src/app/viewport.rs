@@ -7,16 +7,30 @@
 //! three paths out of four is a document that scrolls past its end on the
 //! fourth.
 
+use iridium_editor::Position;
 use iridium_editor::render::FrameCompositor;
 
 use super::startup::{BASE_FONT_SIZE, FONT};
 use super::state::{DesktopApp, ExplorerPlacement};
 use crate::overlay::PanelFit;
-use crate::units::{pixel_to_index, scale_to_f32, u32_to_f32};
+use crate::units::{index_to_f32, pixel_to_index, scale_to_f32, u32_to_f32};
 
 /// The vertical padding scroll-to-caret keeps between the caret and the
 /// viewport edge, matching the compositor's own content padding.
 const SCROLL_PADDING: f32 = 10.0;
+
+/// The kernel's view and caret just before a key or command ran.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct KernelView {
+    /// The kernel's first visual line, as this face lent it.
+    top: usize,
+    /// The primary caret.
+    caret: Position,
+    /// The document revision, so an edit counts as the caret moving.
+    revision: u64,
+    /// One line, in this face's pixels.
+    line_height: f32,
+}
 
 impl DesktopApp {
     /// Moves the scroll offset under the usual clamp, repainting only when it
@@ -84,6 +98,53 @@ impl DesktopApp {
         self.clamp_scroll();
     }
 
+    /// Writes this face's top line into the kernel's viewport before a key or
+    /// command runs, so a kernel view verb (scroll a line, half a page, centre
+    /// the caret) starts from what is on screen. Returns what to compare
+    /// against afterwards, or `None` without a window to measure.
+    pub(super) fn lend_scroll_to_kernel(&mut self) -> Option<KernelView> {
+        let line_height = self.shell.as_ref()?.compositor.line_height();
+        if line_height <= 0.0 {
+            return None;
+        }
+        let scroll_y = self.workspace.active_payload()?.scroll_y;
+        let editor = self.workspace.active_editor_mut()?;
+        editor.scroll_view_to(pixel_to_index(scroll_y / line_height));
+        Some(KernelView {
+            top: editor.view_top(),
+            caret: editor.cursor(),
+            revision: editor.state().document.revision(),
+            line_height,
+        })
+    }
+
+    /// After a key or command: moves this face's scroll by as many lines as
+    /// the kernel moved its view, then scrolls to the caret unless the kernel
+    /// scrolled and the caret stayed put — a scroll verb may leave the caret
+    /// off screen, exactly as it does in the terminal.
+    ///
+    /// With soft wrap on, a kernel line can be several rows here, so the
+    /// distance is approximate; the direction and the caret rule are not.
+    pub(super) fn follow_kernel_view(&mut self, before: Option<KernelView>) {
+        let Some(before) = before else {
+            self.ensure_caret_visible();
+            return;
+        };
+        let Some(editor) = self.workspace.active_editor() else {
+            return;
+        };
+        let top = editor.view_top();
+        let caret_moved = editor.cursor() != before.caret
+            || editor.state().document.revision() != before.revision;
+        if top != before.top {
+            let lines = index_to_f32(top.abs_diff(before.top)) * before.line_height;
+            self.scroll_by(if top > before.top { lines } else { -lines });
+        }
+        if caret_moved || top == before.top {
+            self.ensure_caret_visible();
+        }
+    }
+
     /// Clamps the scroll offset to what the document can honestly show —
     /// the same clamp the web face applies on every scroll write.
     pub(super) fn clamp_scroll(&mut self) {
@@ -135,10 +196,9 @@ impl DesktopApp {
     ///
     /// Painting never reads that viewport — the compositor is driven by
     /// `scroll_y` — but `cursor.pageUp`/`pageDown` hop by its
-    /// `visible_lines`, so it must describe the real window. The `state_mut`
-    /// this costs discards sticky columns and any pending chord; it is paid
-    /// only on resize and scale change, exactly where the terminal face pays
-    /// it.
+    /// `visible_lines`, and the kernel's view verbs measure against it, so it
+    /// must describe the real window. It leaves sticky columns and a pending
+    /// chord alone.
     pub(super) fn sync_kernel_viewport(&mut self) {
         let Some(shell) = &self.shell else {
             return;

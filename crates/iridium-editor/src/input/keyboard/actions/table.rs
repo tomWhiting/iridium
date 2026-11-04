@@ -228,6 +228,15 @@ pub(super) static ACTIONS: &[(CommandId, KeyboardAction)] = &[
     ),
     (builtin::SEARCH_NEXT_MATCH, Action::SearchNextMatch),
     (builtin::SEARCH_PREVIOUS_MATCH, Action::SearchPreviousMatch),
+    // View.
+    (builtin::VIEW_SCROLL_LINE_UP, Action::ScrollLineUp),
+    (builtin::VIEW_SCROLL_LINE_DOWN, Action::ScrollLineDown),
+    (builtin::VIEW_SCROLL_HALF_PAGE_UP, Action::HalfPageUp),
+    (builtin::VIEW_SCROLL_HALF_PAGE_DOWN, Action::HalfPageDown),
+    (builtin::VIEW_CENTER_CARET, Action::CenterCaret),
+    (builtin::VIEW_CARET_TO_TOP, Action::CaretToTop),
+    (builtin::VIEW_CARET_TO_BOTTOM, Action::CaretToBottom),
+    (builtin::VIEW_RECENTER, Action::Recenter),
 ];
 
 /// Returns the implementation token for `id`, or `None` when this handler does

@@ -27,12 +27,12 @@ use iridium_editor::{
     history::{Command, UndoNodeId},
     input::{
         ClipboardOperation, CommandRunError, HistoryRequest, KeyCode, KeyEvent, KeyResult,
-        KeyboardHandler, Modifiers, SearchAction,
+        KeyboardHandler, Modifiers, SearchAction, ViewRequest,
     },
     render::{
         FrameCompositor, FrameTarget, HighlightContext, HighlightSource, RunStyle, SpanRun,
         Viewport, WebSurface, flatten_spans, snap_down,
-        units::{pixel_to_index, u32_to_f32},
+        units::{index_to_f32, pixel_to_index, u32_to_f32},
     },
     theme::Color,
 };
@@ -711,6 +711,9 @@ impl WebEditor {
                 }
                 "handled".to_string()
             },
+            // The kernel decides where the view goes; this face's pixel scroll
+            // follows it.
+            KeyResult::View(request) => self.apply_view_request(request),
             // A binding named a command the kernel does not implement — a host
             // command. The key was consumed and the id is reported so the host can
             // run it; the caller reads `takePendingHostCommand` for the id.
@@ -725,6 +728,33 @@ impl WebEditor {
                 "handled:command".to_string()
             },
         }
+    }
+
+    /// Performs a [`ViewRequest`] in the kernel and moves this face's pixel
+    /// scroll by as many lines as the kernel's view moved.
+    ///
+    /// The kernel's viewport is first given this face's size and top line, so
+    /// the request is measured against what is on screen. With soft wrap on, a
+    /// kernel line can be several rows here, so the result is approximate.
+    fn apply_view_request(&mut self, request: ViewRequest) -> String {
+        let line_height = self.compositor.line_height();
+        if line_height <= 0.0 {
+            return "handled".to_string();
+        }
+        self.editor.set_viewport_geometry(
+            u32_to_f32(self.surface.width()),
+            u32_to_f32(self.surface.height()),
+            line_height,
+        );
+        self.editor
+            .scroll_view_to(pixel_to_index(self.scroll_y / line_height));
+        let before = self.editor.view_top();
+        self.editor.perform_view_request(request);
+        let after = self.editor.view_top();
+        let lines = index_to_f32(after.abs_diff(before));
+        let delta = if after >= before { lines } else { -lines };
+        self.scroll_by(delta * line_height);
+        "handled".to_string()
     }
 
     /// Performs one [`HistoryRequest`] and returns the status string.

@@ -226,6 +226,27 @@ impl Driver {
         Ok(self.classify(event))
     }
 
+    /// Returns the next event if one is already waiting, without blocking.
+    ///
+    /// For draining a burst before painting: a trackpad sends wheel notches far
+    /// faster than frames are worth drawing, and painting each one makes the
+    /// view trail behind the hand.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error from polling or reading the terminal.
+    pub fn next_ready_event(&mut self) -> io::Result<Option<DriverEvent>> {
+        loop {
+            if !self.terminal.poll(|_| true, Some(Duration::ZERO))? {
+                return Ok(None);
+            }
+            let event = self.terminal.read(|_| true)?;
+            if let Some(driver_event) = self.classify(event) {
+                return Ok(Some(driver_event));
+            }
+        }
+    }
+
     /// Sorts one terminal event, returning `None` for one that was consumed by
     /// capability negotiation.
     fn classify(&mut self, event: Event) -> Option<DriverEvent> {

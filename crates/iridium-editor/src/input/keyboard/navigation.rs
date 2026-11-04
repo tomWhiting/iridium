@@ -126,6 +126,22 @@ impl KeyboardHandler {
         Self::create_selection_command(cursor, &new_cursor)
     }
 
+    /// Moves every cursor half a page up or down, honouring the sticky columns.
+    ///
+    /// Half of [`Self::page_rows`], rounded down and never less than one line,
+    /// for the same reason a page never is. Never extends the selection.
+    pub(super) fn half_page_motion(
+        &mut self,
+        document: &Document,
+        cursor: &CursorState,
+        direction: VerticalDirection,
+        pages: usize,
+    ) -> KeyResult {
+        let lines = (self.page_rows / 2).max(1).saturating_mul(pages.max(1));
+        let new_cursor = self.move_vertically(document, cursor, false, direction, lines);
+        Self::create_selection_command(cursor, &new_cursor)
+    }
+
     /// Collapses to the primary cursor and clears its selection.
     ///
     /// A state that is already a single collapsed caret is left alone, so the key

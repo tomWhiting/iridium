@@ -257,7 +257,9 @@ pub fn hit_layout(editor: &Editor, columns: usize, rows: usize, chrome: Chrome<'
 /// closes: the panel changes how many rows the document has.
 ///
 /// Scroll position is left alone: where the document is scrolled to is kernel
-/// state, and a resize does not move it.
+/// state, and a resize does not move it — except that a caret on screen is
+/// kept on screen. The keyboard handler is left alone too, so a resize mid-chord
+/// or between two vertical moves loses nothing.
 pub fn sync_viewport(editor: &mut Editor, columns: usize, rows: usize, chrome: Chrome<'_>) {
     let geometry = hit_layout(editor, columns, rows, chrome);
     let navigation = editor.state().config.word_wrap.then(|| {
@@ -270,7 +272,7 @@ pub fn sync_viewport(editor: &mut Editor, columns: usize, rows: usize, chrome: C
             >
     });
     editor.set_visual_navigation(navigation);
-    editor.set_viewport(geometry.viewport);
+    editor.set_viewport_geometry(geometry.viewport.width, geometry.viewport.height, 1.0);
 }
 
 /// Where a document position lands on screen, if it is visible at all.

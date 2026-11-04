@@ -54,7 +54,9 @@ use super::builtin::{
     MULTI_CURSOR_ADD_SELECTION_TO_NEXT_MATCH, MULTI_CURSOR_REMOVE_LAST_CURSOR,
     MULTI_CURSOR_SELECT_ALL_OCCURRENCES, PALETTE_OPEN, SEARCH_IN_SELECTION, SEARCH_NEXT_MATCH,
     SEARCH_OPEN, SEARCH_PREVIOUS_MATCH, SELECTION_COLLAPSE_TO_PRIMARY, SELECTION_SELECT_ALL,
-    VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB, WORKSPACE_PREVIOUS_TAB,
+    VIEW_RECENTER, VIEW_SCROLL_HALF_PAGE_DOWN, VIEW_SCROLL_HALF_PAGE_UP, VIEW_SCROLL_LINE_DOWN,
+    VIEW_SCROLL_LINE_UP, VIEW_TOGGLE_THEME, WORKSPACE_CLOSE_TAB, WORKSPACE_NEXT_TAB,
+    WORKSPACE_PREVIOUS_TAB,
 };
 use super::{
     CommandId, KeyBinding, Keymap, KeymapStack, ModifierPattern, ModifierState, StrokePattern,
@@ -64,7 +66,7 @@ use crate::input::KeyCode;
 /// The number of bindings in the default keymap.
 ///
 /// Asserted in the module tests so the documented count cannot drift.
-pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 71;
+pub const DEFAULT_KEYMAP_BINDING_COUNT: usize = 76;
 
 use ModifierState::{Any, Forbidden, Required};
 
@@ -141,6 +143,11 @@ const CTRL_SHIFT: ModifierPattern = pattern(Required, Required, Forbidden, Forbi
 /// alternative futures is next to stepping along one — so `Ctrl+Alt+Z` and
 /// `Ctrl+Alt+Y` sit exactly where `Ctrl+Z` and `Ctrl+Y` already are in the hand.
 const CTRL_ALT: ModifierPattern = pattern(Any, Required, Required, Forbidden, Any);
+
+/// `Ctrl` alone on a vertical arrow: scroll a line without moving the caret.
+const VIEW_LINE: ModifierPattern = pattern(Forbidden, Required, Forbidden, Forbidden, Any);
+/// `Alt` alone on `PageUp`/`PageDown`: half a page.
+const VIEW_HALF_PAGE: ModifierPattern = pattern(Forbidden, Forbidden, Required, Forbidden, Any);
 
 /// No continuation: a single-chord binding.
 ///
@@ -235,9 +242,9 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
     ),
     // ----- Vertical navigation -----
     //
-    // The plain patterns read only `Shift`, mirroring dispatch: `Ctrl+Up` and
-    // `Meta+Up` fall through to caret movement today. The line and add-cursor
-    // chords below are more specific, so they win where they apply.
+    // The plain patterns read only `Shift`, so `Meta+Up` falls through to caret
+    // movement. The line, add-cursor and view-scroll chords are more specific,
+    // so they win where they apply.
     (
         StrokePattern::new(KeyCode::Up, NO_SHIFT),
         CHORD,
@@ -587,6 +594,37 @@ const BINDINGS: &[(StrokePattern, &[StrokePattern], CommandId)] = &[
         StrokePattern::new(KeyCode::F3, WITH_SHIFT),
         CHORD,
         SEARCH_PREVIOUS_MATCH,
+    ),
+    // ----- View -----
+    // `Ctrl+Up`/`Ctrl+Down` scroll a line, as in VS Code; requiring `Ctrl` makes
+    // them beat the plain arrows, and forbidding `Alt` leaves add-cursor alone.
+    // Every terminal encodes all of these, legacy xterm included.
+    (
+        StrokePattern::new(KeyCode::Up, VIEW_LINE),
+        CHORD,
+        VIEW_SCROLL_LINE_UP,
+    ),
+    (
+        StrokePattern::new(KeyCode::Down, VIEW_LINE),
+        CHORD,
+        VIEW_SCROLL_LINE_DOWN,
+    ),
+    (
+        StrokePattern::new(KeyCode::PageUp, VIEW_HALF_PAGE),
+        CHORD,
+        VIEW_SCROLL_HALF_PAGE_UP,
+    ),
+    (
+        StrokePattern::new(KeyCode::PageDown, VIEW_HALF_PAGE),
+        CHORD,
+        VIEW_SCROLL_HALF_PAGE_DOWN,
+    ),
+    // One key reaches centre, top and bottom, as Emacs's `C-l` does. The three
+    // single-placement commands are palette verbs, for the reason above.
+    (
+        StrokePattern::new(KeyCode::Char('l'), CTRL_NO_SHIFT),
+        CHORD,
+        VIEW_RECENTER,
     ),
 ];
 

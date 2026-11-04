@@ -697,7 +697,12 @@ impl IridiumEditor {
     pub fn resize(&self, width: f64, height: f64) -> Result<()> {
         let width = viewport_dimension(width, "width")?;
         let height = viewport_dimension(height, "height")?;
-        self.with_editor_mut(|editor| editor.state_mut().viewport.resize(width, height));
+        // Through the kernel's geometry call, not `state_mut`: a resize must not
+        // drop the sticky column or a half-typed chord.
+        self.with_editor_mut(|editor| {
+            let line_height = editor.state().viewport.line_height;
+            editor.set_viewport_geometry(width, height, line_height);
+        });
         Ok(())
     }
 
@@ -819,9 +824,14 @@ impl IridiumEditor {
     }
 
     /// Emits both content and selection changed events.
+    ///
+    /// The JavaScript callback takes the whole text as a string, so that copy is
+    /// made only when someone has subscribed to it.
     fn emit_content_and_selection_changed(&self) {
-        let content = self.get_content();
-        self.event_emitter.emit("contentChanged", &content);
+        if self.event_emitter.listener_count("contentChanged") > 0 {
+            let content = self.get_content();
+            self.event_emitter.emit("contentChanged", &content);
+        }
         self.emit_selection_changed();
     }
 }

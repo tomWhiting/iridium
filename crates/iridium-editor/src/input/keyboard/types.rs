@@ -232,6 +232,33 @@ pub enum HistoryRequest {
     PreviousBranch,
 }
 
+/// Where [`ViewRequest::Align`] puts the caret's line on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CaretAlignment {
+    /// The caret's line in the middle row.
+    Center,
+    /// The caret's line at the top, less the scroll margin.
+    Top,
+    /// The caret's line at the bottom, less the scroll margin.
+    Bottom,
+}
+
+/// A viewport change, named rather than performed.
+///
+/// The keyboard handler has no viewport, so like [`AstRequest`] the verb names
+/// what it wants and [`crate::Editor`] performs it, in one place for a keystroke
+/// and a palette invocation alike. None of these moves a caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ViewRequest {
+    /// Scroll by this many lines; negative is towards the top.
+    ScrollLines(isize),
+    /// Put the caret's line at a fixed place on screen.
+    Align(CaretAlignment),
+    /// Centre, then top, then bottom, on presses that each find the caret and
+    /// the view where the previous press left them.
+    AlignCycle,
+}
+
 /// A structural selection change, named rather than performed.
 ///
 /// The keyboard layer cannot carry these out itself for the same reason it
@@ -415,6 +442,11 @@ pub enum KeyResult {
         /// Requested steps; zero leaves the selection unchanged.
         count: u32,
     },
+    /// The event asked for the viewport to move.
+    ///
+    /// See [`ViewRequest`] for why this is a request rather than a
+    /// [`Self::Command`].
+    View(ViewRequest),
 
     /// A binding resolved to a command this kernel does not implement.
     ///

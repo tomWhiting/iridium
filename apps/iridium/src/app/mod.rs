@@ -26,7 +26,7 @@
 //! dispatched, and it is reached only because the kernel reported
 //! [`EditorKeyResult::HostCommand`](iridium_editor::EditorKeyResult::HostCommand).
 //!
-//! # Scrolling costs more than it should
+//! # Scrolling is the kernel's
 //!
 //! The kernel's fold-aware viewport uses cell units in the terminal. Its
 //! dedicated geometry/scroll API preserves keyboard intentions during host
@@ -84,6 +84,8 @@ mod wrapping;
 #[cfg(test)]
 mod wrapping_tests;
 
+#[cfg(test)]
+mod scroll_bench;
 #[cfg(test)]
 mod selection_tests;
 #[cfg(test)]

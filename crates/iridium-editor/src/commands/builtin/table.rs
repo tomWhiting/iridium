@@ -42,7 +42,9 @@ use super::ids::{
     TRANSFORM_LOWER_CASE, TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES,
     TRANSFORM_SCREAMING_SNAKE_CASE, TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES,
     TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE, TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE,
-    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE,
+    TRANSFORM_TRIM_TRAILING_WHITESPACE, TRANSFORM_UPPER_CASE, VIEW_CARET_TO_BOTTOM,
+    VIEW_CARET_TO_TOP, VIEW_CENTER_CARET, VIEW_RECENTER, VIEW_SCROLL_HALF_PAGE_DOWN,
+    VIEW_SCROLL_HALF_PAGE_UP, VIEW_SCROLL_LINE_DOWN, VIEW_SCROLL_LINE_UP,
 };
 
 const NAV: CommandCategory = CommandCategory::NAVIGATION;
@@ -56,6 +58,7 @@ const HISTORY: CommandCategory = CommandCategory::HISTORY;
 const MULTI: CommandCategory = CommandCategory::MULTI_CURSOR;
 const SYNTAX: CommandCategory = CommandCategory::SYNTAX;
 const SEARCH: CommandCategory = CommandCategory::SEARCH;
+const VIEW: CommandCategory = CommandCategory::VIEW;
 const GENERAL: CommandCategory = CommandCategory::GENERAL;
 
 /// Every built-in command's metadata, in declaration order.
@@ -733,6 +736,63 @@ pub static BUILTIN: &[CommandMeta] = &[
     ),
     CommandMeta::from_static(SEARCH_IN_SELECTION, "Find in Selections", SEARCH),
     CommandMeta::from_static(SEARCH_CLEAR_SCOPE, "Search Whole Document", SEARCH),
+    // ----- View -----
+    CommandMeta::described(
+        VIEW_SCROLL_LINE_UP,
+        "Scroll Line Up",
+        "Moves the view one line up without moving any caret.",
+        VIEW,
+    )
+    .with_aliases(&["scroll up"]),
+    CommandMeta::described(
+        VIEW_SCROLL_LINE_DOWN,
+        "Scroll Line Down",
+        "Moves the view one line down without moving any caret.",
+        VIEW,
+    )
+    .with_aliases(&["scroll down"]),
+    CommandMeta::described(
+        VIEW_SCROLL_HALF_PAGE_UP,
+        "Scroll Half Page Up",
+        "Moves the view and every caret half a page up; the caret keeps its row.",
+        VIEW,
+    )
+    .with_aliases(&["half page up"]),
+    CommandMeta::described(
+        VIEW_SCROLL_HALF_PAGE_DOWN,
+        "Scroll Half Page Down",
+        "Moves the view and every caret half a page down; the caret keeps its row.",
+        VIEW,
+    )
+    .with_aliases(&["half page down"]),
+    CommandMeta::described(
+        VIEW_CENTER_CARET,
+        "Centre Caret Line",
+        "Scrolls so the caret's line is in the middle of the view.",
+        VIEW,
+    )
+    .with_aliases(&["center", "centre", "zz"]),
+    CommandMeta::described(
+        VIEW_CARET_TO_TOP,
+        "Scroll Caret Line to Top",
+        "Scrolls so the caret's line is at the top of the view, less the scroll margin.",
+        VIEW,
+    )
+    .with_aliases(&["zt"]),
+    CommandMeta::described(
+        VIEW_CARET_TO_BOTTOM,
+        "Scroll Caret Line to Bottom",
+        "Scrolls so the caret's line is at the bottom of the view, less the scroll margin.",
+        VIEW,
+    )
+    .with_aliases(&["zb"]),
+    CommandMeta::described(
+        VIEW_RECENTER,
+        "Recentre",
+        "Centres the caret's line; pressing again puts it at the top, then the bottom.",
+        VIEW,
+    )
+    .with_aliases(&["recenter", "center", "centre"]),
     // ----- General -----
     CommandMeta::described(
         COMMAND_NO_OP,

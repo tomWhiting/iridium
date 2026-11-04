@@ -236,8 +236,8 @@ impl App {
     ///
     /// Needed whenever the screen changes size and whenever the search panel
     /// opens or closes, because the panel takes its rows from the document's.
-    /// Where the document is scrolled to is left alone: that is kernel state,
-    /// and a resize does not move it.
+    /// Where the document is scrolled to is left alone, unless the caret was on
+    /// screen and the new size would hide it: that is the kernel's rule.
     pub(super) fn sync_viewport(&mut self) {
         let sidebar_columns = self.sidebar_columns();
         let Some((editor, session)) = self.workspace.active_editor_and_payload_mut() else {

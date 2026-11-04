@@ -88,6 +88,22 @@ impl Grapheme {
         self.width == 2
     }
 
+    /// A word that is equal for equal clusters and almost always differs
+    /// otherwise: exact for one `char`, a hash of the bytes for a longer
+    /// cluster. Used to compare whole rows cheaply.
+    pub(super) fn fingerprint(&self) -> u64 {
+        let width = u64::from(self.width) << 32;
+        match &self.store {
+            Store::Single(single) => u64::from(*single) | width,
+            Store::Cluster(cluster) => {
+                let folded = cluster.bytes().fold(0_u64, |hash, byte| {
+                    (hash.rotate_left(5) ^ u64::from(byte)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
+                });
+                folded | width | 1 << 63
+            },
+        }
+    }
+
     /// Appends this cluster's text to `out`.
     pub fn push_to(&self, out: &mut String) {
         match &self.store {

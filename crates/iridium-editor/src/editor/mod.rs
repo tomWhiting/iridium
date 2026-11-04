@@ -8,14 +8,16 @@
 //! - [`IridiumError`] - Error types
 //! - [`FoldState`] - Code folding state management
 //!
-//! Undo-tree navigation on [`Editor`] lives in `history_nav`; it extends the
-//! same type rather than introducing another.
+//! Undo-tree navigation on [`Editor`] lives in `history_nav`, and moving the
+//! viewport in `scroll`; both extend the same type rather than introducing
+//! another.
 
 mod ast;
 mod config;
 mod core;
 mod fold_state;
 mod history_nav;
+mod scroll;
 mod search_selection;
 mod viewport;
 
@@ -27,6 +29,8 @@ mod search_selection_tests;
 
 #[cfg(test)]
 mod command_api_tests;
+#[cfg(test)]
+mod scroll_tests;
 
 pub use ast::{CaretScopes, SyntaxDelta, SyntaxState};
 pub use config::EditorConfig;

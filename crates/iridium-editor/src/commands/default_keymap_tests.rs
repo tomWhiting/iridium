@@ -31,8 +31,9 @@ use super::builtin::{
     TRANSFORM_PASCAL_CASE, TRANSFORM_REVERSE_LINES, TRANSFORM_SCREAMING_SNAKE_CASE,
     TRANSFORM_SNAKE_CASE, TRANSFORM_SORT_LINES, TRANSFORM_SORT_LINES_REVERSE, TRANSFORM_SWAP_CASE,
     TRANSFORM_TITLE_CASE, TRANSFORM_TOGGLE_CASE, TRANSFORM_TRIM_TRAILING_WHITESPACE,
-    TRANSFORM_UPPER_CASE, WORKSPACE_COMMAND_COUNT, WORKSPACE_FIRST_TAB, WORKSPACE_LAST_TAB,
-    builtin_registry, default_registry, host_command_metas,
+    TRANSFORM_UPPER_CASE, VIEW_CARET_TO_BOTTOM, VIEW_CARET_TO_TOP, VIEW_CENTER_CARET,
+    WORKSPACE_COMMAND_COUNT, WORKSPACE_FIRST_TAB, WORKSPACE_LAST_TAB, builtin_registry,
+    default_registry, host_command_metas,
 };
 use super::{
     DEFAULT_KEYMAP_BINDING_COUNT, KeyBinding, KeyPress, Keymap, KeymapError, KeymapResolver,
@@ -286,6 +287,10 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
     //   panel, which owns focus while previewing the query. The kernel command
     //   is also callable by id or a user binding; panel keymap tests prove its
     //   default binding and the transition back to editing.
+    // - `view.centerCaret`, `view.caretToTop` and `view.caretToBottom` are
+    //   reached by key through `view.recenter` on `Ctrl+L`, which cycles all
+    //   three; each stays a verb of its own for the palette and for modal
+    //   keymaps (`zz` / `zt` / `zb`).
     //
     // This list is *ordered* and matches `registry.commands()` iteration order,
     // so a new entry goes where its id is registered, not at the end.
@@ -342,6 +347,9 @@ fn every_registered_command_is_bound_except_the_typing_fall_through() {
             SEARCH_SELECT_ALL_MATCHES.as_str(),
             // Bound by the search panel; callable in the palette everywhere.
             SEARCH_CLEAR_SCOPE.as_str(),
+            VIEW_CENTER_CARET.as_str(),
+            VIEW_CARET_TO_TOP.as_str(),
+            VIEW_CARET_TO_BOTTOM.as_str(),
             COMMAND_NO_OP.as_str(),
             // Palette verbs by design: jumping to the ends of a tab strip
             // is not something anyone reaches for by key, and every bound
@@ -403,9 +411,11 @@ fn vertical_navigation_and_its_chords_match_the_current_dispatch() {
     let cases: &[(KeyCode, Modifiers, Option<&str>)] = &[
         (KeyCode::Up, NONE, Some("cursor.lineUp")),
         (KeyCode::Up, SHIFT, Some("cursor.lineUpSelect")),
-        // The plain vertical arm reads only Shift, so Ctrl and Meta fall through
-        // to caret movement exactly as they do today.
-        (KeyCode::Up, CTRL, Some("cursor.lineUp")),
+        // Ctrl alone scrolls the view a line and leaves the caret; Meta still
+        // falls through to caret movement.
+        (KeyCode::Up, CTRL, Some("view.scrollLineUp")),
+        (KeyCode::Up, CTRL_META, Some("cursor.lineUp")),
+        (KeyCode::Up, CTRL_SHIFT, Some("cursor.lineUpSelect")),
         (KeyCode::Up, META, Some("cursor.lineUp")),
         (KeyCode::Up, ALT, Some("lines.moveUp")),
         (KeyCode::Up, SHIFT_ALT, Some("lines.duplicateUp")),
@@ -415,7 +425,7 @@ fn vertical_navigation_and_its_chords_match_the_current_dispatch() {
         (KeyCode::Up, CTRL_ALT_SHIFT, Some("cursor.lineUpSelect")),
         (KeyCode::Down, NONE, Some("cursor.lineDown")),
         (KeyCode::Down, SHIFT, Some("cursor.lineDownSelect")),
-        (KeyCode::Down, CTRL, Some("cursor.lineDown")),
+        (KeyCode::Down, CTRL, Some("view.scrollLineDown")),
         (KeyCode::Down, ALT, Some("lines.moveDown")),
         (KeyCode::Down, SHIFT_ALT, Some("lines.duplicateDown")),
         (KeyCode::Down, CTRL_ALT, Some("multiCursor.addCursorBelow")),
@@ -440,11 +450,14 @@ fn page_keys_match_the_vertical_navigation_shape() {
         (KeyCode::PageUp, SHIFT, Some("cursor.pageUpSelect")),
         (KeyCode::PageDown, NONE, Some("cursor.pageDown")),
         (KeyCode::PageDown, SHIFT, Some("cursor.pageDownSelect")),
-        // Like the plain arrows, only Shift is read: a terminal that adds Ctrl
-        // or Alt to a page key must not turn it into a dead key.
+        // Alt alone moves half a page; every other modifier is ignored, so a
+        // terminal that adds Ctrl to a page key does not turn it into a dead key.
         (KeyCode::PageUp, CTRL, Some("cursor.pageUp")),
         (KeyCode::PageUp, META, Some("cursor.pageUp")),
-        (KeyCode::PageDown, ALT, Some("cursor.pageDown")),
+        (KeyCode::PageUp, ALT, Some("view.scrollHalfPageUp")),
+        (KeyCode::PageDown, ALT, Some("view.scrollHalfPageDown")),
+        (KeyCode::PageDown, SHIFT_ALT, Some("cursor.pageDownSelect")),
+        (KeyCode::PageDown, CTRL_ALT, Some("cursor.pageDown")),
         (KeyCode::PageDown, CTRL_SHIFT, Some("cursor.pageDownSelect")),
     ];
     for &(key, modifiers, expected) in cases {
@@ -505,8 +518,9 @@ fn control_letter_chords_match_the_current_dispatch() {
         // Guards the other way: these arms require Shift to be absent.
         (KeyCode::Char('U'), CTRL_SHIFT, None),
         (KeyCode::Char('J'), CTRL_SHIFT, None),
-        // Ctrl+Shift+L/K only; the unshifted L is not a binding of its own.
-        (KeyCode::Char('l'), CTRL, None),
+        // The unshifted L recentres the view; Shift is forbidden so it cannot
+        // swallow Ctrl+Shift+L above.
+        (KeyCode::Char('l'), CTRL, Some("view.recenter")),
         // The command palette: `Ctrl+K` with Shift forbidden so it cannot swallow
         // Ctrl+Shift+K above, and `Ctrl+P` either way.
         (KeyCode::Char('k'), CTRL, Some("palette.open")),

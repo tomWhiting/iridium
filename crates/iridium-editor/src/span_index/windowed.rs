@@ -238,7 +238,11 @@ impl WindowedSpanCache {
 
         let covered_lines = widen(&requested, line_count);
         // Read through the rope's chunks: building the text as one string
-        // would make every window escape cost the whole document.
+        // would make every window escape cost the whole document. What still
+        // grows with the file is tree-sitter's own: its query cursor steps
+        // over every top-level node, about 0.4 ns each, so a rebuild on a
+        // flat million-statement file costs under a millisecond. Kept,
+        // because restricting the query to fewer nodes can miscolour text.
         let index = state.syntax.tree().map_or_else(SpanIndex::empty, |tree| {
             let rope = state.document.rope();
             let window = byte_window(&state.document, &covered_lines, rope.len());

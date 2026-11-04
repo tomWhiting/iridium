@@ -73,6 +73,7 @@ const fn press(key: KeyCode) -> TerminalInput {
 #[derive(Default)]
 struct Totals {
     frames: u32,
+    input: Duration,
     time: Duration,
     bytes: usize,
 }
@@ -80,16 +81,20 @@ struct Totals {
 impl Totals {
     fn add(&mut self, other: &Self) {
         self.frames += other.frames;
+        self.input += other.input;
         self.time += other.time;
         self.bytes += other.bytes;
     }
 
     fn report(&self, label: &str) {
         let frames = self.frames.max(1);
+        let per_frame = |time: Duration| time.as_secs_f64() * 1e6 / f64::from(frames);
         println!(
-            "{label}: {} frames, {:.1} us/frame (input + render + diff + write), {} bytes/frame",
+            "{label}: {} frames, {:.1} us/frame (input + render + diff + write), \
+             {:.1} of it input, {} bytes/frame",
             self.frames,
-            self.time.as_secs_f64() * 1e6 / f64::from(frames),
+            per_frame(self.time),
+            per_frame(self.input),
             self.bytes / frames as usize,
         );
     }
@@ -109,6 +114,7 @@ fn drive(app: &mut App, surface: &mut Surface, inputs: &[TerminalInput]) -> Tota
         out.clear();
         let started = Instant::now();
         app.handle_input(input);
+        totals.input += started.elapsed();
         let cursor = app.render(surface);
         let damage = surface.damage();
         let frame = Frame {
@@ -235,5 +241,40 @@ fn scroll_bench_keystroke_cost() {
             if listening { "registered" } else { "absent" },
             elapsed.as_secs_f64() * 1e6 / f64::from(presses),
         );
+    }
+    // Typing over a selection is an edit that keeps the length, so whether
+    // the buffer still matches the file cannot be read off the length. Each
+    // keystroke selects one character of an identifier mid-file and types
+    // over it, timed to a written frame, which is where the face asks that.
+    // The nested shape, because it is valid Rust: the flat one is all parse
+    // errors, and tree-sitter's recovery from those swamps everything else.
+    let select = TerminalInput::Key(KeyEvent {
+        key: KeyCode::Right,
+        modifiers: Modifiers::shift(),
+        is_repeat: false,
+    });
+    let type_over = press(KeyCode::Char('x'));
+    for lines in sizes() {
+        let directory = TempDir::new("keystroke-bench");
+        let (mut app, mut surface) = session(&directory, lines, Shape::Nested);
+        let mut typed = Totals::default();
+        for _ in 0..rounds() {
+            for keystroke in 0..1_000 {
+                // Column 8 starts `value_`: eight identifier characters, on
+                // the statement lines between one function's braces.
+                let line = lines / 2 + 1 + (keystroke / 8) % 18;
+                let column = 8 + keystroke % 8;
+                app.editor
+                    .set_cursor(iridium_editor::Position::new(line, column));
+                app.ensure_caret_visible();
+                drive(&mut app, &mut surface, std::slice::from_ref(&select));
+                typed.add(&drive(
+                    &mut app,
+                    &mut surface,
+                    std::slice::from_ref(&type_over),
+                ));
+            }
+        }
+        typed.report(&format!("typing over a selection, {lines} lines"));
     }
 }

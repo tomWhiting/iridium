@@ -162,6 +162,18 @@ fn the_searched_lookups_agree_with_a_scan_on_every_line() {
         assert_eq!(state.region_at(line), scanned, "line {line}");
         assert_eq!(state.is_foldable(line), scanned.is_some(), "line {line}");
     }
+    let lines = source.lines().count() + 2;
+    for start in 0..=lines {
+        for end in 0..=lines {
+            let scanned: Vec<_> = state
+                .regions()
+                .iter()
+                .filter(|region| (start..end).contains(&region.start_line))
+                .collect();
+            let searched: Vec<_> = state.regions_starting_in(start..end).iter().collect();
+            assert_eq!(searched, scanned, "lines {start}..{end}");
+        }
+    }
 }
 
 /// The generation counter is what lets a retained frame notice a fold:

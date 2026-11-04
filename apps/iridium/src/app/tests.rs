@@ -375,6 +375,44 @@ fn typing_marks_the_document_modified_and_undoing_it_does_not() {
 }
 
 #[test]
+fn edits_that_keep_the_length_are_judged_by_their_bytes() {
+    // Typing over a selection and moving a line leave the length alone, so
+    // the answer cannot come from it. Each step is checked against comparing
+    // the whole text with the file.
+    let directory = TempDir::new("app-same-length");
+    let text = "first\nsecond\nthird\n";
+    let (mut app, _) = open(&directory, "a.txt", text);
+    let shift_right = TerminalInput::Key(KeyEvent {
+        key: KeyCode::Right,
+        modifiers: Modifiers::shift(),
+        is_repeat: false,
+    });
+    let agrees = |app: &App| app.is_dirty() == (app.editor().content() != text);
+
+    app.editor.set_cursor(iridium_editor::Position::new(1, 0));
+    app.handle_input(&shift_right);
+    type_text(&mut app, "S");
+    assert_eq!(app.editor().content(), "first\nSecond\nthird\n");
+    assert!(app.is_dirty() && agrees(&app));
+    app.editor.set_cursor(iridium_editor::Position::new(1, 0));
+    app.handle_input(&shift_right);
+    type_text(&mut app, "s");
+    assert!(!app.is_dirty() && agrees(&app), "typed back over: clean");
+
+    for (command, expected) in [
+        ("lines.moveDown", "first\nthird\nsecond\n"),
+        ("lines.moveUp", text),
+    ] {
+        app.editor
+            .run_command(command, iridium_editor::CommandArgs::default())
+            .expect("the command runs");
+        assert_eq!(app.editor().content(), expected);
+        assert!(agrees(&app), "after {command}");
+    }
+    assert!(!app.is_dirty(), "moved down and back up: clean");
+}
+
+#[test]
 fn saving_writes_the_file_and_leaves_the_buffer_clean() {
     let directory = TempDir::new("app-save");
     let (mut app, path) = open(&directory, "a.txt", "hello");

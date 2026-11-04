@@ -65,15 +65,13 @@ mod scroll_tests;
 #[cfg(test)]
 mod tests;
 
-use std::cell::Cell;
-
 use iridium_editor::commands::builtin::{
     EXPLORER_TOGGLE_PANEL, HISTORY_TOGGLE_PANEL, PALETTE_OPEN,
 };
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::input::{CommandRunError, SearchAction};
 use iridium_editor::{
-    ClipboardOperation, CommandArgs, CommandId, Editor, EditorKeyResult, KeyEvent,
+    ClipboardOperation, CommandArgs, CommandId, Divergence, Editor, EditorKeyResult, KeyEvent,
 };
 use iridium_tui::frame::{
     CommandPalette, ExplorerAction, FileExplorerPanel, Frame, HistoryOutcome, HistoryPanel,
@@ -81,7 +79,6 @@ use iridium_tui::frame::{
 };
 use iridium_tui::input::{TerminalInput, WheelDirection, WheelScroll};
 
-use self::document::DirtyKey;
 pub use self::document::StartupError;
 use self::prompt::{Answer, Deed, Message, Prompt};
 use crate::cli::Options;
@@ -148,8 +145,8 @@ pub struct App {
     /// Whether this session wants the terminal to report the mouse. The run
     /// loop makes the terminal agree.
     mouse: Mouse,
-    /// The last [`App::is_dirty`] answer and what it was computed for.
-    dirty: Cell<Option<(DirtyKey, bool)>>,
+    /// What [`App::is_dirty`] has learnt about the buffer against the file.
+    dirty: Divergence,
 }
 
 /// Who the pointer belongs to.
@@ -299,7 +296,7 @@ impl App {
             rows: 0,
             user_keys,
             mouse: Mouse::Captured,
-            dirty: Cell::new(None),
+            dirty: Divergence::new(),
         };
 
         if let Some(line) = options.line {

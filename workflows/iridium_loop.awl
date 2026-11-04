@@ -27,7 +27,7 @@ workflow iridium_loop
   outcome unmeasured:   type Refused,    route failure
 
 /// 🔴 CHANGE THIS, AND CHANGE THE FIRST LINE OF
-/// `docs/CONTROL-ANCHOR.txt` TO MATCH — the file currently carries
+/// `workflows/CONTROL-ANCHOR.txt` TO MATCH — the file currently carries
 /// market-mirror's string verbatim, and an IDENTICAL anchor in two projects
 /// DISARMS THE CONTROL IT IS PART OF.
 ///
@@ -64,7 +64,7 @@ File: """
 /// resolves the same from anywhere. Relative makes the working directory
 /// load-bearing, so one question tests both facts: the seam can read the tree
 /// AND it is standing in it. (Robo Doug's own finding, 2026-08-12.)
-const control_anchor_path = "docs/CONTROL-ANCHOR.txt"
+const control_anchor_path = "workflows/CONTROL-ANCHOR.txt"
 
 const ctrl_sep = " /// "
 

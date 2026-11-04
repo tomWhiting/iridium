@@ -26,7 +26,7 @@ WHY THIS STRING MUST BE UNIQUE TO THIS REPOSITORY.
 
 An absolute path resolves identically from anywhere, so an absolute read proves
 only that the seam is alive and can reach one named file — standing in the
-wrong tree stays invisible to it. Reading `docs/CONTROL-ANCHOR.txt` *relatively*
+wrong tree stays invisible to it. Reading `workflows/CONTROL-ANCHOR.txt` *relatively*
 makes the working directory load-bearing: an agent in the wrong project opens a
 different file.
 

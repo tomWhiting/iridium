@@ -467,15 +467,19 @@ impl GutterRenderer {
             return Vec::new();
         }
 
-        // Build fold markers from the fold state
-        let fold_markers = fold_state.regions().iter().map(|region| {
-            let indicator = if fold_state.is_folded(region.start_line) {
-                FoldIndicator::Folded
-            } else {
-                FoldIndicator::Foldable
-            };
-            (region.start_line, indicator)
-        });
+        // Only the regions starting on screen: a search, not a walk of the file.
+        let on_screen = first_visible_line..first_visible_line.saturating_add(visible_lines);
+        let fold_markers = fold_state
+            .regions_starting_in(on_screen)
+            .iter()
+            .map(|region| {
+                let indicator = if fold_state.is_folded(region.start_line) {
+                    FoldIndicator::Folded
+                } else {
+                    FoldIndicator::Foldable
+                };
+                (region.start_line, indicator)
+            });
 
         self.compute_fold_indicators(
             fold_markers,
@@ -768,6 +772,49 @@ mod tests {
 
         assert_eq!(entries[1].indicator, FoldIndicator::Folded);
         assert!((entries[1].y - 110.0).abs() < 0.001); // line 5 * 20 + 10 (center)
+    }
+
+    /// Searching for the regions on screen must mark exactly what walking
+    /// every region did, wherever the screen is and however tall.
+    #[test]
+    fn fold_indicators_from_state_match_a_walk_of_every_region() {
+        let source = "fn f() {\n    if x {\n        y();\n    }\n}\n".repeat(60);
+        let mut editor = crate::Editor::new(crate::EditorConfig::default());
+        editor.set_content(&source);
+        editor.set_language(crate::Language::Rust);
+        for line in (0..300).step_by(15) {
+            editor.fold_at(line);
+        }
+        let folds = &editor.state().fold_state;
+        assert!(folds.regions().len() > 60, "the fixture must fold");
+        assert!(folds.folded_count() > 0, "and some regions must be folded");
+
+        let renderer = GutterRenderer::new();
+        let color = Color::rgb(0.5, 0.5, 0.5);
+        let project = |entries: Vec<FoldIndicatorEntry>| -> Vec<(FoldIndicator, u32, u32)> {
+            entries
+                .into_iter()
+                .map(|entry| (entry.indicator, entry.x.to_bits(), entry.y.to_bits()))
+                .collect()
+        };
+        for first in 0..310 {
+            for visible in [0, 1, 7, 40] {
+                let walked = folds.regions().iter().map(|region| {
+                    let indicator = if folds.is_folded(region.start_line) {
+                        FoldIndicator::Folded
+                    } else {
+                        FoldIndicator::Foldable
+                    };
+                    (region.start_line, indicator)
+                });
+                let walked =
+                    renderer.compute_fold_indicators(walked, first, visible, 300, 20.0, 8.0, color);
+                let searched = renderer.compute_fold_indicators_from_state(
+                    folds, first, visible, 300, 20.0, 8.0, color,
+                );
+                assert_eq!(project(searched), project(walked), "{first}+{visible}");
+            }
+        }
     }
 
     #[test]

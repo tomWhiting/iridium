@@ -75,7 +75,9 @@ pub use commands::{
     KeymapResolver, KeymapStack, ModeName, ModifierPattern, ModifierState, RegistryError,
     Resolution, StrokeCapture, StrokePattern,
 };
-pub use document::{CursorState, Document, Position, Range, Selection, TextSnapshot};
+pub use document::{
+    CursorState, Divergence, Document, Position, Range, Selection, TextSnapshot, Unchanged,
+};
 pub use editor::{
     CheckedEdit, Editor, EditorConfig, EditorEvent, EditorKeyResult, EditorState, IridiumError,
     SyntaxSimilarity,

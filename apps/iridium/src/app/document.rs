@@ -78,9 +78,9 @@ impl App {
     /// saved state is clean, and a counter would call it modified for the rest
     /// of the session.
     ///
-    /// The comparison walks the document, so its answer is kept until the text
-    /// or the saved baseline changes: every frame asks, and a frame that only
-    /// scrolled must not pay for the whole file.
+    /// Every frame asks, so the comparison carries forward what it learnt:
+    /// a frame with no edit reads nothing and an edit reads about its own
+    /// size, including the edits that keep the length.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
         self.workspace

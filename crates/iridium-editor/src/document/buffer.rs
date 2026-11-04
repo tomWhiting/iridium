@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ropey::{LineType, Rope};
 use serde::{Deserialize, Serialize};
 
+use super::changes::{ChangeLog, Unchanged};
 use super::position::{Position, Range};
 use crate::editor::IridiumError;
 
@@ -107,6 +108,9 @@ pub struct Document {
     /// counter at zero, so a revision tells two *observations of one document*
     /// apart and says nothing at all about two documents.
     id: u64,
+    /// What each recent edit left alone, for readers catching up on what
+    /// changed since a revision they saw. See [`Document::unchanged_since`].
+    changes: ChangeLog,
 }
 
 /// Hands out document identities.
@@ -140,6 +144,7 @@ impl Document {
             language: None,
             revision: 0,
             id: next_document_id(),
+            changes: ChangeLog::starting_at(0),
         }
     }
 
@@ -168,6 +173,7 @@ impl Document {
     pub fn continuing_from(content: &str, previous: &Self) -> Self {
         let mut document = Self::new(content);
         document.revision = previous.revision.wrapping_add(1);
+        document.changes = ChangeLog::starting_at(document.revision);
         document
     }
 
@@ -208,6 +214,19 @@ impl Document {
     #[must_use]
     pub const fn id(&self) -> u64 {
         self.id
+    }
+
+    /// What the edits since `revision` left alone: how many bytes at each
+    /// end of the text are the same bytes they were then.
+    ///
+    /// Conservative once many edits have passed, never wrong: the counts may
+    /// be smaller than the truth, never larger. `None` when `revision` is not
+    /// one this document has had, which includes any from a document it was
+    /// [`continuing_from`](Self::continuing_from).
+    #[must_use]
+    pub fn unchanged_since(&self, revision: u64) -> Option<Unchanged> {
+        self.changes
+            .since(revision, self.revision, self.content.len())
     }
 
     /// Creates an empty document.
@@ -359,10 +378,18 @@ impl Document {
             })?;
 
         let affected = self.fence_edit_window(offset, offset);
+        let before = self.content.len();
         self.content.insert(offset, text);
         self.update_fences(affected, 0, text.len());
         if !text.is_empty() {
             self.revision = self.revision.wrapping_add(1);
+            self.changes.record(
+                self.revision,
+                Unchanged {
+                    prefix: offset,
+                    suffix: before - offset,
+                },
+            );
         }
         Ok(())
     }
@@ -395,12 +422,20 @@ impl Document {
             return Err(IridiumError::InvalidRange);
         }
 
+        let before = self.content.len();
         let deleted = self.content.slice(start_offset..end_offset).to_string();
         let affected = self.fence_edit_window(start_offset, end_offset);
         self.content.remove(start_offset..end_offset);
         self.update_fences(affected, end_offset - start_offset, 0);
         if start_offset != end_offset {
             self.revision = self.revision.wrapping_add(1);
+            self.changes.record(
+                self.revision,
+                Unchanged {
+                    prefix: start_offset,
+                    suffix: before - end_offset,
+                },
+            );
         }
         Ok(deleted)
     }

@@ -86,9 +86,11 @@ pub struct TextFile {
     path: PathBuf,
     /// Whether the file began with a byte-order mark.
     bom: bool,
-    /// The bytes on disk as of the last load or save, or `None` for a file that
-    /// has never existed on disk.
-    baseline: Option<Vec<u8>>,
+    /// The text on disk as of the last load or save, without its byte-order
+    /// mark, or `None` for a file that has never existed on disk. Held as text,
+    /// not bytes, so [`TextFile::saved_text`] costs nothing: the dirty check
+    /// reads it on every frame. With `bom`, it is exactly the bytes on disk.
+    baseline: Option<String>,
     /// Which baseline this is. See [`TextFile::baseline_stamp`].
     stamp: u64,
 }
@@ -256,7 +258,7 @@ impl TextFile {
             Self {
                 path: path.to_path_buf(),
                 bom,
-                baseline: Some(bytes),
+                baseline: Some(text.clone()),
                 stamp: next_stamp(),
             },
             text,
@@ -301,9 +303,7 @@ impl TextFile {
     /// has never been on disk, whose empty buffer is nonetheless clean.
     #[must_use]
     pub fn saved_text(&self) -> Option<&str> {
-        let baseline = self.baseline.as_deref()?;
-        let body = baseline.strip_prefix(&BOM).unwrap_or(baseline);
-        std::str::from_utf8(body).ok()
+        self.baseline.as_deref()
     }
 
     /// Identifies the current baseline: it changes on every load, save, reload
@@ -340,9 +340,12 @@ impl TextFile {
             },
             Err(error) => return Err(error),
         };
-        let Some(baseline) = self.baseline.as_deref() else {
+        let Some(body) = self.baseline.as_deref() else {
             return Ok(DiskState::Appeared);
         };
+        let mark: &[u8] = if self.bom { &BOM } else { &[] };
+        let body = body.as_bytes();
+        let total = mark.len() + body.len();
         let mut offset = 0usize;
         let mut block = vec![0u8; 64 * 1024];
         loop {
@@ -351,16 +354,23 @@ impl TextFile {
                 result => result?,
             };
             if count == 0 {
-                return Ok(if offset == baseline.len() {
+                return Ok(if offset == total {
                     DiskState::Agrees
                 } else {
                     DiskState::Differs
                 });
             }
-            let Some(expected) = baseline.get(offset..offset.saturating_add(count)) else {
+            let end = offset.saturating_add(count);
+            if end > total {
                 return Ok(DiskState::Differs);
-            };
-            if expected != &block[..count] {
+            }
+            // The expected bytes are the mark then the text; a block may
+            // straddle the two.
+            let in_mark = &mark[offset.min(mark.len())..end.min(mark.len())];
+            let in_body =
+                &body[offset.max(mark.len()) - mark.len()..end.max(mark.len()) - mark.len()];
+            let (head, tail) = block[..count].split_at(in_mark.len());
+            if head != in_mark || tail != in_body {
                 return Ok(DiskState::Differs);
             }
             offset += count;
@@ -407,7 +417,7 @@ impl TextFile {
             path: self.path.clone(),
             source,
         })?;
-        self.baseline = Some(bytes);
+        self.baseline = Some(text.to_owned());
         self.stamp = next_stamp();
         publication
             .into_result()
@@ -444,7 +454,7 @@ impl TextFile {
             offset,
         })?;
         self.bom = bom;
-        self.baseline = Some(bytes);
+        self.baseline = Some(text.clone());
         self.stamp = next_stamp();
         Ok(text)
     }

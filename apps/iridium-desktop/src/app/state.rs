@@ -14,6 +14,7 @@
 use std::io::{self, Write as _};
 use std::path::PathBuf;
 
+use iridium_editor::Divergence;
 #[cfg(test)]
 use iridium_editor::Editor;
 use iridium_editor::Keymap;
@@ -85,10 +86,11 @@ pub(super) enum ExplorerFocus {
 
 /// What this face keeps per open document.
 ///
-/// Three fields, none of which duplicate anything the kernel holds: the
+/// Four fields, none of which duplicate anything the kernel holds: the
 /// scroll offset is in physical pixels and the kernel's is in lines, the
-/// file is this face's business because the kernel does no I/O, and the
-/// highlight cache is keyed to the compositor's seam.
+/// file is this face's business because the kernel does no I/O, the
+/// highlight cache is keyed to the compositor's seam, and the comparison
+/// with the file is against text only this face reads.
 ///
 /// It rides in the [`Workspace`] rather than in a map this face keeps,
 /// because the rule for when it goes away — *when the last tab onto its
@@ -105,6 +107,9 @@ pub(super) struct DesktopDocument {
     /// resolved through the compositor's highlight seam each frame. See
     /// [`crate::highlight`].
     pub(super) syntax: HighlightCache,
+    /// What [`DesktopApp::document_is_dirty`] has learnt about this buffer
+    /// against its file, so a frame reads only what was edited since.
+    pub(super) dirty: Divergence,
 }
 
 /// One editing session in one window.
@@ -348,6 +353,9 @@ impl DesktopApp {
     /// tab, not just the active one, and marking them by a different test
     /// than the one that guards closing would show a dot on a tab that closes
     /// without a question, or no dot on one that stops to ask.
+    ///
+    /// Asked for every tab every frame, so it carries forward what it learnt
+    /// rather than comparing the whole text each time.
     pub(super) fn document_is_dirty(&self, document: DocumentId) -> bool {
         let Some(payload) = self.workspace.payload(document) else {
             return false;
@@ -360,7 +368,10 @@ impl DesktopApp {
             .as_ref()
             .and_then(TextFile::saved_text)
             .unwrap_or("");
-        *editor.state().document.rope() != saved
+        let stamp = payload.file.as_ref().map_or(0, TextFile::baseline_stamp);
+        payload
+            .dirty
+            .differs(&editor.state().document, saved, stamp)
     }
 
     /// Asks for the next frame, when there is a window to ask.

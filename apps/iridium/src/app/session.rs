@@ -22,16 +22,9 @@ pub(super) struct DocumentSession {
     pub file: Option<TextFile>,
     pub frame: Frame,
     pub search: SearchOverlay,
-    /// The last [`Self::is_dirty`] answer and what it was computed for.
-    dirty: std::cell::Cell<Option<(DirtyKey, bool)>>,
-}
-
-/// What a cached dirty answer depends on: the text and the file's baseline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DirtyKey {
-    document: u64,
-    revision: u64,
-    baseline: u64,
+    /// What [`Self::is_dirty`] has learnt about the buffer against the file,
+    /// so an edit re-reads only the stretch it touched.
+    dirty: iridium_editor::Divergence,
 }
 
 impl DocumentSession {
@@ -40,7 +33,7 @@ impl DocumentSession {
             file,
             frame: Frame::new(),
             search: SearchOverlay::new(keys),
-            dirty: std::cell::Cell::new(None),
+            dirty: iridium_editor::Divergence::new(),
         }
     }
 
@@ -50,25 +43,13 @@ impl DocumentSession {
     /// kept until the text or the baseline changes: comparing the whole buffer
     /// with the file on every frame would make an idle frame cost the file.
     pub fn is_dirty(&self, editor: &Editor) -> bool {
-        let document = &editor.state().document;
-        let key = DirtyKey {
-            document: document.id(),
-            revision: document.revision(),
-            baseline: self.file.as_ref().map_or(0, TextFile::baseline_stamp),
-        };
-        if let Some((known, dirty)) = self.dirty.get()
-            && known == key
-        {
-            return dirty;
-        }
         let saved = self
             .file
             .as_ref()
             .and_then(TextFile::saved_text)
             .unwrap_or("");
-        let dirty = *document.rope() != saved;
-        self.dirty.set(Some((key, dirty)));
-        dirty
+        let stamp = self.file.as_ref().map_or(0, TextFile::baseline_stamp);
+        self.dirty.differs(&editor.state().document, saved, stamp)
     }
 }
 

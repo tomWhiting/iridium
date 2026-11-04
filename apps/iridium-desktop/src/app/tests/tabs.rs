@@ -442,6 +442,51 @@ fn the_strips_dirty_marker_is_the_test_that_guards_closing() {
     assert_eq!(app.workspace.tab_count(), 1);
 }
 
+/// Each tab's dot agrees with comparing that tab's whole text with its file,
+/// through edits that keep the length: typing over a selection, in one tab
+/// and then the other, and back again.
+#[test]
+fn each_tabs_dot_follows_edits_that_keep_the_length() {
+    let directory = TempDir::new("desktop-strip-same-length");
+    let (mut app, _first) = open(&directory, "a.txt", "alpha\nbeta\n");
+    app.dropped(&fixture(&directory, "b.txt", "gamma\ndelta\n"));
+    let saved = ["alpha\nbeta\n", "gamma\ndelta\n"];
+    let documents: Vec<_> = app
+        .workspace
+        .tabs()
+        .iter()
+        .filter_map(|&tab| app.workspace.node(tab).and_then(Node::document))
+        .collect();
+    assert_eq!(documents.len(), 2);
+    let agrees = |app: &crate::app::state::DesktopApp| {
+        documents.iter().zip(saved).all(|(&document, saved)| {
+            let text = app
+                .workspace
+                .editor(document)
+                .map(iridium_editor::Editor::content);
+            app.document_is_dirty(document) == (text.as_deref() != Some(saved))
+        })
+    };
+    assert!(agrees(&app));
+
+    // Type over a character in each tab, then type each one back.
+    for (index, (over, back)) in [('B', 'b'), ('D', 'd')].into_iter().enumerate() {
+        let tab = app.workspace.tabs()[index];
+        assert!(app.workspace.activate(tab));
+        for typed in [over, back] {
+            let editor = app.workspace.active_editor_mut().expect("a tab in front");
+            editor.set_cursor(iridium_editor::Position::new(1, 0));
+            assert_eq!(
+                app.press(&chord(KeyCode::Right, Modifiers::shift())),
+                Flow::Running
+            );
+            type_into(&mut app, &typed.to_string());
+            assert!(agrees(&app), "after typing {typed}");
+            assert_eq!(app.document_is_dirty(documents[index]), typed == over);
+        }
+    }
+}
+
 /// Undoing back to the saved bytes clears the dot, because the comparison
 /// is against the file rather than against a counter that only goes up.
 #[test]

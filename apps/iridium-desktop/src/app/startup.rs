@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use iridium_config::UserConfig;
 use iridium_config::theme::{ThemeChoice, ThemeError};
+use iridium_editor::Divergence;
 use iridium_editor::commands::palette::CommandMru;
 use iridium_editor::render::FrameCompositor;
 use iridium_editor::theme::Theme;
@@ -297,6 +298,7 @@ impl DesktopApp {
                 scroll_y: 0.0,
                 file,
                 syntax: HighlightCache::new(),
+                dirty: Divergence::new(),
             },
         );
         // Unreachable: `open_with` refuses only a parent that is not a

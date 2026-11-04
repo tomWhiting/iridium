@@ -263,6 +263,18 @@ impl FoldState {
             .filter(|region| region.start_line == line)
     }
 
+    /// The fold regions starting on a line in `lines`, in sorted order.
+    ///
+    /// Two binary searches, so drawing a screen's gutter costs the regions
+    /// on screen rather than every region in the file.
+    #[must_use]
+    pub fn regions_starting_in(&self, lines: std::ops::Range<usize>) -> &[FoldRegion] {
+        let regions = self.regions();
+        let first = regions.partition_point(|region| region.start_line < lines.start);
+        let end = regions.partition_point(|region| region.start_line < lines.end);
+        regions.get(first..end.max(first)).unwrap_or(&[])
+    }
+
     /// Returns the innermost fold region containing the given line.
     ///
     /// This finds a region where `start_line <= line <= end_line`.

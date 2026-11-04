@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
-use iridium_editor::Language;
 use iridium_editor::workspace::NodeId;
+use iridium_editor::{Divergence, Language};
 use iridium_file::{DiskState, FileError, TextFile};
 
 use super::state::{DesktopApp, DesktopDocument, Flow, UNTITLED};
@@ -257,6 +257,7 @@ impl DesktopApp {
                 scroll_y: 0.0,
                 file: None,
                 syntax: HighlightCache::new(),
+                dirty: Divergence::new(),
             },
         )
     }
@@ -304,6 +305,7 @@ impl DesktopApp {
                         scroll_y: 0.0,
                         file: Some(file),
                         syntax: HighlightCache::new(),
+                        dirty: Divergence::new(),
                     },
                 );
                 match opened {

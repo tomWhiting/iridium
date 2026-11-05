@@ -24,7 +24,7 @@ mod command_api_tests;
 #[cfg(test)]
 mod scroll_tests;
 
-pub use ast::{CaretScopes, SyntaxDelta, SyntaxState};
+pub use ast::{CaretScopes, LandedFolds, SyntaxDelta, SyntaxState, SyntaxWake};
 pub use config::EditorConfig;
 pub use core::{Editor, EditorEvent, EditorKeyResult, EditorState};
 pub use fold_state::{FoldInfo, FoldState};

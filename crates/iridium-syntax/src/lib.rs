@@ -36,12 +36,14 @@ mod folding;
 mod grammar;
 mod highlight;
 pub mod navigate;
+mod parser;
 pub mod query;
 mod tree;
 
 pub use folding::{FoldCache, FoldDetector, FoldKind, FoldRegion};
 pub use grammar::has_grammar;
 pub use highlight::{HighlightSpan, HighlightType, Highlighter};
+pub use parser::{ParseOutcome, SyntaxParser, changed_ranges};
 pub use query::QueryKind;
 pub use tree::{SyntaxTree, byte_point};
 

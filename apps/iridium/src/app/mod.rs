@@ -225,6 +225,14 @@ impl App {
             problems: setting_problems,
         } = user;
         let mut editor = Editor::new(settings);
+        // ⭐ **Before the content.** Parsing runs on a thread of its own from
+        // here on, so neither opening a file nor typing into one waits for a
+        // parser: the frame draws from the tree shifted by each edit, and the
+        // parse lands a frame or two later. Asked for before the file is read
+        // so that opening a large one does not parse it on this thread first.
+        // The wake arrives with `set_waker`; until then the next frame
+        // collects whatever landed.
+        editor.parse_in_background(None);
 
         for meta in commands::command_metas() {
             editor
@@ -338,11 +346,13 @@ impl App {
     }
 
     /// Sets what wakes the event loop when something changes without a key:
-    /// a directory listing the file explorer was waiting for.
+    /// a directory listing the file explorer was waiting for, or a parse that
+    /// landed.
     pub fn set_waker(&mut self, waker: Waker) {
         if let Some(explorer) = self.explorer.as_mut() {
             explorer.set_wake(Some(waker.clone()));
         }
+        self.editor.parse_in_background(Some(waker.clone()));
         self.waker = Some(waker);
     }
 

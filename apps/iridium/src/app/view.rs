@@ -28,6 +28,11 @@ impl App {
             self.resize(columns, rows);
         }
 
+        // ⚠️ Collected here, on the frame, like the explorer's listings: the
+        // parser thread wakes the loop when a parse lands, and taking it is
+        // what puts the structure it found on screen. Never waits.
+        self.editor.poll_syntax();
+
         let name = self.file.as_ref().map(TextFile::display_name);
         let dirty = self.is_dirty();
         let band_rows = self.band_rows();
@@ -176,6 +181,9 @@ impl App {
     /// the kernel's own `FoldState::region_containing` is what decides which
     /// region that is.
     pub(super) fn toggle_fold(&mut self) -> Flow {
+        // Which region surrounds the caret is structure, and the parse that
+        // knows it may still be running; a fold is worth waiting for.
+        self.editor.settle_syntax();
         let line = self.editor.cursor().line;
         let start = self
             .editor

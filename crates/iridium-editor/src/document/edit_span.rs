@@ -12,15 +12,14 @@
 //! one would produce a parse tree that disagrees with the document — silently,
 //! and only on the edits that straddle a boundary.
 //!
-//! Every offset is computed against the **pre-edit** document. Content commands
-//! inside a [`Command::Compound`] are emitted in reverse document order with
-//! coordinates that are all valid in the original document (see
-//! `emit_content_commands` in [`crate::input::keyboard::editing`]), so the whole
-//! walk converts against one rope.
+//! Every offset is reported against the **pre-edit** document. A
+//! [`Command::Compound`]'s parts each address the document the parts before
+//! them left, so a compound of several is replayed on a copy to find out what
+//! it did; see [`compute_edit_span`].
 
 use std::fmt;
 
-use super::Document;
+use super::{CursorState, Document, Position};
 use crate::history::Command;
 
 /// The byte range a command replaced, against the pre-edit document.
@@ -79,113 +78,160 @@ pub fn byte_point(document: &Document, offset: usize) -> Option<(usize, usize)> 
 
 /// Computes the byte span a command affects, against the pre-edit document.
 ///
-/// The combined span of a compound is the minimum start and maximum old end
-/// over its content commands, with the new end derived from the total byte
-/// delta. That is deliberately conservative for a compound whose parts are far
-/// apart — a multi-cursor edit at the top and bottom of a file reports the
-/// whole file — because reporting two disjoint spans as one contiguous range is
-/// the only alternative that stays correct, and a reparse of too much is a cost
-/// rather than a bug.
+/// A compound's parts are applied one after another, each against the
+/// document its predecessors left, so each part's position is in *that*
+/// document's coordinates. The keyboard's multi-cursor edits happen to be
+/// emitted last-caret-first, which makes every position valid in the original
+/// document too; nothing else promises that. Undo groups and the inverse of a
+/// multi-cursor edit — which reverses the order — address text that only
+/// exists partway through. So a compound with more than one content edit is
+/// replayed, part by part, on a copy of the document (a rope clone, so the
+/// copy shares the text rather than duplicating it), and the parts' spans are
+/// composed into one. Taking the extremes of the parts' coordinates instead,
+/// as this once did, describes an edit that did not happen whenever a later
+/// part lands before an earlier one's end — and a parse handed that edit
+/// reuses nodes for text that is no longer there.
+///
+/// The combined span is still one contiguous range, so a compound whose parts
+/// are far apart — a multi-cursor edit at the top and bottom of a file —
+/// reports everything between them. Reporting two disjoint spans as one range
+/// is the only alternative that stays correct, and a reparse of too much is a
+/// cost rather than a bug.
 ///
 /// Returns `Ok(None)` when the command contains no content edit at all, which
 /// a pure [`Command::SetSelection`] does.
 ///
 /// # Errors
 ///
-/// [`EditSpanError`] when a position does not resolve against `document`. The
-/// caller must degrade to a full reparse rather than report a span it guessed.
+/// [`EditSpanError`] when a position does not resolve against the document it
+/// applies to, or a part cannot be replayed. The caller must degrade to a full
+/// reparse rather than report a span it guessed.
 pub fn compute_edit_span(
     document: &Document,
     command: &Command,
 ) -> Result<Option<EditSpan>, EditSpanError> {
-    struct Acc {
-        start: usize,
-        old_end: usize,
-        delta: i64,
-    }
+    let mut parts = Vec::new();
+    content_parts(command, &mut parts);
 
-    fn merge(acc: &mut Option<Acc>, start: usize, old_end: usize, delta: i64) {
-        match acc {
-            Some(acc) => {
-                acc.start = acc.start.min(start);
-                acc.old_end = acc.old_end.max(old_end);
-                acc.delta += delta;
-            },
-            None => {
-                *acc = Some(Acc {
-                    start,
-                    old_end,
-                    delta,
-                });
-            },
-        }
-    }
-
-    fn walk(
-        document: &Document,
-        command: &Command,
-        acc: &mut Option<Acc>,
-    ) -> Result<(), EditSpanError> {
-        match command {
-            Command::Insert { position, text } => {
-                let start = document
-                    .position_to_offset(*position)
-                    .ok_or(EditSpanError)?;
-                let inserted = i64::try_from(text.len()).map_err(|_| EditSpanError)?;
-                merge(acc, start, start, inserted);
-            },
-            Command::Delete {
-                range,
-                deleted_text,
-            } => {
-                let start = document
-                    .position_to_offset(range.start)
-                    .ok_or(EditSpanError)?;
-                let removed = i64::try_from(deleted_text.len()).map_err(|_| EditSpanError)?;
-                merge(acc, start, start + deleted_text.len(), -removed);
-            },
-            Command::Replace {
-                range,
-                old_text,
-                new_text,
-            } => {
-                let start = document
-                    .position_to_offset(range.start)
-                    .ok_or(EditSpanError)?;
-                let removed = i64::try_from(old_text.len()).map_err(|_| EditSpanError)?;
-                let inserted = i64::try_from(new_text.len()).map_err(|_| EditSpanError)?;
-                merge(acc, start, start + old_text.len(), inserted - removed);
-            },
-            Command::SetSelection { .. } => {},
-            Command::Compound { commands } => {
-                for inner in commands {
-                    walk(document, inner, acc)?;
-                }
-            },
-        }
-        Ok(())
-    }
-
-    let mut acc: Option<Acc> = None;
-    walk(document, command, &mut acc)?;
-
-    let Some(acc) = acc else {
-        return Ok(None);
+    let bytes = match parts.as_slice() {
+        [] => return Ok(None),
+        [only] => part_bytes(document, only)?,
+        [first, rest @ ..] => {
+            let mut replayed = document.clone();
+            let mut cursor = CursorState::at(Position::zero());
+            let mut combined = part_bytes(&replayed, first)?;
+            first
+                .apply(&mut replayed, &mut cursor)
+                .map_err(|_| EditSpanError)?;
+            for part in rest {
+                let next = part_bytes(&replayed, part)?;
+                part.apply(&mut replayed, &mut cursor)
+                    .map_err(|_| EditSpanError)?;
+                combined = combined.then(&next)?;
+            }
+            combined
+        },
     };
 
-    let new_end = i64::try_from(acc.old_end).map_err(|_| EditSpanError)? + acc.delta;
-    let new_end_byte = usize::try_from(new_end)
-        .map_err(|_| EditSpanError)?
-        .max(acc.start);
-    let (old_end_row, old_end_column) = byte_point(document, acc.old_end).ok_or(EditSpanError)?;
-
+    let (old_end_row, old_end_column) = byte_point(document, bytes.old_end).ok_or(EditSpanError)?;
     Ok(Some(EditSpan {
-        start_byte: acc.start,
-        old_end_byte: acc.old_end,
-        new_end_byte,
+        start_byte: bytes.start,
+        old_end_byte: bytes.old_end,
+        new_end_byte: bytes.new_end,
         old_end_row,
         old_end_column,
     }))
+}
+
+/// Collects the content edits in `command`, in the order they apply.
+fn content_parts<'command>(command: &'command Command, out: &mut Vec<&'command Command>) {
+    match command {
+        Command::Insert { .. } | Command::Delete { .. } | Command::Replace { .. } => {
+            out.push(command);
+        },
+        Command::SetSelection { .. } => {},
+        Command::Compound { commands } => {
+            for inner in commands {
+                content_parts(inner, out);
+            }
+        },
+    }
+}
+
+/// One edit as byte offsets: what it replaced in the document before it, and
+/// where its new text ends in the document after.
+#[derive(Debug, Clone, Copy)]
+struct Bytes {
+    /// Where the edit begins, the same in both documents.
+    start: usize,
+    /// Where the replaced text ended, before the edit.
+    old_end: usize,
+    /// Where the new text ends, after it.
+    new_end: usize,
+}
+
+impl Bytes {
+    /// The single edit equal to this one followed by `next`, which is in the
+    /// coordinates this one left.
+    ///
+    /// Everything before the earlier of the two starts is untouched by both.
+    /// The combined new text ends wherever the later of the two ends lands
+    /// once `next` has moved this one's end; everything past that is past
+    /// both edits, so it is the old text past the old end, moved by both
+    /// deltas — which is what fixes the old end.
+    fn then(self, next: &Self) -> Result<Self, EditSpanError> {
+        let start = self.start.min(next.start);
+        let carried = if self.new_end <= next.start {
+            self.new_end
+        } else if self.new_end >= next.old_end {
+            (self.new_end - next.old_end)
+                .checked_add(next.new_end)
+                .ok_or(EditSpanError)?
+        } else {
+            next.new_end
+        };
+        let new_end = next.new_end.max(carried);
+        let delta = signed(self.new_end)? - signed(self.old_end)? + signed(next.new_end)?
+            - signed(next.old_end)?;
+        let old_end = usize::try_from(signed(new_end)? - delta).map_err(|_| EditSpanError)?;
+        if old_end < start {
+            return Err(EditSpanError);
+        }
+        Ok(Self {
+            start,
+            old_end,
+            new_end,
+        })
+    }
+}
+
+/// `value` as an `i64`, for byte deltas.
+fn signed(value: usize) -> Result<i64, EditSpanError> {
+    i64::try_from(value).map_err(|_| EditSpanError)
+}
+
+/// The bytes one content edit replaces in `document`, the document it is
+/// about to be applied to.
+fn part_bytes(document: &Document, part: &Command) -> Result<Bytes, EditSpanError> {
+    let (position, removed, inserted) = match part {
+        Command::Insert { position, text } => (*position, 0, text.len()),
+        Command::Delete {
+            range,
+            deleted_text,
+        } => (range.start, deleted_text.len(), 0),
+        Command::Replace {
+            range,
+            old_text,
+            new_text,
+        } => (range.start, old_text.len(), new_text.len()),
+        Command::SetSelection { .. } | Command::Compound { .. } => return Err(EditSpanError),
+    };
+    let start = document.position_to_offset(position).ok_or(EditSpanError)?;
+    Ok(Bytes {
+        start,
+        old_end: start.checked_add(removed).ok_or(EditSpanError)?,
+        new_end: start.checked_add(inserted).ok_or(EditSpanError)?,
+    })
 }
 
 #[cfg(test)]

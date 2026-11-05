@@ -57,6 +57,67 @@ impl FoldRegion {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Tree;
 
+impl Tree {
+    /// Records an edit against nothing, mirroring `tree_sitter::Tree::edit`.
+    pub const fn edit(&mut self, _edit: &InputEdit) {}
+}
+
+/// Stub parser, mirroring `iridium_syntax::SyntaxParser`.
+///
+/// Every parse "succeeds" and yields the unit tree, so a caller's control flow
+/// is the same in both configurations and the brace scanner that stands in for
+/// fold detection is reached exactly as the tree-sitter detector would be.
+#[derive(Debug, Default)]
+pub struct SyntaxParser;
+
+impl SyntaxParser {
+    /// Creates a stub parser. Never fails.
+    ///
+    /// # Errors
+    ///
+    /// Never. The signature matches the real one so call sites are identical.
+    pub const fn new(_language: Language) -> Result<Self, SyntaxError> {
+        Ok(Self)
+    }
+
+    /// Returns the unit tree without reading anything.
+    pub fn parse<T, R, K>(&mut self, _read: R, _old: Option<&Tree>, _keep_going: K) -> ParseOutcome
+    where
+        T: AsRef<[u8]>,
+        R: FnMut(usize) -> T,
+        K: FnMut() -> bool,
+    {
+        ParseOutcome::Parsed(Tree)
+    }
+}
+
+/// Stub parse outcome, mirroring `iridium_syntax::ParseOutcome`.
+///
+/// Only [`ParseOutcome::Parsed`] is ever produced; the other two exist so a
+/// `match` written against the real type compiles unchanged here.
+#[derive(Debug)]
+pub enum ParseOutcome {
+    /// The parse finished.
+    Parsed(Tree),
+    /// The parse was asked to stop.
+    Cancelled,
+    /// The parse produced nothing.
+    Failed,
+}
+
+/// Reports that nothing changed between two stub trees, mirroring
+/// `iridium_syntax::changed_ranges`.
+#[must_use]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "the real `iridium_syntax` counterpart is not const, and a stub \
+    that accepted a const context the real one refuses would let code compile \
+    without the `syntax` feature and fail with it"
+)]
+pub fn changed_ranges(_old: &Tree, _new: &Tree) -> Vec<std::ops::Range<usize>> {
+    Vec::new()
+}
+
 /// Stub position, mirroring `tree_sitter::Point`.
 ///
 /// The column is in **bytes** within its row, as tree-sitter's is, so the same

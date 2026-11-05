@@ -658,6 +658,9 @@ fn folding_hides_lines_and_going_to_one_reveals_it_again() {
         "lib.rs",
         "fn main() {\n    let a = 1;\n    let b = 2;\n}\n",
     );
+    // The first parse runs in the background, and counting regions is a read
+    // that does not wait for it the way the fold verbs do.
+    app.editor.settle_syntax();
     assert!(
         app.editor().fold_region_count() > 0,
         "the Rust grammar found nothing to fold"

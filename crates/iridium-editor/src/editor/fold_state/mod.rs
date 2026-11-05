@@ -195,21 +195,67 @@ impl FoldState {
         if !folds.refresh(tree, delta, source) {
             return false;
         }
+        self.regions_changed();
+        true
+    }
 
+    /// Takes over fold regions maintained elsewhere — by the background
+    /// parser, which keeps a cache of its own in step with the trees it
+    /// parses.
+    ///
+    /// Returns `None` when there is no language or the cache is for a
+    /// different one: the regions held are then untouched, and the caller
+    /// must refresh with [`SyntaxDelta::Full`]. Otherwise returns whether the
+    /// regions changed.
+    #[cfg(feature = "syntax")]
+    pub fn adopt_cache(&mut self, cache: iridium_syntax::FoldCache) -> Option<bool> {
+        let changed = self.folds.as_mut()?.adopt(cache)?;
+        if changed {
+            self.regions_changed();
+        }
+        Some(changed)
+    }
+
+    /// Forgets every detected region, as when the document they described has
+    /// been replaced and its successor is not yet parsed.
+    ///
+    /// Which lines are folded is kept, not forgotten: once the new regions
+    /// arrive, a fold whose start line still begins a region stays folded,
+    /// exactly as it would had the new regions replaced the old ones at once.
+    /// Until then no region exists, so nothing is hidden.
+    ///
+    /// Returns whether there were regions to forget.
+    pub fn forget_regions(&mut self) -> bool {
+        let Some(folds) = self.folds.as_mut() else {
+            return false;
+        };
+        if !folds.forget() {
+            return false;
+        }
+        self.rebuild_line_mapping();
+        self.bump_generation();
+        true
+    }
+
+    /// Brings everything derived from the regions back in line after they
+    /// changed.
+    fn regions_changed(&mut self) {
         // Preserve folded state only for regions that still exist. A fold whose
         // start line no longer begins a region has nothing left to collapse.
-        let old_folded = std::mem::take(&mut self.folded_lines);
-        for region in folds.regions() {
-            if old_folded.contains(&region.start_line) {
-                self.folded_lines.insert(region.start_line);
-            }
+        //
+        // Asked of each folded line rather than of each region: the regions
+        // number in the tens of thousands on a large file and change on every
+        // keystroke, the folded lines are the handful the user closed, and the
+        // regions are sorted, so each question is a binary search.
+        if !self.folded_lines.is_empty() {
+            let regions = self.folds.as_ref().map_or(&[][..], Folds::regions);
+            self.folded_lines
+                .retain(|&line| region_starting_at(regions, line).is_some());
         }
 
         // Rebuild line mapping if any folds are active
         self.rebuild_line_mapping();
         self.bump_generation();
-
-        true
     }
 
     /// Returns all detected fold regions.
@@ -251,11 +297,7 @@ impl FoldState {
     /// sorted by start line and every painted gutter row asks this.
     #[must_use]
     pub fn region_at(&self, line: usize) -> Option<&FoldRegion> {
-        let regions = self.regions();
-        let first = regions.partition_point(|region| region.start_line < line);
-        regions
-            .get(first)
-            .filter(|region| region.start_line == line)
+        region_starting_at(self.regions(), line)
     }
 
     /// The fold regions starting on a line in `lines`, in sorted order.
@@ -479,6 +521,17 @@ impl FoldState {
         self.rebuild_line_mapping();
         self.bump_generation();
     }
+}
+
+/// The first region in `regions` starting on `line` — the largest, given their
+/// order — found by binary search.
+///
+/// `regions` must be sorted by start line, as every published region list is.
+fn region_starting_at(regions: &[FoldRegion], line: usize) -> Option<&FoldRegion> {
+    let first = regions.partition_point(|region| region.start_line < line);
+    regions
+        .get(first)
+        .filter(|region| region.start_line == line)
 }
 
 /// Serializable fold information for persistence.

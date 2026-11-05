@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{Language, SyntaxTree};
+use std::ops::Range;
 
 /// Parses `source` and returns its fold regions.
 ///
@@ -290,8 +291,17 @@ impl Incremental {
         let parsed = self.tree.tree().expect("a reparse must produce a tree");
 
         let before = self.cache.nodes_visited();
-        self.cache.update(parsed, &edit, &changed);
+        let regions_before = self.cache.regions().to_vec();
+        let reported = self.cache.update(parsed, &edit, &changed);
         let examined = self.cache.nodes_visited() - before;
+        assert_eq!(
+            reported,
+            self.cache.regions() != regions_before.as_slice(),
+            "{:?}: the update reported {} after replacing {old_len} bytes at \
+             {start} with {insert:?}, but the regions say otherwise",
+            self.language,
+            if reported { "a change" } else { "no change" },
+        );
         let total = u64::try_from(parsed.root_node().descendant_count()).unwrap_or(u64::MAX);
         self.text = text;
 
@@ -675,4 +685,273 @@ fn an_edit_that_changes_no_structure_keeps_its_regions() {
         before.as_slice(),
         "a rename that changes no structure must not change any fold"
     );
+}
+
+/// Several edits before one reparse, and edits against a tree not reparsed at
+/// all, both checked against a full walk of the very same tree.
+///
+/// The editor's background parser leans on exactly these two shapes. While a
+/// parse is running elsewhere, every keystroke shifts the tree it has and the
+/// folds with it — no reparse, so no changed ranges — and when the parse lands
+/// it is built on a tree that took several edits since the last one. A cache
+/// that only knew "one edit, then a reparse" had to answer both with a full
+/// walk.
+#[test]
+fn cache_follows_batches_of_edits_and_trees_not_yet_reparsed() {
+    const INSERTS: &[&str] = &[
+        "x",
+        "\n",
+        "{",
+        "}",
+        "\"",
+        "(",
+        "fn g() {\n}\n",
+        "/*",
+        "    ",
+    ];
+
+    let fixtures = [
+        (Language::Rust, rust_fixture()),
+        (Language::TypeScript, typescript_fixture()),
+        (Language::Json, json_fixture()),
+        (Language::Python, python_fixture()),
+    ];
+
+    for (language, source) in fixtures {
+        let mut rng = Rng(0x1234_5678_9ABC_DEF1);
+        let mut tree = SyntaxTree::new(language).expect("every language parses");
+        tree.parse(&source).expect("a parse must produce a tree");
+        let parsed = tree.tree().expect("the fixture parsed");
+        // `batched` sees each batch once, after its reparse; `unparsed` sees
+        // every edit as it happens, against a tree not yet reparsed, and then
+        // the reparse's changed ranges on their own.
+        let mut batched = FoldCache::new(language);
+        batched.rebuild(parsed);
+        let mut unparsed = batched.clone();
+        let detector = FoldDetector::new(language);
+        let mut text = source.clone();
+
+        for round in 0..60 {
+            let mut edits = Vec::new();
+            for step in 0..=rng.below(3) {
+                let len = text.len();
+                let start = floor_boundary(&text, rng.below(len + 1));
+                let deleting = (round + step) % 3 == 2 && start < len;
+                let old_len = if deleting {
+                    floor_boundary(&text, start + 1 + rng.below(8)).saturating_sub(start)
+                } else {
+                    0
+                };
+                let insert = if deleting {
+                    ""
+                } else {
+                    INSERTS[rng.below(INSERTS.len())]
+                };
+                let (next, edit) = splice(&text, start, old_len, insert);
+                text = next;
+                tree.edit(&edit);
+                edits.push(edit);
+
+                let edited = tree.tree().expect("an edited tree is still a tree");
+                let regions_before = unparsed.regions().to_vec();
+                let reported = unparsed.apply(edited, &[edit], &[]);
+                assert_eq!(
+                    reported,
+                    unparsed.regions() != regions_before.as_slice(),
+                    "{language:?}, round {round}: the change reported for one \
+                     edit disagreed with the regions"
+                );
+                assert_eq!(
+                    unparsed.regions(),
+                    detector.regions_in(edited).as_slice(),
+                    "{language:?}, round {round}: shifting by one edit disagreed \
+                     with a full walk of the edited tree"
+                );
+            }
+
+            let previous = tree.tree().cloned().expect("the tree was parsed");
+            tree.reparse(&text);
+            let changed = tree.changed_ranges(&previous);
+            let parsed = tree.tree().expect("a reparse must produce a tree");
+            let full = detector.regions_in(parsed);
+
+            batched.apply(parsed, &edits, &changed);
+            assert_eq!(
+                batched.regions(),
+                full.as_slice(),
+                "{language:?}, round {round}: {} edits then one reparse disagreed \
+                 with a full walk",
+                edits.len()
+            );
+            unparsed.apply(parsed, &[], &landed_ranges(&changed, &edits));
+            assert_eq!(
+                unparsed.regions(),
+                full.as_slice(),
+                "{language:?}, round {round}: re-walking the changed ranges of a \
+                 landed reparse disagreed with a full walk"
+            );
+            assert_eq!(full, regions_for(language, &text), "{language:?}");
+        }
+    }
+}
+
+/// What a cache that already followed `edits` on the unparsed tree must be
+/// told when the reparse lands: tree-sitter's changed ranges, and the spans the
+/// edits wrote, in the reparsed tree's coordinates.
+///
+/// The changed ranges alone are not enough. A node an edit deleted outright is
+/// still in the edited tree, collapsed to nothing where the deletion was, and a
+/// walk of that tree finds it; the reparse drops it, and tree-sitter reports no
+/// range for a node that was never wider than nothing.
+fn landed_ranges(changed: &[Range<usize>], edits: &[InputEdit]) -> Vec<Range<usize>> {
+    changed
+        .iter()
+        .cloned()
+        .chain(super::cache::dirty_span(edits, &[]))
+        .collect()
+}
+
+/// Nothing moved, so nothing is walked.
+#[test]
+fn applying_no_edits_and_no_changes_walks_nothing() {
+    let source = rust_fixture();
+    let mut tree = SyntaxTree::new(Language::Rust).expect("rust parses");
+    let parsed = tree.parse(&source).expect("the fixture parses");
+    let mut cache = FoldCache::new(Language::Rust);
+    cache.rebuild(parsed);
+    let before = cache.nodes_visited();
+    assert!(!cache.apply(parsed, &[], &[]));
+    assert_eq!(cache.nodes_visited(), before);
+}
+
+/// Import runs scattered through a document, for the edits that decide where a
+/// patched published list may be cut.
+///
+/// Publishing merges single-line imports on adjacent lines into one region, so
+/// an edit beside a run can join two runs, split one, or move one wholesale.
+/// Each fixture puts runs before, between and inside other folds, so that the
+/// lines an edit reaches keep landing next to one.
+fn import_heavy_fixtures() -> [(Language, String); 3] {
+    let mut rust = String::new();
+    let mut python = String::new();
+    let mut typescript = String::new();
+    for block in 0..6 {
+        for import in 0..=(block % 3) {
+            let _ = writeln!(rust, "use crate_{block}::item_{import};");
+            let _ = writeln!(python, "import module_{block}_{import}");
+            let _ = writeln!(typescript, "import {{ item{import} }} from \"m{block}\";");
+        }
+        let _ = writeln!(
+            rust,
+            "fn block_{block}() {{\n    use inner::one;\n    use inner::two;\n    call({block});\n}}"
+        );
+        let _ = writeln!(
+            python,
+            "def block_{block}():\n    import inner\n    return {block}\n"
+        );
+        let _ = writeln!(
+            typescript,
+            "function block{block}() {{\n    return [\n        {block},\n    ];\n}}"
+        );
+    }
+    [
+        (Language::Rust, rust),
+        (Language::Python, python),
+        (Language::TypeScript, typescript),
+    ]
+}
+
+/// Edits beside import runs, and edits that add or remove lines, checked
+/// against a full walk after every one — reparsed, and not yet reparsed.
+///
+/// The cache republishes only the lines an update reached and moves the rest by
+/// the edit's row delta. That is only the same list as a full publish if the
+/// cut never falls inside an import run, and if every region past it really
+/// moved by exactly that delta; these edits are the ones that would show it if
+/// either were wrong.
+#[test]
+fn patching_the_published_list_matches_a_full_publish_beside_import_runs() {
+    const INSERTS: &[&str] = &[
+        "\n",
+        "\n\n",
+        "use extra::more;\n",
+        "import extra\n",
+        "import { more } from \"extra\";\n",
+        "x",
+        "{",
+        "}",
+        "    ",
+        "// ",
+    ];
+
+    for (language, source) in import_heavy_fixtures() {
+        let mut rng = Rng(0x0BAD_5EED_F00D_CAFE);
+        let mut state = Incremental::new(language, &source);
+        let mut unparsed_tree = SyntaxTree::new(language).expect("every language parses");
+        unparsed_tree
+            .parse(&source)
+            .expect("a parse must produce a tree");
+        let mut unparsed = state.cache.clone();
+        let detector = FoldDetector::new(language);
+
+        for step in 0..150 {
+            // Aim at the start of a line most of the time: that is where the
+            // edits that move, join and split import runs land.
+            let line_starts: Vec<usize> = std::iter::once(0)
+                .chain(state.text.match_indices('\n').map(|(at, _)| at + 1))
+                .collect();
+            let start = if step % 4 == 3 {
+                floor_boundary(&state.text, rng.below(state.text.len() + 1))
+            } else {
+                line_starts[rng.below(line_starts.len())]
+            };
+            let deleting = step % 3 == 2 && start < state.text.len();
+            let old_len = if deleting {
+                floor_boundary(&state.text, start + 1 + rng.below(30)).saturating_sub(start)
+            } else {
+                0
+            };
+            let insert = if deleting {
+                ""
+            } else {
+                INSERTS[rng.below(INSERTS.len())]
+            };
+
+            // The keystroke path first: the edit applied to a tree that has not
+            // been reparsed, so no changed ranges, only the shift.
+            let (_, edit) = splice(&state.text, start, old_len, insert);
+            unparsed_tree.edit(&edit);
+            let edited = unparsed_tree
+                .tree()
+                .expect("an edited tree is still a tree");
+            let regions_before = unparsed.regions().to_vec();
+            let reported = unparsed.apply(edited, &[edit], &[]);
+            assert_eq!(
+                unparsed.regions(),
+                detector.regions_in(edited).as_slice(),
+                "{language:?}, step {step}: shifting by one edit disagreed with a \
+                 full walk of the edited tree"
+            );
+            assert_eq!(
+                reported,
+                unparsed.regions() != regions_before.as_slice(),
+                "{language:?}, step {step}: the change reported for one edit \
+                 disagreed with the regions"
+            );
+
+            // Then the reparse, on both.
+            state.edit(start, old_len, insert);
+            let previous = unparsed_tree.tree().cloned().expect("the tree was parsed");
+            unparsed_tree.reparse(&state.text);
+            let changed = unparsed_tree.changed_ranges(&previous);
+            let parsed = unparsed_tree.tree().expect("a reparse must produce a tree");
+            unparsed.apply(parsed, &[], &landed_ranges(&changed, &[edit]));
+            assert_eq!(
+                unparsed.regions(),
+                state.cache.regions(),
+                "{language:?}, step {step}: the landed reparse disagreed with the \
+                 cache that saw the edit and the reparse together"
+            );
+        }
+    }
 }

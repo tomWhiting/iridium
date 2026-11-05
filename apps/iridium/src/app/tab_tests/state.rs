@@ -73,6 +73,17 @@ fn project_root_stays_at_the_invocation_directory_after_opening_a_nested_file() 
     assert_eq!(app.explorer_root().expect("root").path, dir.path());
 }
 
+/// Waits for the active tab's parse, then draws: highlighting arrives from a
+/// background parse, and these comparisons are about whose colours a tab
+/// shows, not about when they land.
+fn render_parsed(app: &mut App, screen: &mut Surface) {
+    app.workspace
+        .active_editor_mut()
+        .expect("active")
+        .settle_syntax();
+    app.render(screen);
+}
+
 #[test]
 fn same_revision_documents_render_with_their_own_highlight_cache() {
     let dir = TempDir::new("terminal-tab-highlights");
@@ -80,12 +91,12 @@ fn same_revision_documents_render_with_their_own_highlight_cache() {
     let b = write(&dir, "b.rs", "fn main() { let x = 1; }\n");
     let mut app = app(&a);
     let mut screen = Surface::new(60, 10, ColorDepth::TrueColor);
-    app.render(&mut screen);
+    render_parsed(&mut app, &mut screen);
     app.open_file(&b);
-    app.render(&mut screen);
+    render_parsed(&mut app, &mut screen);
     let mut fresh = super::app(&b);
     let mut reference = Surface::new(60, 10, ColorDepth::TrueColor);
-    fresh.render(&mut reference);
+    render_parsed(&mut fresh, &mut reference);
     assert_eq!(screen.back().row(0), reference.back().row(0));
     key(
         &mut app,
@@ -95,9 +106,9 @@ fn same_revision_documents_render_with_their_own_highlight_cache() {
             ..Modifiers::none()
         },
     );
-    app.render(&mut screen);
+    render_parsed(&mut app, &mut screen);
     let mut fresh = super::app(&a);
-    fresh.render(&mut reference);
+    render_parsed(&mut fresh, &mut reference);
     assert_eq!(screen.back().row(0), reference.back().row(0));
 }
 

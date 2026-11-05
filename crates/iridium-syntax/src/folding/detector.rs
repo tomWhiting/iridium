@@ -29,7 +29,7 @@ use crate::Language;
 /// assert!(!regions.is_empty());
 /// # Ok::<(), iridium_syntax::SyntaxError>(())
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FoldDetector {
     language: Language,
     node_types: FoldableNodeTypes,

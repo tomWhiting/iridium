@@ -77,6 +77,9 @@ struct Totals {
     frames: u32,
     input: Duration,
     time: Duration,
+    /// The slowest single frame: an average hides the one keystroke that
+    /// restructured the file.
+    worst: Duration,
     bytes: usize,
 }
 
@@ -85,6 +88,7 @@ impl Totals {
         self.frames += other.frames;
         self.input += other.input;
         self.time += other.time;
+        self.worst = self.worst.max(other.worst);
         self.bytes += other.bytes;
     }
 
@@ -93,10 +97,12 @@ impl Totals {
         let per_frame = |time: Duration| time.as_secs_f64() * 1e6 / f64::from(frames);
         println!(
             "{label}: {} frames, {:.1} us/frame (input + render + diff + write), \
-             {:.1} of it input, {} bytes/frame",
+             {:.1} of it input, {:.1} the rest, worst {:.1} us, {} bytes/frame",
             self.frames,
             per_frame(self.time),
             per_frame(self.input),
+            per_frame(self.time.saturating_sub(self.input)),
+            self.worst.as_secs_f64() * 1e6,
             self.bytes / frames as usize,
         );
     }
@@ -126,7 +132,9 @@ fn drive(app: &mut App, surface: &mut Surface, inputs: &[TerminalInput]) -> Tota
         };
         write_frame(&mut out, &frame, &state).expect("a Vec accepts every write");
         surface.commit();
-        totals.time += started.elapsed();
+        let elapsed = started.elapsed();
+        totals.time += elapsed;
+        totals.worst = totals.worst.max(elapsed);
         totals.bytes += out.len();
         totals.frames += 1;
     }
@@ -163,12 +171,21 @@ fn session(directory: &TempDir, lines: usize, shape: Shape) -> (App, Surface) {
     let mut app = App::with_config(
         Options {
             path: Some(path),
+            // Typed characters insert, as they do once a modal session is in
+            // insert mode; the measurement is the edit, not the mode switch.
+            non_modal: true,
             ..Options::default()
         },
         iridium_config::UserConfig::default(),
         None,
     )
     .expect("the session opened");
+    // The first parse runs in the background; waiting for it here means every
+    // measured frame types into a parsed file, as a person would.
+    app.workspace
+        .active_editor_mut()
+        .expect("the file is open")
+        .settle_syntax();
     let mut surface = Surface::new(COLUMNS, ROWS, ColorDepth::TrueColor);
     app.render(&mut surface);
     surface.commit();
@@ -283,5 +300,82 @@ fn scroll_bench_keystroke_cost() {
             }
         }
         typed.report(&format!("typing over a selection, {lines} lines"));
+    }
+}
+
+/// The keys that type `text`, one press per character.
+fn typed(text: &str) -> Vec<TerminalInput> {
+    text.chars().map(|ch| press(KeyCode::Char(ch))).collect()
+}
+
+/// A session on a nested document of `lines` lines with the caret at `column`
+/// of the first statement of the middle function, drawn once.
+fn typing_session(directory: &TempDir, lines: usize, column: usize) -> (App, Surface) {
+    let (mut app, mut surface) = session(directory, lines, Shape::Nested);
+    // Line 0 of every twenty opens a function, so line 1 is its first
+    // statement.
+    let line = (lines / 2) / 20 * 20 + 1;
+    app.workspace
+        .active_editor_mut()
+        .expect("the file is open")
+        .set_cursor(iridium_editor::Position::new(line, column));
+    app.ensure_caret_visible();
+    drive(&mut app, &mut surface, &[]);
+    (app, surface)
+}
+
+/// Times each of `keys` to a written frame, typed at `column` of the first
+/// statement of the middle function of a fresh nested document.
+fn typing_case(lines: usize, column: usize, keys: &[TerminalInput]) -> Totals {
+    let directory = TempDir::new("typing-bench");
+    let (mut app, mut surface) = typing_session(&directory, lines, column);
+    let mut totals = Totals::default();
+    for key in keys {
+        totals.add(&drive(&mut app, &mut surface, std::slice::from_ref(key)));
+    }
+    totals
+}
+
+#[test]
+#[ignore = "a measurement, run by hand in release"]
+fn scroll_bench_typing_through_invalid_code() {
+    // Real typing passes through invalid code constantly, and tree-sitter's
+    // recovery from it can cost far more than a reparse of valid code. Each
+    // case types at column 4 of a statement, before its `let`, so nothing the
+    // editor auto-closes closes it.
+    //
+    // An unclosed brace: `if ready {` and then a statement, so everything
+    // after it nests one level deeper until the end of the file.
+    let mut brace = typed("if ready {");
+    brace.extend(
+        typed(" let more = ready + 1;")
+            .into_iter()
+            .cycle()
+            .take(110),
+    );
+    // An unclosed quote: a Rust string may span lines, so every quote after
+    // this one in the file flips between opening and closing a string.
+    let mut quote = typed("\"");
+    quote.extend(
+        typed("words typed into a string ")
+            .into_iter()
+            .cycle()
+            .take(119),
+    );
+    for lines in sizes() {
+        typing_case(lines, 4, &brace).report(&format!("unclosed brace, {lines} lines"));
+        typing_case(lines, 4, &quote).report(&format!("unclosed quote, {lines} lines"));
+        // Enter splits the statement inside its identifier, and Backspace
+        // joins it again.
+        let directory = TempDir::new("enter-bench");
+        let (mut app, mut surface) = typing_session(&directory, lines, 12);
+        let mut enters = Totals::default();
+        let mut backspaces = Totals::default();
+        for _ in 0..200 {
+            enters.add(&drive(&mut app, &mut surface, &[press(KeyCode::Enter)]));
+            backspaces.add(&drive(&mut app, &mut surface, &[press(KeyCode::Backspace)]));
+        }
+        enters.report(&format!("enter, {lines} lines"));
+        backspaces.report(&format!("backspace, {lines} lines"));
     }
 }

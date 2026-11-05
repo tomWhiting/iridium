@@ -45,14 +45,13 @@ impl LineMapping {
             return Self::default();
         }
 
-        // Collect all active folds with their regions, sorted by start line
+        // Collect all active folds with their regions, sorted by start line.
+        // The regions are sorted, so each folded line is a binary search
+        // rather than a scan of every region in the file.
         let mut active_folds: Vec<_> = folded_lines
             .iter()
             .filter_map(|&start| {
-                regions
-                    .iter()
-                    .find(|r| r.start_line == start)
-                    .map(|r| (start, r.end_line))
+                super::region_starting_at(regions, start).map(|r| (start, r.end_line))
             })
             .collect();
         active_folds.sort_by_key(|(start, _)| *start);

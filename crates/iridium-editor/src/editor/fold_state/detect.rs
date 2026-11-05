@@ -115,8 +115,42 @@ impl Folds {
             // happened.
             SyntaxDelta::Unchanged => !self.cache.is_primed() && self.cache.rebuild(tree),
             SyntaxDelta::Full => self.cache.rebuild(tree),
-            SyntaxDelta::Incremental { edit, changed } => self.cache.update(tree, edit, changed),
+            SyntaxDelta::Incremental { edits, changed } => self.cache.apply(tree, edits, changed),
         }
+    }
+
+    /// Takes over a cache maintained elsewhere — by the background parser —
+    /// returning whether the published regions changed, or `None` if the cache
+    /// is for another language and was refused.
+    #[cfg(feature = "syntax")]
+    pub(super) fn adopt(&mut self, cache: FoldCache) -> Option<bool> {
+        if cache.language() != self.cache.language() {
+            return None;
+        }
+        let changed = cache.regions() != self.cache.regions();
+        self.cache = cache;
+        Some(changed)
+    }
+
+    /// Forgets every region, leaving a producer that has seen no tree.
+    ///
+    /// Returns whether there was anything to forget.
+    #[cfg(feature = "syntax")]
+    pub(super) fn forget(&mut self) -> bool {
+        let had_regions = !self.cache.regions().is_empty();
+        self.cache = FoldCache::new(self.cache.language());
+        had_regions
+    }
+
+    /// Forgets every region, leaving a producer that has seen no document.
+    ///
+    /// Returns whether there was anything to forget.
+    #[cfg(not(feature = "syntax"))]
+    pub(super) fn forget(&mut self) -> bool {
+        let had_regions = !self.regions.is_empty();
+        self.cache = BraceFoldCache::new();
+        self.regions.clear();
+        had_regions
     }
 
     /// Recomputes the regions, returning true if they changed.
@@ -151,17 +185,25 @@ impl Folds {
             // happened.
             SyntaxDelta::Unchanged => !self.cache.is_primed() && self.cache.rebuild(&text),
             SyntaxDelta::Full => self.cache.rebuild(&text),
-            SyntaxDelta::Incremental { edit, .. } => self.cache.update(
-                &text,
-                &LineEdit {
-                    start_byte: edit.start_byte,
-                    old_end_byte: edit.old_end_byte,
-                    new_end_byte: edit.new_end_byte,
-                    start_row: edit.start_position.row,
-                    old_end_row: edit.old_end_position.row,
-                    new_end_row: edit.new_end_position.row,
-                },
-            ),
+            SyntaxDelta::Incremental { edits, .. } => match edits.as_slice() {
+                // No edit: nothing moved in the text, whatever a parser said.
+                [] => !self.cache.is_primed() && self.cache.rebuild(&text),
+                [edit] => self.cache.update(
+                    &text,
+                    &LineEdit {
+                        start_byte: edit.start_byte,
+                        old_end_byte: edit.old_end_byte,
+                        new_end_byte: edit.new_end_byte,
+                        start_row: edit.start_position.row,
+                        old_end_row: edit.old_end_position.row,
+                        new_end_row: edit.new_end_position.row,
+                    },
+                ),
+                // The scanner's incremental step reads one edit against the
+                // text it describes, and only the last of several edits is
+                // described by the text in hand. A rescan is right for all.
+                _ => self.cache.rebuild(&text),
+            },
         };
 
         if !changed {

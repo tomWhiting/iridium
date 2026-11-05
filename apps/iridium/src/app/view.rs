@@ -28,6 +28,12 @@ impl App {
             self.resize(columns, rows);
         }
 
+        // ⚠️ Collected here, on the frame, like the explorer's listings: the
+        // parser thread wakes the loop when a parse lands, and taking it is
+        // what puts the structure it found on screen. Never waits.
+        if let Some(editor) = self.workspace.active_editor_mut() {
+            editor.poll_syntax();
+        }
         self.poll_mouse_scroll(std::time::Instant::now());
         self.poll_query();
         self.poll_project_search();
@@ -197,6 +203,9 @@ impl App {
         let Some(editor) = self.workspace.active_editor_mut() else {
             return Flow::Running;
         };
+        // Which region surrounds the caret is structure, and the parse that
+        // knows it may still be running; a fold is worth waiting for.
+        editor.settle_syntax();
         let line = editor.cursor().line;
         let start = editor
             .state()

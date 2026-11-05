@@ -5,6 +5,8 @@
 //! fix, and [`a_missed_edit_still_leaves_a_correct_tree`], which is the promise
 //! that the cheap path can never be the difference between right and wrong.
 
+use std::fmt::Write as _;
+
 use iridium_lang::Language;
 use iridium_syntax::SyntaxTree;
 
@@ -317,4 +319,414 @@ fn replacing_the_editors_content_refolds_the_new_document() {
         "the folds still describe the previous document: {one} region(s) for one \
          function, {two} for two"
     );
+}
+
+/// What a tree says about its document: its shape, its folds, its colours.
+#[derive(Debug, PartialEq, Eq)]
+struct Reading {
+    shape: String,
+    folds: Vec<iridium_syntax::FoldRegion>,
+    spans: Vec<iridium_syntax::HighlightSpan>,
+}
+
+/// The colours `tree` gives `text`, over the whole of it.
+fn spans_of(tree: &iridium_syntax::Tree, text: &str) -> Vec<iridium_syntax::HighlightSpan> {
+    iridium_syntax::Highlighter::try_new(Language::Rust)
+        .expect("rust has a highlighter")
+        .spans_in_range(tree, text, 0..text.len())
+}
+
+/// What a parse from scratch says about `text`.
+fn reading_from_scratch(text: &str) -> Reading {
+    let mut tree = SyntaxTree::new(Language::Rust).expect("rust parses");
+    let parsed = tree.parse(text).expect("a parse must produce a tree");
+    Reading {
+        shape: parsed.root_node().to_sexp(),
+        folds: iridium_syntax::FoldDetector::new(Language::Rust).regions_in(parsed),
+        spans: spans_of(parsed, text),
+    }
+}
+
+/// What the editor says about its document: the tree it holds, the folds it
+/// publishes and the colours that tree gives.
+fn reading_of(editor: &crate::editor::Editor) -> Reading {
+    let text = editor.content();
+    let tree = editor
+        .state()
+        .syntax
+        .tree()
+        .expect("a document with a language has a tree once settled");
+    Reading {
+        shape: tree.root_node().to_sexp(),
+        folds: editor.state().fold_state.regions().to_vec(),
+        spans: spans_of(tree, &text),
+    }
+}
+
+/// A small seeded generator, so a failure is always the same failure.
+struct Rng(u64);
+
+impl Rng {
+    const fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, bound: usize) -> usize {
+        if bound == 0 {
+            return 0;
+        }
+        usize::try_from(self.next() % bound as u64).unwrap_or(0)
+    }
+}
+
+/// A position for a random character boundary of `document`.
+fn random_position(document: &Document, rng: &mut Rng) -> Position {
+    let text = document.text();
+    let mut offset = rng.below(text.len() + 1);
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    document
+        .offset_to_position(offset)
+        .expect("a character boundary inside the document has a position")
+}
+
+/// One random edit of the kinds an editor makes: typing, deleting, replacing
+/// across lines, and typing at several carets at once. `None` stands for an
+/// undo or a redo, which the caller performs.
+fn random_command(document: &Document, rng: &mut Rng) -> Option<Command> {
+    const TYPED: &[&str] = &[
+        "x",
+        " ",
+        "\n",
+        "{",
+        "}",
+        "\"",
+        "(",
+        ";",
+        "é",
+        "/*",
+        "*/",
+        "    ",
+        "fn g() {\n    h();\n}\n",
+        "let more = ready + 1;",
+    ];
+    let typed = |rng: &mut Rng| TYPED[rng.below(TYPED.len())].to_string();
+    let random_range = |rng: &mut Rng| {
+        let start = random_position(document, rng);
+        let start_offset = document
+            .position_to_offset(start)
+            .expect("the position came from an offset");
+        let text = document.text();
+        let mut end_offset = (start_offset + 1 + rng.below(40)).min(text.len());
+        while !text.is_char_boundary(end_offset) {
+            end_offset -= 1;
+        }
+        let end = document
+            .offset_to_position(end_offset)
+            .expect("a character boundary inside the document has a position");
+        Range::new(start, end)
+    };
+
+    match rng.below(10) {
+        0..=3 => Some(Command::Insert {
+            position: random_position(document, rng),
+            text: typed(rng),
+        }),
+        4 | 5 => {
+            let range = random_range(rng);
+            Some(Command::Delete {
+                range,
+                deleted_text: document.slice(range),
+            })
+        },
+        6 => {
+            let range = random_range(rng);
+            Some(Command::Replace {
+                range,
+                old_text: document.slice(range),
+                new_text: typed(rng),
+            })
+        },
+        7 => {
+            // Several carets typing the same thing, applied last caret first so
+            // each position still names the place it was chosen for.
+            let text = typed(rng);
+            let mut positions: Vec<Position> = (0..2 + rng.below(2))
+                .map(|_| random_position(document, rng))
+                .collect();
+            positions.sort_unstable_by(|a, b| b.cmp(a));
+            positions.dedup();
+            Some(Command::Compound {
+                commands: positions
+                    .into_iter()
+                    .map(|position| Command::Insert {
+                        position,
+                        text: text.clone(),
+                    })
+                    .collect(),
+            })
+        },
+        _ => None,
+    }
+}
+
+/// Random edits, undos, redos and multi-caret typing, with the tree, folds and
+/// colours compared against a parse from scratch every time the parse is
+/// allowed to catch up — inline, and with the parse on a worker thread.
+///
+/// On the worker the parse is deliberately left behind most of the time: edits
+/// keep arriving while one is in flight, so it lands on a document that has
+/// moved on and has to be carried forward. And between landings the folds must
+/// still be exactly what the tree on hand says, because that tree is what the
+/// colours are drawn from.
+#[test]
+fn incremental_results_match_a_parse_from_scratch_through_random_editing() {
+    let source = "use std::fmt;\nuse std::io;\n\n/* a block\n   comment */\n\
+                  pub struct Record {\n    id: u64,\n}\n\nimpl Record {\n    \
+                  pub fn describe(&self) -> String {\n        if self.id == 0 {\n            \
+                  return String::from(\"zero\");\n        }\n        format!(\"{}\", \
+                  self.id)\n    }\n}\n\nfn main() {\n    let r = Record { id: 1 };\n    \
+                  println!(\"{}\", r.describe());\n}\n";
+
+    for background in [false, true] {
+        let mut editor = crate::editor::Editor::new(crate::editor::EditorConfig::default());
+        if background {
+            assert!(
+                editor.parse_in_background(None),
+                "a native build with the syntax feature can parse on a worker"
+            );
+        }
+        editor.set_content(source);
+        editor.set_language(Language::Rust);
+        editor.settle_syntax();
+        assert_eq!(reading_of(&editor), reading_from_scratch(source));
+
+        let mut rng = Rng(if background {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            0xD1B5_4A32_D192_ED03
+        });
+        for step in 0..160 {
+            let parses = |editor: &crate::editor::Editor| {
+                editor.state().syntax.full_parses() + editor.state().syntax.incremental_parses()
+            };
+            let parses_before = parses(&editor);
+            let colours_before = editor
+                .state()
+                .syntax
+                .tree()
+                .map(|tree| spans_of(tree, &editor.content()));
+            let mut reported = None;
+            match random_command(&editor.state().document, &mut rng) {
+                Some(command) => {
+                    reported = compute_edit_span(&editor.state().document, &command)
+                        .ok()
+                        .flatten();
+                    editor.apply_command(command);
+                },
+                None if rng.below(2) == 0 => {
+                    editor.undo();
+                },
+                None => {
+                    editor.redo();
+                },
+            }
+
+            // No parse landed, so the tree on hand is the last one shifted by
+            // this edit: every colour clear of the edit must be exactly where
+            // it was, moved by the edit's length if it lay after it.
+            if let (Some(before), Some(span), true) =
+                (&colours_before, reported, parses(&editor) == parses_before)
+            {
+                let tree = editor.state().syntax.tree().expect("the tree was shifted");
+                let after = spans_of(tree, &editor.content());
+                for colour in before {
+                    let moved = if colour.end < span.start_byte {
+                        Some(colour.clone())
+                    } else if colour.start > span.old_end_byte {
+                        Some(iridium_syntax::HighlightSpan {
+                            start: colour.start - span.old_end_byte + span.new_end_byte,
+                            end: colour.end - span.old_end_byte + span.new_end_byte,
+                            highlight: colour.highlight,
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(moved) = moved {
+                        assert!(
+                            after.contains(&moved),
+                            "background {background}, step {step}: {colour:?}, clear of \
+                             the edit {span:?}, should now be at {moved:?}"
+                        );
+                    }
+                }
+            }
+
+            // Whatever tree is on hand — reparsed or merely shifted — the folds
+            // published are the ones it describes.
+            let text = editor.content();
+            let tree = editor
+                .state()
+                .syntax
+                .tree()
+                .expect("an edited document keeps a tree");
+            assert_eq!(
+                editor.state().fold_state.regions(),
+                iridium_syntax::FoldDetector::new(Language::Rust)
+                    .regions_in(tree)
+                    .as_slice(),
+                "background {background}, step {step}: the folds do not describe \
+                 the tree they are shown with"
+            );
+            for span in spans_of(tree, &text) {
+                assert!(
+                    span.start <= span.end && span.end <= text.len(),
+                    "background {background}, step {step}: a colour lies outside the \
+                     document: {span:?} in {} bytes",
+                    text.len()
+                );
+            }
+
+            if rng.below(4) == 0 {
+                editor.settle_syntax();
+                assert_eq!(
+                    reading_of(&editor),
+                    reading_from_scratch(&text),
+                    "background {background}, step {step}: the settled tree, folds \
+                     or colours differ from a parse from scratch of\n{text}"
+                );
+            }
+        }
+        editor.settle_syntax();
+        assert_eq!(
+            reading_of(&editor),
+            reading_from_scratch(&editor.content()),
+            "background {background}: the final settle differs from a parse from scratch"
+        );
+    }
+}
+
+/// While a parse is still to come, colours are drawn from the last tree
+/// shifted by every edit since. Each colour clear of an edit must then sit
+/// exactly where it sat, moved by the edit's length if it lay after it — never
+/// at an offset that no longer holds the text it colours.
+///
+/// The background parser makes that state real but not reproducible: whether a
+/// parse has landed by the next keystroke is a race. Reporting edits and not
+/// parsing is the same state, reached on purpose, so this drives it directly
+/// and parses only now and then.
+#[test]
+fn colours_from_a_shifted_tree_stay_with_their_text() {
+    let mut state = SyntaxState::new();
+    state.set_language(Language::Rust);
+    let mut document = Document::new(
+        "use std::fmt;\n\nfn main() {\n    let caf\u{e9} = \"x\";\n    println!(\"{}\", caf\u{e9});\n}\n\n\
+         struct Point {\n    x: i32,\n}\n",
+    );
+    state.sync(&document).expect("the fixture parses");
+    let mut rng = Rng(0x7F4A_7C15_9E37_79B9);
+    let mut shifted_checks = 0_u32;
+
+    for step in 0..300 {
+        let Some(command) = random_command(&document, &mut rng) else {
+            continue;
+        };
+        let text_before = document.text();
+        let before = spans_of(state.tree().expect("a tree is held"), &text_before);
+        let span = compute_edit_span(&document, &command)
+            .expect("the command resolves")
+            .expect("the command edits content");
+        apply(&mut state, &mut document, &command);
+
+        let text_after = document.text();
+        let after = spans_of(state.tree().expect("a tree is held"), &text_after);
+        for colour in &before {
+            let moved = if colour.end < span.start_byte {
+                colour.clone()
+            } else if colour.start > span.old_end_byte {
+                iridium_syntax::HighlightSpan {
+                    start: colour.start - span.old_end_byte + span.new_end_byte,
+                    end: colour.end - span.old_end_byte + span.new_end_byte,
+                    highlight: colour.highlight,
+                }
+            } else {
+                continue;
+            };
+            assert_eq!(
+                text_before.get(colour.start..colour.end),
+                text_after.get(moved.start..moved.end),
+                "step {step}: the shift itself is wrong for {colour:?} after {command:?}"
+            );
+            assert!(
+                after.contains(&moved),
+                "step {step}: {colour:?}, clear of {span:?}, should now be at {moved:?}"
+            );
+            shifted_checks += 1;
+        }
+
+        if rng.below(5) == 0 {
+            state.sync(&document).expect("the document parses");
+            assert_eq!(
+                shape(&state),
+                shape_from_scratch(&text_after),
+                "step {step}: the reparse disagrees with a parse from scratch"
+            );
+        }
+    }
+    assert!(
+        shifted_checks >= 300,
+        "only {shifted_checks} colours were checked across the edits"
+    );
+}
+
+/// A document replaced, or its language changed, while a parse of the old one
+/// is still running: whatever lands for the old one must never be installed
+/// over the new one.
+#[test]
+fn replacing_the_document_or_language_mid_parse_never_installs_the_old_parse() {
+    let mut big = String::new();
+    for index in 0..4_000 {
+        let _ = writeln!(big, "fn f{index}() {{\n    let v = {index};\n}}");
+    }
+    let small = "fn only() {\n    let a = 1;\n}\n";
+
+    let mut editor = crate::editor::Editor::new(crate::editor::EditorConfig::default());
+    assert!(editor.parse_in_background(None));
+    editor.set_language(Language::Rust);
+
+    // Replaced while the big document's first parse is in flight.
+    editor.set_content(&big);
+    editor.apply_command(Command::Insert {
+        position: Position::new(0, 0),
+        text: "// a\n".to_string(),
+    });
+    editor.set_content(small);
+    editor.settle_syntax();
+    assert_eq!(reading_of(&editor), reading_from_scratch(small));
+
+    // Language away and back while a parse of an edit is in flight.
+    editor.set_content(&big);
+    editor.settle_syntax();
+    editor.apply_command(Command::Insert {
+        position: Position::new(1, 0),
+        text: "    let w = 0;\n".to_string(),
+    });
+    editor.set_language(Language::Json);
+    editor.set_language(Language::Rust);
+    editor.settle_syntax();
+    assert_eq!(reading_of(&editor), reading_from_scratch(&editor.content()));
+
+    // Language cleared mid-parse: nothing may come back.
+    editor.apply_command(Command::Insert {
+        position: Position::new(0, 0),
+        text: "\n".to_string(),
+    });
+    editor.clear_language();
+    editor.settle_syntax();
+    assert!(editor.state().syntax.tree().is_none());
+    assert!(editor.state().fold_state.regions().is_empty());
 }

@@ -19,7 +19,7 @@ use core::fmt;
 
 use super::model::Workspace;
 use crate::commands::{CommandMeta, Keymap, KeymapError, RegistryError};
-use crate::editor::{Editor, EditorConfig};
+use crate::editor::{Editor, EditorConfig, SyntaxWake};
 use crate::theme::Theme;
 
 /// Why a face's command or keymap could not be applied to every tab.
@@ -266,6 +266,22 @@ impl<T> Workspace<T> {
         Ok(())
     }
 
+    /// Moves parsing onto a background thread, in every open editor and in
+    /// every one opened later, so that typing never waits for a parser.
+    ///
+    /// `wake` is called from a parser's thread whenever a parse lands; a face
+    /// that blocks on input passes something that wakes it, and collects the
+    /// parse with [`Editor::poll_syntax`] on its next frame. Calling this again
+    /// replaces the wake everywhere. An editor that cannot start a thread
+    /// parses inline, which is slower and still right.
+    pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) {
+        self.background_syntax = true;
+        self.syntax_wake = wake;
+        for open in self.documents.values_mut() {
+            open.editor.parse_in_background(self.syntax_wake.clone());
+        }
+    }
+
     /// Builds an editor exactly as every open tab's was built.
     ///
     /// The single construction path, used both to open a document and to
@@ -287,6 +303,11 @@ impl<T> Workspace<T> {
         }
         if let Some(geometry) = self.viewport {
             apply_viewport(&mut editor, geometry);
+        }
+        // Before the content, so opening a large file does not parse it on
+        // this thread first.
+        if self.background_syntax {
+            editor.parse_in_background(self.syntax_wake.clone());
         }
         editor.set_content(content);
         Ok(editor)

@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use super::settings::ViewportGeometry;
 use super::{DocumentId, Node, NodeId};
 use crate::commands::{CommandMeta, Keymap};
-use crate::editor::{Editor, EditorConfig};
+use crate::editor::{Editor, EditorConfig, SyntaxWake};
 use crate::theme::Theme;
 
 /// Every open document, how they are organised, and which one is active.
@@ -86,6 +86,11 @@ pub struct Workspace<T = ()> {
     /// the order they were pushed — which is the order that decides
     /// precedence, so it must not be a set.
     pub(super) face_keymaps: Vec<Keymap>,
+    /// Whether every editor parses on a background thread of its own, as a
+    /// face that draws frames asks for; inline until one does.
+    pub(super) background_syntax: bool,
+    /// What a background parse calls when it lands, in every editor.
+    pub(super) syntax_wake: Option<SyntaxWake>,
 }
 
 /// One open buffer and the face state that belongs to it.
@@ -119,6 +124,8 @@ impl<T> Workspace<T> {
             viewport: None,
             face_commands: Vec::new(),
             face_keymaps: Vec::new(),
+            background_syntax: false,
+            syntax_wake: None,
         }
     }
 
@@ -450,6 +457,9 @@ impl<T> Workspace<T> {
         let editor = self.build_editor(content).unwrap_or_else(|_| {
             let mut fallback = Editor::new(self.config.clone());
             fallback.set_theme(self.theme.clone());
+            if self.background_syntax {
+                fallback.parse_in_background(self.syntax_wake.clone());
+            }
             fallback.set_content(content);
             fallback
         });
@@ -573,6 +583,7 @@ impl<T> fmt::Debug for Workspace<T> {
             .field("roots", &self.roots)
             .field("active", &self.active)
             .field("theme", &self.theme.name)
+            .field("background_syntax", &self.background_syntax)
             .finish_non_exhaustive()
     }
 }

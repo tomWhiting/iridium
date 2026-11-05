@@ -81,7 +81,10 @@ fn multiline_unicode_jump_keeps_incremental_syntax_and_correct_coordinates() {
 
 #[cfg(feature = "syntax")]
 #[test]
-fn a_later_known_edit_cannot_mask_an_earlier_missing_incremental_span() {
+/// A compound with several parts once had no span, and the replay degraded to
+/// a full parse. Its span is now composed exactly, so the chain stays
+/// incremental — and must still land on the tree a fresh parse builds.
+fn a_compound_in_the_replayed_chain_stays_incremental_and_exact() {
     let mut editor = Editor::new(EditorConfig {
         undo_group_timeout_ms: 0,
         ..EditorConfig::default()
@@ -106,6 +109,6 @@ fn a_later_known_edit_cannot_mask_an_earlier_missing_incremental_span() {
     assert!(editor.jump_to_history_node(root));
     let full = editor.state().syntax.full_parses();
     assert!(editor.jump_to_history_node(target));
-    assert_eq!(editor.state().syntax.full_parses(), full + 1);
+    assert_eq!(editor.state().syntax.full_parses(), full);
     assert_fresh_parse(&mut editor);
 }

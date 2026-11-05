@@ -17,7 +17,7 @@
 use crate::Language;
 
 /// Node types that represent foldable blocks for each language.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FoldableNodeTypes {
     /// Node types that represent block structures
     pub blocks: &'static [&'static str],

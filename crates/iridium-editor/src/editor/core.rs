@@ -20,7 +20,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use super::ast::SyntaxState;
+use super::ast::{SyntaxDelta, SyntaxState, SyntaxWake};
 use super::config::EditorConfig;
 use super::fold_state::{FoldInfo, FoldState};
 use super::scroll::{AlignCycle, CaretMark};
@@ -310,32 +310,69 @@ impl EditorState {
         self.refresh_syntax();
     }
 
-    /// Brings the parse tree up to date and refreshes the fold regions from it.
+    /// Brings the parse tree as far up to date as can be done without waiting,
+    /// and refreshes the fold regions from it.
     ///
     /// Returns true if the fold regions changed.
     ///
     /// This is the only place folds are recomputed, and it is deliberately the
-    /// only place that parses: [`SyntaxState::sync`] does nothing when the
+    /// only place that parses: [`SyntaxState::refresh`] does nothing when the
     /// document has not moved, so calling this more often than necessary costs
-    /// a revision comparison rather than a parse.
+    /// a revision comparison rather than a parse. With parsing in the
+    /// background ([`Editor::parse_in_background`]) it never parses at all:
+    /// it shifts the tree and the folds by the edit, and takes over whatever
+    /// parse has landed since.
     pub fn refresh_syntax(&mut self) -> bool {
-        if self.syntax.sync(&self.document).is_none() {
-            return false;
+        let found = self.syntax.refresh(&self.document).is_some();
+        self.update_folds(found)
+    }
+
+    /// Brings the parse tree fully up to date — waiting for a background parse
+    /// to land if one is running — and refreshes the fold regions from it.
+    ///
+    /// Returns true if the fold regions changed. Inline, this is exactly
+    /// [`Self::refresh_syntax`].
+    pub fn settle_syntax(&mut self) -> bool {
+        let found = self.syntax.sync(&self.document).is_some();
+        self.update_folds(found)
+    }
+
+    /// Carries what the syntax state did into the fold regions.
+    ///
+    /// `found` says whether the syntax state has a tree to read.
+    fn update_folds(&mut self, found: bool) -> bool {
+        let landed = self.syntax.take_landed_folds();
+        // What the syntax state did, taken before the tree is borrowed again.
+        // This is what keeps a keystroke off the O(document) path: with it,
+        // fold detection re-reads only the part of the tree that moved.
+        let mut delta = self.syntax.take_delta();
+        if !found {
+            // No tree: a language with no grammar, or a document whose first
+            // parse is still running in the background. Regions describing
+            // some earlier text must not outlive it.
+            return delta != SyntaxDelta::Unchanged && self.fold_state.forget_regions();
         }
-        // What `sync` just did, taken before the tree is borrowed again. This is
-        // what keeps a keystroke off the O(document) path: with it, fold
-        // detection re-reads only the part of the tree that moved.
-        let delta = self.syntax.take_delta();
+        let mut adopted = false;
+        if let Some(landed) = landed {
+            match landed.adopt_into(&mut self.fold_state) {
+                Some(changed) => adopted = changed,
+                // The regions were refused, so the ones held are still from
+                // before the delta began, and only a full walk catches up.
+                None => delta = SyntaxDelta::Full,
+            }
+        }
         let Some(tree) = self.syntax.tree() else {
-            return false;
+            return adopted;
         };
-        // The tree and the text must be one document's worth. `sync` has just
-        // parsed this exact revision, so they are by construction. The text is
-        // passed as a closure and, with the `syntax` feature on, is never
-        // built: nothing in tree-sitter fold detection reads it.
+        // The tree and the text must be one document's worth: the tree has
+        // been parsed or shifted to this exact revision. The text is passed as
+        // a closure and, with the `syntax` feature on, is never built: nothing
+        // in tree-sitter fold detection reads it.
         let document = &self.document;
-        self.fold_state
-            .update_regions(tree, &delta, || Cow::Owned(document.text()))
+        let updated = self
+            .fold_state
+            .update_regions(tree, &delta, || Cow::Owned(document.text()));
+        adopted || updated
     }
 
     /// Returns the current language, if any.
@@ -1192,6 +1229,60 @@ impl Editor {
         self.consume_recorded_input(KeyResult::Command(command), Some(invocation), checkpoint)
     }
 
+    /// Moves parsing off the editing thread, so that no keystroke waits for a
+    /// parser.
+    ///
+    /// From then on an edit shifts the tree and the fold regions by exactly
+    /// the edit and returns; the frame draws from that shifted tree, so every
+    /// colour stays on the text it belongs to, and a background thread
+    /// reparses. Structure the edit created — a new block, a string that now
+    /// runs on — appears when that parse lands: call [`Self::poll_syntax`]
+    /// before drawing to take it, and pass `wake` to be told when to. `wake`
+    /// runs on the parser's thread; calling this again replaces it.
+    ///
+    /// Opening a document no longer waits for its first parse either, so the
+    /// first frames of a large file may have no colours and no folds.
+    ///
+    /// Returns whether parsing now runs in the background: not in a build
+    /// without a parser or on a target without threads, where it stays inline.
+    pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) -> bool {
+        self.state.syntax.parse_in_background(wake)
+    }
+
+    /// Takes over a background parse that has landed, and sends the next one
+    /// if the document has moved since. Never waits.
+    ///
+    /// Returns true if the tree or the fold regions changed, which is when a
+    /// frame drawn now would differ from the last. Cheap enough for every
+    /// frame: with nothing landed it is a revision comparison and an empty
+    /// channel read.
+    pub fn poll_syntax(&mut self) -> bool {
+        let parses = self.parse_count();
+        let folds = self.state.refresh_syntax();
+        folds || self.parse_count() != parses
+    }
+
+    /// Waits until the tree has caught up with the document, then updates the
+    /// fold regions from it.
+    ///
+    /// For whatever must see the structure of the text as it now is — a test,
+    /// a measurement, a command that reads the tree. Typing never needs this.
+    /// Returns true if the tree or the fold regions changed.
+    pub fn settle_syntax(&mut self) -> bool {
+        let parses = self.parse_count();
+        let folds = self.state.settle_syntax();
+        folds || self.parse_count() != parses
+    }
+
+    /// Full and incremental parses together, the count that moves when the
+    /// tree is replaced by a new parse.
+    const fn parse_count(&self) -> u64 {
+        self.state
+            .syntax
+            .full_parses()
+            .wrapping_add(self.state.syntax.incremental_parses())
+    }
+
     /// Adds an event listener.
     pub fn add_listener<F>(&mut self, listener: F)
     where
@@ -1372,7 +1463,12 @@ impl Editor {
     ///
     /// Returns true if the fold was successful, false if the line
     /// is not foldable or already folded.
+    ///
+    /// Like every verb that picks a region, this waits for a background parse
+    /// first ([`Self::settle_syntax`]): which lines begin a region is
+    /// structure, and structure an edit created exists only once it is parsed.
     pub fn fold_at(&mut self, line: usize) -> bool {
+        self.state.settle_syntax();
         let result = self.state.fold_state.fold_at(line);
         if result {
             self.emit_fold_changed();
@@ -1395,8 +1491,10 @@ impl Editor {
     /// Toggles the fold state of the region at the given line.
     ///
     /// Returns true if the toggle was successful, false if the line
-    /// is not foldable.
+    /// is not foldable. Waits for a background parse first, as
+    /// [`Self::fold_at`] does.
     pub fn toggle_fold_at(&mut self, line: usize) -> bool {
+        self.state.settle_syntax();
         let result = self.state.fold_state.toggle_fold_at(line);
         if result {
             self.emit_fold_changed();
@@ -1404,8 +1502,10 @@ impl Editor {
         result
     }
 
-    /// Folds all foldable regions (T133).
+    /// Folds all foldable regions (T133), after waiting for a background
+    /// parse as [`Self::fold_at`] does.
     pub fn fold_all(&mut self) {
+        self.state.settle_syntax();
         self.state.fold_state.fold_all();
         self.emit_fold_changed();
     }
@@ -1416,8 +1516,10 @@ impl Editor {
         self.emit_fold_changed();
     }
 
-    /// Folds all regions of a specific kind.
+    /// Folds all regions of a specific kind, after waiting for a background
+    /// parse as [`Self::fold_at`] does.
     pub fn fold_all_of_kind(&mut self, kind: FoldKind) {
+        self.state.settle_syntax();
         self.state.fold_state.fold_all_of_kind(kind);
         self.emit_fold_changed();
     }

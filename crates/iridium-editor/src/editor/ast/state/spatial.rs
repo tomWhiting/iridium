@@ -1,5 +1,5 @@
 //! Selection-preserving spatial movement uses the retained syntax tree.
-use super::{SyntaxState, SyntaxTree};
+use super::SyntaxState;
 use crate::{CursorState, Document};
 impl SyntaxState {
     pub(in crate::editor) fn retarget_horizontal(
@@ -11,7 +11,7 @@ impl SyntaxState {
     ) -> CursorState {
         self.sync(document);
         self.expand.clear();
-        let tree = self.tree.as_ref().and_then(SyntaxTree::tree);
+        let tree = self.tree.as_ref();
         self.navigation
             .horizontal(document, tree, before, forward, count)
     }
@@ -25,7 +25,7 @@ impl SyntaxState {
     ) -> CursorState {
         self.sync(document);
         self.expand.clear();
-        let tree = self.tree.as_ref().and_then(SyntaxTree::tree);
+        let tree = self.tree.as_ref();
         self.navigation
             .retarget(document, tree, before, moved, down)
     }

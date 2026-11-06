@@ -16,18 +16,19 @@
 # self-hosted runner that has not been stood up yet, and deleting it would
 # throw away the gate definitions below.
 #
-# ⭐ THE REAL GATE IS LOCAL AND MANUAL. Nine commands, each run unpiped with its
-# exit status checked separately, `cargo fmt --all` first:
+# ⭐ THE REAL GATE IS LOCAL AND MANUAL: `scripts/ci.sh`. It formats the tree
+# with `cargo fmt --all` first, then runs nine checks, each unpiped with its
+# exit status checked separately. Formatting is applied, never checked:
 #
 #     cargo test --workspace --all-features --no-fail-fast
 #     cargo test -p iridium-editor --no-default-features --no-fail-fast
 #     cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
+#     cargo test -p iridium-lang --all-features
 #     cargo check -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown
 #     cargo clippy --workspace --all-features --all-targets -- -D warnings
 #     cargo clippy -p iridium-editor --no-default-features --all-targets -- -D warnings
 #     cargo clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings
 #     cargo clippy -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown -- -D warnings
-#     cargo fmt --all --check
 #
 # If you are relying on this file to catch something, you are relying on
 # nothing. Run the nine.
@@ -275,32 +276,3 @@ jobs:
         run: |
           cargo clippy -p iridium-bindings --no-default-features --features web \
             --target wasm32-unknown-unknown -- -D warnings
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Materialise the pinned toolchain
-        # ⭐ The other gate whose verdict is the toolchain's rather than the
-        # code's — and the sharper of the two, because rustfmt's output changes
-        # with no diagnostic at all: a new stable reflows something, this job
-        # goes red, and the diff it objects to was written months ago.
-        #
-        # `rustfmt.toml` carries a finding with a toolchain attached: 19 of the
-        # options it used to declare were measured to change nothing, and its
-        # own comment says that holds "against THIS toolchain and style
-        # edition" — an option that restates a default stops being a no-op the
-        # moment the default moves. Before the pin, that measurement had no
-        # toolchain it could be re-checked against and quietly decayed into a
-        # claim about no particular compiler. `rust-toolchain.toml` gives it
-        # one, and this step records the version that was actually resolved.
-        #
-        # `components = ["rustfmt"]` lives in that file, not in this job.
-        run: |
-          rustup show
-          rustc --version --verbose
-          cargo --version
-          cargo fmt --version
-      - name: Check formatting
-        run: cargo fmt --all --check

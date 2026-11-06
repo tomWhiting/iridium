@@ -1,5 +1,6 @@
 #!/bin/sh
-# The nine gates, in the battery's order — what CI would run.
+# `cargo fmt --all` to format the tree, then the nine gates in the battery's
+# order. Formatting is applied, never checked.
 #
 # ⛔ THIS IS A SCRIPT BECAUSE A CARGO ALIAS CANNOT DO IT, AND THE ALIAS THAT
 # CLAIMED TO WAS MALFORMED. `ci = ["fmt-check", "lint", "test --workspace"]`
@@ -12,6 +13,8 @@
 # lint. It never ran the tests. ⭐ The task that recorded this defect said the
 # alias "runs three of the nine gates"; measured, it ran NONE. A claim about a
 # gate's coverage is worth nothing until someone watches the gate run.
+#
+# That alias and the `fmt-check` alias it named are both gone now.
 #
 # ⚠️ EACH GATE IS RUN UNPIPED AND ITS EXIT STATUS CHECKED ON ITS OWN. Piping a
 # gate into anything reports the pipe's status, not the gate's, which is how a

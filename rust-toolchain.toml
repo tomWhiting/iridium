@@ -1,9 +1,9 @@
 # The toolchain this repository is built and gated with.
 #
-# ⭐ WHY THIS FILE EXISTS. Two of the nine gates are verdicts rendered by the
-# toolchain rather than by the code: `cargo clippy -- -D warnings` gains lints
-# on every new stable, and `cargo fmt --all --check` can change its mind across
-# a rustfmt revision or a style edition. Without a pin, a tree that is green
+# ⭐ WHY THIS FILE EXISTS. Some verdicts are rendered by the toolchain rather
+# than by the code: `cargo clippy -- -D warnings` gains lints on every new
+# stable, and `cargo fmt --all` reformats differently across a rustfmt revision
+# or a style edition (it is applied, never checked). Without a pin, a tree that is green
 # today goes red the morning a new stable lands, with no commit in between —
 # and the failure is attributed to whatever change happened to be in flight.
 # The 500-line-bar work, the clippy gate (#33, #60, #75) and the warning

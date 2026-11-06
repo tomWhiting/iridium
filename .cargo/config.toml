@@ -51,7 +51,8 @@ ci-clippy-wasm = "clippy -p iridium-bindings --no-default-features --features we
 #
 # The `ci-*` aliases above DO work and are for running one gate by hand. The
 # full sequence needs per-gate exit checking, which an alias cannot express, so
-# it lives in `scripts/ci.sh`.
+# it lives in `scripts/ci.sh`. The `fmt-check` alias that list named is gone
+# too: formatting is applied with `cargo fmt --all`, never checked.
 
 [build]
 # Use all available cores

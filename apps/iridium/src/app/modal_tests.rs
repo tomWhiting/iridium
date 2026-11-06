@@ -189,3 +189,45 @@ fn insert_completion_uses_buffer_words_and_one_undo() -> Result<(), Box<dyn std:
     assert_eq!(app.editor().ok_or("no editor")?.content(), "alphabet al");
     Ok(())
 }
+
+/// In normal (structural) mode the keys that type do nothing: Tab does not
+/// indent, Enter does not split, Backspace does not delete. `i` and they
+/// type again.
+#[test]
+fn tab_enter_and_backspace_do_not_edit_in_normal_mode() {
+    let mut app = App::with_config(
+        Options::default(),
+        iridium_config::UserConfig::default(),
+        None,
+    )
+    .expect("app");
+    app.workspace
+        .active_editor_mut()
+        .expect("editor")
+        .set_content("alpha beta");
+    app.workspace
+        .active_editor_mut()
+        .expect("editor")
+        .set_mode(Some(STRUCTURAL));
+    for code in [KeyCode::Tab, KeyCode::Enter, KeyCode::Backspace] {
+        key(&mut app, code);
+        assert_eq!(
+            app.editor().expect("editor").content(),
+            "alpha beta",
+            "{code:?} edited the text in normal mode"
+        );
+    }
+    app.handle_input(&TerminalInput::Key(KeyEvent::new(
+        KeyCode::Tab,
+        iridium_editor::Modifiers::shift(),
+    )));
+    assert_eq!(app.editor().expect("editor").content(), "alpha beta");
+
+    key(&mut app, KeyCode::Char('i'));
+    key(&mut app, KeyCode::Tab);
+    assert_ne!(
+        app.editor().expect("editor").content(),
+        "alpha beta",
+        "Tab does not type once back in insert mode"
+    );
+}

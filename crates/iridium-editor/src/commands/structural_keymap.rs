@@ -81,6 +81,7 @@ pub fn structural_keymap() -> Keymap {
         keys.push(KeyBinding::enter_mode(plain(key), &[], STRUCTURAL_INSERT).in_mode(STRUCTURAL));
     }
     keys.silence_typing_in(STRUCTURAL);
+    silence_editing_keys_in(&mut keys, &STRUCTURAL);
     append_verb_first(&mut keys);
     keys.push(
         KeyBinding::new(plain(KeyCode::Escape), &[], COMMAND_FINISH_CHANGE)
@@ -142,4 +143,24 @@ fn append_verb_first(keys: &mut Keymap) {
         );
     }
     keys.silence_typing_in(STRUCTURAL_VERB);
+    silence_editing_keys_in(keys, &STRUCTURAL_VERB);
+}
+
+/// Unbinds the keys that edit text without being printable — Tab and
+/// Shift+Tab, Enter, Backspace — in `mode`.
+///
+/// Silencing typing covers printable keys only, and these are bound for
+/// every mode by the default keymap, so in navigation they would still
+/// indent, split and delete. A navigation mode changes text through its own
+/// verbs; the keys that type do nothing until `i` returns to typing.
+fn silence_editing_keys_in(keys: &mut Keymap, mode: &ModeName) {
+    let shift = ModifierPattern::exact(Modifiers::shift());
+    for stroke in [
+        StrokePattern::plain(KeyCode::Tab),
+        StrokePattern::new(KeyCode::Tab, shift),
+        StrokePattern::plain(KeyCode::Enter),
+        StrokePattern::plain(KeyCode::Backspace),
+    ] {
+        keys.push(KeyBinding::unbound(stroke, &[]).in_mode(mode.clone()));
+    }
 }

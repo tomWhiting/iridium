@@ -83,7 +83,9 @@ fn failed_file_open_keeps_the_picker_and_query_then_recovers() {
 }
 
 #[test]
-fn reopening_refreshes_contents_and_keeps_sidebar_placement() {
+/// Reopened by the sidebar chord, the tree reads the folder afresh and keeps
+/// the sidebar's width. (The panel chord reopens it floating instead.)
+fn reopening_refreshes_contents_and_keeps_the_sidebar_width() {
     let dir = TempDir::new("explorer-refresh");
     let (mut app, _) = open(&dir, "old.txt", "original");
     app.handle_input(&ctrl_alt('e'));
@@ -94,7 +96,7 @@ fn reopening_refreshes_contents_and_keeps_sidebar_placement() {
     app.handle_input(&ctrl_alt('e'));
     fs::remove_file(dir.path().join("old.txt")).expect("remove");
     fs::write(dir.path().join("fresh.txt"), "new").expect("new");
-    app.handle_input(&ctrl_alt('e'));
+    app.handle_input(&ctrl_alt('b'));
     let screen = settle(&mut app);
     assert_eq!(app.sidebar_columns(), width);
     assert!(screen.contains("fresh.txt"), "{screen}");

@@ -277,3 +277,52 @@ fn a_copy_in_the_listing_pastes_back_into_it() {
     send(&mut app, b"\x16");
     assert_eq!(listing(&app)[0], "alpha.txtalpha.txt");
 }
+
+/// A file picked from the tree opens in the mode a session starts in, not
+/// ready for typing.
+#[test]
+fn a_file_picked_in_the_explorer_opens_in_normal_mode() {
+    let (_directory, mut app) = project("tui-face-explorer-pick-mode");
+    let woken = wakes(&mut app);
+    until_drawn(&mut app, &woken, "beta.txt");
+    send(&mut app, b"\x1b[B");
+    send(&mut app, b"\r");
+    assert_eq!(
+        app.editor().expect("a file is open").mode(),
+        Some(&iridium_editor::commands::structural_keymap::STRUCTURAL),
+    );
+    let before = app.editor().expect("a file is open").content();
+    type_text(&mut app, "x");
+    assert_eq!(
+        app.editor().expect("a file is open").content(),
+        before,
+        "a letter typed straight after the pick went into the file"
+    );
+}
+
+/// A project opens with the tree as a sidebar; the panel chord closes it and
+/// brings it back floating, and the sidebar chord docks it again.
+#[test]
+fn the_panel_chord_reopens_the_tree_floating_and_the_sidebar_chord_docks_it() {
+    let (_directory, mut app) = project("tui-face-explorer-float");
+    let woken = wakes(&mut app);
+    until_drawn(&mut app, &woken, "beta.txt");
+    let docked = |app: &App| {
+        app.explorer
+            .as_ref()
+            .is_some_and(iridium_tui::frame::FileExplorerPanel::is_sidebar)
+    };
+    assert!(docked(&app), "a project opens with the sidebar");
+
+    // Ctrl+Alt+E, as a terminal sends it: Escape, then Ctrl+E.
+    send(&mut app, b"\x1b\x05");
+    assert!(!app.is_explorer_open(), "the chord did not close the tree");
+    send(&mut app, b"\x1b\x05");
+    assert!(app.is_explorer_open(), "the chord did not reopen the tree");
+    assert!(!docked(&app), "the panel chord reopened the tree docked");
+    until_drawn(&mut app, &woken, "beta.txt");
+
+    // Ctrl+Alt+B: Escape, then Ctrl+B.
+    send(&mut app, b"\x1b\x02");
+    assert!(docked(&app), "the sidebar chord did not dock the tree");
+}

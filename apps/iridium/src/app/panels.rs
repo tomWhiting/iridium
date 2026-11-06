@@ -73,7 +73,16 @@ impl App {
                 &self.user_keys,
                 &super::commands::keymap(),
             ) {
-                Ok(explorer) => self.adopt_explorer(explorer),
+                Ok(mut explorer) => {
+                    // The panel chord asks for the floating picker. A
+                    // bookmark keeps where the tree was and how wide the
+                    // sidebar is, but not the placement: a project opens
+                    // with the sidebar, and restoring that every time left
+                    // no way to float the tree at all. The sidebar has a
+                    // chord of its own.
+                    explorer.set_sidebar(false);
+                    self.adopt_explorer(explorer);
+                },
                 Err(error) => {
                     self.message = Some(Message::error(format!("the file explorer: {error}")));
                 },

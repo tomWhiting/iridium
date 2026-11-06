@@ -166,34 +166,36 @@ impl Highlighter {
     /// the exact text `tree` was parsed from. It is asked only for the nodes a
     /// query predicate reads.
     ///
-    /// A language with an injections query (Markdown fences, HTML scripts)
-    /// still reads the text whole: embedded parsing needs contiguous source.
+    /// What a language embeds (Markdown fences, HTML scripts, Rust macro
+    /// bodies) is read the same way, and only each embedded range is copied
+    /// out whole, because the embedded grammar parses it.
     #[must_use]
     pub fn spans_in_range_chunked<'text, F, C>(
         &self,
         tree: &Tree,
-        mut text: F,
+        text: F,
         range: Range<usize>,
     ) -> Vec<HighlightSpan>
     where
-        F: FnMut(Range<usize>) -> C,
+        F: Fn(Range<usize>) -> C,
         C: Iterator<Item = &'text str>,
     {
         if range.start >= range.end {
             return Vec::new();
         }
-        if matches!(
-            query::compiled(self.language, QueryKind::Injections),
-            Ok(Some(_))
-        ) {
-            let whole: String = text(0..tree.root_node().end_byte()).collect();
-            return self.spans_in_range(tree, &whole, range);
-        }
         let mut cursor = QueryCursor::new();
-        cursor.set_byte_range(range);
-        self.spans_with(cursor, tree, |node: Node<'_>| {
+        cursor.set_byte_range(range.clone());
+        let mut spans = self.spans_with(cursor, tree, |node: Node<'_>| {
             text(node.byte_range()).map(str::as_bytes)
-        })
+        });
+        if let Err(error) =
+            super::injections::append_chunked(self.language, tree, &text, range, &mut spans)
+        {
+            tracing::error!(language = self.language.id(), %error, "Embedded syntax highlighting failed");
+        }
+        spans.sort();
+        spans.dedup_by(|later, earlier| later.start == earlier.start && later.end == earlier.end);
+        spans
     }
 
     /// The walk shared by [`Self::spans_in`] and [`Self::spans_in_range`]:

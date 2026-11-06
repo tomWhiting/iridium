@@ -451,7 +451,7 @@ impl Highlighter {
         _range: std::ops::Range<usize>,
     ) -> Vec<HighlightSpan>
     where
-        F: FnMut(std::ops::Range<usize>) -> C,
+        F: Fn(std::ops::Range<usize>) -> C,
         C: Iterator<Item = &'text str>,
     {
         Vec::new()

@@ -515,3 +515,54 @@ fn chunked_text_highlights_exactly_like_one_string() {
         "an empty window is empty in pieces too"
     );
 }
+
+/// What a document embeds — a Markdown fence, a Rust macro body — colours the
+/// same read in pieces as read whole, though only the embedded ranges are
+/// ever copied out.
+#[test]
+fn embedded_code_highlights_exactly_like_one_string_when_read_in_pieces() {
+    let cases = [
+        (
+            Language::Markdown,
+            "# Title\n\nSome text.\n\n```rust\nfn main() { let x = \"猫\"; }\n```\n\nAfter.\n",
+        ),
+        (
+            Language::Rust,
+            "fn main() {\n    println!(\"{}\", 1 + 2);\n    let v = vec![1, 2, 3];\n}\n",
+        ),
+    ];
+    for (language, source) in cases {
+        let mut tree = SyntaxTree::new(language).expect("the grammar is linked");
+        let highlighter = Highlighter::new(language).expect("the language has highlights");
+        let parsed = tree.parse(source).expect("the fixture parses");
+        // Pieces of at most three characters, so captures, predicates and
+        // embedded ranges cross piece boundaries everywhere.
+        let pieces = |bytes: std::ops::Range<usize>| {
+            let text = &source[bytes];
+            let mut cuts: Vec<usize> = text.char_indices().map(|(at, _)| at).step_by(3).collect();
+            cuts.push(text.len());
+            cuts.windows(2)
+                .map(|pair| &text[pair[0]..pair[1]])
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        let whole = highlighter.spans_in_range(parsed, source, 0..source.len());
+        for window in [0..source.len(), 10..50, 30..source.len()] {
+            assert_eq!(
+                highlighter.spans_in_range_chunked(parsed, pieces, window.clone()),
+                highlighter.spans_in_range(parsed, source, window.clone()),
+                "{language:?} window {window:?}"
+            );
+        }
+        // Each fixture colours its `let` as a keyword. In the Markdown one it
+        // sits inside the fence, so the equality above covers embedded spans
+        // rather than two passes that both found nothing.
+        let embedded = source.find("let").expect("each fixture has a `let`");
+        assert!(
+            whole
+                .iter()
+                .any(|span| span.start == embedded && span.highlight == HighlightType::Keyword),
+            "{language:?}: the embedded `let` is not a keyword: {whole:?}"
+        );
+    }
+}

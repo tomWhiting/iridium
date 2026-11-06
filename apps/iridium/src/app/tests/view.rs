@@ -111,3 +111,48 @@ fn focus_events_change_nothing_in_the_document() {
     assert_eq!(app.handle_input(&TerminalInput::FocusGained), Flow::Running);
     assert_eq!(app.editor().expect("active editor").content(), "abc");
 }
+
+/// Moving the caret down a long file keeps the configured margin of lines
+/// below it on screen, and moving back up keeps the margin above it: the
+/// terminal follows the caret with the kernel's own reveal.
+#[test]
+fn the_caret_keeps_its_scroll_margin_on_screen_going_down_and_up() {
+    let directory = TempDir::new("app-scroll-margin");
+    let text = (0..200)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (mut app, _) = open(&directory, "long.txt", &text);
+    let margin = app
+        .editor()
+        .expect("active editor")
+        .get_config()
+        .scroll_margin;
+    assert!(margin > 0, "the default configuration keeps a margin");
+
+    frame(&mut app, 40, 20);
+    for _ in 0..60 {
+        app.handle_input(&press(KeyCode::Down));
+        frame(&mut app, 40, 20);
+    }
+    let caret = app.editor().expect("active editor").cursor().line;
+    assert_eq!(caret, 60);
+    let screen = frame(&mut app, 40, 20).join("\n");
+    assert!(
+        screen.contains(&format!("line {}", caret + margin)),
+        "the margin below the caret is off screen:\n{screen}"
+    );
+
+    for _ in 0..30 {
+        app.handle_input(&press(KeyCode::Up));
+        frame(&mut app, 40, 20);
+    }
+    let caret = app.editor().expect("active editor").cursor().line;
+    assert_eq!(caret, 30);
+    let screen = frame(&mut app, 40, 20).join("\n");
+    assert!(
+        screen.contains(&format!("line {}\n", caret - margin))
+            || screen.contains(&format!("line {} ", caret - margin)),
+        "the margin above the caret is off screen:\n{screen}"
+    );
+}

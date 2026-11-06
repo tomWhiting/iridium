@@ -115,6 +115,16 @@ impl Editor {
         self.reveal_caret()
     }
 
+    /// Counts the caret as it stands as followed, without scrolling, so the
+    /// next [`Self::follow_caret`] leaves the view alone until the caret or
+    /// the text changes again.
+    ///
+    /// For a caret the pointer placed: it is where the person is looking, and
+    /// pulling the margin into view would move the text under the pointer.
+    pub const fn caret_followed_in_place(&mut self) {
+        self.followed = Some(self.caret_mark());
+    }
+
     /// Scrolls so the caret's line sits where `alignment` says. No caret moves.
     ///
     /// Returns whether the view moved.

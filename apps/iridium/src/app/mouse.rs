@@ -111,6 +111,9 @@ impl App {
             self.workspace.active_editor_mut(),
         ) {
             editor.set_selection(anchor, head);
+            // The pointer put the caret where the person is looking: the
+            // next key keeps it on screen without pulling the margin in.
+            editor.caret_followed_in_place();
             if anchor != head {
                 self.select_mode();
             }

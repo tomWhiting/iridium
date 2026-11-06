@@ -209,7 +209,13 @@ impl FrameLayout {
             editor.set_viewport(viewport);
             self.scroll_rows(editor, false, self.text_rows.saturating_sub(1))?;
         } else {
-            editor.reveal_in_viewport(head);
+            // The kernel's own follow, so a caret the keyboard moved keeps
+            // the configured margin of lines above and below it, folds
+            // counted once. One that has not moved since — a pointer placed
+            // it, or the key changed nothing — is only kept on screen.
+            if !editor.follow_caret() {
+                editor.reveal_in_viewport(head);
+            }
             let end = head
                 .column
                 .saturating_add(1)

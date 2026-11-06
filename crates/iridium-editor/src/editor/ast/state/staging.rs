@@ -14,6 +14,14 @@ impl SyntaxState {
     /// With the parse in the background, `dirty` stays set after a parse
     /// lands, and copying it would make the first staged step reparse a tree
     /// that is already current.
+    #[cfg_attr(
+        not(feature = "syntax"),
+        expect(
+            clippy::clone_on_copy,
+            reason = "the stub tree is `Copy`; the real one is shared by cloning, and this one \
+            function serves both"
+        )
+    )]
     pub(in crate::editor) fn fork(&self) -> Result<Self, String> {
         let parser = match (self.parser.as_ref(), self.language) {
             (Some(_), Some(language)) => {

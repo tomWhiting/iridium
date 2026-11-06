@@ -9,9 +9,6 @@ suite = "v1"
   kind = "ast-grep"
   rules = "portable"
 
-[fmt]
-  kind = "cargo-fmt"
-
 [clippy-workspace]
   kind = "clippy"
   options = ["--all-features"]

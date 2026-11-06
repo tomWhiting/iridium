@@ -1,0 +1,4 @@
+check: portable fmt
+compiles: check clippy-workspace clippy-kernel clippy-syntax clippy-wasm tsc-examples-web tsc-packages-iridium-core tsc-packages-iridium-syntax-worker
+tested: compiles nextest-workspace nextest-kernel nextest-syntax nextest-lang bun-examples-web-component bun-examples-web bun-packages-iridium-core bun-packages-iridium-syntax-worker
+released: tested docs

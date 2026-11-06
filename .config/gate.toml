@@ -1,0 +1,76 @@
+suite = "v1"
+
+# The checks scripts/ci.sh runs today, one entry each. clippy-wasm covers the
+# old check/wasm step: clippy compiles the wasm target before it lints.
+
+[portable]
+  kind = "ast-grep"
+  rules = "portable"
+
+[fmt]
+  kind = "fmt"
+
+[clippy-workspace]
+  kind = "clippy"
+  options = ["--workspace", "--all-features", "--all-targets"]
+  on = ["mac", "linux"]
+
+[clippy-kernel]
+  kind = "clippy"
+  options = ["-p", "iridium-editor", "--no-default-features", "--all-targets"]
+
+[clippy-syntax]
+  kind = "clippy"
+  options = ["-p", "iridium-editor", "--no-default-features", "--features", "syntax", "--all-targets"]
+
+[clippy-wasm]
+  kind = "clippy"
+  options = ["-p", "iridium-bindings", "--no-default-features", "--features", "web", "--target", "wasm32-unknown-unknown"]
+
+[nextest-workspace]
+  kind = "nextest"
+  options = ["--workspace", "--all-features"]
+  on = ["mac", "linux"]
+
+[nextest-kernel]
+  kind = "nextest"
+  options = ["-p", "iridium-editor", "--no-default-features"]
+
+[nextest-syntax]
+  kind = "nextest"
+  options = ["-p", "iridium-editor", "--no-default-features", "--features", "syntax"]
+
+[nextest-lang]
+  kind = "nextest"
+  options = ["-p", "iridium-lang", "--all-features"]
+
+[docs]
+  on = ["mac", "linux"]
+
+[tsc-examples-web]
+  dir = "examples/web"
+  kind = "tsc"
+
+[tsc-packages-iridium-core]
+  dir = "packages/@iridium/core"
+  kind = "tsc"
+
+[tsc-packages-iridium-syntax-worker]
+  dir = "packages/@iridium/syntax-worker"
+  kind = "tsc"
+
+[bun-examples-web]
+  dir = "examples/web"
+  kind = "bun"
+
+[bun-examples-web-component]
+  dir = "examples/web-component"
+  kind = "bun"
+
+[bun-packages-iridium-core]
+  dir = "packages/@iridium/core"
+  kind = "bun"
+
+[bun-packages-iridium-syntax-worker]
+  dir = "packages/@iridium/syntax-worker"
+  kind = "bun"

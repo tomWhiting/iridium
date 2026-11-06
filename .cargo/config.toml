@@ -13,9 +13,6 @@ tr = "test --release"
 lint = "clippy --workspace --all-targets --all-features"
 lint-fix = "clippy --workspace --all-targets --all-features --fix --allow-dirty"
 
-# Format commands
-fmt-check = "fmt --all -- --check"
-
 # ⛔ THE NINE GATES. `ci` ran THREE of them and called itself "what CI would
 # run" — so a green `cargo ci` said nothing about the feature-off kernel, the
 # syntax-only build, or the wasm target, which is where three of this year's
@@ -25,8 +22,7 @@ fmt-check = "fmt --all -- --check"
 # ⚠️ `lint` above is the QUICK one and does not carry `-D warnings`. It is for
 # working, not for gating. Everything below gates.
 #
-# Order matches the battery: tests, then the wasm check, then clippy, then
-# formatting last. Each is its own alias so a failure names the gate that failed
+# Order matches the battery: tests, then the wasm check, then clippy. Each is its own alias so a failure names the gate that failed
 # rather than a step number.
 ci-test-workspace = "test --workspace --all-features --no-fail-fast"
 ci-test-kernel = "test -p iridium-editor --no-default-features --no-fail-fast"

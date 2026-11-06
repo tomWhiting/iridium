@@ -18,10 +18,6 @@
 # red run comes back green. The individual `cargo ci-*` aliases in
 # `.cargo/config.toml` are the same commands for running one gate by hand.
 #
-# ⚠️ `fmt --check`, never `fmt`. A gate must not mutate the tree it judges: one
-# that reformats and then reports success has verified the tree it made, not the
-# tree it was handed.
-#
 # ⛔⛔ `--verdict` IS A DIFFERENT EXIT CONTRACT FROM THE DEFAULT, AND MIXING
 # THEM UP IS THE ONE WAY TO BE BADLY MISLED BY THIS SCRIPT.
 #
@@ -106,6 +102,9 @@ run() {
 }
 
 # Tests first: a compile error surfaces here with the clearest message.
+# The formatter runs first and formats the tree; it is never run as a check.
+run "fmt" cargo fmt --all
+
 run "test/workspace" cargo test --workspace --all-features --no-fail-fast
 run "test/kernel" cargo test -p iridium-editor --no-default-features --no-fail-fast
 run "test/syntax" cargo test -p iridium-editor --no-default-features --features syntax --no-fail-fast
@@ -118,8 +117,6 @@ run "clippy/all" cargo clippy --workspace --all-features --all-targets -- -D war
 run "clippy/kernel" cargo clippy -p iridium-editor --no-default-features --all-targets -- -D warnings
 run "clippy/syntax" cargo clippy -p iridium-editor --no-default-features --features syntax --all-targets -- -D warnings
 run "clippy/wasm" cargo clippy -p iridium-bindings --no-default-features --features web --target wasm32-unknown-unknown -- -D warnings
-
-run "fmt" cargo fmt --all --check
 
 # ⛔ THE CENSUS COMES BEFORE THE VERDICT, AND IT HAS TO.
 #

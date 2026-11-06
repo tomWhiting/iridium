@@ -1,48 +1,50 @@
 suite = "v1"
 
-# The checks scripts/ci.sh runs today, one entry each. clippy-wasm covers the
-# old check/wasm step: clippy compiles the wasm target before it lints.
+# One entry per check scripts/ci.sh runs today. The suite's clippy always adds
+# --workspace and --all-targets, and its nextest takes no options, so the
+# per-package, per-feature and wasm configurations carry a run override until
+# a kind can say them. clippy-wasm also covers the old check/wasm step.
 
 [portable]
   kind = "ast-grep"
   rules = "portable"
 
 [fmt]
-  kind = "fmt"
+  kind = "cargo-fmt"
 
 [clippy-workspace]
   kind = "clippy"
-  options = ["--workspace", "--all-features", "--all-targets"]
+  options = ["--all-features"]
   on = ["mac", "linux"]
 
 [clippy-kernel]
   kind = "clippy"
-  options = ["-p", "iridium-editor", "--no-default-features", "--all-targets"]
+  run = ["cargo", "clippy", "--message-format=json", "-p", "iridium-editor", "--no-default-features", "--all-targets", "--", "-D", "warnings"]
 
 [clippy-syntax]
   kind = "clippy"
-  options = ["-p", "iridium-editor", "--no-default-features", "--features", "syntax", "--all-targets"]
+  run = ["cargo", "clippy", "--message-format=json", "-p", "iridium-editor", "--no-default-features", "--features", "syntax", "--all-targets", "--", "-D", "warnings"]
 
 [clippy-wasm]
   kind = "clippy"
-  options = ["-p", "iridium-bindings", "--no-default-features", "--features", "web", "--target", "wasm32-unknown-unknown"]
+  run = ["cargo", "clippy", "--message-format=json", "-p", "iridium-bindings", "--no-default-features", "--features", "web", "--target", "wasm32-unknown-unknown", "--", "-D", "warnings"]
 
 [nextest-workspace]
   kind = "nextest"
-  options = ["--workspace", "--all-features"]
+  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "--workspace", "--all-features"]
   on = ["mac", "linux"]
 
 [nextest-kernel]
   kind = "nextest"
-  options = ["-p", "iridium-editor", "--no-default-features"]
+  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "-p", "iridium-editor", "--no-default-features"]
 
 [nextest-syntax]
   kind = "nextest"
-  options = ["-p", "iridium-editor", "--no-default-features", "--features", "syntax"]
+  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "-p", "iridium-editor", "--no-default-features", "--features", "syntax"]
 
 [nextest-lang]
   kind = "nextest"
-  options = ["-p", "iridium-lang", "--all-features"]
+  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "-p", "iridium-lang", "--all-features"]
 
 [docs]
   on = ["mac", "linux"]

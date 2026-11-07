@@ -292,7 +292,7 @@ impl<T> Workspace<T> {
     ///
     /// A face asks every frame and shows the answer, so that typing which has
     /// started to wait on a parser is never a mystery.
-    pub fn take_syntax_failure(&mut self) -> Option<std::io::Error> {
+    pub const fn take_syntax_failure(&mut self) -> Option<std::io::Error> {
         self.syntax_failure.take()
     }
 

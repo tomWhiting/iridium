@@ -141,8 +141,11 @@ impl Replaced {
 }
 
 /// Records kept before the oldest two merge. A face asks every frame, so it
-/// is rarely more than a keystroke's few edits behind.
-const CAPACITY: usize = 16;
+/// is rarely more than a keystroke's few edits behind; one command can make
+/// many, as a paste over many carets or a replayed group does, and up to this
+/// many from one revision are still answered exactly in lines. The line log
+/// this replaced kept as many. About 6 KB inline, copied with the document.
+const CAPACITY: usize = 64;
 
 /// One edit, or a merged run of them, from revision `before` to `after`.
 #[derive(Debug, Clone, Copy)]
@@ -475,14 +478,14 @@ mod tests {
     }
 
     /// An edit replacing text on `line` alone, as the log records it.
-    const fn on_line(line: usize) -> Option<Replaced> {
+    const fn on_line(line: usize) -> Replaced {
         let at = Position::new(line, 0);
         let end = Position::new(line, 1);
-        Some(Replaced {
+        Replaced {
             start: at,
             old_end: end,
             new_end: end,
-        })
+        }
     }
 
     const NOTHING_KEPT: Unchanged = Unchanged {
@@ -493,8 +496,8 @@ mod tests {
     #[test]
     fn the_record_answers_only_from_its_floor() {
         let mut edits = ChangeLog::starting_at(3);
-        edits.record(4, NOTHING_KEPT, on_line(0));
-        edits.record(5, NOTHING_KEPT, on_line(2));
+        edits.record(4, NOTHING_KEPT, Some(on_line(0)));
+        edits.record(5, NOTHING_KEPT, Some(on_line(2)));
         assert_eq!(edits.lines_since(2, 5), None, "before the floor");
         assert_eq!(edits.lines_since(3, 5), Some(change(0, 3, 3)));
         assert_eq!(edits.lines_since(4, 5), Some(change(2, 3, 3)));
@@ -523,8 +526,14 @@ mod tests {
         let added = |lines: LineChange| lines.new_end - lines.old_end;
         assert_eq!(document.lines_changed_since(1), None);
         assert_eq!(document.replaced_since(1), None);
-        assert_eq!(document.lines_changed_since(0).map(added), Some(17));
-        assert_eq!(document.lines_changed_since(2).map(added), Some(15));
+        assert_eq!(
+            document.lines_changed_since(0).map(added),
+            Some(super::CAPACITY + 1)
+        );
+        assert_eq!(
+            document.lines_changed_since(2).map(added),
+            Some(super::CAPACITY - 1)
+        );
         assert!(
             document.unchanged_since(1).is_some(),
             "bytes are still answered: a merged record only narrows them"
@@ -588,13 +597,15 @@ mod tests {
     /// still covers every line they changed.
     #[test]
     fn edits_beyond_the_log_still_answer_with_a_covering_span() {
-        let mut document = Document::new(&"line\n".repeat(100));
-        for line in (0..40).map(|step| step * 2) {
+        // More edits than the log keeps apart, one on every other line.
+        let edits = super::CAPACITY + 16;
+        let mut document = Document::new(&"line\n".repeat(edits * 2 + 20));
+        for line in (0..edits).map(|step| step * 2) {
             document.insert(Position::new(line, 0), "x").unwrap();
         }
         let lines = document.lines_changed_since(0).unwrap();
         assert_eq!(lines.start, 0);
-        assert!(lines.old_end >= 79 && lines.new_end == lines.old_end);
+        assert!(lines.old_end > (edits - 1) * 2 && lines.new_end == lines.old_end);
     }
 
     /// Text inserted at a line's start pushes it down; after its start it

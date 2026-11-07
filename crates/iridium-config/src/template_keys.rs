@@ -46,7 +46,7 @@
 //!
 //! # The left-hand side is the round-trippable spelling
 //!
-//! [`KeyBinding::display_sequence`] renders the form
+//! [`KeyBinding::display_sequence`](iridium_editor::KeyBinding::display_sequence) renders the form
 //! [`KeyBinding::parse`](iridium_editor::KeyBinding::parse) reads back, which is
 //! what makes an uncommented line *work*. It is not the prettiest form —
 //! `~shift` for "shift is ignored" is the price — and the header block explains

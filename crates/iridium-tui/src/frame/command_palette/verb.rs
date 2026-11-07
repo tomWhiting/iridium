@@ -15,7 +15,7 @@
 //! over them. That is duplication with eyes open: the alternative is a shared
 //! enum in the kernel, which is a better shape and a worse thing to attempt
 //! half way through converting seven panels. What keeps the copies honest is
-//! [`super::keymap_tests`], where a verb added to the kernel's `palette` table
+//! `super::keymap_tests`, where a verb added to the kernel's `palette` table
 //! and missed here fails this face's own ratchet.
 //!
 //! # ⚠️ `palette.open` is deliberately absent

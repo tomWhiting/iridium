@@ -71,8 +71,10 @@ pub struct CommandMeta {
     aliases: &'static [&'static str],
     /// The mode this command belongs to, or `None` for an editor-wide one.
     ///
-    /// See [`Self::in_mode`] for what naming one means — it is two statements
+    /// See [`KeyBinding::in_mode`] for what naming one means — it is two statements
     /// at once, and both of them matter.
+    ///
+    /// [`KeyBinding::in_mode`]: crate::KeyBinding::in_mode
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<ModeName>,
 }

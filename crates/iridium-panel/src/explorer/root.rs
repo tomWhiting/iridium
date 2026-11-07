@@ -34,7 +34,7 @@ pub struct ExplorerRoot {
 /// The root someone picked by hand, and how far a search there may reach.
 ///
 /// **A chosen directory earns the crawl**, and that is the whole difference
-/// between this and [`explorer_root`]. The rule there is that a directory
+/// between this and the desktop's `explorer_root`. The rule there is that a directory
 /// *this code guessed* is not worth reading past, because nothing bounds it
 /// and nobody asked. A person walking into a folder has bounded it themselves
 /// — that is what walking into it means — and a search that then refused to

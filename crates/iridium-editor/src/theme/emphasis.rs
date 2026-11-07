@@ -161,7 +161,7 @@ impl SyntaxEmphasis {
     /// The whole of what a caller normally needs: a category the theme says
     /// nothing about returns `style` untouched, which is the identity the
     /// retained-shaping path depends on — see
-    /// [`RunStyle`](crate::render::RunStyle)'s module docs.
+    /// [`RunStyle`]'s module docs.
     #[must_use]
     pub fn applied_to(&self, highlight: HighlightType, style: RunStyle) -> RunStyle {
         self.get(highlight)

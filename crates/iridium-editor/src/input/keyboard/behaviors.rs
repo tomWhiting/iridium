@@ -324,7 +324,7 @@ fn unclosed_fence_indent(prefix: &str) -> Option<&str> {
 
 /// Builds per-cursor edits for typing the auto-pair character `c`.
 ///
-/// Only call for characters where [`is_auto_pair_trigger`] is true and the
+/// Only call for characters where [`PairRules::is_trigger`] is true and the
 /// configuration enables auto-pairs. Each cursor independently applies:
 ///
 /// - **Selection wrap**: a non-collapsed selection typed over with an opener

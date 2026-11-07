@@ -30,7 +30,7 @@
 //! A face does not want *the ids*; it wants "the one that means open the
 //! palette". A bare list would push the naming back into TypeScript, which is
 //! the transcription this module removes. The fields are the names, and
-//! [`tests::every_host_command_the_kernel_names_is_exported`] is the oracle
+//! `tests::every_host_command_the_kernel_names_is_exported` is the oracle
 //! that keeps them level with the kernel: adding a host command without
 //! exporting it fails that test rather than shipping a browser that cannot
 //! reach it.

@@ -15,19 +15,19 @@
 //!
 //! # The three stages, in order
 //!
-//! - [`plan`] — pure. Turns edited rows into validated [`Operation`]s, or into
+//! - [`plan`](mod@plan) — pure. Turns edited rows into validated [`Operation`]s, or into
 //!   every [`Refusal`] that stops them. Touches no disk.
 //! - [`order`] — pure. Puts those operations in an order that cannot destroy
 //!   anything: names vacated before they are moved into, cycles broken through
 //!   a temporary, deletes last.
-//! - [`apply`] — the only module here that writes anything. Decides nothing;
+//! - [`apply`](mod@apply) — the only module here that writes anything. Decides nothing;
 //!   re-checks everything.
 //!
 //! And alongside them, two more that are about what a row *is* rather than how
 //! one is drawn, and so belong on this side of the line for the same reason the
 //! pipeline does:
 //!
-//! - [`filter`] — narrowing the rows to what a query matches without losing the
+//! - [`filter`](mod@filter) — narrowing the rows to what a query matches without losing the
 //!   hierarchy the matches live in.
 //! - [`root`] — where the explorer opens when somebody picks a directory, and
 //!   how far a search there may reach. ⚠️ Only the *choice*. Guessing a root

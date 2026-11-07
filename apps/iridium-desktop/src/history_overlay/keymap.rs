@@ -12,7 +12,7 @@
 //! forgot would silently drop chords that work today.
 //!
 //! #91 measured that nothing else catches this. This panel therefore carries its
-//! own ratchets, over its own table — see [`super::keymap_tests`].
+//! own ratchets, over its own table — see `super::keymap_tests`.
 //!
 //! `AltGraph` is `Any` for the same reason and with the same evidence: the old
 //! function did not read it either.

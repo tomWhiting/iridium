@@ -84,7 +84,7 @@ pub enum PanelAnchor {
     /// At an arbitrary point in the window, in physical pixels — the context
     /// menu, which hangs from the click that opened it. The point is the
     /// panel's top-left corner where the window allows it; see
-    /// [`anchored_origin`] for the clamping and the flip.
+    /// `geometry::anchored_origin` for the clamping and the flip.
     Point {
         /// The anchor's distance from the window's left edge.
         x: f32,

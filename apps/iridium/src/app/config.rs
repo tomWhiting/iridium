@@ -23,6 +23,8 @@
 //! — enough to know something was rejected and where to look, and honestly less
 //! than the desktop gives. It is **not** silence: a file with a bad line in it
 //! says so on the way in.
+//!
+//! [`iridium_config::install`]: fn@iridium_config::install
 
 use std::path::Path;
 
@@ -35,6 +37,8 @@ use iridium_editor::workspace::{FaceSetupError, Workspace};
 /// [`Workspace::push_keymap`] validates against the registry and leaves the stack
 /// untouched when it refuses, which is exactly what [`iridium_config::install`]
 /// requires of it — so a refused binding is dropped and the rest go in.
+///
+/// [`iridium_config::install`]: fn@iridium_config::install
 pub(super) fn install_user_bindings<T>(
     workspace: &mut Workspace<T>,
     bindings: Vec<KeyBinding>,

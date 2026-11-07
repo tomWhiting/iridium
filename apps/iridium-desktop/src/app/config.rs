@@ -70,6 +70,8 @@ pub(super) fn install_user_bindings(
 /// [`Workspace::replace_keymap`] does, restoring the layer that was already
 /// installed. That is what makes a reload safe to attempt: a file with a typo in
 /// it costs the typo's binding, not the ones that were working.
+///
+/// [`iridium_config::install`]: fn@iridium_config::install
 pub(super) fn replace_user_bindings(
     workspace: &mut Workspace<DesktopDocument>,
     bindings: Vec<KeyBinding>,

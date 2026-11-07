@@ -302,6 +302,8 @@ const fn finite_or_zero(value: f32) -> f32 {
 /// `FloatingBox` rule, restated on the pixel grid. The pure half of
 /// [`OverlayPainter::panel_fit`], separated so the fit-to-geometry round
 /// trip is testable without a GPU.
+///
+/// [`OverlayPainter::panel_fit`]: super::OverlayPainter::panel_fit
 pub(super) fn fit_for(
     window_width: f32,
     window_height: f32,

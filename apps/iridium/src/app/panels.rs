@@ -170,6 +170,8 @@ impl App {
     /// So: the open file's folder if there is one, and otherwise the working
     /// directory, trusted. `chosen_root` then answers the only question that
     /// means the same thing in both faces — whether a search may read past it.
+    ///
+    /// [`chosen_root`]: iridium_panel::explorer::chosen_root
     pub(super) fn explorer_root(&self) -> std::io::Result<iridium_panel::explorer::ExplorerRoot> {
         let from_file = self
             .file()

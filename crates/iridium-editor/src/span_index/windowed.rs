@@ -92,7 +92,7 @@ pub struct WindowedSpanCache {
     /// ⚠️ The two were indistinguishable while this asked only whether a
     /// language was set: both leave the entry empty, because both make
     /// `Highlighter::try_new` answer `None`. Only
-    /// [`has_grammar`](crate::syntax::has_grammar) tells them apart.
+    /// [`has_grammar`] tells them apart.
     language_active: bool,
 }
 

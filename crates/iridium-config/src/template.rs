@@ -24,7 +24,7 @@
 //! the day someone added a field, and would then be quietly, confidently
 //! wrong.
 //!
-//! [`every_setting_appears_in_the_template`](self::tests) holds the two in
+//! `every_setting_appears_in_the_template` holds the two in
 //! agreement by asking `field_names` for the set and checking each one is in
 //! the text.
 //!

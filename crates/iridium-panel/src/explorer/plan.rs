@@ -4,7 +4,7 @@
 //! Pure: this module never touches the disk. It reads the tree to learn what
 //! each row *was*, compares that to what the row now says, and produces an
 //! ordered list of operations — or a list of reasons it will not. Executing
-//! the plan is [`super::apply`]'s job, and it re-checks everything.
+//! the plan is [`super::apply`](mod@super::apply)'s job, and it re-checks everything.
 //!
 //! # Rows are identified by their origin, never by name
 //!

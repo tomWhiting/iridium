@@ -60,7 +60,7 @@ impl HighlightSource for FrameHighlights<'_> {
 /// a rule in this face ("italicise comments") would be it deciding something
 /// the theme owns, and the GPU face and the terminal face would then disagree
 /// about what a comment looks like. Both call
-/// [`highlight_to_style`](iridium_editor::syntax::highlight_to_style), which is
+/// [`highlight_to_style`], which is
 /// the single place a category becomes an appearance.
 ///
 /// A gap between spans still takes the plain theme foreground and no emphasis:

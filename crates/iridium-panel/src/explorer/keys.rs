@@ -207,7 +207,7 @@ impl FileExplorer {
     ///
     /// # The offsets, and why they are the panel's to know
     ///
-    /// `row` is an index into the rows [`content`](Self::content) composed,
+    /// `row` is an index into the rows `content` composed,
     /// which is the only thing the pointer can resolve against. Row zero is
     /// the query field while browsing and the label while editing, and neither
     /// is a list row; the rest are offset by the scroll window. The face knows

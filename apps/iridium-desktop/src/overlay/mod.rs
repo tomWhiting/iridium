@@ -84,6 +84,11 @@
 //! - [`frame`] — what the last frame actually put on screen, and the hit test
 //!   that reads it back. No device, which is what makes the pointer testable.
 //! - [`paint`] — the render passes. Everything that touches the GPU.
+//!
+//! [`LoadOp::Load`]: wgpu::LoadOp::Load
+//! [`RoundedQuadRenderer`]: iridium_editor::render::RoundedQuadRenderer
+//! [`TextRenderer`]: iridium_editor::render::TextRenderer
+//! [`PANEL_MAX_COLUMNS`]: metrics::PANEL_MAX_COLUMNS
 
 mod content;
 mod frame;

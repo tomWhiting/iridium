@@ -199,7 +199,7 @@ impl DesktopApp {
     /// Opens the user's `config.toml` as an ordinary tab.
     ///
     /// An **ordinary** tab, deliberately: it goes through [`Self::open_file`],
-    /// so it has a real [`TextFile`](iridium_file::TextFile) behind it, `⌘S`
+    /// so it has a real [`TextFile`] behind it, `⌘S`
     /// writes it, and the file-changed-on-disk refusal applies exactly as it
     /// would to any other file. The `config.toml` *report* tab beside it is a
     /// different thing entirely — that one is generated text describing the

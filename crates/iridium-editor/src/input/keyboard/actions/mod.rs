@@ -12,10 +12,10 @@
 //!
 //! It is **not** the only place an id is tied to behaviour, and reading it as
 //! though it were is how the real hazard gets missed.
-//! [`Workspace::run_command`](crate::Workspace::run_command) is a second, in
+//! [`Workspace::run_command`](crate::workspace::Workspace::run_command) is a second, in
 //! this crate, for the `workspace.*` ids; every face's host-command dispatch is
 //! a third, for the ids
-//! [`builtin::host`](crate::commands::builtin::host) names but the kernel
+//! `builtin::host` names but the kernel
 //! cannot implement. All of them name the constants too, so a rename breaks
 //! their build — which is the property that actually matters, and it is
 //! *naming the constant*, not being alone.

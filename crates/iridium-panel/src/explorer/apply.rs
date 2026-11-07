@@ -1,6 +1,6 @@
 //! Executing a validated [`Plan`] against the filesystem.
 //!
-//! [`super::plan`] decided *what*; this decides nothing and only does it. The
+//! [`super::plan`](mod@super::plan) decided *what*; this decides nothing and only does it. The
 //! separation is what makes the dangerous half testable without a disk and
 //! this half small enough to read in one sitting.
 //!

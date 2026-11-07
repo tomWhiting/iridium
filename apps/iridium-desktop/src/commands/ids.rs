@@ -1,6 +1,6 @@
 //! The command ids this face contributes, and what the palette calls them.
 //!
-//! Split from [`keymap`](super::keymap) on the line the module doc draws: a
+//! Split from [`keymap`](mod@super::keymap) on the line the module doc draws: a
 //! *verb* and the *key that reaches it* are different decisions, changed at
 //! different times and by different people — a `[keys]` line in a user's
 //! configuration file changes the second and can never change the first.

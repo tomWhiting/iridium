@@ -14,7 +14,7 @@
 //! than about the parser, which has none. `highlight_to_color` reads it
 //! forwards and the VS Code import reads it backwards, and both get one map.
 //!
-//! ⚠️ [`HighlightType`](crate::HighlightType) is itself two types — the real
+//! ⚠️ [`HighlightType`] is itself two types — the real
 //! one from `iridium_syntax` and the stub in `crate::syntax_stubs` — depending
 //! on the feature. The `match` below is exhaustive, so a variant either build
 //! is missing fails to compile here. That is the only structural guard the two

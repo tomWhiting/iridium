@@ -29,7 +29,7 @@ pub const PANEL_MAX_VISIBLE_ROWS: usize = 12;
 /// sixty is a browser that hides most of what you opened it to look at.
 ///
 /// **Twelve was leaving most of the window unused, and that was measured
-/// rather than assumed.** [`fit_for`] gives a panel `1 - TOP_ANCHOR_FRACTION`
+/// rather than assumed.** The desktop's `fit_for` gives a panel `1 - TOP_ANCHOR_FRACTION`
 /// of the window height less its padding, and a row costs
 /// `font_size × line_height` = `14 × 1.4` logical pixels. A 1440×900 laptop
 /// therefore affords **39** interior rows, and the panel was drawing twelve of

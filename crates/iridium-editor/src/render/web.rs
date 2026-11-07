@@ -27,7 +27,7 @@ use wgpu::{CompositeAlphaMode, PresentMode, TextureFormat};
 /// Configuration for web rendering.
 ///
 /// This configuration type is available on all platforms but is primarily
-/// used when creating a [`WebSurface`] on wasm32 targets.
+/// used when creating a `WebSurface` on wasm32 targets.
 #[derive(Debug, Clone)]
 pub struct WebRenderConfig {
     /// Texture format for the surface

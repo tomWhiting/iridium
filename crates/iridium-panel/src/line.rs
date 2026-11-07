@@ -1,7 +1,7 @@
 //! Assembling one panel row of coloured runs on the character grid.
 //!
-//! The overlay builders ([`crate::search`], [`crate::command_palette`],
-//! [`crate::history_overlay`]) all compose rows the same way: runs pushed
+//! The desktop's overlay builders (`search`, `command_palette`,
+//! `history_overlay`) all compose rows the same way: runs pushed
 //! left to right against a fixed character budget, sometimes padded out to a
 //! column so a right-aligned segment lands on the panel's right edge. This is
 //! that arithmetic, once. Everything is counted in `char`s because that is

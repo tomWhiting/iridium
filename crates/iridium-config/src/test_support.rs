@@ -14,7 +14,7 @@
 //! them moved.
 //!
 //! Behind the `test-support` feature, on the same terms as
-//! [`iridium_file::test_support`]: this reads the working tree, so nothing
+//! `iridium_file::test_support`: this reads the working tree, so nothing
 //! outside a test should ever want it.
 //!
 //! # Why these return `Result`

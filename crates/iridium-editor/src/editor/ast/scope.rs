@@ -19,7 +19,7 @@
 //! never if none is asked — which is every keystroke in a language whose
 //! manifest suppresses nothing.
 //!
-//! **It never parses.** It reads [`SyntaxState::tree`], which returns the
+//! **It never parses.** It reads [`SyntaxState::tree`](super::SyntaxState::tree), which returns the
 //! retained tree as it stands; it must never call
 //! [`SyntaxState::sync`](super::SyntaxState::sync), which would put a reparse
 //! on the typing path.

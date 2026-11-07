@@ -103,7 +103,7 @@ pub enum ExplorerOutcome {
 /// # Two row sources, one panel
 ///
 /// With an empty query the rows come from [`Tree`] — what the user has opened,
-/// and only that. With a query they come from [`super::filter`], which walks
+/// and only that. With a query they come from [`super::filter`](mod@super::filter), which walks
 /// the arena and keeps the matches with their folders above them. The tree's
 /// expansion state is untouched by filtering, so clearing the query restores
 /// exactly the tree that was there before a character was typed.
@@ -365,7 +365,7 @@ impl FileExplorer {
     /// the operations are correct.
     ///
     /// Whether searching may read past the new root is
-    /// [`chosen_root`](super::chosen_root)'s answer, not this function's — a
+    /// [`chosen_root`]'s answer, not this function's — a
     /// directory somebody walked into is a directory somebody bounded.
     ///
     /// ⚠️ **Replacing the whole struct replaces [`Self::mode`] with it**, so

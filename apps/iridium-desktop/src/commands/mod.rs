@@ -3,7 +3,7 @@
 //! # These are host commands, not a second dispatch
 //!
 //! Every verb here is a real entry in the kernel's `CommandRegistry`, bound in
-//! a [`Keymap`] layer pushed on top of the default one — the identical
+//! a [`Keymap`](iridium_editor::Keymap) layer pushed on top of the default one — the identical
 //! mechanism the terminal face uses, described at length in its
 //! `app::commands`. A key resolves through the kernel's resolver like any
 //! other, the kernel reports it as

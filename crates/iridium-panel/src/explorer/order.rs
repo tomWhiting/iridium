@@ -1,6 +1,6 @@
 //! Turning validated rows into an ordered list of operations.
 //!
-//! [`super::plan`] decided *what* each row means and refused everything it
+//! [`super::plan`](mod@super::plan) decided *what* each row means and refused everything it
 //! could tell was wrong from the rows alone; this decides **in what order**,
 //! which is not a tidiness question. Renaming `a` to `b` and `b` to `c` in the
 //! order typed destroys the original `b`; a file moved into a folder the same

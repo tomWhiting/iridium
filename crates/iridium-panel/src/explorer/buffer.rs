@@ -1,5 +1,5 @@
 //! The listing being edited: the rows the panel drew, written as text through
-//! [`crate::outline`], and read back as the rows [`super::plan`] takes.
+//! [`crate::outline`], and read back as the rows [`super::plan`](fn@super::plan) takes.
 //!
 //! Each row's origin is captured here, once, from the node it was drawn from,
 //! and travels with its line through every edit. Nothing downstream matches a
@@ -195,7 +195,7 @@ impl Listing {
     ///
     /// # Errors
     ///
-    /// One [`Refusal`] per row that cannot be acted on; see [`super::plan`].
+    /// One [`Refusal`] per row that cannot be acted on; see [`super::plan`](mod@super::plan).
     ///
     /// Reads the disk, without writing it, to refuse a name that is taken by
     /// an entry the rows do not show: inside a collapsed folder, or filtered

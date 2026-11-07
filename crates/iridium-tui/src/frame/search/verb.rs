@@ -17,7 +17,7 @@
 //! which *is* that command — so it names it rather than minting a scoped twin
 //! that would give a user two ids for one behaviour.
 //!
-//! They are listed in [`Verb::BORROWED`] so the panel's tests can assert the two
+//! They are listed in `Verb::BORROWED` so the panel's tests can assert the two
 //! halves of the vocabulary separately: everything in the kernel's `search`
 //! table is answered here, and each borrowed id is registered and is mode-free.
 //! A completeness test that enumerates "everything" breaks the moment there is a

@@ -179,6 +179,12 @@ unsafe_code = "warn"
 missing_docs = "warn"
 rust_2024_compatibility = { level = "warn", priority = -1 }
 
+[workspace.lints.rustdoc]
+# No crate here is published. Their documentation is read by the people who
+# maintain them, in an editor or with `--document-private-items`, and the module
+# docs link the private items they describe on purpose.
+private_intra_doc_links = "allow"
+
 [workspace.lints.clippy]
 # Correctness
 correctness = { level = "deny", priority = -1 }

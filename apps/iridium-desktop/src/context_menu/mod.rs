@@ -35,7 +35,7 @@
 //! D-2 ruled the buildable floor: Cut, Copy, Paste, Select All and a
 //! Command Palette… row. Every one of them is a command **already in the
 //! kernel's registry** — this module registers nothing and implements no verb;
-//! it resolves a [`CommandId`] and the host dispatches it down the same
+//! it resolves a [`CommandId`](iridium_editor::CommandId) and the host dispatches it down the same
 //! kernel-first path a palette entry takes. A verb the registry does not carry
 //! is dropped from the menu rather than offered and refused, and the test
 //! module proves each id against a real registry.

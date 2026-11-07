@@ -268,7 +268,7 @@ impl PairRules {
     ///
     /// This *is* §10.4's rule for a one-character closer, which ends itself
     /// with an empty prefix and so needs no text before the caret examined.
-    /// [`multi_char_pairs::steps_over`] asks it first for exactly that reason,
+    /// [`steps_over`](super::multi_char_pairs::steps_over) asks it first for exactly that reason,
     /// which is what leaves the behaviour that was already here unchanged by
     /// construction.
     pub(super) fn is_closer(self, c: char) -> bool {

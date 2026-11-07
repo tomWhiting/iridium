@@ -1,9 +1,12 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+// Every port this repository serves on is named once, in ports.json.
+const port: number = JSON.parse(readFileSync(resolve(__dirname, "../../ports.json"), "utf8"))["examples/web-component"];
 
 export default defineConfig({
   resolve: {
@@ -33,7 +36,7 @@ export default defineConfig({
     target: "esnext",
   },
   server: {
-    port: 12224,
+    port,
     fs: {
       // Allow serving files from project root
       allow: ["../.."],

@@ -111,11 +111,8 @@ pub fn main() -> ExitStatus {
     // `ActiveEventLoop`, which is all `resumed` gets, cannot. The app holds it
     // until `resumed` installs the bar and then hands it to the menu target.
     app.attach_menu_proxy(event_loop.create_proxy());
-    // winit guarantees it does not install an application delegate. Install
-    // after creating its event loop and retain through run_app: AppKit's
-    // delegate property is weak.
-    #[cfg(target_os = "macos")]
-    let _file_delegate = match crate::macos_files::install(event_loop.create_proxy()) {
+    // Kept until run_app returns: see `open_files::install`.
+    let _file_handler = match crate::open_files::install(&event_loop) {
         Ok(delegate) => delegate,
         Err(error) => return fail(&format!("iridium-desktop: {error}\n")),
     };

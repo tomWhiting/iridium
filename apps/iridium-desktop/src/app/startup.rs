@@ -19,7 +19,27 @@ use iridium_editor::workspace::{FaceSetupError, Workspace};
 use iridium_file::{FileError, TextFile};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
-use winit::window::Window;
+use winit::window::{Window, WindowAttributes};
+
+/// Makes ⌥ arrive as a modifier, so every ⌥ chord the keymap binds is
+/// reachable.
+///
+/// Without this, macOS composes ⌥+letter into a character — ⌥F arrives as `ƒ`
+/// with the `alt` bit already spent. `Both` covers the left and right keys,
+/// because a chord must not depend on which ⌥ the hand reached. The accented
+/// characters ⌥ would otherwise compose are the stated price, and they remain
+/// reachable through the system character viewer.
+#[cfg(target_os = "macos")]
+fn alt_as_a_modifier(attributes: WindowAttributes) -> WindowAttributes {
+    use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS as _};
+    attributes.with_option_as_alt(OptionAsAlt::Both)
+}
+
+/// Elsewhere Alt already arrives as a modifier, so the attributes stand.
+#[cfg(not(target_os = "macos"))]
+const fn alt_as_a_modifier(attributes: WindowAttributes) -> WindowAttributes {
+    attributes
+}
 
 use super::config;
 use super::files::language_of;
@@ -142,18 +162,7 @@ impl Shell {
     /// a preset the editor does not hold, or its clear color and chrome
     /// colors drift from everything the resolver paints.
     pub(super) fn open(event_loop: &ActiveEventLoop, theme: Theme) -> Result<Self, String> {
-        let attributes = Window::default_attributes().with_title(TITLE);
-        // Without this, macOS composes ⌥+letter into a character — ⌥F arrives
-        // as `ƒ` with the `alt` bit already spent — and every ⌥ chord the
-        // keymap binds is unreachable. `Both` covers the left and right keys,
-        // because a chord must not depend on which ⌥ the hand reached. The
-        // accented characters ⌥ would otherwise compose are the stated price,
-        // and they remain reachable through the system character viewer.
-        #[cfg(target_os = "macos")]
-        let attributes = {
-            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS as _};
-            attributes.with_option_as_alt(OptionAsAlt::Both)
-        };
+        let attributes = alt_as_a_modifier(Window::default_attributes().with_title(TITLE));
         let window = event_loop
             .create_window(attributes)
             .map_err(|error| format!("cannot open a window: {error}"))?;

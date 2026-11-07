@@ -22,8 +22,14 @@ wasm-pack build crates/iridium-bindings \
 echo ""
 echo "Build complete! Output in: $OUTPUT_DIR"
 echo ""
+# Every port this repository serves on is named once, in ports.json.
+PORT="$(sed -n 's/^ *"web-test": *\([0-9][0-9]*\).*/\1/p' "$PROJECT_ROOT/ports.json")"
+if [ -z "$PORT" ]; then
+    echo "build.sh: ports.json names no web-test port" >&2
+    exit 1
+fi
 echo "To test:"
 echo "  cd $SCRIPT_DIR"
-echo "  npx serve -p 8899"
-echo "  # Or: deno run -A npm:serve -p 8899"
-echo "  # Open http://localhost:8899 in a WebGPU-capable browser"
+echo "  npx serve -p $PORT"
+echo "  # Or: deno run -A npm:serve -p $PORT"
+echo "  # Open http://localhost:$PORT in a WebGPU-capable browser"

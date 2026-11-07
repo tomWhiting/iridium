@@ -2,9 +2,10 @@
 //
 // Usage: node render-icon.js <icon.html> <out.png>
 //
-// Drives the Playwright chromium already cached on this machine — no new
-// dependency is installed for the icon. Two environment variables override
-// the machine-specific defaults when they move:
+// Drives a Playwright chromium already on this machine — no new dependency
+// is installed for the icon. By default playwright-core is resolved the way
+// require() resolves any module, and it launches the chromium it manages.
+// Two environment variables point elsewhere:
 //
 //   IRIDIUM_PLAYWRIGHT_CORE  path require() can resolve playwright-core from
 //   IRIDIUM_CHROMIUM         the chromium executable to launch
@@ -19,12 +20,9 @@
 const path = require("path");
 const { pathToFileURL } = require("url");
 
-const PLAYWRIGHT_CORE =
-  process.env.IRIDIUM_PLAYWRIGHT_CORE ||
-  "/Users/tom/Developer/ablative/apps/manifold/surface/page/node_modules/playwright-core";
-const CHROMIUM =
-  process.env.IRIDIUM_CHROMIUM ||
-  "/Users/tom/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+const PLAYWRIGHT_CORE = process.env.IRIDIUM_PLAYWRIGHT_CORE || "playwright-core";
+// Unset means Playwright launches the chromium it installed itself.
+const CHROMIUM = process.env.IRIDIUM_CHROMIUM || undefined;
 
 const htmlPath = process.argv[2];
 const outPath = process.argv[3];

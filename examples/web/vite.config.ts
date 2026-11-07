@@ -1,10 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+// Every port this repository serves on is named once, in ports.json.
+const port: number = JSON.parse(readFileSync(resolve(__dirname, "../../ports.json"), "utf8"))["examples/web"];
 
 export default defineConfig({
   plugins: [react()],
@@ -41,13 +44,13 @@ export default defineConfig({
     target: "esnext",
   },
   server: {
-    port: 12223,
+    port,
     fs: {
       // Allow serving files from project root (two levels up from examples/web)
       allow: ["../.."],
     },
   },
   preview: {
-    port: 12223,
+    port,
   },
 });

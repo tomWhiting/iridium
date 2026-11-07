@@ -105,10 +105,9 @@ pub mod history_overlay;
 pub mod keys;
 pub mod latency;
 mod line;
-#[cfg(target_os = "macos")]
-mod macos_files;
 pub mod menubar;
 pub mod mouse;
+mod open_files;
 pub mod overlay;
 mod project;
 pub mod prompt;

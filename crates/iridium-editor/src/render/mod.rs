@@ -104,7 +104,7 @@ pub use quad::{Quad, QuadRenderer};
 #[cfg(feature = "render")]
 pub use rounded::{RoundedQuad, RoundedQuadRenderer};
 #[cfg(feature = "render")]
-pub use text::{TextRenderConfig, TextRenderer, font_data_holds_a_face};
+pub use text::{ItalicSource, TextRenderConfig, TextRenderer, font_data_holds_a_face};
 
 #[cfg(all(feature = "render", feature = "web"))]
 pub use web::WebRenderConfig;

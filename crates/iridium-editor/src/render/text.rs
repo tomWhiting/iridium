@@ -3,7 +3,7 @@
 //! This module provides GPU-accelerated text rendering using glyphon
 //! for glyph rasterization and cosmic-text for text shaping.
 
-use glyphon::cosmic_text::{BidiParagraphs, LineEnding, LineIter};
+use glyphon::cosmic_text::{BidiParagraphs, CacheKeyFlags, LineEnding, LineIter};
 use glyphon::{
     Attrs, AttrsList, Buffer, BufferLine, Cache, Color as GlyphonColor, Family, FontSystem,
     Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds,
@@ -177,6 +177,41 @@ impl Default for TextRenderConfig {
     }
 }
 
+/// Where an italic run's lean comes from.
+///
+/// cosmic-text resolves an italic run to the family's leaning face and, when
+/// the family ships none, quietly draws the upright one: it slants a glyph
+/// only when asked to with [`CacheKeyFlags::FAKE_ITALIC`]. A monospace family
+/// with no italic face is common outside macOS, so without this an italic
+/// theme scope draws upright there and nothing says so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItalicSource {
+    /// The family `Family::Monospace` resolves to has a leaning face, so
+    /// italic runs are drawn with it.
+    Face,
+    /// It has none, so italic runs are drawn upright and slanted as they are
+    /// rasterised. The slant is a skew, so every advance, and with it the
+    /// column grid, stays exactly as upright text lays it out.
+    Synthesised,
+}
+
+impl ItalicSource {
+    /// Reads where italic comes from in `db`, as the shaper will resolve it.
+    ///
+    /// fontdb matches a face the way CSS does, settling style before weight,
+    /// so an italic run reaches a leaning face whenever the family holds one
+    /// at any weight. One leaning face is therefore the whole question.
+    #[must_use]
+    pub fn of(db: &fontdb::Database) -> Self {
+        let family = db.family_name(&fontdb::Family::Monospace);
+        let leans = db.faces().any(|face| {
+            face.style != fontdb::Style::Normal
+                && face.families.iter().any(|(name, _)| name == family)
+        });
+        if leans { Self::Face } else { Self::Synthesised }
+    }
+}
+
 /// Text renderer using glyphon for GPU text rendering.
 ///
 /// This provides the core text rendering functionality for the editor,
@@ -208,6 +243,9 @@ impl Default for TextRenderConfig {
 pub struct TextRenderer {
     /// Font system for loading and managing fonts
     font_system: FontSystem,
+    /// Where italic runs get their lean, read from `font_system` whenever its
+    /// faces or family can have changed.
+    italic: ItalicSource,
     /// CPU-side glyph cache using swash
     swash_cache: SwashCache,
     /// GPU glyph atlas cache
@@ -289,8 +327,11 @@ impl TextRenderer {
         // Create viewport for resolution handling
         let viewport = Viewport::new(device, &cache);
 
+        let italic = ItalicSource::of(font_system.db());
+
         Ok(Self {
             font_system,
+            italic,
             swash_cache,
             atlas,
             renderer,
@@ -447,7 +488,7 @@ impl TextRenderer {
         // `Attrs::new()` already defaults to, so this is byte-identical to
         // naming family and colour alone — and it stays identical if the
         // shared construction ever grows a field.
-        let attrs = Self::span_attrs(RunStyle::plain(color));
+        let attrs = Self::span_attrs(RunStyle::plain(color), self.italic);
 
         buffer.set_text(&mut self.font_system, text, &attrs, Shaping::Advanced, None);
     }
@@ -466,15 +507,29 @@ impl TextRenderer {
     /// variations a face may ask for; a *different family* is not, because the
     /// column geometry this crate lays out assumes one advance width and a
     /// proportional run would silently break the caret.
-    fn span_attrs(style: RunStyle) -> Attrs<'static> {
-        Attrs::new()
+    ///
+    /// An italic run is also flagged for a synthesised slant when `italic`
+    /// says the family has no leaning face; an upright run never is, so a
+    /// plain run stays identical to the colour-only attributes.
+    fn span_attrs(style: RunStyle, italic: ItalicSource) -> Attrs<'static> {
+        let attrs = Attrs::new()
             .family(Family::Monospace)
             .color(Self::to_glyphon_color(style.color))
-            .weight(Weight(style.weight.0))
-            .style(match style.slant {
-                RunSlant::Upright => Style::Normal,
-                RunSlant::Italic => Style::Italic,
-            })
+            .weight(Weight(style.weight.0));
+        match (style.slant, italic) {
+            (RunSlant::Upright, _) => attrs.style(Style::Normal),
+            (RunSlant::Italic, ItalicSource::Face) => attrs.style(Style::Italic),
+            (RunSlant::Italic, ItalicSource::Synthesised) => attrs
+                .style(Style::Italic)
+                .cache_key_flags(CacheKeyFlags::FAKE_ITALIC),
+        }
+    }
+
+    /// Where italic runs get their lean with the faces loaded now. Pass it to
+    /// [`Self::set_rich_text_diffed`].
+    #[must_use]
+    pub const fn italic_source(&self) -> ItalicSource {
+        self.italic
     }
 
     /// The attributes a line's [`AttrsList`] defaults to: monospace, and
@@ -498,7 +553,7 @@ impl TextRenderer {
         spans: impl Iterator<Item = (&'a str, RunStyle)>,
     ) {
         let rich_text: Vec<(&str, Attrs)> = spans
-            .map(|(text, style)| (text, Self::span_attrs(style)))
+            .map(|(text, style)| (text, Self::span_attrs(style, self.italic)))
             .collect();
 
         buffer.set_rich_text(
@@ -541,6 +596,7 @@ impl TextRenderer {
     pub fn set_rich_text_diffed<'a>(
         buffer: &mut Buffer,
         spans: impl Iterator<Item = (&'a str, RunStyle)>,
+        italic: ItalicSource,
     ) -> usize {
         let default_attrs = Self::default_attrs();
 
@@ -569,7 +625,7 @@ impl TextRenderer {
                 let start = line_range.start.max(span_range.start);
                 let end = line_range.end.min(span_range.end);
                 if start < end {
-                    let attrs = Self::span_attrs(*style);
+                    let attrs = Self::span_attrs(*style, italic);
                     // Only add attrs if they don't match the defaults — the
                     // rule `set_rich_text` applies.
                     if attrs != attrs_list.defaults() {
@@ -895,8 +951,10 @@ impl TextRenderer {
         let added = self.font_system.db().len() > before;
         if added {
             // A new face can change what `Family::Monospace` resolves to, and
-            // the cached width belongs to whatever was resolvable before.
+            // the cached width belongs to whatever was resolvable before. It
+            // can also be the family's first leaning face.
             self.cached_char_width = None;
+            self.italic = ItalicSource::of(self.font_system.db());
         }
         added
     }
@@ -1141,7 +1199,7 @@ mod tests {
             .color(TextRenderer::to_glyphon_color(colour));
 
         assert_eq!(
-            TextRenderer::span_attrs(RunStyle::plain(colour)),
+            TextRenderer::span_attrs(RunStyle::plain(colour), ItalicSource::Face),
             before,
             "a plain run's attributes drifted from the colour-only ones"
         );
@@ -1154,13 +1212,13 @@ mod tests {
     #[test]
     fn weight_and_slant_reach_the_attributes() {
         let colour = Color::new(0.2, 0.4, 0.6, 1.0);
-        let plain = TextRenderer::span_attrs(RunStyle::plain(colour));
+        let plain = TextRenderer::span_attrs(RunStyle::plain(colour), ItalicSource::Face);
 
-        let bold = TextRenderer::span_attrs(RunStyle::plain(colour).bold());
+        let bold = TextRenderer::span_attrs(RunStyle::plain(colour).bold(), ItalicSource::Face);
         assert_ne!(bold, plain, "bold was dropped on the way to the shaper");
         assert_eq!(bold.weight, Weight(RunWeight::BOLD.0));
 
-        let italic = TextRenderer::span_attrs(RunStyle::plain(colour).italic());
+        let italic = TextRenderer::span_attrs(RunStyle::plain(colour).italic(), ItalicSource::Face);
         assert_ne!(italic, plain, "italic was dropped on the way to the shaper");
         assert_eq!(italic.style, Style::Italic);
 
@@ -1169,12 +1227,115 @@ mod tests {
         assert_eq!(italic.weight, Weight(RunWeight::NORMAL.0));
     }
 
+    /// A database holding only the upright `JetBrains Mono` the web example
+    /// ships, named as the monospace family: a family with no leaning face.
+    fn upright_only_monospace() -> fontdb::Database {
+        let mut db = fontdb::Database::new();
+        db.load_font_data(
+            include_bytes!("../../../../examples/web/public/fonts/JetBrainsMono-Regular.ttf")
+                .to_vec(),
+        );
+        db.set_monospace_family("JetBrains Mono");
+        db
+    }
+
+    /// ⭐ The failure this guards: a monospace family with no italic face
+    /// drew italic runs upright, pixel for pixel, because cosmic-text slants
+    /// only when asked. Such a family must be read as needing the slant made.
+    #[test]
+    fn a_family_without_an_italic_face_has_its_italic_synthesised() {
+        let db = upright_only_monospace();
+        assert!(!db.is_empty(), "the fixture font did not load");
+        assert_eq!(ItalicSource::of(&db), ItalicSource::Synthesised);
+    }
+
+    /// The same family named but absent resolves to nothing that leans, so
+    /// it too is slanted rather than left upright.
+    #[test]
+    fn a_monospace_family_that_is_not_loaded_is_synthesised_too() {
+        let mut db = upright_only_monospace();
+        db.set_monospace_family("No Such Mono");
+        assert_eq!(ItalicSource::of(&db), ItalicSource::Synthesised);
+    }
+
+    /// Only an italic run is flagged for the made slant, and only when the
+    /// family needs it: a real italic face must not be slanted a second time,
+    /// and an upright run must stay the colour-only attributes.
+    #[test]
+    fn only_an_italic_run_without_a_face_is_slanted_when_drawn() {
+        let colour = Color::new(0.2, 0.4, 0.6, 1.0);
+        let made =
+            TextRenderer::span_attrs(RunStyle::plain(colour).italic(), ItalicSource::Synthesised);
+        assert_eq!(made.style, Style::Italic);
+        assert!(made.cache_key_flags.contains(CacheKeyFlags::FAKE_ITALIC));
+
+        let real = TextRenderer::span_attrs(RunStyle::plain(colour).italic(), ItalicSource::Face);
+        assert!(!real.cache_key_flags.contains(CacheKeyFlags::FAKE_ITALIC));
+
+        for upright in [RunStyle::plain(colour), RunStyle::plain(colour).bold()] {
+            assert_eq!(
+                TextRenderer::span_attrs(upright, ItalicSource::Synthesised),
+                TextRenderer::span_attrs(upright, ItalicSource::Face),
+                "an upright run's attributes depend on where italic comes from"
+            );
+        }
+    }
+
+    /// Rasterises the first glyph of `text` in `attrs` on `font_system`.
+    fn raster(
+        font_system: &mut FontSystem,
+        swash: &mut SwashCache,
+        attrs: &Attrs<'_>,
+    ) -> (Vec<u8>, i32, u32) {
+        let mut buffer = Buffer::new(font_system, Metrics::new(32.0, 40.0));
+        buffer.set_text(font_system, "l", attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(font_system, false);
+        let run = buffer.layout_runs().next().expect("one shaped line");
+        let glyph = run.glyphs.first().expect("one shaped glyph");
+        let key = glyph.physical((0.0, 0.0), 1.0).cache_key;
+        let image = swash
+            .get_image_uncached(font_system, key)
+            .expect("the glyph rasterises");
+        (image.data, image.placement.left, image.placement.width)
+    }
+
+    /// ⭐ The pixel half of the claim above, headless: on a family with no
+    /// italic face, an italic run's glyph rasterises differently from the
+    /// upright one, so the lean reaches the screen and not only the
+    /// attributes. Before the synthesised slant these two were identical.
+    #[test]
+    fn an_italic_run_leans_on_a_family_with_no_italic_face() {
+        let db = upright_only_monospace();
+        let italic = ItalicSource::of(&db);
+        let mut font_system = FontSystem::new_with_locale_and_db("en-US".into(), db);
+        let mut swash = SwashCache::new();
+        let colour = Color::new(1.0, 1.0, 1.0, 1.0);
+
+        let upright = raster(
+            &mut font_system,
+            &mut swash,
+            &TextRenderer::span_attrs(RunStyle::plain(colour), italic),
+        );
+        let leaning = raster(
+            &mut font_system,
+            &mut swash,
+            &TextRenderer::span_attrs(RunStyle::plain(colour).italic(), italic),
+        );
+        assert_ne!(
+            upright, leaning,
+            "an italic run drew upright on a family with no italic face"
+        );
+    }
+
     /// An arbitrary weight survives the trip rather than being rounded to
     /// one of the two named ones.
     #[test]
     fn a_weight_between_the_named_ones_reaches_the_shaper_intact() {
         let colour = Color::new(0.2, 0.4, 0.6, 1.0);
-        let attrs = TextRenderer::span_attrs(RunStyle::plain(colour).with_weight(RunWeight(600)));
+        let attrs = TextRenderer::span_attrs(
+            RunStyle::plain(colour).with_weight(RunWeight(600)),
+            ItalicSource::Face,
+        );
         assert_eq!(attrs.weight, Weight(600));
     }
 

@@ -279,7 +279,11 @@ impl FrameCompositor {
                 foreground,
             };
             if let Some(rich_spans) = highlights.resolve(&context) {
-                TextRenderer::set_rich_text_diffed(buffer, rich_spans.into_iter())
+                TextRenderer::set_rich_text_diffed(
+                    buffer,
+                    rich_spans.into_iter(),
+                    self.text_renderer.italic_source(),
+                )
             } else if highlights.language_active() {
                 let spans = self.highlighter.highlight_flat(&self.cpu_visible_content);
                 TextRenderer::set_rich_text_diffed(
@@ -287,6 +291,7 @@ impl FrameCompositor {
                     spans
                         .iter()
                         .map(|span| (span.text.as_str(), RunStyle::plain(span.color))),
+                    self.text_renderer.italic_source(),
                 )
             } else {
                 TextRenderer::set_text_diffed(buffer, &self.cpu_visible_content, foreground)

@@ -100,6 +100,7 @@ impl App {
         self.user_keys = keys;
         self.palette.set_user_keymap(&self.user_keys);
         self.history.set_user_keymap(&self.user_keys);
+        self.listing_search.overlay.set_user_keymap(&self.user_keys);
         if let Some(panel) = self.explorer.as_mut() {
             panel.set_user_keymap(&self.user_keys);
         }

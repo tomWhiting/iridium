@@ -19,7 +19,12 @@ impl App {
             }
             return Flow::Running;
         }
-        if self.palette_open || self.prompt.is_some() || self.history_open || self.search_open {
+        if self.palette_open
+            || self.prompt.is_some()
+            || self.history_open
+            || self.search_open
+            || self.listing_search.open
+        {
             self.stop_mouse_drag();
             return Flow::Running;
         }
@@ -134,7 +139,7 @@ impl App {
                             .active_payload()
                             .map(|session| &session.search)
                     } else {
-                        None
+                        self.listing_search.panel()
                     },
                     sidebar_columns: self.sidebar_columns(),
                     tab_bar: true,

@@ -7,6 +7,7 @@ impl App {
     /// Handles one key press.
     pub(super) fn handle_key(&mut self, event: &KeyEvent) -> Flow {
         self.stop_mouse_drag();
+        self.drop_orphaned_listing_search();
         if self.drive_completion(event) {
             return Flow::Running;
         }
@@ -39,6 +40,9 @@ impl App {
         // that fell through here would be a key typed into the document while
         // the person was looking at a file list.
         if self.focus == crate::app::sidebar::Focus::Explorer {
+            if let Some(flow) = self.listing_search_key(event) {
+                return flow;
+            }
             if let Some(flow) = self.explorer_host_key(event) {
                 return flow;
             }

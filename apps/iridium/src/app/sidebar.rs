@@ -63,10 +63,12 @@ impl App {
                 self.paste_into_explorer();
                 Flow::Running
             },
-            ExplorerAction::OpenSearch | ExplorerAction::CloseSearch => {
-                self.message = Some(Message::error(
-                    "searching inside the file list is not in the terminal yet",
-                ));
+            ExplorerAction::OpenSearch => {
+                self.open_listing_search();
+                Flow::Running
+            },
+            ExplorerAction::CloseSearch => {
+                self.close_listing_search();
                 Flow::Running
             },
         }

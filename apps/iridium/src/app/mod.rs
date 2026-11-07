@@ -54,6 +54,7 @@ mod drag_scroll;
 mod drag_scroll_tests;
 mod ex;
 mod input;
+mod listing_search;
 mod modal;
 #[cfg(test)]
 mod modal_tests;
@@ -127,8 +128,11 @@ pub struct App {
     project: Option<std::path::PathBuf>,
     /// Whether every document in this invocation is read-only.
     access: session::Access,
-    /// Whether the search panel is on screen.
+    /// Whether the search panel is on screen, aimed at the document.
     search_open: bool,
+    /// The search panel aimed at the explorer's listing while it is edited as
+    /// text. Never open while [`Self::search_open`] is.
+    listing_search: listing_search::ListingSearch,
     /// The command palette panel.
     palette: CommandPalette,
     /// Whether the palette is on screen. While it is, it is modal: every key
@@ -271,6 +275,7 @@ impl App {
                 session::Access::ReadWrite
             },
             search_open: false,
+            listing_search: listing_search::ListingSearch::new(&user_keys),
             palette: {
                 let mut palette = CommandPalette::new();
                 palette.set_user_keymap(&user_keys);
@@ -581,6 +586,13 @@ impl App {
         };
         match *action {
             SearchAction::OpenSearch => {
+                if self.listing_search.open {
+                    let search = &mut self.listing_search.overlay;
+                    if let Some(explorer) = self.explorer.as_mut() {
+                        explorer.with_buffer_editor(|listing| search.close(listing));
+                    }
+                    self.listing_search.open = false;
+                }
                 self.search_open = true;
                 session.search.open(editor);
                 // The panel takes rows from the document, so the kernel's
@@ -629,6 +641,11 @@ impl App {
             // The undo-tree panel has no field for pasted text to land in,
             // and a paste reaching the document under a modal panel would
             // grow the very tree being read.
+            return;
+        }
+        if self.focus == crate::app::sidebar::Focus::Explorer
+            && self.paste_into_listing_search(text)
+        {
             return;
         }
         if let Some(explorer) = self

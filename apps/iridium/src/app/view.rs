@@ -41,6 +41,7 @@ impl App {
         if let Some(explorer) = self.explorer.as_mut() {
             explorer.poll();
         }
+        self.drop_orphaned_listing_search();
         let name = self.file().map(TextFile::display_name);
         let dirty = self.is_dirty();
         let band_rows = self.band_rows();
@@ -54,7 +55,11 @@ impl App {
                 name: name.as_deref(),
                 dirty,
             },
-            search: self.search_open.then_some(&session.search),
+            search: if self.search_open {
+                Some(&session.search)
+            } else {
+                self.listing_search.panel()
+            },
             sidebar_columns,
             tab_bar: true,
         };
@@ -104,6 +109,25 @@ impl App {
                 });
             if self.focus == crate::app::sidebar::Focus::Explorer {
                 cursor = explorer_cursor;
+            }
+        }
+
+        if self.listing_search.open {
+            // Drawn after the explorer, over the rows the frame gave the
+            // panel; its field owns the caret while the explorer has the keys.
+            let styles = Palette::from_theme(editor.get_theme());
+            let caret = super::listing_search::paint_listing_search(
+                &self.listing_search.overlay,
+                self.explorer.as_ref(),
+                surface.back_mut(),
+                &layout,
+                &styles,
+            );
+            if self.focus == crate::app::sidebar::Focus::Explorer {
+                cursor = caret.map_or(CursorState::Hidden, |cell| CursorState::At {
+                    row: cell.row,
+                    column: cell.column,
+                });
             }
         }
 
@@ -254,7 +278,11 @@ impl App {
         };
         let chrome = Chrome {
             status: Status::default(),
-            search: self.search_open.then_some(&session.search),
+            search: if self.search_open {
+                Some(&session.search)
+            } else {
+                self.listing_search.panel()
+            },
             sidebar_columns,
             tab_bar: true,
         };

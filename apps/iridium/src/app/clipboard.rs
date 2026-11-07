@@ -19,6 +19,9 @@ pub(super) enum CutTarget {
         id: Option<DocumentId>,
         cut: Box<SearchCut>,
     },
+    /// A cut from the field of the search panel aimed at the explorer's
+    /// listing.
+    ListingSearch(Box<SearchCut>),
 }
 
 pub(super) struct PendingClipboard {
@@ -202,6 +205,7 @@ impl App {
                     .ok_or("Text copied; search document closed, so cut was cancelled")?;
                 session.search.finish_cut(&cut, editor)
             },
+            CutTarget::ListingSearch(cut) => self.finish_listing_search_cut(&cut),
         }
     }
 }

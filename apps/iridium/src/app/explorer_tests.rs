@@ -326,3 +326,87 @@ fn the_panel_chord_reopens_the_tree_floating_and_the_sidebar_chord_docks_it() {
     send(&mut app, b"\x1b\x02");
     assert!(docked(&app), "the sidebar chord did not dock the tree");
 }
+
+/// How many matches the search found in the listing being edited.
+fn listing_matches(app: &App) -> usize {
+    app.explorer
+        .as_ref()
+        .and_then(iridium_tui::frame::FileExplorerPanel::buffer_editor)
+        .expect("the listing is being edited")
+        .search_match_count()
+}
+
+#[test]
+fn ctrl_f_in_the_listing_searches_the_listing_not_the_document() {
+    let (_directory, mut app) = project("tui-face-explorer-search");
+    let woken = wakes(&mut app);
+    until_drawn(&mut app, &woken, "beta.txt");
+
+    send(&mut app, b"\t");
+    send(&mut app, b"\x06");
+    assert!(app.listing_search.open, "Ctrl+F did not search the listing");
+    assert!(!app.search_open, "Ctrl+F opened the document's search");
+
+    type_text(&mut app, "beta");
+    assert_eq!(
+        listing(&app),
+        ["alpha.txt", "beta.txt"],
+        "the query edited the listing"
+    );
+    assert_eq!(listing_matches(&app), 1, "the listing was not searched");
+    let screen = frame(&mut app);
+    assert!(
+        !screen.contains("No matches"),
+        "the panel counted the empty document's matches:\n{screen}"
+    );
+
+    send(&mut app, b"\x1b");
+    assert!(!app.listing_search.open, "escape left the search open");
+    assert!(
+        app.explorer
+            .as_ref()
+            .is_some_and(|explorer| explorer.buffer_editor().is_some()),
+        "closing the search left the listing too"
+    );
+}
+
+#[test]
+fn a_paste_into_the_listing_search_lands_in_its_field() {
+    let (_directory, mut app) = project("tui-face-explorer-search-paste");
+    let woken = wakes(&mut app);
+    until_drawn(&mut app, &woken, "beta.txt");
+
+    send(&mut app, b"\t");
+    send(&mut app, b"\x06");
+    send(&mut app, b"\x1b[200~alpha\x1b[201~");
+    assert_eq!(app.listing_search.overlay.query(), "alpha");
+    assert_eq!(
+        listing(&app),
+        ["alpha.txt", "beta.txt"],
+        "the paste edited the listing"
+    );
+    assert_eq!(listing_matches(&app), 1);
+}
+
+#[test]
+fn a_search_aimed_at_the_listing_closes_when_the_listing_does() {
+    let (_directory, mut app) = project("tui-face-explorer-search-orphan");
+    let woken = wakes(&mut app);
+    until_drawn(&mut app, &woken, "beta.txt");
+
+    send(&mut app, b"\t");
+    send(&mut app, b"\x06");
+    assert!(app.listing_search.open);
+
+    // However the panel went, the next frame finds no search aimed at it.
+    app.close_explorer();
+    let screen = frame(&mut app);
+    assert!(
+        !app.listing_search.open,
+        "a search outlived the listing it searched"
+    );
+    assert!(
+        !screen.contains(" Find    "),
+        "the panel is still drawn:\n{screen}"
+    );
+}

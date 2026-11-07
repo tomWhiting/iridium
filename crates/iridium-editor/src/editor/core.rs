@@ -1250,7 +1250,13 @@ impl Editor {
     ///
     /// Returns whether parsing now runs in the background: not in a build
     /// without a parser or on a target without threads, where it stays inline.
-    pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) -> bool {
+    ///
+    /// # Errors
+    ///
+    /// The system refused the parser its thread, or the one started earlier
+    /// has stopped. Parsing stays inline, slower and still right; a face says
+    /// so, since its person was promised typing that never waits.
+    pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) -> std::io::Result<bool> {
         self.state.syntax.parse_in_background(wake)
     }
 

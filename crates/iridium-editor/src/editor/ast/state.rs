@@ -170,16 +170,21 @@ impl SyntaxState {
     /// Calling this again replaces the wake.
     ///
     /// Returns whether parsing now runs in the background. It does not where
-    /// the build has no parser or the target no threads, or if the system
-    /// refused a thread — and parsing then stays inline, which is slower and
-    /// still right.
-    pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) -> bool {
+    /// the build has no parser or the target no threads, and parsing then
+    /// stays inline, as that build intends.
+    ///
+    /// # Errors
+    ///
+    /// The system refused the thread, or the one started earlier has stopped.
+    /// Parsing then stays inline, which is slower and still right, and the
+    /// caller is told so that it can say so.
+    pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) -> std::io::Result<bool> {
         if let Some(background) = self.background.as_ref() {
             if background.set_wake(wake).is_ok() {
-                return true;
+                return Ok(true);
             }
             self.abandon_background();
-            return false;
+            return Err(std::io::Error::other("the parser thread has stopped"));
         }
         // A tree parsed inline and not edited since is current: nothing is
         // owed until the next edit, and the first job then builds on it. The
@@ -187,11 +192,8 @@ impl SyntaxState {
         // rebuilds it — on the worker. Anything less than current is parsed
         // from scratch there instead.
         let current = self.tree.is_some() && !self.dirty && !self.replaced;
-        let Some(background) = Background::spawn(wake, current) else {
-            return false;
-        };
-        self.background = Some(background);
-        true
+        self.background = Background::spawn(wake, current)?;
+        Ok(self.background.is_some())
     }
 
     /// Whether parsing runs in the background.

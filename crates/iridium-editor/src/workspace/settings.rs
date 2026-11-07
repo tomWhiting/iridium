@@ -162,7 +162,7 @@ impl<T> Workspace<T> {
     /// keymaps too and the honest type says so.
     pub fn register_command(&mut self, meta: CommandMeta) -> Result<(), FaceSetupError> {
         self.face_commands.push(meta);
-        if let Err(error) = self.build_editor("") {
+        if let Err(error) = self.build_editor() {
             self.face_commands.pop();
             return Err(error);
         }
@@ -191,7 +191,7 @@ impl<T> Workspace<T> {
     /// for why validation is a build rather than a second check.
     pub fn push_keymap(&mut self, keymap: Keymap) -> Result<(), FaceSetupError> {
         self.face_keymaps.push(keymap);
-        if let Err(error) = self.build_editor("") {
+        if let Err(error) = self.build_editor() {
             self.face_keymaps.pop();
             return Err(error);
         }
@@ -245,7 +245,7 @@ impl<T> Workspace<T> {
         // every open tab's was built. One construction path is the point — a
         // validator that built editors differently would agree with the real
         // thing right up until it mattered.
-        if let Err(error) = self.build_editor("") {
+        if let Err(error) = self.build_editor() {
             if let Some(previous) = previous {
                 self.face_keymaps[index] = previous;
             } else {
@@ -273,12 +273,38 @@ impl<T> Workspace<T> {
     /// that blocks on input passes something that wakes it, and collects the
     /// parse with [`Editor::poll_syntax`] on its next frame. Calling this again
     /// replaces the wake everywhere. An editor that cannot start a thread
-    /// parses inline, which is slower and still right.
+    /// parses inline, which is slower and still right, and
+    /// [`take_syntax_failure`](Self::take_syntax_failure) says why.
     pub fn parse_in_background(&mut self, wake: Option<SyntaxWake>) {
         self.background_syntax = true;
         self.syntax_wake = wake;
         for open in self.documents.values_mut() {
-            open.editor.parse_in_background(self.syntax_wake.clone());
+            if let Err(error) = open.editor.parse_in_background(self.syntax_wake.clone()) {
+                self.syntax_failure.get_or_insert(error);
+            }
+        }
+    }
+
+    /// Why an editor parses on the editing thread although
+    /// [`parse_in_background`](Self::parse_in_background) asked otherwise:
+    /// the system refused its parser a thread, or that thread stopped. Each
+    /// failure is answered once; `None` when there has been none since.
+    ///
+    /// A face asks every frame and shows the answer, so that typing which has
+    /// started to wait on a parser is never a mystery.
+    pub fn take_syntax_failure(&mut self) -> Option<std::io::Error> {
+        self.syntax_failure.take()
+    }
+
+    /// Starts `editor`'s parser on a thread of its own, when the face asked
+    /// for that, keeping any failure for
+    /// [`take_syntax_failure`](Self::take_syntax_failure).
+    pub(super) fn start_background_syntax(&mut self, editor: &mut Editor) {
+        if !self.background_syntax {
+            return;
+        }
+        if let Err(error) = editor.parse_in_background(self.syntax_wake.clone()) {
+            self.syntax_failure.get_or_insert(error);
         }
     }
 
@@ -288,7 +314,11 @@ impl<T> Workspace<T> {
     /// validate a registration. One path is the point: a validator that
     /// built editors differently from the real thing would agree with it
     /// right up until it mattered.
-    pub(super) fn build_editor(&self, content: &str) -> Result<Editor, FaceSetupError> {
+    ///
+    /// The editor is empty, its parser not yet started: a tab starts it with
+    /// [`start_background_syntax`](Self::start_background_syntax) and then
+    /// sets its content, and a validator needs neither.
+    pub(super) fn build_editor(&self) -> Result<Editor, FaceSetupError> {
         let mut editor = Editor::new(self.config.clone());
         editor.set_theme(self.theme.clone());
         for meta in &self.face_commands {
@@ -304,12 +334,6 @@ impl<T> Workspace<T> {
         if let Some(geometry) = self.viewport {
             apply_viewport(&mut editor, geometry);
         }
-        // Before the content, so opening a large file does not parse it on
-        // this thread first.
-        if self.background_syntax {
-            editor.parse_in_background(self.syntax_wake.clone());
-        }
-        editor.set_content(content);
         Ok(editor)
     }
 }

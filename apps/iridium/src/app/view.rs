@@ -34,6 +34,11 @@ impl App {
         if let Some(editor) = self.workspace.active_editor_mut() {
             editor.poll_syntax();
         }
+        if let Some(error) = self.workspace.take_syntax_failure() {
+            self.message = Some(Message::error(format!(
+                "the parser has no thread of its own, so typing may wait for it: {error}"
+            )));
+        }
         self.poll_mouse_scroll(std::time::Instant::now());
         self.poll_query();
         self.poll_project_search();

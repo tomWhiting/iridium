@@ -15,11 +15,17 @@ use super::startup::Shell;
 use super::state::{DesktopApp, SearchTarget};
 use crate::file_tree::{self, FileExplorer};
 use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelFit, PanelKind, StripContent};
+use crate::prompt::Message;
 use crate::units::u32_to_f32;
 
 impl DesktopApp {
     /// Brings the active tab's highlight cache up to date for this frame.
     pub(super) fn take_syntax(&mut self) {
+        if let Some(error) = self.workspace.take_syntax_failure() {
+            self.message = Some(Message::error(format!(
+                "the parser has no thread of its own, so typing may wait for it: {error}"
+            )));
+        }
         let window = self.viewport_window();
         let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() else {
             return;

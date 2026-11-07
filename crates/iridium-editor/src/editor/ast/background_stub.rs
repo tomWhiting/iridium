@@ -49,9 +49,17 @@ impl LandedFolds {
 pub(super) struct Gone;
 
 impl Background {
-    /// Always `None`: there is no thread to start in this build.
-    pub(super) fn spawn(_wake: Option<SyntaxWake>, _current: bool) -> Option<Self> {
-        None
+    /// Always `Ok(None)`: there is no thread to start in this build, which is
+    /// not a failure.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "mirrors the threaded parser's signature, which can fail"
+    )]
+    pub(super) fn spawn(
+        _wake: Option<SyntaxWake>,
+        _current: bool,
+    ) -> std::io::Result<Option<Self>> {
+        Ok(None)
     }
 
     /// Unreachable.

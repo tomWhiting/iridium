@@ -91,6 +91,9 @@ pub struct Workspace<T = ()> {
     pub(super) background_syntax: bool,
     /// What a background parse calls when it lands, in every editor.
     pub(super) syntax_wake: Option<SyntaxWake>,
+    /// Why an editor could not move its parser off the editing thread, kept
+    /// until the face asks.
+    pub(super) syntax_failure: Option<std::io::Error>,
 }
 
 /// One open buffer and the face state that belongs to it.
@@ -126,6 +129,7 @@ impl<T> Workspace<T> {
             face_keymaps: Vec::new(),
             background_syntax: false,
             syntax_wake: None,
+            syntax_failure: None,
         }
     }
 
@@ -454,15 +458,15 @@ impl<T> Workspace<T> {
         let id = DocumentId(self.next_document);
         self.next_document = self.next_document.saturating_add(1);
 
-        let editor = self.build_editor(content).unwrap_or_else(|_| {
+        let mut editor = self.build_editor().unwrap_or_else(|_| {
             let mut fallback = Editor::new(self.config.clone());
             fallback.set_theme(self.theme.clone());
-            if self.background_syntax {
-                fallback.parse_in_background(self.syntax_wake.clone());
-            }
-            fallback.set_content(content);
             fallback
         });
+        // Before the content, so opening a large file does not parse it on
+        // this thread first.
+        self.start_background_syntax(&mut editor);
+        editor.set_content(content);
         self.documents.insert(id, Open { editor, payload });
         id
     }

@@ -190,22 +190,25 @@ impl std::fmt::Debug for Background {
 }
 
 impl Background {
-    /// Starts the worker thread, or returns `None` if the system will not
-    /// give one — the caller then keeps parsing inline, which is slower and
-    /// still right.
+    /// Starts the worker thread. Always `Some` when it starts: the parser-free
+    /// build's twin answers `None`.
+    ///
+    /// # Errors
+    ///
+    /// The system's refusal to start a thread. The caller keeps parsing
+    /// inline, which is slower and still right, and says so.
     ///
     /// `current` says the caller's tree already matches its document, so the
     /// first job can build on it rather than parse from scratch.
-    pub(super) fn spawn(wake: Option<SyntaxWake>, current: bool) -> Option<Self> {
+    pub(super) fn spawn(wake: Option<SyntaxWake>, current: bool) -> std::io::Result<Option<Self>> {
         let (requests, inbox) = mpsc::channel();
         let (outbox, landed) = mpsc::channel();
         let wanted = Arc::new(AtomicU64::new(0));
         let worker_wanted = Arc::clone(&wanted);
         thread::Builder::new()
             .name("iridium-syntax".to_owned())
-            .spawn(move || work(&inbox, &outbox, &worker_wanted, wake))
-            .ok()?;
-        Some(Self {
+            .spawn(move || work(&inbox, &outbox, &worker_wanted, wake))?;
+        Ok(Some(Self {
             requests,
             landed,
             wanted,
@@ -213,7 +216,7 @@ impl Background {
             in_flight: false,
             from_scratch_owed: !current,
             edits: Vec::new(),
-        })
+        }))
     }
 
     /// Replaces the function called after each landing.

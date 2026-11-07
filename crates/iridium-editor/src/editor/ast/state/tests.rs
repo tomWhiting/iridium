@@ -496,7 +496,9 @@ fn incremental_results_match_a_parse_from_scratch_through_random_editing() {
         let mut editor = crate::editor::Editor::new(crate::editor::EditorConfig::default());
         if background {
             assert!(
-                editor.parse_in_background(None),
+                editor
+                    .parse_in_background(None)
+                    .expect("the system gives the parser a thread"),
                 "a native build with the syntax feature can parse on a worker"
             );
         }
@@ -695,7 +697,11 @@ fn replacing_the_document_or_language_mid_parse_never_installs_the_old_parse() {
     let small = "fn only() {\n    let a = 1;\n}\n";
 
     let mut editor = crate::editor::Editor::new(crate::editor::EditorConfig::default());
-    assert!(editor.parse_in_background(None));
+    assert!(
+        editor
+            .parse_in_background(None)
+            .expect("the system gives the parser a thread")
+    );
     editor.set_language(Language::Rust);
 
     // Replaced while the big document's first parse is in flight.

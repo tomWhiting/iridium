@@ -111,6 +111,7 @@ pub fn main() -> ExitStatus {
     // `ActiveEventLoop`, which is all `resumed` gets, cannot. The app holds it
     // until `resumed` installs the bar and then hands it to the menu target.
     app.attach_menu_proxy(event_loop.create_proxy());
+    app.attach_syntax_wake(event_loop.create_proxy());
     // Kept until run_app returns: see `open_files::install`.
     let _file_handler = match crate::open_files::install(&event_loop) {
         Ok(delegate) => delegate,

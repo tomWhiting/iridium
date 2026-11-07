@@ -18,6 +18,26 @@ use crate::overlay::{PaintedFrame, PanelAnchor, PanelContent, PanelFit, PanelKin
 use crate::units::u32_to_f32;
 
 impl DesktopApp {
+    /// Brings the active tab's highlight cache up to date for this frame.
+    pub(super) fn take_syntax(&mut self) {
+        let window = self.viewport_window();
+        let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() else {
+            return;
+        };
+        // The parser thread wakes the loop when a parse lands
+        // (`DesktopEvent::SyntaxLanded`); taking it here is what puts the
+        // structure it found on this frame. Never waits.
+        editor.poll_syntax();
+        // Costs a generation comparison when nothing changed; the spans are
+        // rebuilt — over the frame's viewport plus overscan, never the whole
+        // document — only when the kernel actually reparsed or the viewport
+        // escaped the covered window.
+        match window {
+            Some(window) => document.syntax.refresh_windowed(editor, window),
+            None => document.syntax.refresh(editor),
+        }
+    }
+
     /// Composes and presents one frame: the document through the compositor,
     /// then — when a prompt, a message or any panel is up — the overlays as a
     /// second pass on the same texture view. See [`crate::overlay`] for the
@@ -32,10 +52,6 @@ impl DesktopApp {
     /// attempt; a fault that persists keeps naming itself rather than
     /// silently freezing the window.
     pub(super) fn redraw(&mut self) {
-        // Costs a generation comparison when nothing changed; the spans are
-        // rebuilt — over the frame's viewport plus overscan, never the whole
-        // document — only when the kernel actually reparsed or the viewport
-        // escaped the covered window.
         // The explorer's directory reads land on a worker thread, and
         // nothing wakes winit when they do. Collecting them here — before
         // the panels are composed — is what puts them on *this* frame rather
@@ -46,13 +62,7 @@ impl DesktopApp {
             explorer.is_waiting()
         });
 
-        let window = self.viewport_window();
-        if let Some((editor, document)) = self.workspace.active_editor_and_payload_mut() {
-            match window {
-                Some(window) => document.syntax.refresh_windowed(editor, window),
-                None => document.syntax.refresh(editor),
-            }
-        }
+        self.take_syntax();
         let tabs = self.tab_strip_content();
         let strip = self.strip_content();
         let panels = self.panel_contents();

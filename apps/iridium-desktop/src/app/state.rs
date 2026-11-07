@@ -424,12 +424,13 @@ impl DesktopApp {
         self.workspace.active_payload_mut().expect("a tab is open")
     }
 
-    /// Rebuilds the active tab's highlight cache, as a frame would.
+    /// Waits for the active tab's parse to land, then takes it into the
+    /// highlight cache as a frame would.
     pub(super) fn test_refresh_syntax(&mut self) {
-        let (editor, document) = self
-            .workspace
-            .active_editor_and_payload_mut()
-            .expect("a tab is open");
-        document.syntax.refresh(editor);
+        self.workspace
+            .active_editor_mut()
+            .expect("a tab is open")
+            .settle_syntax();
+        self.take_syntax();
     }
 }

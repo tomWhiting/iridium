@@ -407,6 +407,16 @@ fn the_language_is_read_from_the_extension_as_every_face_reads_it() {
 }
 
 #[test]
+fn a_session_parses_off_the_frame() {
+    let directory = TempDir::new("desktop-background");
+    let (app, _path) = open(&directory, "a.rs", "fn main() {}\n");
+    assert!(
+        app.test_editor().state().syntax.parses_in_background(),
+        "neither opening nor typing waits for the parser"
+    );
+}
+
+#[test]
 fn opening_a_rust_file_primes_the_highlight_cache() {
     let directory = TempDir::new("desktop-syntax");
     let (mut app, _path) = open(&directory, "a.rs", "fn main() {}\n");

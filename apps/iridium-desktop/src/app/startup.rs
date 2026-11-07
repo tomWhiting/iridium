@@ -261,6 +261,13 @@ impl DesktopApp {
             None => Theme::default(),
         };
         let mut workspace = Workspace::<DesktopDocument>::new(user.editor.clone(), theme);
+        // Before any document is opened, so that neither opening a file nor
+        // typing into one waits for a parser: every tab parses on a thread of
+        // its own, the frame draws from the tree shifted by each edit, and
+        // the parse lands a frame or two later. The wake arrives with
+        // `attach_syntax_wake`; until then the next frame collects whatever
+        // landed.
+        workspace.parse_in_background(None);
 
         // Registered on the workspace, not on one editor: it applies the
         // whole set to every tab, present and future. Registering on a

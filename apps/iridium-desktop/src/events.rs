@@ -11,4 +11,6 @@ pub enum DesktopEvent {
     Menu(MenuCommand),
     /// Open files in order, retaining URL conversion failures for display.
     OpenFiles(Vec<Result<PathBuf, String>>),
+    /// A background parse landed; the next frame takes it.
+    SyntaxLanded,
 }

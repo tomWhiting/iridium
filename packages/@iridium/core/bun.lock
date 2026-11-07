@@ -8,17 +8,30 @@
         "web-tree-sitter": "0.25.6",
       },
       "devDependencies": {
+        "@types/bun": "^1.4.4",
         "typescript": "^5.9.3",
       },
       "peerDependencies": {
-        "iridium-bindings": ">=0.1.0",
+        "@iridium-editor/syntax-worker": "^0.1.1",
+        "iridium-bindings": ">=0.2.0",
       },
+      "optionalPeers": [
+        "@iridium-editor/syntax-worker",
+      ],
     },
   },
   "packages": {
-    "iridium-bindings": ["iridium-bindings@0.1.1", "", { "dependencies": { "web-tree-sitter": "0.25.6" } }, "sha512-Ky1rWvljXD9xrEHebP2tSuizts79YDRWRXuVOMRLxg8Sgg3JtUeDVK2j+Do8GtiwIY2rO9a5S+aGYApZKJh+lg=="],
+    "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
+
+    "@types/node": ["@types/node@26.6.6", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog=="],
+
+    "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
+
+    "iridium-bindings": ["iridium-bindings@0.2.1", "", { "dependencies": { "web-tree-sitter": "0.25.6" } }, "sha512-mgXtw3kCLOW3M3G/QPH3CCUu9HO8xDf8kYeQSyFC4pVv3hFSHjoCPkPvTJUKWDfzOcvVG952mblI45rc/EZ45A=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
 
     "web-tree-sitter": ["web-tree-sitter@0.25.6", "", {}, "sha512-WG+/YGbxw8r+rLlzzhV+OvgiOJCWdIpOucG3qBf3RCBFMkGDb1CanUi2BxCxjnkpzU3/hLWPT8VO5EKsMk9Fxg=="],
   }

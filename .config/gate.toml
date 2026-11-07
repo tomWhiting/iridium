@@ -5,9 +5,8 @@ suite = "v1"
 # per-package, per-feature and wasm configurations carry a run override until
 # a kind can say them. clippy-wasm also covers the old check/wasm step.
 #
-# The web level holds the TypeScript and Bun checks gate init found. They are
-# not yet run before landing: the packages need installing and their tsconfig
-# predates TypeScript dropping baseUrl.
+# The web level type-checks the TypeScript packages and the web example and
+# runs the packages' bun tests. The examples have no tests of their own.
 
 [portable]
   kind = "ast-grep"
@@ -63,13 +62,7 @@ suite = "v1"
   dir = "packages/@iridium/syntax-worker"
   kind = "tsc"
 
-[bun-examples-web]
-  dir = "examples/web"
-  kind = "bun"
 
-[bun-examples-web-component]
-  dir = "examples/web-component"
-  kind = "bun"
 
 [bun-packages-iridium-core]
   dir = "packages/@iridium/core"

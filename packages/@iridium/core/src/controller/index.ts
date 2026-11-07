@@ -751,7 +751,7 @@ export class IridiumEditor {
     ) as HostCommandIds;
 
     // Create the low-level editor
-    const editor = await wasm.createWebEditor(canvas, pixelRatio);
+    const editor = (await wasm.createWebEditor(canvas, pixelRatio)) as WebEditor;
 
     // Create the controller
     // `pixelRatio` is passed on as the applied ratio, not re-read: the canvas

@@ -3,11 +3,23 @@
   "//2": "worker.ts calls `self.postMessage(response)` with one argument — the",
   "//3": "worker signature. Under the DOM lib `self` is a Window, whose",
   "//4": "postMessage demands a targetOrigin, and the file would not compile.",
+  "//5": "The paths point core's subpath imports at its sources, so this",
+  "//6": "type-checks without building core's dist first. tsconfig.build.json",
+  "//7": "clears them: the published build compiles against core's dist.",
   "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@iridium-editor/core/syntax": ["../core/src/syntax/index.ts"],
+      "@iridium-editor/core/worker-client": ["../core/src/worker/client.ts"],
+      "@iridium-editor/core/worker-protocol": ["../core/src/worker/protocol.ts"]
+    },
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    "types": ["bun"],
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -15,7 +27,6 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
     "lib": ["ES2022", "WebWorker"]
   },
   "include": ["src/**/*"],

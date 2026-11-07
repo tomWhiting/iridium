@@ -7,6 +7,10 @@
   "//6": "consumer's resolver actually needs.",
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "noEmit": false,
+    "paths": {},
+    "types": [],
+    "rootDir": "./src",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": true,

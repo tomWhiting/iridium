@@ -512,6 +512,28 @@ mod tests {
         assert_eq!(edits.lines_since(5, 6), None, "forgotten");
     }
 
+    /// Restored from the line log f562712 replaced, with its assertions as
+    /// they were. It no longer holds: the change log merges its oldest edits
+    /// rather than dropping them, so revision 0 is answered by the merged
+    /// record and revision 1, between the merged pair, is refused. Whether it
+    /// is retired or rewritten is Tom's call; until then it is here, by name,
+    /// and not run.
+    #[test]
+    #[ignore = "the change log merges past its limit rather than dropping (4a30af6); retiring or rewriting this test waits for Tom's word"]
+    fn the_oldest_edit_is_dropped_past_the_limit() {
+        let mut edits = ChangeLog::starting_at(0);
+        let current = u64::try_from(super::CAPACITY).unwrap_or(0) + 1;
+        for revision in 1..=current {
+            edits.record(revision, NOTHING_KEPT, Some(on_line(0)));
+        }
+        assert_eq!(
+            edits.lines_since(0, current),
+            None,
+            "the first edit was dropped"
+        );
+        assert!(edits.lines_since(1, current).is_some());
+    }
+
     /// Once the two oldest edits merge, the revision between them has no
     /// exact answer in lines: the merged record would move a reader there by
     /// the first edit a second time. It is refused, and the revisions either

@@ -70,7 +70,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "main": "./dist/controller/index.js",
   "types": "./dist/controller/index.d.ts",

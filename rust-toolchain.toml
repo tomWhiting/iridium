@@ -18,11 +18,9 @@
 # not raise the other, and neither should be edited on the assumption that it
 # does.
 #
-# ⚠️ THE VERSION LIVES HERE AND NOWHERE ELSE. `.github/workflows/ci.yml` names
-# no version: it runs `rustup show`, which reads this file and installs what it
-# names. That was `dtolnay/rust-toolchain@stable` before, which is how CI and
-# the developer's box were free to disagree. A version written in two places is
-# a version that can disagree with itself.
+# ⚠️ THE VERSION LIVES HERE AND NOWHERE ELSE. The gate names no version: cargo
+# reads this file on every venue the gate runs on and uses what it names. A
+# version written in two places is a version that can disagree with itself.
 #
 # Measured before pinning, on the box this was written on:
 #

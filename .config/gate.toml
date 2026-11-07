@@ -1,12 +1,15 @@
 suite = "v1"
 
-# One entry per check scripts/ci.sh runs today. The suite's clippy always adds
-# --workspace and --all-targets, and its nextest takes no options, so the
-# per-package, per-feature and wasm configurations carry a run override until
-# a kind can say them. clippy-wasm also covers the old check/wasm step.
+# The compiles and tested levels hold one entry per check scripts/ci.sh runs.
+# The suite's clippy always adds --workspace and --all-targets, and its nextest
+# takes no options, so the per-package, per-feature and wasm configurations
+# carry a run override until a kind can say them. clippy-wasm also covers the
+# old check/wasm step. nextest runs no doctests, which ci.sh's cargo test did:
+# docs runs them.
 #
-# The web level type-checks the TypeScript packages and the web example and
-# runs the packages' bun tests. The examples have no tests of their own.
+# New with the gate, never in ci.sh: portable, and the web level, which
+# type-checks the TypeScript packages and the web example and runs the
+# packages' bun tests. The examples have no tests of their own.
 
 [portable]
   kind = "ast-grep"

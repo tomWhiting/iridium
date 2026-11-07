@@ -1,5 +1,5 @@
 check: portable
 compiles: check clippy-workspace clippy-kernel clippy-syntax clippy-wasm
 tested: compiles nextest-workspace nextest-kernel nextest-syntax nextest-lang
-web: tsc-examples-web tsc-packages-iridium-core tsc-packages-iridium-syntax-worker bun-packages-iridium-core bun-packages-iridium-syntax-worker
+web: tsc-examples-web tsc-examples-web-component tsc-packages-iridium-core tsc-packages-iridium-syntax-worker bun-packages-iridium-core bun-packages-iridium-syntax-worker
 released: tested web docs

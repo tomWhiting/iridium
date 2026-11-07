@@ -8,8 +8,9 @@ suite = "v1"
 # docs runs them.
 #
 # New with the gate, never in ci.sh: portable, and the web level, which
-# type-checks the TypeScript packages and the web example and runs the
-# packages' bun tests. The examples have no tests of their own.
+# type-checks the TypeScript packages and both examples and runs the
+# packages' bun tests. The examples have no tests of their own; the web
+# component's only TypeScript is its vite config, its page script inline.
 
 [portable]
   kind = "ast-grep"
@@ -55,6 +56,10 @@ suite = "v1"
 
 [tsc-examples-web]
   dir = "examples/web"
+  kind = "tsc"
+
+[tsc-examples-web-component]
+  dir = "examples/web-component"
   kind = "tsc"
 
 [tsc-packages-iridium-core]

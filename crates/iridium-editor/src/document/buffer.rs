@@ -5,8 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ropey::{LineType, Rope};
 use serde::{Deserialize, Serialize};
 
-use super::changes::{ChangeLog, Unchanged};
-use super::line_edits::{LineChange, LineEdits};
+use super::changes::{ChangeLog, LineChange, Replaced, Unchanged};
 use super::position::{Position, Range};
 use crate::editor::IridiumError;
 
@@ -109,11 +108,10 @@ pub struct Document {
     /// counter at zero, so a revision tells two *observations of one document*
     /// apart and says nothing at all about two documents.
     id: u64,
-    /// What each recent edit left alone, for readers catching up on what
-    /// changed since a revision they saw. See [`Document::unchanged_since`].
+    /// What each recent edit did, for readers catching up on what changed
+    /// since a revision they saw: see [`Document::unchanged_since`],
+    /// [`Document::lines_changed_since`] and [`Document::replaced_since`].
     changes: ChangeLog,
-    /// Which lines the recent edits replaced; see [`Document::lines_changed_since`].
-    line_edits: LineEdits,
 }
 
 /// Hands out document identities.
@@ -148,7 +146,6 @@ impl Document {
             revision: 0,
             id: next_document_id(),
             changes: ChangeLog::starting_at(0),
-            line_edits: LineEdits::starting_at(0),
         }
     }
 
@@ -178,7 +175,6 @@ impl Document {
         let mut document = Self::new(content);
         document.revision = previous.revision.wrapping_add(1);
         document.changes = ChangeLog::starting_at(document.revision);
-        document.line_edits = LineEdits::starting_at(document.revision);
         document
     }
 
@@ -201,35 +197,50 @@ impl Document {
     /// change when `revision` is the current one.
     ///
     /// `None` when the document cannot say: `revision` is from before a
-    /// whole-content replacement, further back than the recent edits kept,
-    /// or not reached yet. The reader must then reread every line.
+    /// whole-content replacement or not reached yet, or an edit since sat
+    /// beside a carriage return. The reader must then reread every line.
+    /// Many edits back, the span is wider than the lines that changed.
     #[must_use]
     pub fn lines_changed_since(&self, revision: u64) -> Option<LineChange> {
-        self.line_edits.since(revision, self.revision)
+        self.changes.lines_since(revision, self.revision)
     }
 
-    /// Notes which lines an edit replaced, once the revision has moved.
+    /// Where each edit since `revision` replaced text, oldest first, each in
+    /// the document as that edit found it.
     ///
-    /// `start` and `old_end` were measured before the edit, `new_end_byte`
-    /// is where the new text ends now, and `old_lines` is the line count
-    /// before. A carriage return near the edit can join or split line breaks
-    /// beyond it, so such an edit is not described; the record is cut instead
-    /// and readers reread.
-    fn note_lines(&mut self, start: usize, old_end: usize, new_end_byte: usize, old_lines: usize) {
-        let new_end = self.content.byte_to_line_idx(new_end_byte, LINE_TYPE) + 1;
-        // The span must account for the whole change in line count.
-        if new_end + old_lines == old_end + self.line_count() {
-            self.line_edits.record(
-                self.revision,
-                LineChange {
-                    start,
-                    old_end,
-                    new_end,
-                },
-            );
-        } else {
-            self.line_edits.forget(self.revision);
+    /// For a reader that keeps positions — a fold's header line, say — and
+    /// carries them across edits one at a time. Many edits back, older edits
+    /// arrive merged and widened to whole lines. `None` exactly when
+    /// [`Self::lines_changed_since`] is.
+    #[must_use]
+    pub fn replaced_since(&self, revision: u64) -> Option<Vec<Replaced>> {
+        self.changes.replaced_since(revision, self.revision)
+    }
+
+    /// Describes an edit that replaced `start..old_end`, as measured before
+    /// it, with text that now ends at byte `new_end_byte`.
+    ///
+    /// `old_lines` is the line count before. A carriage return beside the
+    /// edit can join or split line breaks beyond it, so such an edit is not
+    /// described, nor is one whose span does not account for the whole change
+    /// in line count; readers of positions and lines then reread.
+    fn replaced(
+        &self,
+        start: Position,
+        old_end: Position,
+        new_end_byte: usize,
+        old_lines: usize,
+        carriage_return: bool,
+    ) -> Option<Replaced> {
+        if carriage_return {
+            return None;
         }
+        let new_end = self.offset_to_position(new_end_byte)?;
+        (new_end.line + old_lines == old_end.line + self.line_count()).then_some(Replaced {
+            start,
+            old_end,
+            new_end,
+        })
     }
 
     /// Whether a carriage return sits at or next to an edit at `offset`, so
@@ -432,23 +443,28 @@ impl Document {
         let affected = self.fence_edit_window(offset, offset);
         let before = self.content.len();
         let carriage_return = self.near_carriage_return(offset, text);
-        let start = self.content.byte_to_line_idx(offset, LINE_TYPE);
+        let start = self.offset_to_position(offset);
         let old_lines = self.line_count();
         self.content.insert(offset, text);
         self.update_fences(affected, 0, text.len());
         self.revision = self.revision.wrapping_add(1);
+        let replaced = start.and_then(|start| {
+            self.replaced(
+                start,
+                start,
+                offset + text.len(),
+                old_lines,
+                carriage_return,
+            )
+        });
         self.changes.record(
             self.revision,
             Unchanged {
                 prefix: offset,
                 suffix: before - offset,
             },
+            replaced,
         );
-        if carriage_return {
-            self.line_edits.forget(self.revision);
-        } else {
-            self.note_lines(start, start + 1, offset + text.len(), old_lines);
-        }
         Ok(())
     }
 
@@ -486,25 +502,24 @@ impl Document {
             return Ok(deleted);
         }
         let carriage_return = self.near_carriage_return(start_offset, &deleted);
-        let start = self.content.byte_to_line_idx(start_offset, LINE_TYPE);
-        let old_end = self.content.byte_to_line_idx(end_offset, LINE_TYPE) + 1;
+        let start = self.offset_to_position(start_offset);
+        let old_end = self.offset_to_position(end_offset);
         let old_lines = self.line_count();
         let affected = self.fence_edit_window(start_offset, end_offset);
         self.content.remove(start_offset..end_offset);
         self.update_fences(affected, end_offset - start_offset, 0);
         self.revision = self.revision.wrapping_add(1);
+        let replaced = start.zip(old_end).and_then(|(start, old_end)| {
+            self.replaced(start, old_end, start_offset, old_lines, carriage_return)
+        });
         self.changes.record(
             self.revision,
             Unchanged {
                 prefix: start_offset,
                 suffix: before - end_offset,
             },
+            replaced,
         );
-        if carriage_return {
-            self.line_edits.forget(self.revision);
-        } else {
-            self.note_lines(start, old_end, start_offset, old_lines);
-        }
         Ok(deleted)
     }
 

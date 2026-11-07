@@ -76,6 +76,9 @@ pub struct FoldState {
     /// keep showing unfolded text after a fold — see
     /// [`Self::generation`].
     generation: u64,
+    /// The document revision the folded lines were last carried to; see
+    /// [`Self::follow_edits`].
+    followed: Option<u64>,
 }
 
 impl Default for FoldState {
@@ -94,6 +97,7 @@ impl FoldState {
             language: None,
             line_mapping: LineMapping::default(),
             generation: 0,
+            followed: None,
         }
     }
 
@@ -106,6 +110,7 @@ impl FoldState {
             language: Some(language),
             line_mapping: LineMapping::default(),
             generation: 0,
+            followed: None,
         }
     }
 
@@ -201,6 +206,50 @@ impl FoldState {
             return false;
         }
         self.regions_changed();
+        true
+    }
+
+    /// Carries the folded lines across the edits `document` has had since
+    /// they were last carried, so a fold stays on its header as lines are
+    /// added or removed above it.
+    ///
+    /// Each folded line moves as the start of its line does: down when text
+    /// lands above it or at its very start, not at all when text lands after
+    /// it. A fold whose header line an edit replaced is dropped, which shows
+    /// its text rather than hiding some other. When the document cannot say
+    /// what changed — its content was replaced wholesale, or an edit sat
+    /// beside a carriage return — the lines stay put and the next regions
+    /// keep only those that still begin one, as before.
+    ///
+    /// Call before refreshing the regions for the same document. Returns
+    /// whether any folded line moved or was dropped.
+    pub fn follow_edits(&mut self, document: &crate::document::Document) -> bool {
+        let previous = self.followed.replace(document.revision());
+        if self.folded_lines.is_empty() || previous == Some(document.revision()) {
+            return false;
+        }
+        let Some(edits) = previous.and_then(|revision| document.replaced_since(revision)) else {
+            return false;
+        };
+        let before = self.folded_lines.len();
+        let mut moved = false;
+        let mut lines: Vec<usize> = self.folded_lines.drain().collect();
+        for edit in edits {
+            lines.retain_mut(|line| {
+                let Some(followed) = edit.follow_line_start(*line) else {
+                    return false;
+                };
+                moved |= followed != *line;
+                *line = followed;
+                true
+            });
+        }
+        self.folded_lines.extend(lines);
+        if !moved && self.folded_lines.len() == before {
+            return false;
+        }
+        self.rebuild_line_mapping();
+        self.bump_generation();
         true
     }
 

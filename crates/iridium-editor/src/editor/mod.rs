@@ -30,6 +30,8 @@ mod search_selection_tests;
 #[cfg(test)]
 mod command_api_tests;
 #[cfg(test)]
+mod fold_follow_tests;
+#[cfg(test)]
 mod scroll_tests;
 
 pub use ast::{CaretScopes, LandedFolds, SyntaxDelta, SyntaxState, SyntaxWake};

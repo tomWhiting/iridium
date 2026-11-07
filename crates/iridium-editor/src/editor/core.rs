@@ -341,6 +341,10 @@ impl EditorState {
     ///
     /// `found` says whether the syntax state has a tree to read.
     fn update_folds(&mut self, found: bool) -> bool {
+        // The folded lines move with the text first, so the regions below
+        // keep the folds that are still there rather than whatever now sits
+        // on their old line numbers.
+        let followed = self.fold_state.follow_edits(&self.document);
         let landed = self.syntax.take_landed_folds();
         // What the syntax state did, taken before the tree is borrowed again.
         // This is what keeps a keystroke off the O(document) path: with it,
@@ -350,7 +354,8 @@ impl EditorState {
             // No tree: a language with no grammar, or a document whose first
             // parse is still running in the background. Regions describing
             // some earlier text must not outlive it.
-            return delta != SyntaxDelta::Unchanged && self.fold_state.forget_regions();
+            return (delta != SyntaxDelta::Unchanged && self.fold_state.forget_regions())
+                || followed;
         }
         let mut adopted = false;
         if let Some(landed) = landed {
@@ -362,7 +367,7 @@ impl EditorState {
             }
         }
         let Some(tree) = self.syntax.tree() else {
-            return adopted;
+            return adopted || followed;
         };
         // The tree and the text must be one document's worth: the tree has
         // been parsed or shifted to this exact revision. The text is passed as
@@ -372,7 +377,7 @@ impl EditorState {
         let updated = self
             .fold_state
             .update_regions(tree, &delta, || Cow::Owned(document.text()));
-        adopted || updated
+        adopted || updated || followed
     }
 
     /// Returns the current language, if any.

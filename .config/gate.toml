@@ -1,9 +1,10 @@
 suite = "v1"
 
 # The compiles and tested levels hold one entry per check scripts/ci.sh runs.
-# The suite's clippy always adds --workspace and --all-targets, and its nextest
-# takes no options, so the per-package, per-feature and wasm configurations
-# carry a run override until a kind can say them. clippy-wasm also covers the
+# The suite's clippy always adds --workspace and --all-targets, so the
+# per-package, per-feature and wasm clippy configurations carry a run override
+# until the kind can say them; nextest takes its configurations as options,
+# and the suite chooses how it reads the results. clippy-wasm also covers the
 # old check/wasm step. nextest runs no doctests, which ci.sh's cargo test did:
 # docs runs them.
 #
@@ -36,20 +37,20 @@ suite = "v1"
 
 [nextest-workspace]
   kind = "nextest"
-  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "--workspace", "--all-features"]
+  options = ["--workspace", "--all-features"]
   on = ["mac", "linux"]
 
 [nextest-kernel]
   kind = "nextest"
-  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "-p", "iridium-editor", "--no-default-features"]
+  options = ["-p", "iridium-editor", "--no-default-features"]
 
 [nextest-syntax]
   kind = "nextest"
-  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "-p", "iridium-editor", "--no-default-features", "--features", "syntax"]
+  options = ["-p", "iridium-editor", "--no-default-features", "--features", "syntax"]
 
 [nextest-lang]
   kind = "nextest"
-  run = ["cargo", "nextest", "run", "--no-fail-fast", "--message-format", "libtest-json", "--message-format-version", "0.1", "-p", "iridium-lang", "--all-features"]
+  options = ["-p", "iridium-lang", "--all-features"]
 
 [docs]
   on = ["mac", "linux"]

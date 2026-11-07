@@ -217,9 +217,10 @@ impl FoldState {
     /// lands above it or at its very start, not at all when text lands after
     /// it. A fold whose header line an edit replaced is dropped, which shows
     /// its text rather than hiding some other. When the document cannot say
-    /// what changed — its content was replaced wholesale, or an edit sat
-    /// beside a carriage return — the lines stay put and the next regions
-    /// keep only those that still begin one, as before.
+    /// what changed — its content was replaced wholesale, an edit sat beside
+    /// a carriage return, or more edits came since the last carry than its
+    /// log keeps apart — the lines stay put and the next regions keep only
+    /// those that still begin one, as before.
     ///
     /// Call before refreshing the regions for the same document. Returns
     /// whether any folded line moved or was dropped.

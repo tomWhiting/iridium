@@ -9,9 +9,11 @@
 //! The log is inline and fixed in size, so cloning a document stays an
 //! allocation-free copy. When it fills, its two oldest records merge into one
 //! that covers both: conservatively, never wrongly. Bytes are therefore
-//! answerable for any revision the document has had; positions and lines are
+//! answerable for any revision the document has had. Positions and lines are
 //! answerable unless an edit among them could not be described, which is the
-//! case beside a carriage return.
+//! case beside a carriage return, or the revision falls between two edits
+//! that have since merged: the merged record would also replay the edit the
+//! reader has already seen.
 
 use super::Position;
 
@@ -142,9 +144,12 @@ impl Replaced {
 /// is rarely more than a keystroke's few edits behind.
 const CAPACITY: usize = 16;
 
-/// One edit, or a merged run of them, ending at revision `after`.
+/// One edit, or a merged run of them, from revision `before` to `after`.
 #[derive(Debug, Clone, Copy)]
 struct Entry {
+    /// The revision before the first edit this entry covers.
+    before: u64,
+    /// The revision its last edit produced.
     after: u64,
     unchanged: Unchanged,
     /// Where the edit replaced text, or `None` when that could not be
@@ -156,6 +161,7 @@ impl Entry {
     /// This entry followed by `next`, as one.
     fn then(self, next: Self) -> Self {
         Self {
+            before: self.before,
             after: next.after,
             unchanged: self.unchanged.and(next.unchanged),
             replaced: match (self.replaced, next.replaced) {
@@ -181,6 +187,7 @@ impl ChangeLog {
     /// An empty log for a document whose first revision is `floor`.
     pub(super) const fn starting_at(floor: u64) -> Self {
         let empty = Entry {
+            before: floor,
             after: floor,
             unchanged: Unchanged {
                 prefix: 0,
@@ -206,7 +213,13 @@ impl ChangeLog {
             *next = oldest.then(*next);
             self.count -= 1;
         }
+        // The edit follows the newest entry, or the floor in an empty log.
+        let before = match self.count {
+            0 => self.floor,
+            count => self.entries[(self.oldest + count - 1) % CAPACITY].after,
+        };
         self.entries[(self.oldest + self.count) % CAPACITY] = Entry {
+            before,
             after,
             unchanged,
             replaced,
@@ -227,6 +240,23 @@ impl ChangeLog {
         )
     }
 
+    /// The entries after `revision` as [`Self::after`] gives them, or `None`
+    /// when one of them began before `revision`: a merged entry that also
+    /// covers edits the reader has already seen. Whatever left bytes alone
+    /// across both still left them alone across the later one, but a line or
+    /// position it reports would move the reader by the earlier edit twice.
+    fn exactly_after(
+        &self,
+        revision: u64,
+        current: u64,
+    ) -> Option<impl Iterator<Item = Entry> + '_> {
+        let mut entries = self.after(revision, current)?.peekable();
+        if entries.peek().is_some_and(|first| first.before < revision) {
+            return None;
+        }
+        Some(entries)
+    }
+
     /// What the edits after `revision` left alone, up to `current`, in a
     /// document now `len` bytes long. `None` when `revision` is not one the
     /// document has had.
@@ -242,22 +272,23 @@ impl ChangeLog {
     }
 
     /// Where each edit after `revision` replaced text, oldest first. `None`
-    /// when `revision` is not one the document has had, or an edit since
-    /// could not be described.
+    /// when `revision` is not one the document has had, an edit since could
+    /// not be described, or `revision` falls inside a merged run.
     pub(super) fn replaced_since(&self, revision: u64, current: u64) -> Option<Vec<Replaced>> {
-        self.after(revision, current)?
+        self.exactly_after(revision, current)?
             .map(|entry| entry.replaced)
             .collect()
     }
 
     /// The lines changed after `revision`, up to `current`, as one span.
+    /// `None` as for [`Self::replaced_since`].
     pub(super) fn lines_since(&self, revision: u64, current: u64) -> Option<LineChange> {
         let empty = LineChange {
             start: 0,
             old_end: 0,
             new_end: 0,
         };
-        self.after(revision, current)?
+        self.exactly_after(revision, current)?
             .try_fold(empty, |merged, entry| {
                 Some(merged.then(entry.replaced?.lines()))
             })
@@ -267,7 +298,7 @@ impl ChangeLog {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use super::{LineChange, Replaced};
+    use super::{ChangeLog, LineChange, Replaced, Unchanged};
     use crate::document::{Document, Position, Range};
 
     /// Asserts that what `document` reports as left alone since each earlier
@@ -441,6 +472,116 @@ mod tests {
             "beside a carriage return"
         );
         assert!(document.lines_changed_since(2).is_some());
+    }
+
+    /// An edit replacing text on `line` alone, as the log records it.
+    const fn on_line(line: usize) -> Option<Replaced> {
+        let at = Position::new(line, 0);
+        let end = Position::new(line, 1);
+        Some(Replaced {
+            start: at,
+            old_end: end,
+            new_end: end,
+        })
+    }
+
+    const NOTHING_KEPT: Unchanged = Unchanged {
+        prefix: 0,
+        suffix: 0,
+    };
+
+    #[test]
+    fn the_record_answers_only_from_its_floor() {
+        let mut edits = ChangeLog::starting_at(3);
+        edits.record(4, NOTHING_KEPT, on_line(0));
+        edits.record(5, NOTHING_KEPT, on_line(2));
+        assert_eq!(edits.lines_since(2, 5), None, "before the floor");
+        assert_eq!(edits.lines_since(3, 5), Some(change(0, 3, 3)));
+        assert_eq!(edits.lines_since(4, 5), Some(change(2, 3, 3)));
+        assert!(
+            edits
+                .lines_since(5, 5)
+                .is_some_and(|change| change.is_empty())
+        );
+        assert_eq!(edits.lines_since(6, 5), None, "a revision not reached yet");
+        // A document whose content is replaced starts a log of its own.
+        let edits = ChangeLog::starting_at(6);
+        assert_eq!(edits.lines_since(5, 6), None, "forgotten");
+    }
+
+    /// Once the two oldest edits merge, the revision between them has no
+    /// exact answer in lines: the merged record would move a reader there by
+    /// the first edit a second time. It is refused, and the revisions either
+    /// side of the pair still answer exactly.
+    #[test]
+    fn a_revision_between_merged_edits_is_refused_rather_than_answered_wrongly() {
+        let mut document = Document::new("a\n");
+        // One more edit than the log keeps apart, each adding one line.
+        for _ in 0..=super::CAPACITY {
+            document.insert(Position::new(0, 0), "\n").unwrap();
+        }
+        let added = |lines: LineChange| lines.new_end - lines.old_end;
+        assert_eq!(document.lines_changed_since(1), None);
+        assert_eq!(document.replaced_since(1), None);
+        assert_eq!(document.lines_changed_since(0).map(added), Some(17));
+        assert_eq!(document.lines_changed_since(2).map(added), Some(15));
+        assert!(
+            document.unchanged_since(1).is_some(),
+            "bytes are still answered: a merged record only narrows them"
+        );
+    }
+
+    /// From every revision the document has had, a span it reports, applied
+    /// to the lines as they were then, gives the lines as they are now. Many
+    /// more edits than the log keeps, so readers far behind ask from inside
+    /// merged runs as well as from their edges.
+    #[test]
+    fn a_span_from_any_past_revision_rebuilds_the_lines_as_they_are() {
+        let mut document = Document::new("alpha\nbeta\ngamma\ndelta\n");
+        let mut history = vec![all_lines(&document)];
+        // Every piece changes the text, so each step is one revision.
+        let pieces = ["x", "\n", "yz\n", "\n\n", "long piece\nof text"];
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = |bound: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            usize::try_from(seed % u64::try_from(bound.max(1)).unwrap_or(1)).unwrap_or(0)
+        };
+        for step in 0..120 {
+            let line = next(document.line_count());
+            let at = Position::new(line, next(document.line_len(line).unwrap_or(0) + 1));
+            if step % 3 == 0 && line + 1 < document.line_count() {
+                let end_length = document.line_len(line + 1).unwrap_or(0);
+                let end = Position::new(line + 1, next(end_length + 1));
+                document.delete(Range::new(at, end)).unwrap();
+            } else {
+                document.insert(at, pieces[next(pieces.len())]).unwrap();
+            }
+            assert_eq!(document.revision(), history.len() as u64);
+            let now = all_lines(&document);
+            let current = document.revision();
+            for (revision, then) in (0_u64..).zip(&history) {
+                // The newest records are never merged, and the oldest merged
+                // record still begins at the first revision: those always
+                // answer. Revisions inside merged runs may be refused.
+                let exact = revision == 0 || current - revision < super::CAPACITY as u64;
+                let answer = document.lines_changed_since(revision);
+                assert!(
+                    !exact || answer.is_some(),
+                    "refused revision {revision} at {current}"
+                );
+                if let Some(change) = answer {
+                    let mut rebuilt = then.clone();
+                    rebuilt.splice(
+                        change.start..change.old_end,
+                        now[change.start..change.new_end].iter().cloned(),
+                    );
+                    assert_eq!(rebuilt, now, "from revision {revision} after step {step}");
+                }
+            }
+            history.push(now);
+        }
     }
 
     /// Past the log's capacity the oldest edits merge, and the merged span

@@ -197,9 +197,11 @@ impl Document {
     /// change when `revision` is the current one.
     ///
     /// `None` when the document cannot say: `revision` is from before a
-    /// whole-content replacement or not reached yet, or an edit since sat
-    /// beside a carriage return. The reader must then reread every line.
-    /// Many edits back, the span is wider than the lines that changed.
+    /// whole-content replacement or not reached yet, an edit since sat
+    /// beside a carriage return, or `revision` lies between two edits the log
+    /// has since merged, which happens more than sixteen edits back. The
+    /// reader must then reread every line. Many edits back, the span is wider
+    /// than the lines that changed.
     #[must_use]
     pub fn lines_changed_since(&self, revision: u64) -> Option<LineChange> {
         self.changes.lines_since(revision, self.revision)

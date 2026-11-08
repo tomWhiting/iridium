@@ -55,6 +55,8 @@ tree-sitter-regex.workspace = true
 tree-sitter-sequel.workspace = true
 tree-sitter-tsquery.workspace = true
 tree-sitter-zig.workspace = true
+tree-sitter-lua.workspace = true
+tree-sitter-nix.workspace = true
 tree-sitter-xml.workspace = true
 
 # Serialization (highlight queries)

@@ -125,6 +125,12 @@ const SOURCES: &[(&str, &str)] = &[
         "just",
         include_str!("../languages/queries/just/config.toml"),
     ),
+    ("lua", include_str!("../languages/queries/lua/config.toml")),
+    (
+        "luau",
+        include_str!("../languages/queries/luau/config.toml"),
+    ),
+    ("nix", include_str!("../languages/queries/nix/config.toml")),
     ("nu", include_str!("../languages/queries/nu/config.toml")),
     (
         "proto",

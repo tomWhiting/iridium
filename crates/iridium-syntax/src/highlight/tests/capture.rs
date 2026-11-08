@@ -62,6 +62,8 @@ const DELIBERATELY_UNSTYLED: &[&str] = &[
     "spell",
     "_isinstance",
     "_issubclass",
+    "_id",
+    "_expr",
     "none",
     "text",
     "text.jsx",
@@ -257,6 +259,10 @@ fn a_suffixed_spelling_carries_the_same_category_as_the_bare_one() {
         ("variable.other.member", "variable.member"),
         ("label.regex", "label"),
         ("operator.regex", "operator"),
+        ("operator.arithmetic", "operator"),
+        ("operator.assignment", "operator"),
+        ("operator.comparison", "operator"),
+        ("operator.logical", "operator"),
     ] {
         let category = HighlightType::from_capture_name(suffixed);
         assert!(

@@ -6,10 +6,11 @@ use crate::Language;
     unsafe_code,
     reason = "the generated C parser symbols implement the tree-sitter language ABI"
 )]
-const VENDORED: [tree_sitter_language::LanguageFn; 4] = {
+const VENDORED: [tree_sitter_language::LanguageFn; 5] = {
     unsafe extern "C" {
         fn tree_sitter_awl() -> *const ();
         fn tree_sitter_just() -> *const ();
+        fn tree_sitter_luau() -> *const ();
         fn tree_sitter_typst() -> *const ();
         fn tree_sitter_wgsl() -> *const ();
     }
@@ -19,6 +20,7 @@ const VENDORED: [tree_sitter_language::LanguageFn; 4] = {
             tree_sitter_language::LanguageFn::from_raw(tree_sitter_just),
             tree_sitter_language::LanguageFn::from_raw(tree_sitter_typst),
             tree_sitter_language::LanguageFn::from_raw(tree_sitter_wgsl),
+            tree_sitter_language::LanguageFn::from_raw(tree_sitter_luau),
         ]
     }
 };
@@ -57,6 +59,9 @@ pub fn grammar(language: Language) -> Option<tree_sitter::Language> {
         "html" => tree_sitter_html::LANGUAGE.into(),
         "java" => tree_sitter_java::LANGUAGE.into(),
         "just" => VENDORED[1].into(),
+        "lua" => tree_sitter_lua::LANGUAGE.into(),
+        "luau" => VENDORED[4].into(),
+        "nix" => tree_sitter_nix::LANGUAGE.into(),
         "nu" => tree_sitter_nu::LANGUAGE.into(),
         "proto" => tree_sitter_proto::LANGUAGE.into(),
         "sql" => tree_sitter_sequel::LANGUAGE.into(),
@@ -121,6 +126,9 @@ mod tests {
         "html",
         "java",
         "just",
+        "lua",
+        "luau",
+        "nix",
         "nu",
         "proto",
         "sql",

@@ -1,0 +1,22 @@
+# From https://github.com/zed-extensions/nix/blob/429479c09c5a597f31b8b53c3950cf96cec6e1f4/languages/nix/config.toml (MIT)
+name = "Nix"
+grammar = "nix"
+path_suffixes = ["nix"]
+word_characters = ["-"]
+completion_query_characters = ["-"]
+line_comments = ["# "]
+# Nix also has `/* ... */`, which upstream does not declare.
+block_comment = { start = "/*", end = "*/" }
+# Upstream also lists a space, `\n` and `\t`. Iridium already lets a pair close in front
+# of whitespace (`PairRules::permits_close_before`), and no vendored set may carry it.
+autoclose_before = ";:.,=}])>`\""
+brackets = [
+    { start = "{", end = "}", close = true, newline = true },
+    { start = "[", end = "]", close = true, newline = true },
+    { start = "(", end = ")", close = true, newline = true },
+    { start = "${", end = "}", close = true, newline = false },
+    { start = "''", end = "''", close = true, newline = true, not_in = ["comment", "string"] },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["comment", "string"] },
+]
+tab_size = 2
+hard_tabs = false

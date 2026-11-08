@@ -19,7 +19,7 @@ fn vendored_path(language: Language, kind: QueryKind) -> PathBuf {
         .join(kind.file_name())
 }
 
-/// Every query kind, for the ten languages that ship all of them.
+/// Every query kind, for the twelve languages that ship all of them.
 const EVERYTHING: &[QueryKind] = &[
     QueryKind::Highlights,
     QueryKind::Brackets,
@@ -133,6 +133,18 @@ const SHIPS: &[(Language, &[QueryKind])] = &[
         &[
             QueryKind::Highlights,
             QueryKind::TextObjects,
+            QueryKind::Indents,
+            QueryKind::Injections,
+            QueryKind::Outline,
+        ],
+    ),
+    (Language::Lua, EVERYTHING),
+    (Language::Luau, EVERYTHING),
+    (
+        Language::Nix,
+        &[
+            QueryKind::Highlights,
+            QueryKind::Brackets,
             QueryKind::Indents,
             QueryKind::Injections,
             QueryKind::Outline,

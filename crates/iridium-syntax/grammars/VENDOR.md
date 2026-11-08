@@ -14,3 +14,8 @@ Upstream projects:
 The corresponding language query files come from the same Chiron commit.
 XML and DTD highlight queries come from tree-sitter-xml tag `v0.7.0`.
 Dependency revisions and published crate versions are pinned by `Cargo.lock`.
+
+The Luau C parser is copied byte for byte from https://github.com/4teapo/tree-sitter-luau at commit
+`4f09f79945de3d5575b079103d86a515030c62ab`, the grammar Zed's Luau extension pins. Its queries, and the Lua
+and Nix queries, come from the Zed extensions named in each file's first line. Lua and Nix parse with the
+published `tree-sitter-lua` 0.5.0 and `tree-sitter-nix` 0.3.0, which are the same commits those queries pin.

@@ -18,8 +18,11 @@ javascript JavaScript
 jsdoc JsDoc
 json Json
 just Just
+lua Lua
+luau Luau
 markdown Markdown
 markdown-inline MarkdownInline
+nix Nix
 nu Nu
 proto Proto
 python Python

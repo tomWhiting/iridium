@@ -197,9 +197,18 @@ impl HighlightType {
             // the ratchet green throughout, because a wrong mapping is still a
             // mapping. `a_suffixed_spelling_carries_the_same_category_as_the_bare_one`
             // is what catches that class.
-            "keyword.operator" | "operator" | "keyword.operator.regex" | "operator.regex" => {
-                Some(Self::Operator)
-            },
+            //
+            // Luau's queries split operators four ways — `operator.arithmetic`,
+            // `.assignment`, `.comparison` and `.logical`. Iridium colours an
+            // operator as an operator, so all four join the bare spelling.
+            "keyword.operator"
+            | "operator"
+            | "keyword.operator.regex"
+            | "operator.regex"
+            | "operator.arithmetic"
+            | "operator.assignment"
+            | "operator.comparison"
+            | "operator.logical" => Some(Self::Operator),
 
             // Strings
             "character" | "string" | "string.literal" | "string.special" => Some(Self::String),
@@ -297,7 +306,14 @@ impl HighlightType {
             // `selector.pseudo` — `:hover`, `::before` — rides here because a
             // pseudo-selector modifies an element the way a decorator modifies
             // a declaration.
-            "attribute" | "decorator" | "annotation" | "selector.pseudo" => Some(Self::Attribute),
+            //
+            // `preproc` is a directive to whatever reads the file before the
+            // language does: Lua's and Luau's `#!` line, the way C's `#include`
+            // is one to the preprocessor. A directive annotates the file the
+            // way an attribute annotates a declaration.
+            "attribute" | "decorator" | "annotation" | "selector.pseudo" | "preproc" => {
+                Some(Self::Attribute)
+            },
 
             // Tags (HTML/XML)
             //

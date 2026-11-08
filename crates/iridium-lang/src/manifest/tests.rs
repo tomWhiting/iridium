@@ -602,7 +602,7 @@ fn every_closing_row_is_reported_by_one_accessor_or_the_other() {
     }
 }
 
-/// The eight languages with multi-character openers, named rather than
+/// The languages with multi-character openers, named rather than
 /// counted, so a vendor refresh that drops one is a visible change.
 #[test]
 fn the_languages_with_multi_character_openers_are_named() {
@@ -629,6 +629,7 @@ fn the_languages_with_multi_character_openers_are_named() {
             "html",
             "java",
             "javascript",
+            "nix",
             "proto",
             "python",
             "rust",
